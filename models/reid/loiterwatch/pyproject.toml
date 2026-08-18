@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "loiterwatch"
+version = "0.1.0"
+description = "Detector-agnostic temporal rules engine for loitering and casing detection"
+requires-python = ">=3.10"
+dependencies = ["PyYAML>=6.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "numpy", "opencv-python"]
+live = ["ultralytics>=8.1", "opencv-python", "numpy"]
+
+[project.scripts]
+loiterwatch = "loiterwatch.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["loiterwatch*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

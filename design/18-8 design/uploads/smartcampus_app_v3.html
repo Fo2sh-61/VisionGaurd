@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>VisionGuard AI</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  :root{
+    --bg:#f6f7f9; --card:#fff; --border:#e6e8ec; --border-2:#cfd3da;
+    --tx:#15181e; --tx2:#5f6675; --tx3:#949aa6;
+    --ac:#2456d8; --ac-bg:#eaf0fe; --ac-tx:#1a3f9e;
+    --gn:#0d8a4d; --gn-bg:#e6f6ed;
+    --am:#a86a06; --am-bg:#fdf2de;
+    --rd:#c02a2a; --rd-bg:#fbe9e9;
+    --r:12px;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--tx);font-size:15px;line-height:1.5;}
+
+  /* LOGIN */
+  .login{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:var(--bg);}
+  .login-card{width:100%;max-width:400px;background:#fff;border:1px solid var(--border);border-radius:16px;padding:36px 34px;}
+  .login-logo{font-size:20px;font-weight:700;letter-spacing:-.02em;margin-bottom:4px;}
+  .login-sub{font-size:14px;color:var(--tx2);margin-bottom:28px;}
+  .login-f{margin-bottom:15px;}
+  .login-f label{display:block;font-size:12.5px;font-weight:600;color:var(--tx2);margin-bottom:6px;}
+  .login-f input{width:100%;height:46px;border:1px solid var(--border-2);border-radius:9px;padding:0 13px;font-size:14.5px;font-family:inherit;background:#fff;color:var(--tx);}
+  .login-f input:focus{outline:none;border-color:var(--ac);}
+  .roles{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px;}
+  .role{border:1.5px solid var(--border-2);border-radius:10px;padding:13px 14px;cursor:pointer;background:#fff;}
+  .role:hover{border-color:var(--ac);}
+  .role.sel{border-color:var(--ac);background:var(--ac-bg);}
+  .role-t{font-weight:600;font-size:14px;margin-bottom:2px;}
+  .role-d{font-size:12px;color:var(--tx2);line-height:1.35;}
+  .login-btn{width:100%;height:48px;border:none;border-radius:10px;background:var(--ac);color:#fff;font-size:15px;font-weight:600;cursor:pointer;font-family:inherit;}
+  .login-btn:hover{background:#1e48b8;}
+  .login-note{font-size:12.5px;color:var(--tx3);text-align:center;margin-top:18px;}
+
+  .app{display:none;min-height:100vh;}
+  .app.on{display:flex;}
+
+  .side{width:230px;flex-shrink:0;background:#fff;border-right:1px solid var(--border);padding:20px 0;display:flex;flex-direction:column;}
+  .logo{padding:0 22px 20px;}
+  .logo-t{font-weight:700;font-size:16px;letter-spacing:-.01em;}
+  .logo-s{font-size:12.5px;color:var(--tx3);margin-top:2px;}
+  .nav{padding:0 12px;flex:1;}
+  .nav-i{display:flex;align-items:center;gap:11px;padding:11px 12px;border-radius:9px;cursor:pointer;font-size:14.5px;color:var(--tx2);margin-bottom:2px;}
+  .nav-i:hover{background:#f2f4f7;color:var(--tx);}
+  .nav-i.on{background:var(--ac-bg);color:var(--ac-tx);font-weight:600;}
+  .nav-i.hide{display:none;}
+  .nav-ic{width:20px;text-align:center;font-size:15px;flex-shrink:0;}
+  .nav-sep{height:1px;background:var(--border);margin:12px 22px;}
+  .signout{padding:0 12px;}
+  .signout div{display:flex;align-items:center;gap:11px;padding:11px 12px;border-radius:9px;cursor:pointer;font-size:14px;color:var(--tx2);}
+  .signout div:hover{background:#f2f4f7;color:var(--rd);}
+
+  .main{flex:1;min-width:0;display:flex;flex-direction:column;}
+  .bar{height:64px;background:#fff;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 28px;flex-shrink:0;}
+  .bar-t{font-size:17px;font-weight:600;}
+  .bar-r{display:flex;align-items:center;gap:16px;}
+  .live{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--gn);font-weight:600;}
+  .pulse{width:8px;height:8px;border-radius:50%;background:var(--gn);}
+  .who{text-align:right;}
+  .who-n{font-size:13.5px;font-weight:600;line-height:1.2;}
+  .who-r{font-size:12px;color:var(--tx3);}
+  .av{width:34px;height:34px;border-radius:50%;background:var(--ac-bg);color:var(--ac-tx);display:flex;align-items:center;justify-content:center;font-weight:600;font-size:13px;}
+
+  .body{flex:1;overflow-y:auto;padding:32px 28px 60px;}
+  .wrap{max-width:940px;margin:0 auto;}
+  .view{display:none;}
+  .view.on{display:block;}
+
+  h1{font-size:26px;font-weight:700;margin:0 0 6px;letter-spacing:-.02em;}
+  .lead{font-size:15px;color:var(--tx2);margin:0 0 26px;}
+  h2{font-size:16px;font-weight:600;margin:0 0 14px;}
+
+  .ask{display:flex;gap:10px;margin-bottom:16px;}
+  .ask input{flex:1;height:54px;border:1.5px solid var(--border-2);border-radius:var(--r);padding:0 18px;font-size:15.5px;background:#fff;color:var(--tx);font-family:inherit;}
+  .ask input:focus{outline:none;border-color:var(--ac);}
+  .ask button{height:54px;padding:0 24px;border:none;border-radius:var(--r);background:var(--ac);color:#fff;font-size:15px;font-weight:600;cursor:pointer;font-family:inherit;}
+  .ask button:hover{background:#1e48b8;}
+  .chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:34px;}
+  .chip{padding:7px 14px;border:1px solid var(--border-2);border-radius:20px;font-size:13px;color:var(--tx2);cursor:pointer;background:#fff;}
+  .chip:hover{border-color:var(--ac);color:var(--ac);background:var(--ac-bg);}
+
+  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px;}
+  .tile{background:#fff;border:1px solid var(--border);border-radius:var(--r);padding:20px;cursor:pointer;}
+  .tile:hover{border-color:var(--ac);}
+  .tile-ic{font-size:22px;margin-bottom:12px;display:block;}
+  .tile-t{font-weight:600;font-size:15.5px;margin-bottom:4px;}
+  .tile-d{font-size:13.5px;color:var(--tx2);line-height:1.45;}
+
+  .attn{background:#fff;border:1px solid var(--border);border-radius:var(--r);padding:6px 20px;margin-bottom:26px;}
+  .attn-i{display:flex;align-items:center;justify-content:space-between;padding:14px 0;border-bottom:1px solid var(--border);}
+  .attn-i:last-child{border-bottom:none;}
+  .attn-l{display:flex;align-items:center;gap:12px;}
+  .attn-d{width:9px;height:9px;border-radius:50%;flex-shrink:0;}
+  .attn-tx{font-size:14.5px;}
+  .attn-s{font-size:12.5px;color:var(--tx3);margin-top:1px;}
+
+  .panel{background:#fff;border:1px solid var(--border);border-radius:var(--r);padding:22px;margin-bottom:16px;}
+  .q{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;}
+  .fld{display:flex;flex-direction:column;gap:6px;}
+  .fld label{font-size:12.5px;font-weight:600;color:var(--tx2);}
+  select,input[type=text],input[type=date],input[type=time]{height:42px;border:1px solid var(--border-2);border-radius:9px;padding:0 12px;font-size:14.5px;background:#fff;color:var(--tx);font-family:inherit;min-width:150px;}
+  select:focus,input:focus{outline:none;border-color:var(--ac);}
+  .go{height:42px;padding:0 22px;border:none;border-radius:9px;background:var(--ac);color:#fff;font-weight:600;font-size:14.5px;cursor:pointer;font-family:inherit;}
+  .go:hover{background:#1e48b8;}
+
+  .empty{text-align:center;padding:48px 20px;color:var(--tx3);}
+  .empty-ic{font-size:30px;display:block;margin-bottom:12px;opacity:.5;}
+  .empty-t{font-size:14.5px;}
+
+  .blocked{background:#fff;border:1px solid var(--border);border-radius:var(--r);padding:44px 30px;text-align:center;}
+  .blocked-ic{width:52px;height:52px;border-radius:50%;background:var(--am-bg);color:var(--am);display:flex;align-items:center;justify-content:center;font-size:22px;margin:0 auto 16px;}
+  .blocked-t{font-size:17px;font-weight:600;margin-bottom:6px;}
+  .blocked-d{font-size:14px;color:var(--tx2);max-width:420px;margin:0 auto;}
+
+  .ans{background:#fff;border:1px solid var(--border);border-radius:var(--r);padding:24px;margin-bottom:16px;}
+  .ans-hd{font-size:20px;font-weight:700;margin-bottom:4px;letter-spacing:-.01em;}
+  .ans-sub{font-size:13.5px;color:var(--tx2);margin-bottom:20px;}
+
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-bottom:22px;}
+  .stat{background:#f6f7f9;border-radius:10px;padding:14px 16px;}
+  .stat-l{font-size:12.5px;color:var(--tx2);margin-bottom:4px;}
+  .stat-v{font-size:23px;font-weight:700;letter-spacing:-.01em;}
+
+  table{width:100%;border-collapse:collapse;font-size:14px;}
+  th{text-align:left;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--tx3);font-weight:600;padding:9px 10px;border-bottom:1px solid var(--border);}
+  td{padding:12px 10px;border-bottom:1px solid var(--border);}
+  tr:last-child td{border-bottom:none;}
+
+  .bdg{display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;white-space:nowrap;}
+  .b-gn{background:var(--gn-bg);color:var(--gn);}
+  .b-am{background:var(--am-bg);color:var(--am);}
+  .b-rd{background:var(--rd-bg);color:var(--rd);}
+  .b-gy{background:#eef0f3;color:var(--tx2);}
+  .b-ac{background:var(--ac-bg);color:var(--ac-tx);}
+
+  .bars{margin-top:4px;}
+  .br{display:flex;align-items:center;gap:12px;margin-bottom:11px;}
+  .br-l{width:92px;font-size:13.5px;color:var(--tx2);flex-shrink:0;}
+  .br-t{flex:1;height:22px;background:#eef0f3;border-radius:5px;overflow:hidden;}
+  .br-f{height:100%;background:var(--ac);border-radius:5px;}
+  .br-v{width:44px;text-align:right;font-size:13.5px;font-weight:600;flex-shrink:0;}
+
+  .tl{position:relative;padding-left:26px;}
+  .tl:before{content:'';position:absolute;left:7px;top:6px;bottom:6px;width:2px;background:var(--border);}
+  .tl-i{position:relative;padding:0 0 22px;}
+  .tl-i:last-child{padding-bottom:0;}
+  .tl-d{position:absolute;left:-24px;top:4px;width:12px;height:12px;border-radius:50%;background:var(--ac);border:2.5px solid #fff;}
+  .tl-t{font-weight:600;font-size:14.5px;}
+  .tl-s{font-size:13px;color:var(--tx2);margin-top:2px;}
+
+  .zrow{display:flex;align-items:center;justify-content:space-between;padding:15px 0;border-bottom:1px solid var(--border);}
+  .zrow:last-child{border-bottom:none;}
+  .tg{width:42px;height:24px;border-radius:20px;background:#d5d9df;position:relative;cursor:pointer;flex-shrink:0;}
+  .tg.on{background:var(--gn);}
+  .tg-k{width:20px;height:20px;border-radius:50%;background:#fff;position:absolute;top:2px;left:2px;transition:left .15s;}
+  .tg.on .tg-k{left:20px;}
+
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;}
+  .icard{background:#fff;border:1px solid var(--border);border-radius:10px;padding:16px;}
+  .icard-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;}
+  .icard-t{font-weight:600;font-size:14.5px;}
+  .icard-m{font-size:13px;color:var(--tx2);margin-bottom:3px;}
+  .lnk{color:var(--ac);cursor:pointer;font-size:13.5px;font-weight:600;}
+  .lnk:hover{text-decoration:underline;}
+  .crit{border-color:#f0b4b4;background:#fffafa;}
+
+  /* CAMERAS */
+  .camgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:12px;}
+  .cam{border-radius:10px;overflow:hidden;background:#1a1d24;cursor:pointer;border:1px solid var(--border);}
+  .cam:hover{border-color:var(--ac);}
+  .feed{position:relative;height:132px;background:#22262f;overflow:hidden;}
+  .feed.big{height:340px;}
+  .fgrid{position:absolute;inset:0;background-image:linear-gradient(#2c313c 1px,transparent 1px),linear-gradient(90deg,#2c313c 1px,transparent 1px);background-size:26px 26px;opacity:.55;}
+  .ffloor{position:absolute;left:0;right:0;bottom:0;height:42%;background:#282d37;}
+  .flive{position:absolute;top:8px;left:9px;display:flex;align-items:center;gap:5px;font-size:10.5px;color:#fff;font-weight:600;letter-spacing:.04em;}
+  .flive i{width:6px;height:6px;border-radius:50%;background:#ff4d4d;display:inline-block;font-style:normal;}
+  .ftime{position:absolute;top:8px;right:9px;font-size:10.5px;color:#c3c8d2;font-family:ui-monospace,Menlo,monospace;}
+  .fbox{position:absolute;border:2px solid;border-radius:3px;}
+  .fbox span{position:absolute;top:-19px;left:-2px;font-size:10px;font-weight:700;padding:1px 5px;border-radius:3px;white-space:nowrap;color:#fff;}
+  .fline{position:absolute;border-top:2px dashed #4d9dff;}
+  .fzone{position:absolute;border:2px solid #ffb020;background:rgba(255,176,32,.16);border-radius:4px;}
+  .fzone span{position:absolute;top:-19px;left:-2px;font-size:10px;font-weight:700;color:#151821;background:#ffb020;padding:1px 5px;border-radius:3px;}
+  .cam-b{padding:9px 11px;background:#fff;}
+  .cam-n{font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .cam-s{font-size:11.5px;color:var(--tx2);margin-top:1px;}
+
+  .ov{position:fixed;inset:0;background:rgba(15,17,22,.62);display:none;align-items:center;justify-content:center;z-index:60;padding:24px;}
+  .ov.on{display:flex;}
+  .modal{background:#fff;border-radius:14px;width:660px;max-width:100%;overflow:hidden;}
+  .modal-b{padding:18px 22px;}
+  .modal-t{font-size:16.5px;font-weight:600;}
+  .modal-s{font-size:13.5px;color:var(--tx2);margin-top:2px;}
+  .modal-a{display:flex;justify-content:flex-end;gap:9px;margin-top:16px;}
+  .btn2{height:40px;padding:0 17px;border:1px solid var(--border-2);border-radius:9px;background:#fff;font-weight:600;font-size:14px;cursor:pointer;font-family:inherit;color:var(--tx);}
+  .btn2:hover{background:#f6f7f9;}
+  ::-webkit-scrollbar{width:10px;height:10px;}
+  ::-webkit-scrollbar-thumb{background:#d3d7de;border-radius:5px;}
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div class="login" id="login">
+  <div class="login-card">
+    <div class="login-logo">VisionGuard AI</div>
+    <div class="login-sub">Sign in to continue</div>
+    <div class="login-f"><label>Email</label><input type="text" id="lg-mail" value="mohamed61fouad@gmail.com"></div>
+    <div class="login-f"><label>Password</label><input type="password" id="lg-pass" value="demo1234" onkeydown="if(event.key==='Enter')signIn()"></div>
+    <div class="login-f"><label>Sign in as</label></div>
+    <div class="roles">
+      <div class="role sel" id="r-admin" onclick="pickRole('admin')"><div class="role-t">Admin</div><div class="role-d">School staff. Full access including people and accounts.</div></div>
+      <div class="role" id="r-it" onclick="pickRole('it')"><div class="role-t">IT</div><div class="role-d">Runs the system. No account or student-record changes.</div></div>
+    </div>
+    <button class="login-btn" onclick="signIn()">Sign in</button>
+    <div class="login-note">Demo build — any password is accepted.</div>
+  </div>
+</div>
+
+<div class="app" id="app">
+  <aside class="side">
+    <div class="logo"><div class="logo-t">VisionGuard AI</div><div class="logo-s">208 cameras · live</div></div>
+    <div class="nav">
+      <div class="nav-i on" data-v="home"><span class="nav-ic">&#8962;</span>Home</div>
+      <div class="nav-sep"></div>
+      <div class="nav-i" data-v="attend"><span class="nav-ic">&#10003;</span>Attendance</div>
+      <div class="nav-i" data-v="count"><span class="nav-ic">&#9776;</span>People counting</div>
+      <div class="nav-i" data-v="intrude"><span class="nav-ic">&#9888;</span>Intrusion</div>
+      <div class="nav-i" data-v="fight"><span class="nav-ic">&#9889;</span>Fights</div>
+      <div class="nav-i" data-v="weapon"><span class="nav-ic">&#9873;</span>Weapons</div>
+      <div class="nav-i" data-v="lost"><span class="nav-ic">&#128188;</span>Lost items</div>
+      <div class="nav-i" data-v="track"><span class="nav-ic">&#128506;</span>Track a person</div>
+      <div class="nav-sep"></div>
+      <div class="nav-i" data-v="system"><span class="nav-ic">&#9881;</span>System health</div>
+      <div class="nav-i" data-v="users"><span class="nav-ic">&#128101;</span>Users</div>
+    </div>
+    <div class="signout"><div onclick="signOut()"><span class="nav-ic">&#8592;</span>Sign out</div></div>
+  </aside>
+
+  <div class="main">
+    <div class="bar">
+      <div class="bar-t" id="bt">Home</div>
+      <div class="bar-r">
+        <div class="live"><span class="pulse"></span>System live</div>
+        <div class="who"><div class="who-n" id="who-n">Mohamed Fouad</div><div class="who-r" id="who-r">Admin</div></div>
+        <div class="av" id="who-a">MF</div>
+      </div>
+    </div>
+    <div class="body"><div class="wrap">
+
+      <div class="view on" id="v-home">
+        <h1 id="home-h">What do you need to know?</h1>
+        <p class="lead">Ask a question, or pick a tool below.</p>
+        <div class="ask">
+          <input type="text" id="askbox" placeholder="e.g. Who was absent today?" onkeydown="if(event.key==='Enter')doAsk()">
+          <button onclick="doAsk()">Ask</button>
+        </div>
+        <div class="chips" id="chips"></div>
+        <h2>Needs your attention</h2>
+        <div class="attn" id="attn"></div>
+        <h2>Tools</h2>
+        <div class="tiles" id="tiles"></div>
+      </div>
+
+      <div class="view" id="v-attend">
+        <h1>Attendance</h1>
+        <p class="lead">Recorded automatically by face recognition at entrance cameras.</p>
+        <div class="panel">
+          <div class="q">
+            <div class="fld"><label>Show me</label>
+              <select id="at-mode" onchange="atMode()"><option value="group">A whole group</option><option value="person">One person</option></select></div>
+            <div class="fld" id="at-grp-f"><label>Group</label>
+              <select id="at-grp"><option>All students</option><option>All staff</option><option>Grade 7</option><option>Grade 8</option><option>Grade 9</option></select></div>
+            <div class="fld" id="at-per-f" style="display:none;"><label>Person</label>
+              <select id="at-per"><option>Layla Ahmed</option><option>Omar Khaled</option><option>Karim Adel</option><option>Mona Fathy</option></select></div>
+            <div class="fld"><label>Date</label><input type="date" id="at-date" value="2026-07-29"></div>
+            <button class="go" onclick="runAttend()">Show</button>
+          </div>
+        </div>
+        <div id="at-out"><div class="empty"><span class="empty-ic">&#10003;</span><div class="empty-t">Choose a group and date, then press Show.</div></div></div>
+        <div id="at-cam"></div>
+      </div>
+
+      <div class="view" id="v-count">
+        <h1>People counting</h1>
+        <p class="lead">How many people are in a place, now or at any past time.</p>
+        <div class="panel">
+          <div class="q">
+            <div class="fld"><label>Place</label>
+              <select id="ct-place"><option>Main entrance</option><option>Cafeteria</option><option>Assembly hall</option><option>Library</option><option>Playground</option><option>Whole campus</option></select></div>
+            <div class="fld"><label>When</label>
+              <select id="ct-when"><option>Right now</option><option>Today by hour</option><option>This week by day</option></select></div>
+            <button class="go" onclick="runCount()">Show</button>
+          </div>
+        </div>
+        <div id="ct-out"><div class="empty"><span class="empty-ic">&#9776;</span><div class="empty-t">Pick a place and a time range.</div></div></div>
+        <div id="ct-cam"></div>
+      </div>
+
+      <div class="view" id="v-intrude">
+        <h1>Intrusion</h1>
+        <p class="lead">Restricted areas that alert when someone enters outside allowed hours.</p>
+        <div class="panel">
+          <h2 style="margin-bottom:2px;">Protected areas</h2>
+          <p style="font-size:13.5px;color:var(--tx2);margin:0 0 8px;">Switch an area off during maintenance, then back on.</p>
+          <div id="in-zones"></div>
+        </div>
+        <div class="panel">
+          <div class="q"><div class="fld"><label>Show breaches from</label>
+            <select id="in-when" onchange="runIntrude()"><option>Today</option><option>Last 7 days</option><option>Last 30 days</option></select></div></div>
+        </div>
+        <div id="in-out"></div>
+        <div id="in-cam"></div>
+      </div>
+
+      <div class="view" id="v-fight">
+        <h1>Fights</h1>
+        <p class="lead">Altercations confirmed over 3 or more seconds, with video.</p>
+        <div class="panel">
+          <div class="q">
+            <div class="fld"><label>Period</label>
+              <select id="fg-when" onchange="runFight()"><option>Today</option><option>Last 7 days</option><option>Last 30 days</option></select></div>
+            <div class="fld"><label>Place</label>
+              <select id="fg-place" onchange="runFight()"><option>Anywhere</option><option>Corridors</option><option>Outdoor areas</option></select></div>
+          </div>
+        </div>
+        <div id="fg-out"></div>
+        <div id="fg-cam"></div>
+      </div>
+
+      <div class="view" id="v-weapon">
+        <h1>Weapons</h1>
+        <p class="lead">Runs continuously on all 208 cameras. Any detection alerts security immediately.</p>
+        <div class="panel" id="wp-status"></div>
+        <div class="panel">
+          <div class="q"><div class="fld"><label>Show detections from</label>
+            <select id="wp-when" onchange="runWeapon()"><option>Last 30 days</option><option>Last 90 days</option><option>This school year</option></select></div></div>
+        </div>
+        <div id="wp-out"></div>
+        <div id="wp-cam"></div>
+      </div>
+
+      <div class="view" id="v-lost">
+        <h1>Lost items</h1>
+        <p class="lead">Describe what was lost and roughly where. The system searches footage for it.</p>
+        <div class="panel">
+          <div class="q">
+            <div class="fld"><label>Item</label>
+              <select id="ls-item"><option>Backpack</option><option>Laptop</option><option>Phone</option><option>Jacket</option><option>Water bottle</option><option>Sports bag</option></select></div>
+            <div class="fld"><label>Colour</label>
+              <select id="ls-col"><option>Any</option><option>Black</option><option>Blue</option><option>Red</option><option>Grey</option><option>Green</option></select></div>
+            <div class="fld"><label>Last seen area</label>
+              <select id="ls-area"><option>Anywhere</option><option>Cafeteria</option><option>Library</option><option>Gymnasium</option><option>Corridors</option><option>Playground</option></select></div>
+            <div class="fld"><label>Since</label>
+              <select id="ls-when"><option>Today</option><option>Yesterday</option><option>Last 3 days</option></select></div>
+            <button class="go" onclick="runLost()">Search</button>
+          </div>
+        </div>
+        <div id="ls-out"><div class="empty"><span class="empty-ic">&#128188;</span><div class="empty-t">Describe the item, then press Search.</div></div></div>
+        <div id="ls-cam"></div>
+      </div>
+
+      <div class="view" id="v-track">
+        <h1>Track a person</h1>
+        <p class="lead">Rebuild where someone went across campus. Investigations only — every search is logged.</p>
+        <div id="tk-gate"></div>
+      </div>
+
+      <div class="view" id="v-system">
+        <h1>System health</h1>
+        <p class="lead">Cameras, recorders and the AI server.</p>
+        <div id="sy-out"></div>
+      </div>
+
+      <div class="view" id="v-users">
+        <h1>Users</h1>
+        <p class="lead">Who can sign in, and what they are allowed to do.</p>
+        <div id="us-out"></div>
+      </div>
+
+    </div></div>
+  </div>
+</div>
+
+<div class="ov" id="ov"><div class="modal" id="ov-in"></div></div>
+
+<script>
+var ROLE = 'admin';
+var PROFILE = {
+  admin:{name:'Mohamed Fouad', label:'Admin', init:'MF'},
+  it:{name:'Tarek Nassar', label:'IT', init:'TN'}
+};
+var PERMS = {
+  admin:{views:['home','attend','count','intrude','fight','weapon','lost','track','users'], track:true, adminActions:true},
+  it:{views:['home','attend','count','intrude','fight','weapon','lost','track','system'], track:true, adminActions:false}
+};
+
+function pickRole(r){
+  ROLE = r;
+  document.getElementById('r-admin').classList.toggle('sel', r==='admin');
+  document.getElementById('r-it').classList.toggle('sel', r==='it');
+  document.getElementById('lg-mail').value = r==='admin' ? 'mohamed61fouad@gmail.com' : 'tarek.n@school.edu';
+}
+function signIn(){
+  var p = PROFILE[ROLE];
+  document.getElementById('who-n').textContent = p.name;
+  document.getElementById('who-r').textContent = p.label;
+  document.getElementById('who-a').textContent = p.init;
+  document.getElementById('home-h').textContent = ROLE==='admin' ? 'What do you need to know?' : 'System overview';
+  applyPerms();
+  document.getElementById('login').style.display = 'none';
+  document.getElementById('app').classList.add('on');
+  show('home');
+}
+function signOut(){
+  document.getElementById('app').classList.remove('on');
+  document.getElementById('login').style.display = 'flex';
+}
+function applyPerms(){
+  var allowed = PERMS[ROLE].views;
+  document.querySelectorAll('.nav-i').forEach(n=>{
+    n.classList.toggle('hide', allowed.indexOf(n.dataset.v)===-1);
+  });
+  renderHome(); renderTrackGate(); renderSystem(); renderUsers();
+}
+
+var TOOLS = [
+  {v:'attend', ic:'&#10003;', t:'Attendance', d:'Who arrived, who is missing, and when they came in.'},
+  {v:'count', ic:'&#9776;', t:'People counting', d:'How many people are in any area, now or earlier.'},
+  {v:'intrude', ic:'&#9888;', t:'Intrusion', d:'Alerts when someone enters a restricted area.'},
+  {v:'fight', ic:'&#9889;', t:'Fights', d:'Confirmed altercations with video evidence.'},
+  {v:'weapon', ic:'&#9873;', t:'Weapons', d:'Continuous weapon detection across all cameras.'},
+  {v:'lost', ic:'&#128188;', t:'Lost items', d:'Search footage for a lost bag, phone or jacket.'},
+  {v:'track', ic:'&#128506;', t:'Track a person', d:'Rebuild someone\'s path across the campus.'},
+  {v:'system', ic:'&#9881;', t:'System health', d:'Cameras, recorders and AI server status.'},
+  {v:'users', ic:'&#128101;', t:'Users', d:'Manage who can sign in and what they can do.'}
+];
+var CHIPS = [
+  {q:'Who was absent today?', v:'attend'},
+  {q:'How busy is the cafeteria right now?', v:'count'},
+  {q:'Any fights this week?', v:'fight'},
+  {q:'Someone lost a black backpack', v:'lost'},
+  {q:'Where did Layla go today?', v:'track'},
+  {q:'Any restricted area breaches?', v:'intrude'}
+];
+
+function show(v){
+  if(PERMS[ROLE].views.indexOf(v)===-1) v = 'home';
+  document.querySelectorAll('.view').forEach(e=>e.classList.remove('on'));
+  document.getElementById('v-'+v).classList.add('on');
+  document.querySelectorAll('.nav-i').forEach(e=>e.classList.remove('on'));
+  var n = document.querySelector('.nav-i[data-v="'+v+'"]');
+  n.classList.add('on');
+  document.getElementById('bt').textContent = n.textContent.trim();
+  document.querySelector('.body').scrollTop = 0;
+}
+document.querySelectorAll('.nav-i').forEach(n=> n.addEventListener('click', ()=>show(n.dataset.v)));
+
+function doAsk(){
+  var q = document.getElementById('askbox').value.toLowerCase();
+  var map = [
+    {k:['absent','attendance','present','arrive','came in','who came','late'], v:'attend'},
+    {k:['how many','count','busy','crowd','occupancy','people in'], v:'count'},
+    {k:['intrusion','restricted','breach','entered','lab','forbidden'], v:'intrude'},
+    {k:['fight','altercation','violence','hitting'], v:'fight'},
+    {k:['weapon','gun','knife','armed'], v:'weapon'},
+    {k:['lost','missing','left behind','backpack','bag','phone','jacket','laptop'], v:'lost'},
+    {k:['track','where did','path','follow','went','movement'], v:'track'},
+    {k:['camera offline','server','gpu','system health','recorder','dvr'], v:'system'}
+  ];
+  for(var i=0;i<map.length;i++){
+    for(var j=0;j<map[i].k.length;j++){
+      if(q.indexOf(map[i].k[j])>-1){
+        var v = map[i].v;
+        if(PERMS[ROLE].views.indexOf(v)===-1 || (v==='track' && !PERMS[ROLE].track)){
+          alert('Your '+PROFILE[ROLE].label+' account does not have access to that. Ask an administrator if you need it.');
+          return;
+        }
+        show(v); autoRun(v); return;
+      }
+    }
+  }
+  if(q.trim()) alert('Try one of the suggestions below the box, or pick a tool.');
+}
+function autoRun(v){
+  if(v==='attend') runAttend();
+  if(v==='count') runCount();
+  if(v==='intrude') runIntrude();
+  if(v==='fight') runFight();
+  if(v==='weapon') runWeapon();
+  if(v==='lost') runLost();
+  if(v==='track' && PERMS[ROLE].track) runTrack();
+}
+
+/* ---------- CAMERA VIEWS ---------- */
+function feed(o){
+  o = o || {};
+  var h = '<div class="feed'+(o.big?' big':'')+'"><div class="fgrid"></div><div class="ffloor"></div>';
+  h += '<div class="flive"><i></i>LIVE</div><div class="ftime">'+(o.time||'14:32:07')+'</div>';
+  (o.boxes||[]).forEach(b=>{
+    h += '<div class="fbox" style="left:'+b.x+'%;top:'+b.y+'%;width:'+b.w+'%;height:'+b.h+'%;border-color:'+b.c+'"><span style="background:'+b.c+'">'+b.l+'</span></div>';
+  });
+  if(o.line) h += '<div class="fline" style="left:8%;right:8%;top:'+o.line+'%"></div>';
+  if(o.zone) h += '<div class="fzone" style="left:'+o.zone.x+'%;top:'+o.zone.y+'%;width:'+o.zone.w+'%;height:'+o.zone.h+'%"><span>'+o.zone.l+'</span></div>';
+  h += '</div>';
+  return h;
+}
+var CAMSTORE = {};
+function camPanel(id, title, note, cams){
+  CAMSTORE[id] = cams;
+  return '<div class="ans"><div class="ans-hd" style="font-size:16px">'+title+'</div><div class="ans-sub">'+note+'</div><div class="camgrid">'
+    + cams.map((c,i)=>'<div class="cam" onclick="openCam(\''+id+'\','+i+')">'+feed(c)+'<div class="cam-b"><div class="cam-n">'+c.n+'</div><div class="cam-s">'+c.s+'</div></div></div>').join('')
+    + '</div></div>';
+}
+function openCam(id,i){
+  var c = CAMSTORE[id][i];
+  var big = JSON.parse(JSON.stringify(c)); big.big = true;
+  document.getElementById('ov-in').innerHTML = feed(big)
+    + '<div class="modal-b"><div class="modal-t">'+c.n+'</div><div class="modal-s">'+c.s+'</div>'
+    + '<div class="modal-a"><button class="btn2" onclick="closeOv()">Close</button><button class="btn2">Save clip</button></div></div>';
+  document.getElementById('ov').classList.add('on');
+}
+function closeOv(){ document.getElementById('ov').classList.remove('on'); }
+document.getElementById('ov').addEventListener('click', e=>{ if(e.target.id==='ov') closeOv(); });
+
+/* ---------- HOME ---------- */
+function renderHome(){
+  var allowed = PERMS[ROLE].views;
+  document.getElementById('tiles').innerHTML = TOOLS.filter(t=>allowed.indexOf(t.v)>-1).map(t=>
+    '<div class="tile" onclick="show(\''+t.v+'\')"><span class="tile-ic">'+t.ic+'</span><div class="tile-t">'+t.t+'</div><div class="tile-d">'+t.d+'</div></div>').join('');
+  document.getElementById('chips').innerHTML = CHIPS.filter(c=>allowed.indexOf(c.v)>-1 && (c.v!=='track'||PERMS[ROLE].track)).map(c=>
+    '<div class="chip" onclick="document.getElementById(\'askbox\').value=\''+c.q+'\';doAsk()">'+c.q+'</div>').join('');
+  var attn = ROLE==='admin' ? [
+    {c:'var(--rd)', t:'Fight detected — Building B yard', s:'11 minutes ago · not yet reviewed', v:'fight'},
+    {c:'var(--am)', t:'34 students not yet arrived', s:'Grade 8 · as of 8:40am', v:'attend'},
+    {c:'var(--am)', t:'Cafeteria at 88% of safe capacity', s:'Right now', v:'count'}
+  ] : [
+    {c:'var(--rd)', t:'Recorder 7 offline — 16 cameras down', s:'Building C · since 6:04am', v:'system'},
+    {c:'var(--am)', t:'AI server GPU at 79%', s:'Peak load during morning entry', v:'system'},
+    {c:'var(--am)', t:'Boundary fence zone paused', s:'Left off since Jul 24', v:'intrude'}
+  ];
+  document.getElementById('attn').innerHTML = attn.map(a=>
+    '<div class="attn-i"><div class="attn-l"><span class="attn-d" style="background:'+a.c+'"></span><div><div class="attn-tx">'+a.t+'</div><div class="attn-s">'+a.s+'</div></div></div><span class="lnk" onclick="show(\''+a.v+'\');autoRun(\''+a.v+'\')">Open</span></div>').join('');
+}
+
+/* ---------- ATTENDANCE ---------- */
+function atMode(){
+  var m = document.getElementById('at-mode').value;
+  document.getElementById('at-grp-f').style.display = m==='group'?'flex':'none';
+  document.getElementById('at-per-f').style.display = m==='person'?'flex':'none';
+}
+function runAttend(){
+  var m = document.getElementById('at-mode').value;
+  var adm = PERMS[ROLE].adminActions;
+  if(m==='person'){
+    var p = document.getElementById('at-per').value;
+    document.getElementById('at-out').innerHTML = '<div class="ans"><div class="ans-hd">'+p+' arrived at 7:42am</div><div class="ans-sub">Recognised at Main entrance · 96% match confidence</div>'
+      + '<div class="stats"><div class="stat"><div class="stat-l">Present this month</div><div class="stat-v">19/21</div></div>'
+      + '<div class="stat"><div class="stat-l">Late arrivals</div><div class="stat-v">3</div></div>'
+      + '<div class="stat"><div class="stat-l">Usual arrival</div><div class="stat-v">7:45</div></div></div>'
+      + '<h2>Recent days</h2><table><tbody>'
+      + '<tr><td>Tue, Jul 28</td><td style="color:var(--tx2)">Main entrance</td><td>7:39am</td><td><span class="bdg b-gn">On time</span></td></tr>'
+      + '<tr><td>Mon, Jul 27</td><td style="color:var(--tx2)">Main entrance</td><td>8:12am</td><td><span class="bdg b-am">Late</span></td></tr>'
+      + '<tr><td>Sun, Jul 26</td><td style="color:var(--tx2)">—</td><td>—</td><td><span class="bdg b-rd">Absent</span></td></tr>'
+      + '</tbody></table></div>';
+  } else {
+    var g = document.getElementById('at-grp').value;
+    var tot = g==='All staff'?168:(g.indexOf('Grade')===0?142:1742);
+    var abs = g==='All staff'?4:(g.indexOf('Grade')===0?9:63);
+    var late = g==='All staff'?2:(g.indexOf('Grade')===0?6:41);
+    var pres = tot-abs, pct = Math.round(pres/tot*100);
+    var rows = [
+      {n:'Karim Adel', s:'Absent', t:'—', c:'b-rd'},
+      {n:'Hana Saleh', s:'Absent', t:'—', c:'b-rd'},
+      {n:'Omar Khaled', s:'Late', t:'8:14am', c:'b-am'},
+      {n:'Salma Reda', s:'Late', t:'8:22am', c:'b-am'},
+      {n:'Layla Ahmed', s:'On time', t:'7:42am', c:'b-gn'}
+    ];
+    document.getElementById('at-out').innerHTML = '<div class="ans"><div class="ans-hd">'+pres.toLocaleString()+' of '+tot.toLocaleString()+' arrived</div>'
+      + '<div class="ans-sub">'+g+' · Wednesday, July 29, 2026</div>'
+      + '<div class="stats"><div class="stat"><div class="stat-l">Present</div><div class="stat-v">'+pct+'%</div></div>'
+      + '<div class="stat"><div class="stat-l">Absent</div><div class="stat-v">'+abs+'</div></div>'
+      + '<div class="stat"><div class="stat-l">Late</div><div class="stat-v">'+late+'</div></div>'
+      + '<div class="stat"><div class="stat-l">Last entry</div><div class="stat-v">8:31</div></div></div>'
+      + '<h2>Needs follow-up</h2><table><thead><tr><th>Name</th><th>Status</th><th>Arrived</th><th></th></tr></thead><tbody>'
+      + rows.map(r=>'<tr><td style="font-weight:600">'+r.n+'</td><td><span class="bdg '+r.c+'">'+r.s+'</span></td><td style="color:var(--tx2)">'+r.t+'</td><td>'
+        + (adm?'<span class="lnk">Notify parent</span>':'<span style="color:var(--tx3);font-size:13px">Admin only</span>')+'</td></tr>').join('')
+      + '</tbody></table></div>';
+  }
+  document.getElementById('at-cam').innerHTML = camPanel('at','Entrance cameras','Face recognition runs on these 4 cameras only.',[
+    {n:'Main entrance', s:'Recognising · 2 people', time:'07:42:11', boxes:[{x:18,y:26,w:20,h:44,c:'#22c55e',l:'Layla A. 96%'},{x:52,y:31,w:19,h:41,c:'#22c55e',l:'Nour H. 94%'}]},
+    {n:'Gate 3 — side entrance', s:'Recognising · 1 person', time:'07:42:11', boxes:[{x:36,y:29,w:21,h:45,c:'#22c55e',l:'Omar K. 91%'}]},
+    {n:'Staff entrance', s:'Clear', time:'07:42:11', boxes:[]},
+    {n:'Gate 5 — bus lane', s:'Unknown face', time:'07:42:11', boxes:[{x:40,y:27,w:20,h:44,c:'#ef4444',l:'Unknown'}]}
+  ]);
+}
+
+/* ---------- COUNTING ---------- */
+function runCount(){
+  var p = document.getElementById('ct-place').value;
+  var w = document.getElementById('ct-when').value;
+  var cap = {'Main entrance':120,'Cafeteria':400,'Assembly hall':600,'Library':150,'Playground':800,'Whole campus':2000}[p];
+  var now = Math.round(cap*(0.4+Math.random()*0.5));
+  var pct = Math.round(now/cap*100);
+  var html = '<div class="ans"><div class="ans-hd">'+now+' people in the '+p.toLowerCase()+'</div><div class="ans-sub">'+pct+'% of safe capacity ('+cap+') · updated seconds ago</div>'
+    + '<div class="stats"><div class="stat"><div class="stat-l">Right now</div><div class="stat-v">'+now+'</div></div>'
+    + '<div class="stat"><div class="stat-l">Peak today</div><div class="stat-v">'+Math.round(cap*0.91)+'</div></div>'
+    + '<div class="stat"><div class="stat-l">Status</div><div class="stat-v" style="font-size:17px;color:'+(pct>85?'var(--rd)':'var(--gn)')+'">'+(pct>85?'Crowded':'Normal')+'</div></div></div>';
+  if(w!=='Right now'){
+    var labels = w==='Today by hour' ? ['7am','8am','9am','10am','11am','12pm','1pm','2pm'] : ['Mon','Tue','Wed','Thu','Fri'];
+    var vals = labels.map(()=> Math.round(cap*(0.25+Math.random()*0.7)));
+    var mx = Math.max.apply(null, vals);
+    html += '<h2>'+w+'</h2><div class="bars">'
+      + labels.map((l,i)=>'<div class="br"><div class="br-l">'+l+'</div><div class="br-t"><div class="br-f" style="width:'+Math.round(vals[i]/mx*100)+'%"></div></div><div class="br-v">'+vals[i]+'</div></div>').join('') + '</div>';
+  }
+  document.getElementById('ct-out').innerHTML = html + '</div>';
+  document.getElementById('ct-cam').innerHTML = camPanel('ct','Cameras counting this area','The dashed line is the counting line. People are counted as they cross it.',[
+    {n:p+' — cam 1', s:'Counting · '+Math.round(now*0.4)+' tracked', line:58, boxes:[{x:14,y:30,w:16,h:38,c:'#4d9dff',l:'#1'},{x:44,y:34,w:16,h:36,c:'#4d9dff',l:'#2'},{x:70,y:28,w:16,h:40,c:'#4d9dff',l:'#3'}]},
+    {n:p+' — cam 2', s:'Counting · '+Math.round(now*0.35)+' tracked', line:54, boxes:[{x:26,y:32,w:17,h:38,c:'#4d9dff',l:'#4'},{x:58,y:36,w:16,h:35,c:'#4d9dff',l:'#5'}]},
+    {n:p+' — cam 3 (overlap)', s:'De-duplicating overlap', line:62, boxes:[{x:38,y:30,w:17,h:40,c:'#4d9dff',l:'#2'}]}
+  ]);
+}
+
+/* ---------- INTRUSION ---------- */
+var ZONES = [
+  {n:'Chemistry lab', h:'Locked outside 8am–4pm, weekdays', on:true},
+  {n:'Server room', h:'Locked outside 9am–5pm, weekdays', on:true},
+  {n:'Rooftop access door', h:'Locked at all times', on:true},
+  {n:'Storage — gymnasium', h:'Locked outside 8am–6pm', on:true},
+  {n:'Boundary fence — east', h:'Locked at all times', on:false}
+];
+function renderZones(){
+  document.getElementById('in-zones').innerHTML = ZONES.map((z,i)=>
+    '<div class="zrow"><div><div style="font-weight:600;font-size:14.5px">'+z.n+'</div><div style="font-size:13px;color:var(--tx2);margin-top:1px">'+z.h+'</div></div>'
+    + '<div style="display:flex;align-items:center;gap:12px"><span class="bdg '+(z.on?'b-gn':'b-gy')+'">'+(z.on?'Protected':'Paused')+'</span>'
+    + '<div class="tg '+(z.on?'on':'')+'" onclick="toggleZone('+i+')"><div class="tg-k"></div></div></div></div>').join('');
+}
+function toggleZone(i){ ZONES[i].on = !ZONES[i].on; renderZones(); }
+function runIntrude(){
+  var w = document.getElementById('in-when').value;
+  var all = [
+    {z:'Chemistry lab', t:'Today, 6:12am', who:'Unidentified person', s:'Open'},
+    {z:'Rooftop access door', t:'Yesterday, 11:42pm', who:'Unidentified person', s:'Resolved'},
+    {z:'Server room', t:'Jul 26, 7:20pm', who:'Matched: T. Nassar (IT)', s:'Cleared — authorised'},
+    {z:'Storage — gymnasium', t:'Jul 24, 4:15pm', who:'Unidentified person', s:'Resolved'}
+  ];
+  var n = w==='Today'?1:(w==='Last 7 days'?3:4);
+  var list = all.slice(0,n);
+  document.getElementById('in-out').innerHTML = '<div class="ans"><div class="ans-hd">'+list.length+' breach'+(list.length===1?'':'es')+' · '+w.toLowerCase()+'</div>'
+    + '<div class="ans-sub">'+list.filter(x=>x.s==='Open').length+' still needs review</div><table><thead><tr><th>Area</th><th>When</th><th>Who</th><th>Status</th><th></th></tr></thead><tbody>'
+    + list.map(b=>'<tr><td style="font-weight:600">'+b.z+'</td><td style="color:var(--tx2)">'+b.t+'</td><td style="color:var(--tx2)">'+b.who+'</td><td><span class="bdg '+(b.s==='Open'?'b-rd':(b.s.indexOf('Cleared')===0?'b-gy':'b-gn'))+'">'+b.s+'</span></td><td><span class="lnk">Watch clip</span></td></tr>').join('')
+    + '</tbody></table></div>';
+  document.getElementById('in-cam').innerHTML = camPanel('in','Cameras watching restricted areas','The orange outline is the protected zone drawn on that camera.',[
+    {n:'Chemistry lab — door', s:'Breach detected 6:12am', time:'06:12:44', zone:{x:10,y:18,w:52,h:62,l:'Restricted'}, boxes:[{x:24,y:34,w:19,h:42,c:'#ef4444',l:'Person in zone'}]},
+    {n:'Server room — entry', s:'Protected · clear', time:'14:32:07', zone:{x:14,y:20,w:48,h:60,l:'Restricted'}, boxes:[]},
+    {n:'Rooftop access door', s:'Protected · clear', time:'14:32:07', zone:{x:30,y:14,w:44,h:70,l:'Restricted'}, boxes:[]},
+    {n:'Boundary fence — east', s:'Paused by IT', time:'14:32:07', zone:{x:8,y:44,w:82,h:34,l:'Paused'}, boxes:[]}
+  ]);
+}
+
+/* ---------- FIGHT ---------- */
+function notFight(el){ el.style.color='var(--gn)'; el.style.cursor='default'; el.onclick=null; el.textContent='Thanks — noted'; }
+function runFight(){
+  var w = document.getElementById('fg-when').value, p = document.getElementById('fg-place').value;
+  var all = [
+    {loc:'Building B — Yard 2', area:'Outdoor areas', t:'Today, 11:03am', dur:'7 seconds', ppl:'2 people', s:'Not reviewed'},
+    {loc:'Building A — Corridor 3', area:'Corridors', t:'Jul 27, 12:40pm', dur:'4 seconds', ppl:'3 people', s:'Reviewed'},
+    {loc:'Playground — north', area:'Outdoor areas', t:'Jul 22, 1:15pm', dur:'5 seconds', ppl:'2 people', s:'Marked not a fight'},
+    {loc:'Building C — Corridor 1', area:'Corridors', t:'Jul 15, 10:22am', dur:'9 seconds', ppl:'4 people', s:'Reviewed'}
+  ];
+  var n = w==='Today'?1:(w==='Last 7 days'?2:4);
+  var list = all.slice(0,n).filter(f=> p==='Anywhere' || f.area===p);
+  var out = document.getElementById('fg-out');
+  if(!list.length){
+    out.innerHTML = '<div class="ans"><div class="ans-hd">No fights detected</div><div class="ans-sub">'+w+' · '+p.toLowerCase()+'</div></div>';
+  } else {
+    out.innerHTML = '<div class="ans"><div class="ans-hd">'+list.length+' incident'+(list.length===1?'':'s')+'</div><div class="ans-sub">'+w+' · '+p.toLowerCase()+'</div><div class="cards">'
+      + list.map(f=>'<div class="icard'+(f.s==='Not reviewed'?' crit':'')+'"><div class="icard-h"><div class="icard-t">'+f.loc+'</div><span class="bdg '+(f.s==='Not reviewed'?'b-rd':(f.s.indexOf('Marked')===0?'b-gy':'b-gn'))+'">'+f.s+'</span></div>'
+        + '<div class="icard-m">'+f.t+'</div><div class="icard-m">'+f.dur+' · '+f.ppl+'</div>'
+        + '<div style="margin-top:10px;display:flex;gap:14px"><span class="lnk">Watch clip</span><span class="lnk" style="color:var(--tx2)" onclick="notFight(this)">Not a fight</span></div></div>').join('')
+      + '</div></div>';
+  }
+  document.getElementById('fg-cam').innerHTML = camPanel('fg','Cameras where fight detection is on','Disabled in sports halls and PE areas, where rough movement is normal.',[
+    {n:'Building B — Yard 2', s:'Incident 11:03am', time:'11:03:18', boxes:[{x:28,y:28,w:19,h:44,c:'#ef4444',l:'Aggression 7s'},{x:47,y:30,w:19,h:42,c:'#ef4444',l:''}]},
+    {n:'Building A — Corridor 3', s:'Monitoring · clear', time:'14:32:07', boxes:[{x:22,y:32,w:16,h:38,c:'#4d9dff',l:'Normal'}]},
+    {n:'Building C — Corridor 1', s:'Monitoring · clear', time:'14:32:07', boxes:[]},
+    {n:'Playground — north', s:'Monitoring · clear', time:'14:32:07', boxes:[{x:56,y:34,w:15,h:36,c:'#4d9dff',l:'Normal'}]}
+  ]);
+}
+
+/* ---------- WEAPON ---------- */
+function runWeapon(){
+  document.getElementById('wp-status').innerHTML =
+    '<div style="display:flex;align-items:center;gap:14px"><div style="width:44px;height:44px;border-radius:50%;background:var(--gn-bg);color:var(--gn);display:flex;align-items:center;justify-content:center;font-size:20px">&#10003;</div>'
+    + '<div><div style="font-weight:600;font-size:15.5px">No weapon detected on campus</div><div style="font-size:13.5px;color:var(--tx2)">Monitoring all 208 cameras · last check 2 seconds ago</div></div></div>';
+  var w = document.getElementById('wp-when').value;
+  var all = [
+    {t:'Jul 11, 2026 · 1:22pm', loc:'Main gate — entrance', item:'Knife-shaped object', s:'False alarm — kitchen utensil'},
+    {t:'May 3, 2026 · 9:05am', loc:'Playground — east', item:'Toy replica', s:'False alarm — confiscated toy'},
+    {t:'Feb 18, 2026 · 2:40pm', loc:'Building C — corridor', item:'Knife-shaped object', s:'Confirmed — police notified'}
+  ];
+  var n = w==='Last 30 days'?1:(w==='Last 90 days'?2:3);
+  var list = all.slice(0,n);
+  document.getElementById('wp-out').innerHTML = '<div class="ans"><div class="ans-hd">'+list.length+' detection'+(list.length===1?'':'s')+' · '+w.toLowerCase()+'</div>'
+    + '<div class="ans-sub">Every detection is reviewed by a person before any action is taken.</div>'
+    + '<table><thead><tr><th>When</th><th>Where</th><th>Detected</th><th>Outcome</th><th></th></tr></thead><tbody>'
+    + list.map(d=>'<tr><td style="color:var(--tx2)">'+d.t+'</td><td style="font-weight:600">'+d.loc+'</td><td>'+d.item+'</td><td><span class="bdg '+(d.s.indexOf('Confirmed')===0?'b-rd':'b-gy')+'">'+d.s+'</span></td><td><span class="lnk">Watch clip</span></td></tr>').join('')
+    + '</tbody></table></div>';
+  document.getElementById('wp-cam').innerHTML = camPanel('wp','Highest-risk cameras','Weapon detection runs everywhere. These entry points are shown first.',[
+    {n:'Main gate — entrance', s:'Scanning · clear', time:'14:32:07', boxes:[{x:30,y:30,w:18,h:42,c:'#22c55e',l:'No weapon'}]},
+    {n:'Gate 3 — side entrance', s:'Scanning · clear', time:'14:32:07', boxes:[]},
+    {n:'Building C — corridor', s:'Scanning · clear', time:'14:32:07', boxes:[{x:52,y:32,w:17,h:40,c:'#22c55e',l:'No weapon'}]},
+    {n:'Service gate', s:'Scanning · clear', time:'14:32:07', boxes:[]}
+  ]);
+}
+
+/* ---------- LOST ---------- */
+function runLost(){
+  var it = document.getElementById('ls-item').value, col = document.getElementById('ls-col').value;
+  var ar = document.getElementById('ls-area').value, wn = document.getElementById('ls-when').value;
+  var label = (col==='Any'?'':col.toLowerCase()+' ')+it.toLowerCase();
+  var hits = [
+    {cam:'Cafeteria — table row 3', t:'12:41pm', conf:94, note:'Left on a table, still there at 1:10pm'},
+    {cam:'Cafeteria — exit corridor', t:'12:38pm', conf:88, note:'Carried by a student walking out'},
+    {cam:'Library — study area', t:'11:20am', conf:71, note:'Similar item on a chair'}
+  ];
+  document.getElementById('ls-out').innerHTML = '<div class="ans"><div class="ans-hd">3 possible matches</div>'
+    + '<div class="ans-sub">Searching for a '+label+' · '+ar.toLowerCase()+' · '+wn.toLowerCase()+'</div>'
+    + '<div class="cards">'
+    + hits.map(h=>'<div class="icard"><div class="icard-h"><div class="icard-t">'+h.cam+'</div><span class="bdg '+(h.conf>85?'b-gn':'b-am')+'">'+h.conf+'%</span></div>'
+      + '<div class="icard-m">'+h.t+'</div><div class="icard-m">'+h.note+'</div></div>').join('')
+    + '</div><div style="margin-top:18px;padding-top:16px;border-top:1px solid var(--border);font-size:13.5px;color:var(--tx2)">If none look right, widen the area or time range and search again.</div></div>';
+  document.getElementById('ls-cam').innerHTML = camPanel('ls','Where the item was seen','Best match first. The green box is the object the system matched.',[
+    {n:'Cafeteria — table row 3', s:'94% match · 12:41pm', time:'12:41:02', boxes:[{x:38,y:56,w:16,h:20,c:'#22c55e',l:label+' 94%'}]},
+    {n:'Cafeteria — exit corridor', s:'88% match · 12:38pm', time:'12:38:40', boxes:[{x:46,y:40,w:13,h:17,c:'#22c55e',l:'88%'},{x:40,y:26,w:19,h:44,c:'#4d9dff',l:'Carried by'}]},
+    {n:'Library — study area', s:'71% match · 11:20am', time:'11:20:15', boxes:[{x:58,y:52,w:15,h:19,c:'#ffb020',l:'71%'}]}
+  ]);
+}
+
+/* ---------- TRACK ---------- */
+function renderTrackGate(){
+  var g = document.getElementById('tk-gate');
+  if(!PERMS[ROLE].track){
+    g.innerHTML = '<div class="blocked"><div class="blocked-ic">&#128274;</div><div class="blocked-t">Available to admins only</div>'
+      + '<div class="blocked-d">Tracking a named person across cameras is restricted to school administrators. Your IT account can manage the system and check that this feature is running, but cannot search for an individual.</div></div>';
+    return;
+  }
+  g.innerHTML = '<div class="panel"><div class="q">'
+    + '<div class="fld"><label>Find</label><select id="tk-who"><option>Layla Ahmed</option><option>Omar Khaled</option><option>Karim Adel</option><option>Unknown visitor (from clip)</option></select></div>'
+    + '<div class="fld"><label>Date</label><input type="date" id="tk-date" value="2026-07-29"></div>'
+    + '<div class="fld"><label>From</label><input type="time" id="tk-from" value="07:00"></div>'
+    + '<div class="fld"><label>To</label><input type="time" id="tk-to" value="15:00"></div>'
+    + '<button class="go" onclick="runTrack()">Build path</button></div></div>'
+    + '<div id="tk-out"><div class="empty"><span class="empty-ic">&#128506;</span><div class="empty-t">Choose a person and a time window.</div></div></div><div id="tk-cam"></div>';
+}
+function runTrack(){
+  if(!PERMS[ROLE].track) return;
+  var who = document.getElementById('tk-who').value;
+  var f = document.getElementById('tk-from').value, t = document.getElementById('tk-to').value;
+  var path = [
+    {t:'7:42am', p:'Main entrance', d:'Entered campus · identified by face'},
+    {t:'7:51am', p:'Building A — Corridor 1', d:'Walking towards classrooms'},
+    {t:'10:05am', p:'Building A — Corridor 3', d:'Break period movement'},
+    {t:'12:34pm', p:'Cafeteria — main hall', d:'Lunch · stayed 26 minutes'},
+    {t:'1:02pm', p:'Playground — north', d:'Outdoor break'},
+    {t:'2:48pm', p:'Main entrance', d:'Left campus'}
+  ];
+  document.getElementById('tk-out').innerHTML = '<div class="ans"><div class="ans-hd">'+who+' · 6 sightings</div>'
+    + '<div class="ans-sub">Wednesday, July 29, 2026 · '+f+' to '+t+' · this search has been recorded in the audit log</div>'
+    + '<div class="stats"><div class="stat"><div class="stat-l">On campus</div><div class="stat-v">7h 06m</div></div>'
+    + '<div class="stat"><div class="stat-l">Cameras seen on</div><div class="stat-v">6</div></div>'
+    + '<div class="stat"><div class="stat-l">Confidence</div><div class="stat-v">High</div></div></div>'
+    + '<h2>Path through the day</h2><div class="tl">'
+    + path.map(s=>'<div class="tl-i"><span class="tl-d"></span><div class="tl-t">'+s.t+' — '+s.p+'</div><div class="tl-s">'+s.d+'</div></div>').join('')
+    + '</div></div>';
+  document.getElementById('tk-cam').innerHTML = camPanel('tk','Each sighting on camera','Frames are shown in order. Click any one to view it larger.',[
+    {n:'7:42am — Main entrance', s:'Face match · 96%', time:'07:42:11', boxes:[{x:30,y:28,w:19,h:44,c:'#22c55e',l:who.split(' ')[0]+' 96%'}]},
+    {n:'7:51am — Bldg A Corridor 1', s:'Appearance match · 89%', time:'07:51:33', boxes:[{x:52,y:30,w:18,h:42,c:'#4d9dff',l:'89%'}]},
+    {n:'12:34pm — Cafeteria', s:'Appearance match · 92%', time:'12:34:07', boxes:[{x:24,y:32,w:18,h:40,c:'#4d9dff',l:'92%'}]},
+    {n:'2:48pm — Main entrance', s:'Face match · 95%', time:'14:48:52', boxes:[{x:44,y:27,w:19,h:45,c:'#22c55e',l:'95%'}]}
+  ]);
+}
+
+/* ---------- SYSTEM (IT) ---------- */
+function renderSystem(){
+  if(PERMS[ROLE].views.indexOf('system')===-1) return;
+  var dvrs = [
+    {n:'Recorder 1–2 · Main building', c:32, s:'ok'},{n:'Recorder 3–4 · Building A', c:28, s:'ok'},
+    {n:'Recorder 5–6 · Building B', c:24, s:'ok'},{n:'Recorder 7 · Building C', c:16, s:'down'},
+    {n:'Recorder 8 · Science block', c:18, s:'ok'},{n:'Recorder 9 · Gymnasium', c:14, s:'ok'},
+    {n:'Recorder 10–11 · Cafeteria, Library', c:22, s:'ok'},{n:'Recorder 12–13 · Gates, perimeter', c:54, s:'ok'}
+  ];
+  document.getElementById('sy-out').innerHTML = '<div class="ans"><div class="ans-hd">192 of 208 cameras online</div>'
+    + '<div class="ans-sub">Recorder 7 is offline — Building C cameras are not recording or analysing.</div>'
+    + '<div class="stats"><div class="stat"><div class="stat-l">GPU</div><div class="stat-v">61%</div></div>'
+    + '<div class="stat"><div class="stat-l">CPU</div><div class="stat-v">34%</div></div>'
+    + '<div class="stat"><div class="stat-l">Storage</div><div class="stat-v">47%</div></div>'
+    + '<div class="stat"><div class="stat-l">Uptime 30d</div><div class="stat-v">99.6%</div></div></div>'
+    + '<h2>Recorders</h2><table><tbody>'
+    + dvrs.map(d=>'<tr><td style="font-weight:600">'+d.n+'</td><td style="color:var(--tx2)">'+d.c+' cameras</td><td><span class="bdg '+(d.s==='ok'?'b-gn':'b-rd')+'">'+(d.s==='ok'?'Connected':'Offline')+'</span></td><td>'+(d.s==='ok'?'':'<span class="lnk">Reconnect</span>')+'</td></tr>').join('')
+    + '</tbody></table>'
+    + '<h2 style="margin-top:24px">AI pipeline</h2><table><tbody>'
+    + '<tr><td>Detection engine</td><td style="color:var(--tx2)">All 7 features running</td><td><span class="bdg b-gn">Healthy</span></td><td><span class="lnk">Restart</span></td></tr>'
+    + '<tr><td>Watchdog</td><td style="color:var(--tx2)">Last restart 14 days ago</td><td><span class="bdg b-gn">Active</span></td><td></td></tr>'
+    + '<tr><td>Backup</td><td style="color:var(--tx2)">Today, 3:00am · verified restorable</td><td><span class="bdg b-gn">OK</span></td><td><span class="lnk">Run now</span></td></tr>'
+    + '</tbody></table></div>'
+    + camPanel('sy','Cameras needing attention','Offline cameras show their last received frame.',[
+      {n:'Building C — Cam 3', s:'Offline since 6:04am', time:'06:04:22', boxes:[]},
+      {n:'Building C — Cam 7', s:'Offline since 6:04am', time:'06:04:22', boxes:[]},
+      {n:'Building C — Cam 11', s:'Offline since 6:04am', time:'06:04:22', boxes:[]}
+    ]);
+}
+
+/* ---------- USERS (ADMIN) ---------- */
+function renderUsers(){
+  if(PERMS[ROLE].views.indexOf('users')===-1) return;
+  var us = [
+    {n:'Mohamed Fouad', r:'Admin', e:'mohamed61fouad@gmail.com', a:'Now'},
+    {n:'Sara Ibrahim', r:'Admin', e:'sara.i@school.edu', a:'12 min ago'},
+    {n:'Tarek Nassar', r:'IT', e:'tarek.n@school.edu', a:'1h ago'},
+    {n:'Dina Mostafa', r:'IT', e:'dina.m@school.edu', a:'Yesterday'}
+  ];
+  document.getElementById('us-out').innerHTML = '<div class="ans"><div class="ans-hd">4 people can sign in</div>'
+    + '<div class="ans-sub">Only admins can add or change accounts.</div>'
+    + '<table><thead><tr><th>Name</th><th>Role</th><th>Email</th><th>Last active</th><th></th></tr></thead><tbody>'
+    + us.map(u=>'<tr><td style="font-weight:600">'+u.n+'</td><td><span class="bdg '+(u.r==='Admin'?'b-ac':'b-gy')+'">'+u.r+'</span></td><td style="color:var(--tx2)">'+u.e+'</td><td style="color:var(--tx2)">'+u.a+'</td><td><span class="lnk">Edit</span></td></tr>').join('')
+    + '</tbody></table>'
+    + '<div style="margin-top:20px;padding-top:18px;border-top:1px solid var(--border)">'
+    + '<div style="font-weight:600;font-size:14.5px;margin-bottom:10px">What each role can do</div>'
+    + '<table><thead><tr><th></th><th>Admin</th><th>IT</th></tr></thead><tbody>'
+    + '<tr><td>Attendance, counting, incidents</td><td><span class="bdg b-gn">Yes</span></td><td><span class="bdg b-gn">Yes</span></td></tr>'
+    + '<tr><td>Turn detection zones on or off</td><td><span class="bdg b-gn">Yes</span></td><td><span class="bdg b-gn">Yes</span></td></tr>'
+    + '<tr><td>System health and recorders</td><td><span class="bdg b-gy">No</span></td><td><span class="bdg b-gn">Yes</span></td></tr>'
+    + '<tr><td>Track a named person</td><td><span class="bdg b-gn">Yes</span></td><td><span class="bdg b-gn">Yes</span></td></tr>'
+    + '<tr><td>Contact parents, export records</td><td><span class="bdg b-gn">Yes</span></td><td><span class="bdg b-gy">No</span></td></tr>'
+    + '<tr><td>Add or change user accounts</td><td><span class="bdg b-gn">Yes</span></td><td><span class="bdg b-gy">No</span></td></tr>'
+    + '</tbody></table></div></div>';
+}
+
+renderZones();
+runIntrude();
+runFight();
+runWeapon();
+</script>
+</body>
+</html>

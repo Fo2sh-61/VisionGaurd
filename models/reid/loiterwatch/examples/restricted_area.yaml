@@ -1,0 +1,46 @@
+# Whole-camera-view restricted area.
+#
+# There is no `zones:` block and the events carry no zone. Each detection lands
+# in a zone named after its `camera` field (or "frame" if there is none), and
+# rules with no `zones:` list apply to every camera. Add a camera here only when
+# you want a different policy for it.
+
+exit_grace_s: 5      # tracker may drop a person for up to 5s without ending the visit
+tick_s: 1
+
+defaults:
+  min_confidence: 0.6
+  cooldown_s: 300
+
+rules:
+  # --- Daytime: the area is restricted, but staff pass through legitimately. --
+  - id: intrusion_day
+    type: intrusion
+    confirm_s: 5                 # ignore anyone merely walking through
+    min_observations: 4
+    severity: warning
+    cleared_by: [badge_granted]  # authorized entry cancels the alert
+    active_hours: {start: "06:00", end: "20:00"}
+    escalate:
+      - {after_s: 60,  severity: critical}
+
+  # --- Overnight: nobody should be visible at all. -------------------------
+  - id: intrusion_night
+    type: intrusion
+    confirm_s: 3                 # just long enough to reject detector noise
+    min_observations: 3
+    severity: critical
+    cleared_by: [badge_granted]
+    active_hours: {start: "20:00", end: "06:00"}
+    escalate:
+      - {after_s: 30,  severity: critical}   # not passing through
+      - {after_s: 300, severity: critical}   # sustained -- still there
+
+  # --- Someone probing the perimeter: in and out, repeatedly. --------------
+  - id: perimeter_probing
+    type: repeat_entry
+    count: 3
+    window_s: 900
+    min_visit_s: 3
+    min_gap_s: 20
+    severity: warning

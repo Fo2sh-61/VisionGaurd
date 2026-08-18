@@ -1,0 +1,54 @@
+# ATM lobby loitering policy.
+# Timestamps in the sample log are UTC; active_hours are evaluated in UTC too.
+
+exit_grace_s: 5      # tracker may drop a person for up to 5s without ending the visit
+tick_s: 1            # rule evaluation resolution
+
+zones:
+  atm_lobby:
+    description: Floor area within ~2m of the ATM fascia
+  vestibule_door:
+    description: Entry door camera
+
+defaults:
+  min_confidence: 0.5
+  cooldown_s: 300
+
+rules:
+  # 1. The core dwell rule, with escalation.
+  - id: atm_dwell
+    type: dwell
+    zones: [atm_lobby]
+    min_observations: 3
+    thresholds:
+      - after_s: 180          # 3 minutes -> your example
+        severity: warning
+      - after_s: 600          # 10 minutes -> escalate
+        severity: critical
+
+  # 2. Same thing, but overnight the bar is much lower.
+  - id: atm_dwell_overnight
+    type: dwell
+    zones: [atm_lobby]
+    threshold_s: 90
+    severity: critical
+    active_hours: {start: "23:00", end: "05:00"}
+
+  # 3. Casing: in and out of the same zone repeatedly.
+  - id: atm_casing
+    type: repeat_entry
+    zones: [atm_lobby]
+    count: 3
+    window_s: 900
+    min_visit_s: 5           # ignore people merely walking past
+    min_gap_s: 20            # must genuinely leave between visits
+    severity: warning
+
+  # 4. Standing at the machine without ever using it.
+  - id: atm_no_card
+    type: no_transaction
+    zones: [atm_lobby]
+    dwell_s: 45
+    expects: [card_inserted, transaction_complete]
+    scope: track
+    severity: warning

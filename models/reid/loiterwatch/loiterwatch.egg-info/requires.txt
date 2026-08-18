@@ -1,0 +1,11 @@
+PyYAML>=6.0
+
+[dev]
+pytest>=7.0
+numpy
+opencv-python
+
+[live]
+ultralytics>=8.1
+opencv-python
+numpy

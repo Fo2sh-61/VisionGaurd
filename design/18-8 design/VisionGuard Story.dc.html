@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Albert+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>body{margin:0;background:#0e1311;} a{color:#33705b;} a:hover{color:#285948;}</style>
+</helmet>
+<x-import component-from-global-scope="deck-stage" from="./deck-stage.js" width="1920" height="1080" hint-size="100%,100%">
+
+<section data-label="Title" data-speaker-notes="VisionGuard AI — a console for asking questions about campus activity. Today: what changed since the first version, and why." style="background:#f2f5f2;font-family:'Albert Sans',sans-serif;color:#1f2b26;display:flex;flex-direction:column;justify-content:center;padding:0 150px;">
+  <div style="display:flex;align-items:center;gap:20px;margin-bottom:60px;">
+    <div style="width:64px;height:64px;border-radius:20px;background:#33705b;display:flex;align-items:center;justify-content:center;"><div style="width:27px;height:27px;border-radius:50% 50% 50% 8px;background:#f2f5f2;"></div></div>
+    <div style="font-weight:700;font-size:34px;letter-spacing:-.02em;">VisionGuard <span style="font-weight:500;color:#8a968e;">AI</span></div>
+  </div>
+  <div style="font-weight:800;font-size:96px;line-height:1.05;letter-spacing:-.035em;max-width:1350px;text-wrap:pretty;">A campus safety system you talk to, not a control room you stare at.</div>
+  <div style="font-size:30px;color:#57655d;margin-top:40px;max-width:1100px;line-height:1.45;">Design review for school leadership · 208 cameras · seven tools · two roles</div>
+</section>
+
+<section data-label="The problem" data-speaker-notes="The first build was a conventional dashboard. Thirteen sections, dense tables. Staff told us it was exhausting: too much information, hard to concentrate, unpleasant to use." style="background:#f2f5f2;font-family:'Albert Sans',sans-serif;color:#1f2b26;display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:100px;padding:0 150px;">
+  <div>
+    <div style="font-size:26px;font-weight:700;letter-spacing:.12em;color:#8a968e;margin-bottom:28px;">WHERE WE STARTED</div>
+    <div style="font-weight:700;font-size:66px;line-height:1.1;letter-spacing:-.03em;">The first version was a dashboard. It tested badly.</div>
+    <div style="font-size:28px;color:#57655d;line-height:1.5;margin-top:36px;max-width:640px;">Thirteen sections and dense tables. Staff said the same three things: too much information, hard to concentrate, unpleasant to use.</div>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:22px;">
+    <div style="background:#fff;border-radius:22px;padding:34px 38px;box-shadow:0 1px 3px rgba(30,42,36,.07);"><div style="font-size:68px;font-weight:800;letter-spacing:-.03em;color:#a5372c;">13</div><div style="font-size:24px;color:#57655d;margin-top:4px;">sections competing for attention</div></div>
+    <div style="background:#fff;border-radius:22px;padding:34px 38px;box-shadow:0 1px 3px rgba(30,42,36,.07);"><div style="font-size:68px;font-weight:800;letter-spacing:-.03em;color:#a5372c;">∞</div><div style="font-size:24px;color:#57655d;margin-top:4px;">alerts in a feed nobody finished reading</div></div>
+    <div style="background:#fff;border-radius:22px;padding:34px 38px;box-shadow:0 1px 3px rgba(30,42,36,.07);"><div style="font-size:68px;font-weight:800;letter-spacing:-.03em;color:#33705b;">1</div><div style="font-size:24px;color:#57655d;margin-top:4px;">question box in the version you'll see today</div></div>
+  </div>
+</section>
+
+<section data-label="The idea" data-speaker-notes="One idea drove the rebuild: it should feel like asking a knowledgeable colleague a question — not reading a control panel." style="background:#33705b;font-family:'Albert Sans',sans-serif;color:#eef4ef;display:flex;flex-direction:column;justify-content:center;padding:0 170px;">
+  <div style="font-size:26px;font-weight:700;letter-spacing:.12em;color:#a9cdbd;margin-bottom:40px;">THE ONE IDEA</div>
+  <div style="font-weight:700;font-size:82px;line-height:1.15;letter-spacing:-.03em;max-width:1450px;text-wrap:pretty;">It should feel like asking a knowledgeable person a question — not reading a control panel.</div>
+  <div style="font-size:30px;color:#c2ddd0;margin-top:48px;max-width:1150px;line-height:1.45;">A small number of tools. Each answers one question clearly. Everything else stays out of the way until it's asked for.</div>
+</section>
+
+<section data-label="Home" data-speaker-notes="The home screen is a question box, a few examples, and at most three things that need attention. No feed, no wall of tiles." style="background:#f2f5f2;font-family:'Albert Sans',sans-serif;color:#1f2b26;display:grid;grid-template-columns:1fr 1.25fr;align-items:center;gap:90px;padding:0 130px;">
+  <div>
+    <div style="font-size:26px;font-weight:700;letter-spacing:.12em;color:#8a968e;margin-bottom:26px;">HOME</div>
+    <div style="font-weight:700;font-size:60px;line-height:1.1;letter-spacing:-.03em;">One box. Ask in plain words.</div>
+    <div style="display:flex;flex-direction:column;gap:24px;margin-top:40px;font-size:25px;color:#57655d;line-height:1.45;">
+      <div>“Who was absent today?” routes straight to attendance — no menu hunting.</div>
+      <div>Needs-your-attention is capped at three real items, never an alert feed.</div>
+      <div>Tools sit below, quiet until wanted.</div>
+    </div>
+  </div>
+  <div style="background:#fff;border-radius:26px;padding:14px;box-shadow:0 30px 70px rgba(30,42,36,.18);width:937px;justify-self:center;">
+    <img src="shots/01-web-home.png" style="width:100%;display:block;border-radius:16px;">
+  </div>
+</section>
+
+<section data-label="Same shape" data-speaker-notes="Every one of the seven tools follows the same four-part shape. Learn one, you've learned all seven." style="background:#f2f5f2;font-family:'Albert Sans',sans-serif;color:#1f2b26;display:flex;flex-direction:column;justify-content:center;padding:0 150px;">
+  <div style="font-weight:700;font-size:62px;line-height:1.1;letter-spacing:-.03em;margin-bottom:14px;">Seven tools, one shape</div>
+  <div style="font-size:28px;color:#57655d;margin-bottom:60px;">Learn one and you have learned all of them.</div>
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:24px;">
+    <div style="background:#fff;border-radius:22px;padding:34px;box-shadow:0 1px 3px rgba(30,42,36,.07);"><div style="width:44px;height:44px;border-radius:14px;background:#dfe9e0;color:#285948;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:26px;">1</div><div style="font-weight:700;font-size:28px;margin:22px 0 10px;" data-x="a">A short question</div><div style="font-size:25px;color:#57655d;line-height:1.45;">Two to four plain-language fields. Never a filter panel.</div></div>
+    <div style="background:#fff;border-radius:22px;padding:34px;box-shadow:0 1px 3px rgba(30,42,36,.07);"><div style="width:44px;height:44px;border-radius:14px;background:#dfe9e0;color:#285948;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:26px;">2</div><div style="font-weight:700;font-size:28px;margin:22px 0 10px;">One headline answer</div><div style="font-size:25px;color:#57655d;line-height:1.45;">“1,679 of 1,742 arrived.” In a sentence, not a table.</div></div>
+    <div style="background:#fff;border-radius:22px;padding:34px;box-shadow:0 1px 3px rgba(30,42,36,.07);"><div style="width:44px;height:44px;border-radius:14px;background:#dfe9e0;color:#285948;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:26px;">3</div><div style="font-weight:700;font-size:28px;margin:22px 0 10px;">Detail if wanted</div><div style="font-size:25px;color:#57655d;line-height:1.45;">The follow-up list sits below the answer, not above it.</div></div>
+    <div style="background:#fff;border-radius:22px;padding:34px;box-shadow:0 1px 3px rgba(30,42,36,.07);"><div style="width:44px;height:44px;border-radius:14px;background:#dfe9e0;color:#285948;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:26px;">4</div><div style="font-weight:700;font-size:28px;margin:22px 0 10px;">The footage, inline</div><div style="font-size:25px;color:#57655d;line-height:1.45;">You never have to go hunting for the camera it came from.</div></div>
+  </div>
+</section>
+
+<section data-label="Answer example" data-speaker-notes="Attendance, in practice. The number first, the five people who need a follow-up second, the entrance cameras last." style="background:#f2f5f2;font-family:'Albert Sans',sans-serif;color:#1f2b26;display:grid;grid-template-columns:1.25fr 1fr;align-items:center;gap:90px;padding:0 130px;">
+  <div style="background:#fff;border-radius:26px;padding:14px;box-shadow:0 30px 70px rgba(30,42,36,.18);width:937px;justify-self:center;">
+    <img src="shots/01-web.png" style="width:100%;display:block;border-radius:16px;">
+  </div>
+  <div>
+    <div style="font-size:26px;font-weight:700;letter-spacing:.12em;color:#8a968e;margin-bottom:26px;">ATTENDANCE</div>
+    <div style="font-weight:700;font-size:58px;line-height:1.1;letter-spacing:-.03em;">The answer comes first.</div>
+    <div style="font-size:26px;color:#57655d;line-height:1.5;margin-top:36px;">Then the handful of students who actually need a call home — with the action right there on the row, for admins only.</div>
+  </div>
+</section>
+
+<section data-label="Camera language" data-speaker-notes="Camera overlays are a small visual language: a box for a face, a dashed line for counting, orange for a restricted zone, red for a genuine problem, green for a found item. Colour is never the only signal — every overlay is labelled." style="background:#f2f5f2;font-family:'Albert Sans',sans-serif;color:#1f2b26;display:grid;grid-template-columns:1fr 1.25fr;align-items:center;gap:90px;padding:0 130px;">
+  <div>
+    <div style="font-size:26px;font-weight:700;letter-spacing:.12em;color:#8a968e;margin-bottom:26px;">WHAT YOU SEE ON A CAMERA</div>
+    <div style="font-weight:700;font-size:56px;line-height:1.1;letter-spacing:-.03em;margin-bottom:36px;">Five marks, and every one is labelled.</div>
+    <div style="display:flex;flex-direction:column;gap:18px;">
+      <div style="display:flex;align-items:center;gap:18px;"><span style="width:44px;height:30px;border:3px solid #3ec776;border-radius:5px;flex-shrink:0;"></span><span style="font-size:24px;color:#57655d;">Recognised person, with name and confidence</span></div>
+      <div style="display:flex;align-items:center;gap:18px;"><span style="width:44px;height:30px;border-top:3px dashed #5b9bd8;flex-shrink:0;"></span><span style="font-size:24px;color:#57655d;">Counting line — people counted as they cross</span></div>
+      <div style="display:flex;align-items:center;gap:18px;"><span style="width:44px;height:30px;border:3px solid #dfa23f;background:rgba(223,162,63,.16);border-radius:5px;flex-shrink:0;"></span><span style="font-size:24px;color:#57655d;">Restricted zone, and whether it is paused</span></div>
+      <div style="display:flex;align-items:center;gap:18px;"><span style="width:44px;height:30px;border:3px solid #e5564a;border-radius:5px;flex-shrink:0;"></span><span style="font-size:24px;color:#57655d;">A genuine active problem — nothing else uses red</span></div>
+      <div style="display:flex;align-items:center;gap:18px;"><span style="width:44px;height:30px;border:3px solid #3ec776;border-radius:5px;flex-shrink:0;"></span><span style="font-size:24px;color:#57655d;">A matched lost item, ranked by confidence</span></div>
+    </div>
+  </div>
+  <div style="background:#fff;border-radius:26px;padding:14px;box-shadow:0 30px 70px rgba(30,42,36,.18);width:937px;justify-self:center;">
+    <img src="shots/03-web.png" style="width:100%;display:block;border-radius:16px;">
+  </div>
+</section>
+
+<section data-label="Honesty" data-speaker-notes="The system tells the truth about itself: it says when it is thinking, it publishes its false alarms, and it admits what is not built yet." style="background:#e9efe9;font-family:'Albert Sans',sans-serif;color:#1f2b26;display:flex;flex-direction:column;justify-content:center;padding:0 150px;">
+  <div style="font-weight:700;font-size:62px;line-height:1.1;letter-spacing:-.03em;">An AI that admits what it doesn't know</div>
+  <div style="font-size:28px;color:#57655d;margin:20px 0 58px;max-width:1200px;">Confidence is earned by being honest on the ordinary days, not by looking clever.</div>
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:26px;">
+    <div style="background:#fff;border-radius:22px;padding:38px;box-shadow:0 1px 3px rgba(30,42,36,.07);">
+      <div style="font-weight:700;font-size:30px;margin-bottom:14px;">“Searching footage…”</div>
+      <div style="font-size:25px;color:#57655d;line-height:1.5;">A lost-item search says what it is doing and roughly how long it takes, instead of freezing.</div>
+      <div style="height:10px;background:#f2f5f2;border-radius:6px;margin-top:26px;overflow:hidden;"><div style="height:100%;width:38%;background:#33705b;border-radius:6px;"></div></div>
+    </div>
+    <div style="background:#fff;border-radius:22px;padding:38px;box-shadow:0 1px 3px rgba(30,42,36,.07);">
+      <div style="font-weight:700;font-size:30px;margin-bottom:14px;">False alarms, in public</div>
+      <div style="font-size:25px;color:#57655d;line-height:1.5;">Weapon detections are listed with their outcomes — including the kitchen knife and the toy.</div>
+      <div style="display:flex;gap:10px;margin-top:26px;flex-wrap:wrap;"><span style="padding:7px 16px;border-radius:10px;background:#f2f5f2;color:#57655d;font-size:24px;font-weight:600;">False alarm</span><span style="padding:7px 16px;border-radius:10px;background:#f7e3e0;color:#a5372c;font-size:24px;font-weight:600;">Confirmed</span></div>
+    </div>
+    <div style="background:#fff;border-radius:22px;padding:38px;box-shadow:0 1px 3px rgba(30,42,36,.07);border:2px dashed #cfd9d0;">
+      <div style="font-weight:700;font-size:30px;margin-bottom:14px;">“Not connected yet”</div>
+      <div style="font-size:25px;color:#57655d;line-height:1.5;">Live streaming isn't wired up in this build, and the interface says so rather than faking a feed.</div>
+      <div style="margin-top:26px;font-size:24px;color:#8a968e;">Offline cameras show a marked last frame.</div>
+    </div>
+  </div>
+</section>
+
+<section data-label="Trust" data-speaker-notes="This system watches children. Trust has to be visible in the interface, not just promised in the backend: searches for a named person are logged in front of you, and telling the system it was wrong is acknowledged." style="background:#f2f5f2;font-family:'Albert Sans',sans-serif;color:#1f2b26;display:grid;grid-template-columns:1.25fr 1fr;align-items:center;gap:90px;padding:0 130px;">
+  <div style="background:#fff;border-radius:26px;padding:14px;box-shadow:0 30px 70px rgba(30,42,36,.18);width:937px;justify-self:center;">
+    <img src="shots/02-web-home.png" style="width:100%;display:block;border-radius:16px;">
+  </div>
+  <div>
+    <div style="font-size:26px;font-weight:700;letter-spacing:.12em;color:#8a968e;margin-bottom:26px;">TRUST, VISIBLE</div>
+    <div style="font-weight:700;font-size:56px;line-height:1.1;letter-spacing:-.03em;">Searching for a child is never quiet.</div>
+    <div style="font-size:25px;color:#57655d;line-height:1.5;margin-top:34px;">The warning appears before the search, and the confirmation appears with the result: this search has been recorded in the audit log, with your name, visible to every administrator.</div>
+    <div style="font-size:25px;color:#57655d;line-height:1.5;margin-top:24px;">Flagging a false alert gets a visible thank-you — staff can see that their correction landed.</div>
+  </div>
+</section>
+
+<section data-label="Tone" data-speaker-notes="Why it looks the way it does: this is a wellbeing tool, not security software. Sage green, soft cards, plain sentences, no tactical iconography. Red is reserved for a genuine active problem." style="background:#f2f5f2;font-family:'Albert Sans',sans-serif;color:#1f2b26;display:flex;flex-direction:column;justify-content:center;padding:0 150px;">
+  <div style="font-size:26px;font-weight:700;letter-spacing:.12em;color:#8a968e;margin-bottom:26px;">WHY IT LOOKS LIKE THIS</div>
+  <div style="font-weight:700;font-size:64px;line-height:1.1;letter-spacing:-.03em;max-width:1400px;">It watches children, so it should feel like care — not surveillance.</div>
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:24px;margin-top:64px;">
+    <div><div style="height:120px;border-radius:20px;background:#33705b;"></div><div style="font-weight:700;font-size:24px;margin-top:16px;">Sage, not black</div><div style="font-size:24px;color:#57655d;line-height:1.45;margin-top:4px;">A calm palette borrowed from wellbeing, not from security kit.</div></div>
+    <div><div style="height:120px;border-radius:20px;background:#a5372c;"></div><div style="font-weight:700;font-size:24px;margin-top:16px;">Red means now</div><div style="font-size:24px;color:#57655d;line-height:1.45;margin-top:4px;">Reserved for a real, active problem. Never decoration.</div></div>
+    <div><div style="height:120px;border-radius:20px;background:#fff;display:flex;align-items:center;justify-content:center;font-size:26px;color:#57655d;font-weight:600;">Aa</div><div style="font-weight:700;font-size:24px;margin-top:16px;">Plain human copy</div><div style="font-size:24px;color:#57655d;line-height:1.45;margin-top:4px;">“Who was absent today?” — not “Attendance Query Module”.</div></div>
+    <div><div style="height:120px;border-radius:20px;background:#161c19;"></div><div style="font-weight:700;font-size:24px;margin-top:16px;">Dark mode</div><div style="font-size:24px;color:#57655d;line-height:1.45;margin-top:4px;">For staff with this open all day in an ops room.</div></div>
+  </div>
+</section>
+
+<section data-label="Roles" data-speaker-notes="Two roles. Admin owns anything involving people. IT owns the technical side. Both can use all seven tools, including tracking — because IT has to be able to verify it works — and that search is logged for both." style="background:#e9efe9;font-family:'Albert Sans',sans-serif;color:#1f2b26;display:flex;flex-direction:column;justify-content:center;padding:0 150px;">
+  <div style="font-weight:700;font-size:62px;line-height:1.1;letter-spacing:-.03em;margin-bottom:52px;">Two roles, one console</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:26px;">
+    <div style="background:#fff;border-radius:24px;padding:44px;box-shadow:0 1px 3px rgba(30,42,36,.07);">
+      <div style="font-weight:700;font-size:34px;">Admin</div>
+      <div style="font-size:24px;color:#8a968e;margin-top:4px;">School staff</div>
+      <div style="font-size:25px;color:#57655d;line-height:1.6;margin-top:26px;">Anything involving people: contacting parents, exporting records, managing who can sign in. Their home screen opens on attendance and incidents.</div>
+    </div>
+    <div style="background:#fff;border-radius:24px;padding:44px;box-shadow:0 1px 3px rgba(30,42,36,.07);">
+      <div style="font-weight:700;font-size:34px;">IT</div>
+      <div style="font-size:24px;color:#8a968e;margin-top:4px;">Runs the system</div>
+      <div style="font-size:25px;color:#57655d;line-height:1.6;margin-top:26px;">Cameras, recorders, backups, system status. No student records, no account changes. Their home screen opens on what is broken.</div>
+    </div>
+  </div>
+  <div style="background:#dfe9e0;border-radius:20px;padding:30px 38px;margin-top:26px;font-size:25px;color:#285948;line-height:1.5;">Both roles can search for a named person — IT has to be able to check the feature works. Every one of those searches is logged either way.</div>
+</section>
+
+<section data-label="Mobile" data-speaker-notes="The same seven tools on the phone, for the staff who are walking the corridors rather than sitting at a desk. Same shape, same language, one thumb." style="background:#f2f5f2;font-family:'Albert Sans',sans-serif;color:#1f2b26;display:grid;grid-template-columns:1fr 1.15fr;align-items:center;gap:80px;padding:0 130px;">
+  <div>
+    <div style="font-size:26px;font-weight:700;letter-spacing:.12em;color:#8a968e;margin-bottom:26px;">ON THE PHONE</div>
+    <div style="font-weight:700;font-size:58px;line-height:1.1;letter-spacing:-.03em;">For the staff who are walking, not sitting.</div>
+    <div style="font-size:25px;color:#57655d;line-height:1.5;margin-top:34px;">The same question box, the same two attention cards, the same seven tools — stacked for one thumb, with the footage still inline.</div>
+  </div>
+  <div style="display:flex;gap:34px;justify-content:center;">
+    <div style="background:#fff;border-radius:26px;padding:12px;box-shadow:0 24px 60px rgba(30,42,36,.18);width:372px;height:516px;overflow:hidden;"><img src="shots/01-mob.png" style="width:909px;display:block;margin-left:-256px;border-radius:0;"></div>
+    <div style="background:#fff;border-radius:26px;padding:12px;box-shadow:0 24px 60px rgba(30,42,36,.18);width:372px;height:516px;overflow:hidden;"><img src="shots/02-mob.png" style="width:909px;display:block;margin-left:-256px;border-radius:0;"></div>
+  </div>
+</section>
+
+<section data-label="Next" data-speaker-notes="What we need from you: real footage stills to replace the placeholders, a decision on the school's own wording for parent contact, and sign-off on the two-role split before we wire the backend." style="background:#33705b;font-family:'Albert Sans',sans-serif;color:#eef4ef;display:flex;flex-direction:column;justify-content:center;padding:0 170px;">
+  <div style="font-weight:700;font-size:66px;line-height:1.1;letter-spacing:-.03em;margin-bottom:56px;">What we need from you</div>
+  <div style="display:flex;flex-direction:column;gap:30px;max-width:1400px;">
+    <div style="display:flex;gap:26px;align-items:flex-start;"><span style="font-size:30px;font-weight:700;color:#a9cdbd;flex-shrink:0;width:44px;">01</span><span style="font-size:32px;line-height:1.45;">Real camera stills, so the footage stops being a placeholder.</span></div>
+    <div style="display:flex;gap:26px;align-items:flex-start;"><span style="font-size:30px;font-weight:700;color:#a9cdbd;flex-shrink:0;width:44px;">02</span><span style="font-size:32px;line-height:1.45;">Your wording for anything that reaches a parent.</span></div>
+    <div style="display:flex;gap:26px;align-items:flex-start;"><span style="font-size:30px;font-weight:700;color:#a9cdbd;flex-shrink:0;width:44px;">03</span><span style="font-size:32px;line-height:1.45;">Sign-off on the two-role split and on tracking being logged for everyone.</span></div>
+    <div style="display:flex;gap:26px;align-items:flex-start;"><span style="font-size:30px;font-weight:700;color:#a9cdbd;flex-shrink:0;width:44px;">04</span><span style="font-size:32px;line-height:1.45;">A date to sit with two staff members and watch them use it.</span></div>
+  </div>
+</section>
+
+</x-import>
+</x-dc>
+</body>
+</html>

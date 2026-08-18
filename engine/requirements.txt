@@ -1,0 +1,52 @@
+# VisionGuard engine.
+#
+# PyTorch is deliberately NOT pinned here — install it first, matched to your
+# CUDA version, from https://pytorch.org. This machine runs torch 2.11.0+cu128
+# on a driver reporting CUDA 12.7, which works.
+#
+#   pip install -r engine/requirements.txt
+#
+# Verified working on Python 3.14 as of Aug 2026.
+
+# --- inference -------------------------------------------------------------
+ultralytics>=8.4.7          # YOLOv8/11 + YOLO-World + built-in ByteTrack
+opencv-python>=4.13         # decode, drawing, YuNet/SFace via cv2.FaceDetectorYN
+numpy>=1.26
+lap>=0.5                    # Hungarian assignment, required by ByteTrack
+
+# --- api -------------------------------------------------------------------
+fastapi>=0.115
+uvicorn[standard]>=0.32     # includes websockets + httptools
+pydantic>=2.9
+pydantic-settings>=2.6
+python-multipart>=0.0.12    # form uploads (face enrolment photos)
+
+# --- persistence -----------------------------------------------------------
+SQLAlchemy>=2.0
+alembic>=1.14               # schema migrations once the event tables settle
+
+# --- config / util ---------------------------------------------------------
+PyYAML>=6.0
+python-dotenv>=1.0          # camera credentials stay out of the repo
+psutil>=6.0                 # REQUIRED: serve.py's orphan cleanup imports this
+                            # inside a try/except and returns silently if it is
+                            # missing, so without it the safety net that frees
+                            # the camera and port 8000 does nothing at all
+tzdata                      # REQUIRED on Windows: no system tz database, so
+                            # zoneinfo cannot resolve Africa/Cairo without it
+                            # and every timestamp would render in UTC
+
+# --- model audit -----------------------------------------------------------
+onnx>=1.17                  # read graph metadata out of the .onnx files
+
+# --- dev / CI --------------------------------------------------------------
+pytest>=8.0
+pyflakes>=3.2               # catches a name used but never bound, in ~1s. That
+                            # is the exact bug that silently killed face
+                            # recognition: the NameError was swallowed by a
+                            # broad except and the console fell back to fixtures
+
+# --- deferred, install when the stage needs them ---------------------------
+# torchreid            body re-ID (Stage: track a person). Known Python 3.14 risk.
+# faiss-cpu / pgvector embedding index once the gallery outgrows a linear scan.
+# tensorrt             only on the deployment machine, for building .engine files.

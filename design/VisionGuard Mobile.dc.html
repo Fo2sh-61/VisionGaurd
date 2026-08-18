@@ -1,0 +1,1149 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Albert+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#f2f5f2;--panel:#e9efe9;--card:#ffffff;--line:#e0e7e1;--tx:#1f2b26;--tx2:#57655d;--tx3:#8a968e;--ac:#33705b;--ac2:#285948;--chip:#dfe9e0;--rd:#a5372c;--rd-bg:#f7e3e0;--am:#8a6a14;--am-bg:#f3ecd9;--sh:0 1px 3px rgba(30,42,36,.07);}
+body.vgdark{--bg:#161c19;--panel:#1c2420;--card:#212a25;--line:#2e3933;--tx:#e4eae5;--tx2:#a3b0a8;--tx3:#718076;--ac:#5cae91;--ac2:#7cc3a9;--chip:#2a3d34;--rd:#d97e70;--rd-bg:#41302c;--am:#cfa955;--am-bg:#3a3527;--sh:0 1px 3px rgba(0,0,0,.3);}
+body{margin:0;font-family:'Albert Sans',sans-serif;background:#dfe4e0;color:var(--tx);}
+body.vgdark{background:#0e1311;}
+a{color:var(--ac);text-decoration:none;} a:hover{color:var(--ac2);}
+input,select,button{font-family:inherit;}
+@keyframes vg-pulse{0%,100%{opacity:1}50%{opacity:.3}}
+@keyframes vg-scan{0%{left:-30%}100%{left:110%}}
+</style>
+</helmet>
+<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:40px 20px;">
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" hint-size="402px,874px">
+  <div style="height:100%;display:flex;flex-direction:column;background:var(--bg);font-family:'Albert Sans',sans-serif;">
+
+    <sc-if value="{{ showLogin }}" hint-placeholder-val="{{ true }}">
+      <div style="flex:1;display:flex;flex-direction:column;justify-content:center;padding:62px 24px 40px;">
+        <div style="display:flex;flex-direction:column;align-items:center;gap:12px;margin-bottom:34px;">
+          <div style="width:52px;height:52px;border-radius:17px;background:var(--ac);display:flex;align-items:center;justify-content:center;"><div style="width:22px;height:22px;border-radius:50% 50% 50% 6px;background:var(--bg);"></div></div>
+          <div style="font-weight:800;font-size:21px;letter-spacing:-.02em;white-space:nowrap;">VisionGuard <span style="font-weight:500;color:var(--tx3);">AI</span></div>
+          <div style="font-size:13px;color:var(--tx3);text-align:center;">{{ schoolName }}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          <div><div style="font-size:12.5px;font-weight:600;color:var(--tx2);margin-bottom:6px;">Email</div>
+            <input defaultValue="mohamed61fouad@gmail.com" style="width:100%;height:50px;border:none;border-radius:14px;padding:0 15px;font-size:15px;background:var(--card);color:var(--tx);outline:none;box-shadow:var(--sh);box-sizing:border-box;"></div>
+          <div><div style="font-size:12.5px;font-weight:600;color:var(--tx2);margin-bottom:6px;">Password</div>
+            <input type="password" defaultValue="demo1234" onKeyDown="{{ loginKey }}" style="width:100%;height:50px;border:none;border-radius:14px;padding:0 15px;font-size:15px;background:var(--card);color:var(--tx);outline:none;box-shadow:var(--sh);box-sizing:border-box;"></div>
+          <button onClick="{{ signIn }}" style="height:52px;border:none;border-radius:14px;background:var(--ac);color:#fff;font-size:15.5px;font-weight:600;width:100%;margin-top:6px;">Sign in</button>
+          <div onClick="{{ signIn }}" style="display:flex;align-items:center;justify-content:center;gap:8px;background:var(--chip);border-radius:13px;padding:12px 14px;margin-top:6px;min-height:44px;box-sizing:border-box;">
+            <span style="font-size:13px;color:var(--ac2);font-weight:600;">Use Face ID instead</span>
+          </div>
+          <div style="font-size:12.5px;color:var(--tx3);text-align:center;margin-top:10px;line-height:1.4;">Demo build — any password is accepted.</div>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ authed }}" hint-placeholder-val="{{ false }}">
+    <div style="flex:1;overflow:auto;padding:62px 0 14px;">
+
+      <sc-if value="{{ vHome }}" hint-placeholder-val="{{ true }}">
+        <div style="padding:0 20px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;">
+            <div style="display:flex;align-items:center;gap:9px;">
+              <div style="width:30px;height:30px;border-radius:10px;background:var(--ac);display:flex;align-items:center;justify-content:center;flex-shrink:0;"><div style="width:13px;height:13px;border-radius:50% 50% 50% 4px;background:var(--bg);"></div></div>
+              <div><div style="font-weight:700;font-size:14.5px;line-height:1.15;">VisionGuard AI</div><div style="font-size:11px;color:var(--tx3);">{{ statusLine }}</div></div>
+            </div>
+            <div onClick="{{ goAccount }}" style="width:34px;height:34px;border-radius:50%;background:var(--chip);display:flex;align-items:center;justify-content:center;font-weight:600;font-size:12.5px;color:var(--ac2);">{{ whoInit }}</div>
+          </div>
+          <div style="font-weight:700;font-size:25px;letter-spacing:-.02em;line-height:1.2;">{{ greeting }}<br>What do you need to know?</div>
+          <div onClick="{{ focusAsk }}" style="display:flex;align-items:center;gap:10px;background:var(--card);border-radius:16px;padding:0 6px 0 16px;height:54px;box-shadow:var(--sh);margin:16px 0 12px;">
+            <input ref="{{ askRef }}" onKeyDown="{{ askKey }}" placeholder="Ask in plain words…" style="flex:1;min-width:0;border:none;background:transparent;font-size:15px;color:var(--tx);outline:none;">
+            <button onClick="{{ doAsk }}" style="height:42px;padding:0 18px;border:none;border-radius:12px;background:var(--ac);color:#fff;font-weight:600;font-size:14.5px;">Ask</button>
+          </div>
+          <sc-if value="{{ hasAskNote }}" hint-placeholder-val="{{ false }}">
+            <div style="font-size:13px;color:var(--am);background:var(--am-bg);padding:9px 13px;border-radius:11px;margin-bottom:12px;">{{ askNote }}</div>
+          </sc-if>
+          <div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:6px;margin-bottom:26px;">
+            <sc-for list="{{ chips }}" as="c" hint-placeholder-count="4">
+              <span onClick="{{ c.go }}" style="padding:8px 14px;border-radius:11px;font-size:13px;color:var(--ac2);background:var(--chip);font-weight:500;white-space:nowrap;flex-shrink:0;">{{ c.q }}</span>
+            </sc-for>
+          </div>
+          <div style="font-weight:700;font-size:15.5px;margin-bottom:10px;">Needs your attention</div>
+          <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:26px;">
+            <sc-for list="{{ attn }}" as="a" hint-placeholder-count="2">
+              <div onClick="{{ a.go }}" style="background:var(--card);border-radius:16px;padding:16px;box-shadow:var(--sh);">
+                <div style="display:inline-flex;align-items:center;gap:6px;background:{{ a.bg }};color:{{ a.c }};font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:8px;margin-bottom:9px;white-space:nowrap;"><span aria-hidden="true" style="width:15px;height:15px;border-radius:50%;background:{{ a.c }};color:{{ a.bg }};display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;line-height:1;">{{ a.ic }}</span>{{ a.k }}</div>
+                <div style="font-weight:600;font-size:14.5px;line-height:1.3;">{{ a.t }}</div>
+                <div style="font-size:12.5px;color:var(--tx3);margin:3px 0 10px;">{{ a.s }}</div>
+                <span style="font-weight:600;font-size:13.5px;color:var(--ac);">{{ a.act }} →</span>
+              </div>
+            </sc-for>
+          </div>
+          <div style="font-weight:700;font-size:15.5px;margin-bottom:10px;">Campus today</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:26px;">
+            <sc-for list="{{ todayStats }}" as="ts" hint-placeholder-count="4">
+              <div style="background:var(--card);border-radius:14px;padding:14px 16px;box-shadow:var(--sh);">
+                <div style="font-size:12px;color:var(--tx2);">{{ ts.l }}</div>
+                <div style="font-size:24px;font-weight:700;letter-spacing:-.02em;">{{ ts.v }}</div>
+              </div>
+            </sc-for>
+          </div>
+          <div style="font-weight:700;font-size:15.5px;margin-bottom:10px;">Pick up where you left off</div>
+          <div style="display:flex;flex-direction:column;gap:10px;">
+            <sc-for list="{{ recent }}" as="r" hint-placeholder-count="3">
+              <div onClick="{{ r.go }}" style="display:flex;align-items:center;gap:12px;background:var(--card);border-radius:14px;padding:15px 16px;box-shadow:var(--sh);min-height:44px;">
+                <div style="flex:1;min-width:0;"><div style="font-weight:600;font-size:14px;">{{ r.t }}</div><div style="font-size:12px;color:var(--tx3);">{{ r.s }}</div></div>
+                <span style="color:var(--tx3);font-size:17px;flex-shrink:0;">›</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ vTool }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;align-items:center;gap:12px;padding:0 20px 14px;">
+          <div onClick="{{ back }}" style="width:34px;height:34px;border-radius:50%;background:var(--card);box-shadow:var(--sh);display:flex;align-items:center;justify-content:center;font-size:16px;color:var(--tx2);flex-shrink:0;">‹</div>
+          <div style="font-weight:700;font-size:19px;letter-spacing:-.01em;">{{ toolTitle }}</div>
+        </div>
+        <div style="padding:0 20px 6px;font-size:13.5px;color:var(--tx2);line-height:1.4;">{{ toolLead }}</div>
+
+        <sc-if value="{{ isTrack }}" hint-placeholder-val="{{ false }}">
+          <div style="margin:12px 20px 0;background:var(--am-bg);border-radius:13px;padding:12px 14px;font-size:12.5px;color:var(--am);line-height:1.4;">⚑ Every tracking search is recorded in the audit log with your name.</div>
+        </sc-if>
+
+        <div style="margin:14px 20px;background:var(--card);border-radius:16px;padding:16px;box-shadow:var(--sh);display:flex;flex-direction:column;gap:12px;">
+          <sc-for list="{{ fields }}" as="f" hint-placeholder-count="2">
+            <div style="display:flex;flex-direction:column;gap:5px;">
+              <label style="font-size:12px;font-weight:600;color:var(--tx2);">{{ f.label }}</label>
+              <select ref="{{ f.ref }}" onChange="{{ f.change }}" style="height:46px;border:1px solid var(--line);border-radius:12px;padding:0 12px;font-size:15px;background:var(--card);color:var(--tx);outline:none;width:100%;box-sizing:border-box;">
+                <sc-for list="{{ f.options }}" as="o" hint-placeholder-count="3"><option>{{ o }}</option></sc-for>
+              </select>
+            </div>
+          </sc-for>
+          <button onClick="{{ runTool }}" style="height:48px;border:none;border-radius:13px;background:var(--ac);color:#fff;font-weight:600;font-size:15px;width:100%;">{{ runLabel }}</button>
+        </div>
+
+        <sc-if value="{{ showEmpty }}" hint-placeholder-val="{{ true }}">
+          <div style="text-align:center;padding:44px 30px;color:var(--tx3);font-size:14px;line-height:1.4;">{{ emptyText }}</div>
+        </sc-if>
+
+        <sc-if value="{{ showSearching }}" hint-placeholder-val="{{ false }}">
+          <div style="margin:0 20px;background:var(--card);border-radius:16px;padding:20px;box-shadow:var(--sh);">
+            <div style="font-weight:700;font-size:15.5px;">Searching footage…</div>
+            <div style="font-size:13px;color:var(--tx2);margin:3px 0 14px;line-height:1.4;">Checking 42 cameras across the selected area and time.</div>
+            <div style="height:8px;background:var(--bg);border-radius:6px;overflow:hidden;position:relative;">
+              <div style="position:absolute;top:0;bottom:0;width:30%;background:var(--ac);border-radius:6px;animation:vg-scan 1.1s linear infinite;"></div>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ isWeapon }}" hint-placeholder-val="{{ false }}">
+          <sc-if value="{{ wpClear }}" hint-placeholder-val="{{ true }}">
+            <div style="margin:0 20px 12px;background:var(--card);border-radius:16px;padding:16px;box-shadow:var(--sh);display:flex;align-items:center;gap:12px;">
+              <div style="width:40px;height:40px;border-radius:50%;background:var(--chip);color:var(--ac);display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0;">✓</div>
+              <div style="flex:1;min-width:0;"><div style="font-weight:600;font-size:14.5px;">Nothing detected right now</div><div onClick="{{ wpSimulate }}" style="font-size:12.5px;color:var(--ac);font-weight:600;margin-top:2px;">Show a live detection →</div></div>
+            </div>
+          </sc-if>
+          <sc-if value="{{ wpLive }}" hint-placeholder-val="{{ false }}">
+            <div style="margin:0 20px 12px;background:var(--card);border:2px solid var(--rd);border-radius:16px;padding:18px;box-shadow:var(--sh);">
+              <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">
+                <span aria-hidden="true" style="width:24px;height:24px;border-radius:50%;background:var(--rd);color:var(--card);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;line-height:1;flex-shrink:0;">!</span>
+                <div style="font-weight:700;font-size:17px;letter-spacing:-.01em;color:var(--rd);line-height:1.25;">Possible weapon — Main gate</div>
+              </div>
+              <div style="font-size:12.5px;color:var(--tx2);line-height:1.4;margin-bottom:14px;">14 seconds ago · knife-shaped object, 78% confidence · nobody has been alerted yet.</div>
+              <dc-import name="CamGrid" title="" note="" cams="{{ wpLiveCam }}" hint-size="100%,190px"></dc-import>
+              <div style="font-size:12.5px;color:var(--tx2);line-height:1.45;margin:14px 0 12px;">The system will not call anyone or notify a parent on its own. Watch the clip and say what you see.</div>
+              <div style="display:flex;flex-direction:column;gap:9px;">
+                <button onClick="{{ wpConfirm }}" style="height:48px;border:none;border-radius:13px;background:var(--rd);color:#fff;font-weight:600;font-size:14.5px;width:100%;">This is a weapon — alert the team</button>
+                <button onClick="{{ wpDismiss }}" style="height:48px;border:1px solid var(--line);border-radius:13px;background:var(--card);color:var(--tx);font-weight:600;font-size:14.5px;width:100%;">Not a weapon — false alarm</button>
+                <button onClick="{{ wpDismiss }}" style="height:44px;border:none;border-radius:13px;background:transparent;color:var(--tx3);font-weight:600;font-size:13.5px;width:100%;">Not sure yet — keep watching</button>
+              </div>
+            </div>
+          </sc-if>
+          <sc-if value="{{ wpConfirmed }}" hint-placeholder-val="{{ false }}">
+            <div style="margin:0 20px 12px;background:var(--card);border-radius:16px;padding:18px;box-shadow:var(--sh);">
+              <div style="display:flex;align-items:center;gap:10px;">
+                <span aria-hidden="true" style="width:22px;height:22px;border-radius:50%;background:var(--rd);color:var(--card);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;line-height:1;flex-shrink:0;">!</span>
+                <div style="font-weight:700;font-size:16px;letter-spacing:-.01em;line-height:1.25;">Confirmed by you at 8:47am</div>
+              </div>
+              <div style="font-size:12.5px;color:var(--tx2);line-height:1.4;margin:4px 0 12px;">Mohamed Fouad confirmed this detection. Everything below is recorded against the incident.</div>
+              <sc-for list="{{ wpSteps }}" as="ws" hint-placeholder-count="4">
+                <div style="display:flex;align-items:center;gap:11px;padding:11px 0;border-bottom:1px solid var(--line);">
+                  <span aria-hidden="true" style="width:20px;height:20px;border-radius:50%;background:{{ ws.bg }};color:{{ ws.c }};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;line-height:1;flex-shrink:0;">{{ ws.ic }}</span>
+                  <div style="flex:1;min-width:0;"><div style="font-weight:600;font-size:13.5px;">{{ ws.t }}</div><div style="font-size:12px;color:var(--tx3);line-height:1.35;">{{ ws.s }}</div></div>
+                </div>
+              </sc-for>
+              <button onClick="{{ wpReset }}" style="height:46px;border:1px solid var(--line);border-radius:13px;background:var(--card);color:var(--tx);font-weight:600;font-size:14.5px;width:100%;margin-top:14px;">Close incident</button>
+            </div>
+          </sc-if>
+          <sc-if value="{{ wpDismissed }}" hint-placeholder-val="{{ false }}">
+            <div style="margin:0 20px 12px;background:var(--card);border-radius:16px;padding:16px;box-shadow:var(--sh);display:flex;align-items:center;gap:12px;">
+              <div style="width:38px;height:38px;border-radius:50%;background:var(--chip);color:var(--ac);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;">✓</div>
+              <div style="flex:1;min-width:0;"><div style="font-weight:600;font-size:14px;">False alarm — nobody was alerted</div><div style="font-size:12px;color:var(--tx3);line-height:1.35;">Recorded against your name, and added to the list below.</div></div>
+              <span onClick="{{ wpReset }}" style="color:var(--ac);font-weight:600;font-size:13.5px;">Done</span>
+            </div>
+          </sc-if>
+        </sc-if>
+
+        <sc-if value="{{ showSummary }}" hint-placeholder-val="{{ false }}">
+          <div style="margin:0 20px;background:var(--card);border-radius:16px;padding:20px;box-shadow:var(--sh);">
+            <div style="font-weight:700;font-size:21px;letter-spacing:-.02em;line-height:1.2;">{{ ans.hd }}</div>
+            <div style="font-size:13px;color:var(--tx2);margin:4px 0 0;line-height:1.4;">{{ ans.sub }}</div>
+            <sc-if value="{{ ans.logged }}" hint-placeholder-val="{{ false }}">
+              <div style="display:inline-flex;align-items:center;gap:6px;background:var(--chip);color:var(--ac2);font-size:12px;font-weight:600;padding:5px 11px;border-radius:9px;margin-top:10px;">✓ Recorded in the audit log</div>
+            </sc-if>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:16px;">
+              <sc-for list="{{ ans.stats }}" as="st" hint-placeholder-count="3">
+                <div style="background:var(--bg);border-radius:12px;padding:12px 13px;"><div style="font-size:11.5px;color:var(--tx2);">{{ st.l }}</div><div style="font-size:20px;font-weight:700;">{{ st.v }}</div></div>
+              </sc-for>
+            </div>
+            <sc-if value="{{ ans.hasRows }}" hint-placeholder-val="{{ false }}">
+              <div style="font-weight:700;font-size:14.5px;margin:20px 0 4px;">{{ ans.rowsTitle }}</div>
+              <sc-for list="{{ ans.rows }}" as="r" hint-placeholder-count="4">
+                <div style="display:flex;align-items:center;gap:10px;padding:12px 0;border-bottom:1px solid var(--line);">
+                  <div style="flex:1;min-width:0;"><div style="font-weight:600;font-size:14px;">{{ r.n }}</div><div style="font-size:12.5px;color:var(--tx3);">{{ r.sub }}</div></div>
+                  <span style="display:inline-block;padding:4px 10px;border-radius:9px;font-size:11.5px;font-weight:600;background:{{ r.bg }};color:{{ r.c }};white-space:nowrap;">{{ r.badge }}</span>
+                </div>
+              </sc-for>
+            </sc-if>
+            <sc-if value="{{ ctHasMap }}" hint-placeholder-val="{{ false }}">
+              <div style="font-weight:700;font-size:14.5px;margin:20px 0 10px;">Where those people are right now</div>
+              <div style="background:var(--bg);border-radius:13px;padding:12px;">
+                <div style="position:relative;width:100%;padding-top:72%;">
+                  <div style="position:absolute;inset:0;">
+                    <sc-for list="{{ ctMap }}" as="mz" hint-placeholder-count="6">
+                      <div style="position:absolute;left:{{ mz.x }}%;top:{{ mz.y }}%;width:{{ mz.w }}%;height:{{ mz.h }}%;border-radius:8px;border:1.5px solid {{ mz.bd }};background:{{ mz.fill }};display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;box-sizing:border-box;padding:3px;">
+                        <span style="font-size:14px;font-weight:700;color:{{ mz.tc }};line-height:1;">{{ mz.n }}</span>
+                        <span style="font-size:8.5px;font-weight:600;color:{{ mz.tc }};text-align:center;line-height:1.15;">{{ mz.l }}</span>
+                      </div>
+                    </sc-for>
+                  </div>
+                </div>
+              </div>
+              <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:10px;font-size:11px;color:var(--tx2);">
+                <span style="display:flex;align-items:center;gap:5px;"><span style="width:11px;height:11px;border-radius:3px;border:1.5px solid var(--ac);background:var(--chip);"></span>Quiet</span>
+                <span style="display:flex;align-items:center;gap:5px;"><span style="width:11px;height:11px;border-radius:3px;border:1.5px solid var(--am);background:var(--am-bg);"></span>Busy</span>
+                <span style="display:flex;align-items:center;gap:5px;"><span style="width:11px;height:11px;border-radius:3px;border:1.5px solid var(--rd);background:var(--rd-bg);"></span>Over capacity</span>
+              </div>
+              <div style="display:flex;flex-direction:column;margin-top:12px;">
+                <sc-for list="{{ ctAreas }}" as="ca" hint-placeholder-count="6">
+                  <div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line);">
+                    <span style="flex:1;min-width:0;font-size:13px;font-weight:600;">{{ ca.n }}</span>
+                    <div style="width:70px;height:8px;background:var(--bg);border-radius:5px;overflow:hidden;flex-shrink:0;"><div style="height:100%;border-radius:5px;width:{{ ca.pct }};background:{{ ca.bar }};"></div></div>
+                    <span style="width:34px;text-align:right;font-size:13px;font-weight:700;flex-shrink:0;">{{ ca.v }}</span>
+                  </div>
+                </sc-for>
+              </div>
+              <div style="font-size:11.5px;color:var(--tx3);margin-top:10px;line-height:1.4;">Overlapping cameras are de-duplicated — a person between two cameras is counted once.</div>
+            </sc-if>
+            <sc-if value="{{ ans.hasBars }}" hint-placeholder-val="{{ false }}">
+              <div style="font-weight:700;font-size:14.5px;margin:20px 0 10px;">{{ ans.barsTitle }}</div>
+              <div style="display:flex;flex-direction:column;gap:9px;">
+                <sc-for list="{{ ans.bars }}" as="b" hint-placeholder-count="5">
+                  <div style="display:flex;align-items:center;gap:10px;">
+                    <span style="width:42px;font-size:12.5px;color:var(--tx2);flex-shrink:0;">{{ b.l }}</span>
+                    <div style="flex:1;height:18px;background:var(--bg);border-radius:6px;overflow:hidden;"><div style="height:100%;background:var(--ac);border-radius:6px;width:{{ b.pct }};"></div></div>
+                    <span style="width:38px;text-align:right;font-size:12.5px;font-weight:600;flex-shrink:0;">{{ b.v }}</span>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-if>
+            <sc-if value="{{ ans.hasPath }}" hint-placeholder-val="{{ false }}">
+              <div style="font-weight:700;font-size:14.5px;margin:20px 0 12px;">Path through the day</div>
+              <div style="position:relative;padding-left:24px;">
+                <div style="position:absolute;left:6px;top:6px;bottom:6px;width:2px;background:var(--line);"></div>
+                <sc-for list="{{ ans.path }}" as="p" hint-placeholder-count="6">
+                  <div style="position:relative;padding-bottom:18px;">
+                    <span style="position:absolute;left:-23px;top:4px;width:11px;height:11px;border-radius:50%;background:var(--ac);border:2.5px solid var(--card);box-sizing:content-box;"></span>
+                    <div style="font-weight:600;font-size:14px;">{{ p.t }} — {{ p.p }}</div>
+                    <div style="font-size:12.5px;color:var(--tx2);margin-top:1px;line-height:1.35;">{{ p.d }}</div>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-if>
+            <sc-if value="{{ ans.hasCards }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;flex-direction:column;gap:10px;margin-top:16px;">
+                <sc-for list="{{ ans.cards }}" as="cd" hint-placeholder-count="2">
+                  <div style="background:var(--bg);border-radius:13px;padding:14px;">
+                    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
+                      <div style="font-weight:600;font-size:14px;">{{ cd.t }}</div>
+                      <span style="display:inline-block;padding:3px 9px;border-radius:8px;font-size:11.5px;font-weight:600;background:{{ cd.bg }};color:{{ cd.c }};white-space:nowrap;">{{ cd.badge }}</span>
+                    </div>
+                    <div style="font-size:12.5px;color:var(--tx2);margin-top:4px;line-height:1.4;">{{ cd.m }}</div>
+                    <div style="display:flex;gap:14px;align-items:center;margin-top:11px;">
+                      <span style="color:var(--ac);font-weight:600;font-size:13px;">Watch clip</span>
+                      <sc-if value="{{ cd.canAck }}" hint-placeholder-val="{{ false }}">
+                        <span onClick="{{ cd.ack }}" style="color:var(--tx2);font-weight:600;font-size:13px;">Not a fight</span>
+                      </sc-if>
+                      <sc-if value="{{ cd.ackd }}" hint-placeholder-val="{{ false }}">
+                        <span style="color:var(--ac2);font-weight:600;font-size:12.5px;">✓ Noted — thanks</span>
+                      </sc-if>
+                    </div>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-if>
+            <sc-if value="{{ ans.hasFoot }}" hint-placeholder-val="{{ false }}">
+              <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--line);font-size:12.5px;color:var(--tx2);line-height:1.4;">{{ ans.foot }}</div>
+            </sc-if>
+          </div>
+          <div style="padding:0 20px;">
+            <dc-import name="CamGrid" title="{{ camTitle }}" note="{{ camNote }}" cams="{{ cams }}" hint-size="100%,300px"></dc-import>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ isIntrude }}" hint-placeholder-val="{{ false }}">
+          <div style="margin:14px 20px 0;background:var(--card);border-radius:16px;padding:16px 18px;box-shadow:var(--sh);">
+            <div style="font-weight:700;font-size:14.5px;">Protected areas</div>
+            <div style="font-size:12.5px;color:var(--tx2);margin:2px 0 4px;line-height:1.4;">Pauses stay visible to everyone.</div>
+            <sc-for list="{{ zones }}" as="z" hint-placeholder-count="5">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 0;border-bottom:1px solid var(--line);">
+                <div style="flex:1;min-width:0;"><div style="font-weight:600;font-size:14px;">{{ z.n }}</div><div style="font-size:12px;color:var(--tx3);line-height:1.3;">{{ z.h }}</div></div>
+                <div onClick="{{ z.toggle }}" style="width:44px;height:26px;border-radius:14px;background:{{ z.tgBg }};position:relative;flex-shrink:0;">
+                  <div style="width:22px;height:22px;border-radius:50%;background:#fff;position:absolute;top:2px;left:{{ z.knob }}px;transition:left .15s;"></div>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+      </sc-if>
+
+      <sc-if value="{{ vTools }}" hint-placeholder-val="{{ false }}">
+        <div style="padding:0 20px;">
+          <div style="font-weight:700;font-size:25px;letter-spacing:-.02em;">Tools</div>
+          <div style="font-size:13.5px;color:var(--tx2);margin:4px 0 18px;line-height:1.4;">Seven tools. Each answers one question, with the footage right there.</div>
+          <div style="display:flex;flex-direction:column;gap:10px;">
+            <sc-for list="{{ allTools }}" as="t" hint-placeholder-count="7">
+              <div onClick="{{ t.go }}" style="display:flex;align-items:center;gap:12px;background:var(--card);border-radius:14px;padding:16px;box-shadow:var(--sh);min-height:44px;">
+                <div style="flex:1;min-width:0;"><div style="font-weight:600;font-size:14.5px;">{{ t.t }}</div><div style="font-size:12.5px;color:var(--tx3);line-height:1.35;">{{ t.d }}</div></div>
+                <span style="color:var(--tx3);font-size:17px;flex-shrink:0;">›</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ vPeople }}" hint-placeholder-val="{{ false }}">
+        <div style="padding:0 20px;">
+          <div style="font-weight:700;font-size:25px;letter-spacing:-.02em;">People</div>
+        </div>
+        <div style="padding:4px 20px 6px;font-size:13.5px;color:var(--tx2);line-height:1.4;">Students, staff and registered visitors. Records come from the school database — read-only here.</div>
+        <div style="margin:12px 20px;">
+          <input onChange="{{ mobPeopleSearch }}" onKeyUp="{{ mobPeopleSearch }}" placeholder="Search by name…" style="width:100%;height:48px;border:none;border-radius:14px;padding:0 16px;font-size:15px;background:var(--card);color:var(--tx);outline:none;box-shadow:var(--sh);box-sizing:border-box;">
+        </div>
+        <div style="display:flex;gap:7px;overflow-x:auto;padding:0 20px 10px;">
+          <sc-for list="{{ pTabs }}" as="pt" hint-placeholder-count="4">
+            <span onClick="{{ pt.go }}" style="padding:8px 15px;border-radius:10px;font-size:12.5px;font-weight:600;background:{{ pt.bg }};color:{{ pt.c }};white-space:nowrap;flex-shrink:0;">{{ pt.t }}</span>
+          </sc-for>
+        </div>
+        <div style="padding:0 20px 8px;font-size:12.5px;color:var(--tx3);">{{ pCount }}</div>
+        <div style="margin:0 20px;background:var(--card);border-radius:16px;padding:4px 16px;box-shadow:var(--sh);">
+          <sc-for list="{{ mobPeople }}" as="p" hint-placeholder-count="6">
+            <div style="padding:12px 0;border-bottom:1px solid var(--line);">
+              <div onClick="{{ p.tap }}" style="display:flex;align-items:center;gap:11px;min-height:44px;">
+                <div style="width:38px;height:38px;border-radius:50%;background:{{ p.bg }};color:{{ p.c }};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12.5px;flex-shrink:0;">{{ p.init }}</div>
+                <div style="flex:1;min-width:0;"><div style="font-weight:600;font-size:14.5px;">{{ p.n }}</div><div style="font-size:12px;color:var(--tx3);line-height:1.35;">{{ p.sub }} · {{ p.att }}</div></div>
+                <span style="color:var(--tx3);font-size:16px;flex-shrink:0;">{{ p.chev }}</span>
+              </div>
+              <sc-if value="{{ p.open }}" hint-placeholder-val="{{ false }}">
+                <div style="margin-top:12px;background:var(--bg);border-radius:13px;padding:14px;">
+                  <div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:10px;">
+                    <span style="padding:4px 11px;border-radius:9px;font-size:11.5px;font-weight:600;background:{{ p.bg }};color:{{ p.c }};">{{ p.b }}</span>
+                    <span style="padding:4px 11px;border-radius:9px;font-size:11.5px;font-weight:600;background:{{ p.phBg }};color:{{ p.phC }};">{{ p.ph }}</span>
+                  </div>
+                  <sc-if value="{{ p.hasG }}" hint-placeholder-val="{{ true }}">
+                    <div style="font-size:12.5px;color:var(--tx2);line-height:1.4;margin-bottom:12px;">{{ p.g }}</div>
+                  </sc-if>
+                  <div style="display:flex;flex-direction:column;gap:8px;">
+                    <sc-if value="{{ p.isStu }}" hint-placeholder-val="{{ true }}">
+                      <div onClick="{{ p.goHist }}" style="display:flex;align-items:center;justify-content:space-between;background:var(--card);border-radius:11px;padding:12px 14px;min-height:44px;box-sizing:border-box;">
+                        <span style="font-size:13.5px;font-weight:600;">Attendance history</span><span style="color:var(--tx3);font-size:16px;">›</span>
+                      </div>
+                      <div onClick="{{ p.goTrk }}" style="display:flex;align-items:center;justify-content:space-between;background:var(--card);border-radius:11px;padding:12px 14px;min-height:44px;box-sizing:border-box;">
+                        <span style="font-size:13.5px;font-weight:600;">Track today <span style="font-weight:500;color:var(--tx3);">· logged</span></span><span style="color:var(--tx3);font-size:16px;">›</span>
+                      </div>
+                    </sc-if>
+                  </div>
+                </div>
+              </sc-if>
+            </div>
+          </sc-for>
+          <sc-if value="{{ pNone }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:30px 10px;text-align:center;font-size:13.5px;color:var(--tx3);">Nobody matches that name.</div>
+          </sc-if>
+        </div>
+        <div style="margin:12px 20px 0;background:var(--card);border-radius:16px;padding:4px 16px;box-shadow:var(--sh);">
+          <div style="padding:13px 0 4px;font-weight:700;font-size:14.5px;">Groups &amp; grades</div>
+          <sc-for list="{{ mGroups }}" as="g" hint-placeholder-count="5">
+            <div onClick="{{ g.go }}" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 0;border-top:1px solid var(--line);min-height:44px;">
+              <div style="flex:1;min-width:0;"><div style="font-weight:600;font-size:14px;">{{ g.n }}</div><div style="font-size:12px;color:var(--tx3);">{{ g.c }}</div></div>
+              <span style="color:var(--tx3);font-size:16px;flex-shrink:0;">›</span>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ vGroup }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;align-items:center;gap:12px;padding:0 20px 10px;">
+          <div onClick="{{ backPeople }}" style="width:34px;height:34px;border-radius:50%;background:var(--card);box-shadow:var(--sh);display:flex;align-items:center;justify-content:center;font-size:16px;color:var(--tx2);flex-shrink:0;">‹</div>
+          <div style="font-weight:700;font-size:19px;letter-spacing:-.01em;">{{ grp.n }}</div>
+        </div>
+        <div style="padding:0 20px 12px;font-size:13.5px;color:var(--tx2);line-height:1.4;">{{ grp.c }} · {{ grp.here }} on campus today</div>
+        <div style="margin:0 20px;background:var(--card);border-radius:16px;padding:4px 16px;box-shadow:var(--sh);">
+          <sc-for list="{{ grpPeople }}" as="gp" hint-placeholder-count="6">
+            <div onClick="{{ gp.goHist }}" style="display:flex;align-items:center;gap:11px;padding:12px 0;border-bottom:1px solid var(--line);min-height:44px;">
+              <div style="width:38px;height:38px;border-radius:50%;background:{{ gp.bg }};color:{{ gp.c }};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12.5px;flex-shrink:0;">{{ gp.init }}</div>
+              <div style="flex:1;min-width:0;"><div style="font-weight:600;font-size:14.5px;">{{ gp.n }}</div><div style="font-size:12px;color:var(--tx3);">{{ gp.sub }}</div></div>
+              <span style="display:inline-block;padding:4px 10px;border-radius:9px;font-size:11.5px;font-weight:600;background:{{ gp.sBg }};color:{{ gp.sC }};white-space:nowrap;">{{ gp.status }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ vHist }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;align-items:center;gap:12px;padding:0 20px 10px;">
+          <div onClick="{{ backFromHist }}" style="width:34px;height:34px;border-radius:50%;background:var(--card);box-shadow:var(--sh);display:flex;align-items:center;justify-content:center;font-size:16px;color:var(--tx2);flex-shrink:0;">‹</div>
+          <div style="font-weight:700;font-size:19px;letter-spacing:-.01em;">{{ hist.n }}</div>
+        </div>
+        <div style="padding:0 20px 12px;font-size:13.5px;color:var(--tx2);line-height:1.4;">{{ hist.sub }} · attendance this term</div>
+        <div style="margin:0 20px 12px;background:var(--card);border-radius:16px;padding:18px;box-shadow:var(--sh);">
+          <div style="font-weight:700;font-size:21px;letter-spacing:-.02em;line-height:1.2;">{{ hist.hd }}</div>
+          <div style="font-size:13px;color:var(--tx2);margin-top:3px;line-height:1.4;">{{ hist.lead }}</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:16px;">
+            <sc-for list="{{ hist.stats }}" as="hs" hint-placeholder-count="4">
+              <div style="background:var(--bg);border-radius:12px;padding:12px 13px;"><div style="font-size:11.5px;color:var(--tx2);">{{ hs.l }}</div><div style="font-size:20px;font-weight:700;">{{ hs.v }}</div></div>
+            </sc-for>
+          </div>
+        </div>
+        <div style="margin:0 20px 12px;background:var(--card);border-radius:16px;padding:18px;box-shadow:var(--sh);">
+          <div style="font-weight:700;font-size:14.5px;margin-bottom:12px;">Arrival times, last 10 school days</div>
+          <div style="display:flex;flex-direction:column;gap:9px;">
+            <sc-for list="{{ hist.bars }}" as="hb" hint-placeholder-count="10">
+              <div style="display:flex;align-items:center;gap:10px;">
+                <span style="width:46px;font-size:12px;color:var(--tx2);flex-shrink:0;">{{ hb.d }}</span>
+                <div style="flex:1;height:18px;background:var(--bg);border-radius:6px;overflow:hidden;"><div style="height:100%;border-radius:6px;width:{{ hb.pct }};background:{{ hb.col }};"></div></div>
+                <span style="width:56px;text-align:right;font-size:12px;font-weight:600;flex-shrink:0;color:{{ hb.col }};">{{ hb.t }}</span>
+              </div>
+            </sc-for>
+          </div>
+          <div style="font-size:12px;color:var(--tx3);margin-top:12px;line-height:1.4;">Bar length is how late in the morning they arrived. Amber is after the 8:00am cut-off, red is an absence.</div>
+        </div>
+        <div style="margin:0 20px;background:var(--card);border-radius:16px;padding:4px 18px;box-shadow:var(--sh);">
+          <div style="padding:14px 0 4px;font-weight:700;font-size:14.5px;">Days that needed follow-up</div>
+          <sc-for list="{{ hist.flags }}" as="hf" hint-placeholder-count="3">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 0;border-top:1px solid var(--line);">
+              <div style="flex:1;min-width:0;"><div style="font-weight:600;font-size:14px;">{{ hf.d }}</div><div style="font-size:12px;color:var(--tx3);">{{ hf.s }}</div></div>
+              <span style="display:inline-block;padding:4px 10px;border-radius:9px;font-size:11.5px;font-weight:600;background:{{ hf.bg }};color:{{ hf.c }};white-space:nowrap;">{{ hf.b }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ vAccount }}" hint-placeholder-val="{{ false }}">
+        <div style="padding:0 20px;">
+          <div style="font-weight:700;font-size:25px;letter-spacing:-.02em;margin-bottom:16px;">Account</div>
+          <div style="background:var(--card);border-radius:16px;padding:18px;box-shadow:var(--sh);display:flex;align-items:center;gap:13px;">
+            <div style="width:46px;height:46px;border-radius:50%;background:var(--chip);display:flex;align-items:center;justify-content:center;font-weight:600;font-size:16px;color:var(--ac2);">{{ whoInit }}</div>
+            <div><div style="font-weight:600;font-size:16px;">{{ whoName }}</div><div style="font-size:13px;color:var(--tx3);">{{ whoRole }} · {{ schoolName }}</div></div>
+          </div>
+          <div style="font-weight:700;font-size:15.5px;margin:24px 0 10px;">School profile</div>
+          <div style="background:var(--card);border-radius:16px;padding:4px 18px;box-shadow:var(--sh);">
+            <sc-for list="{{ profileRows }}" as="pr" hint-placeholder-count="4">
+              <div style="padding:13px 0;border-bottom:1px solid var(--line);">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+                  <span style="font-size:13px;color:var(--tx2);">{{ pr.l }}</span>
+                  <span onClick="{{ pr.edit }}" style="color:var(--ac);font-weight:600;font-size:13px;">{{ pr.actLabel }}</span>
+                </div>
+                <sc-if value="{{ pr.plain }}" hint-placeholder-val="{{ true }}">
+                  <div onClick="{{ pr.edit }}" style="font-size:14.5px;font-weight:600;margin-top:2px;">{{ pr.disp }}</div>
+                </sc-if>
+                <sc-if value="{{ pr.editing }}" hint-placeholder-val="{{ false }}">
+                  <div style="display:flex;gap:8px;align-items:center;margin-top:8px;">
+                    <input type="{{ pr.aType }}" defaultValue="{{ pr.va }}" onChange="{{ pr.saveA }}" style="flex:1;min-width:0;height:44px;border:1.5px solid var(--ac);border-radius:11px;padding:0 11px;font-size:14.5px;font-family:inherit;background:var(--card);color:var(--tx);outline:none;box-sizing:border-box;">
+                    <sc-if value="{{ pr.two }}" hint-placeholder-val="{{ false }}">
+                      <span style="font-size:13px;color:var(--tx3);">to</span>
+                      <input type="{{ pr.aType }}" defaultValue="{{ pr.vb }}" onChange="{{ pr.saveB }}" style="flex:1;min-width:0;height:44px;border:1.5px solid var(--ac);border-radius:11px;padding:0 11px;font-size:14.5px;font-family:inherit;background:var(--card);color:var(--tx);outline:none;box-sizing:border-box;">
+                    </sc-if>
+                  </div>
+                </sc-if>
+              </div>
+            </sc-for>
+          </div>
+
+          <div style="font-weight:700;font-size:15.5px;margin:24px 0 10px;">Alerts</div>
+          <div style="background:var(--card);border-radius:16px;padding:4px 18px;box-shadow:var(--sh);">
+            <sc-for list="{{ alertRows }}" as="al" hint-placeholder-count="4">
+              <div style="padding:14px 0;border-bottom:1px solid var(--line);">
+                <div style="font-weight:600;font-size:14.5px;">{{ al.t }}</div>
+                <div style="font-size:12px;color:var(--tx3);line-height:1.35;">{{ al.s }}</div>
+                <div style="display:flex;gap:7px;margin-top:9px;">
+                  <sc-for list="{{ al.chs }}" as="ch" hint-placeholder-count="3">
+                    <span onClick="{{ ch.toggle }}" style="padding:7px 15px;border-radius:10px;font-size:12.5px;font-weight:600;background:{{ ch.bg }};color:{{ ch.c }};white-space:nowrap;">{{ ch.t }}</span>
+                  </sc-for>
+                </div>
+              </div>
+            </sc-for>
+            <div style="padding:14px 0;">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+                <div style="flex:1;min-width:0;"><div style="font-weight:600;font-size:14.5px;">{{ quietLabel }}</div><div style="font-size:12px;color:var(--tx3);line-height:1.35;">Outside these hours, only fights, weapons and intrusion get through.</div></div>
+                <div onClick="{{ toggleQuiet }}" style="width:44px;height:26px;border-radius:14px;background:{{ quietBg }};position:relative;flex-shrink:0;">
+                  <div style="width:22px;height:22px;border-radius:50%;background:#fff;position:absolute;top:2px;left:{{ quietKnob }}px;transition:left .15s;"></div>
+                </div>
+              </div>
+              <sc-if value="{{ quietPlain }}" hint-placeholder-val="{{ true }}">
+                <div onClick="{{ quietEdit }}" style="color:var(--ac);font-weight:600;font-size:13px;margin-top:8px;">Change quiet hours</div>
+              </sc-if>
+              <sc-if value="{{ quietEditing }}" hint-placeholder-val="{{ false }}">
+                <div style="display:flex;gap:8px;align-items:center;margin-top:10px;">
+                  <input type="time" defaultValue="{{ quietFrom }}" onChange="{{ saveQuietFrom }}" style="flex:1;min-width:0;height:44px;border:1.5px solid var(--ac);border-radius:11px;padding:0 11px;font-size:14.5px;font-family:inherit;background:var(--card);color:var(--tx);outline:none;box-sizing:border-box;">
+                  <span style="font-size:13px;color:var(--tx3);">to</span>
+                  <input type="time" defaultValue="{{ quietTo }}" onChange="{{ saveQuietTo }}" style="flex:1;min-width:0;height:44px;border:1.5px solid var(--ac);border-radius:11px;padding:0 11px;font-size:14.5px;font-family:inherit;background:var(--card);color:var(--tx);outline:none;box-sizing:border-box;">
+                  <span onClick="{{ quietEdit }}" style="color:var(--ac);font-weight:600;font-size:13px;">Done</span>
+                </div>
+              </sc-if>
+            </div>
+          </div>
+
+          <div style="font-weight:700;font-size:15.5px;margin:24px 0 10px;">Where alerts reach you</div>
+          <div style="background:var(--card);border-radius:16px;padding:4px 18px;box-shadow:var(--sh);">
+            <sc-for list="{{ delivRows }}" as="dv" hint-placeholder-count="4">
+              <div style="padding:13px 0;border-bottom:1px solid var(--line);">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+                  <div style="flex:1;min-width:0;"><div style="font-weight:600;font-size:14.5px;">{{ dv.t }}</div>
+                    <sc-if value="{{ dv.plainSub }}" hint-placeholder-val="{{ true }}">
+                      <div style="font-size:12px;color:var(--tx3);line-height:1.35;">{{ dv.sub }}</div>
+                    </sc-if>
+                  </div>
+                  <sc-if value="{{ dv.editable }}" hint-placeholder-val="{{ false }}">
+                    <span onClick="{{ dv.change }}" style="color:var(--ac);font-weight:600;font-size:13px;white-space:nowrap;">{{ dv.actLabel }}</span>
+                  </sc-if>
+                  <div onClick="{{ dv.toggle }}" style="width:44px;height:26px;border-radius:14px;background:{{ dv.tgBg }};position:relative;flex-shrink:0;">
+                    <div style="width:22px;height:22px;border-radius:50%;background:#fff;position:absolute;top:2px;left:{{ dv.knob }}px;transition:left .15s;"></div>
+                  </div>
+                </div>
+                <sc-if value="{{ dv.editing }}" hint-placeholder-val="{{ false }}">
+                  <input type="{{ dv.inType }}" defaultValue="{{ dv.dest }}" placeholder="{{ dv.ph }}" onChange="{{ dv.save }}" style="width:100%;height:44px;border:1.5px solid var(--ac);border-radius:11px;padding:0 12px;font-size:14.5px;font-family:inherit;background:var(--card);color:var(--tx);outline:none;box-sizing:border-box;margin-top:9px;">
+                </sc-if>
+              </div>
+            </sc-for>
+          </div>
+
+          <div style="font-weight:700;font-size:15.5px;margin:24px 0 10px;">Appearance &amp; language</div>
+          <div style="background:var(--card);border-radius:16px;padding:4px 18px;box-shadow:var(--sh);">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 0;border-bottom:1px solid var(--line);">
+              <div style="flex:1;min-width:0;"><div style="font-weight:600;font-size:14.5px;">Dark mode</div><div style="font-size:12px;color:var(--tx3);">Easier on the eyes over a long day.</div></div>
+              <div onClick="{{ toggleDark }}" style="width:44px;height:26px;border-radius:14px;background:{{ darkBg }};position:relative;flex-shrink:0;">
+                <div style="width:22px;height:22px;border-radius:50%;background:#fff;position:absolute;top:2px;left:{{ darkKnob }}px;transition:left .15s;"></div>
+              </div>
+            </div>
+            <div style="padding:14px 0;">
+              <div style="font-weight:600;font-size:14.5px;">Language</div>
+              <div style="font-size:12px;color:var(--tx3);line-height:1.35;">{{ langNote }}</div>
+              <div style="display:flex;gap:7px;margin-top:9px;">
+                <sc-for list="{{ langChips }}" as="lc" hint-placeholder-count="2">
+                  <span onClick="{{ lc.pick }}" style="padding:7px 15px;border-radius:10px;font-size:12.5px;font-weight:600;background:{{ lc.bg }};color:{{ lc.c }};white-space:nowrap;">{{ lc.t }}</span>
+                </sc-for>
+              </div>
+            </div>
+          </div>
+          <div onClick="{{ signOut }}" style="text-align:center;padding:26px 0 10px;font-size:14px;color:var(--rd);font-weight:600;">Sign out</div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ vSystem }}" hint-placeholder-val="{{ false }}">
+        <div style="padding:0 20px;">
+          <div style="font-weight:700;font-size:25px;letter-spacing:-.02em;">System</div>
+          <div style="font-size:13.5px;color:var(--tx2);margin:4px 0 16px;line-height:1.4;">Cameras, recorders and the AI server.</div>
+          <div style="background:var(--card);border-radius:16px;padding:18px;box-shadow:var(--sh);">
+            <div style="font-weight:700;font-size:19px;letter-spacing:-.01em;">{{ sysHd }}</div>
+            <div style="font-size:13px;color:var(--tx2);margin:3px 0 14px;line-height:1.4;">{{ sysSub }}</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:9px;">
+              <div style="background:var(--bg);border-radius:12px;padding:12px 13px;"><div style="font-size:11.5px;color:var(--tx2);">GPU</div><div style="font-size:20px;font-weight:700;">61%</div></div>
+              <div style="background:var(--bg);border-radius:12px;padding:12px 13px;"><div style="font-size:11.5px;color:var(--tx2);">Storage</div><div style="font-size:20px;font-weight:700;">47%</div></div>
+            </div>
+          </div>
+          <div style="background:var(--card);border-radius:16px;padding:18px;box-shadow:var(--sh);margin-top:12px;">
+            <div style="font-weight:700;font-size:15.5px;">Camera sources</div>
+            <div style="font-size:12.5px;color:var(--tx2);margin:2px 0 4px;">Any DVR, NVR or IP camera that speaks ONVIF or RTSP.</div>
+            <sc-for list="{{ msources }}" as="ms" hint-placeholder-count="4">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 0;border-bottom:1px solid var(--line);">
+                <div style="flex:1;min-width:0;"><div style="font-weight:600;font-size:14px;">{{ ms.n }}</div><div style="font-size:12px;color:var(--tx3);">{{ ms.meta }}</div></div>
+                <span style="display:inline-block;padding:4px 10px;border-radius:9px;font-size:11.5px;font-weight:600;background:{{ ms.bg }};color:{{ ms.c }};white-space:nowrap;">{{ ms.badge }}</span>
+              </div>
+            </sc-for>
+            <sc-if value="{{ srcFormOff }}" hint-placeholder-val="{{ true }}">
+              <div style="padding:14px 0 4px;text-align:center;"><span onClick="{{ srcAddOpen }}" style="color:var(--ac);font-weight:600;font-size:14px;">+ Add a camera or recorder</span></div>
+            </sc-if>
+            <sc-if value="{{ srcFormOn }}" hint-placeholder-val="{{ false }}">
+              <div style="padding-top:14px;">
+                <div style="display:flex;gap:7px;overflow-x:auto;padding-bottom:8px;">
+                  <sc-for list="{{ mSrcTabs }}" as="mt" hint-placeholder-count="4">
+                    <span onClick="{{ mt.go }}" style="padding:8px 14px;border-radius:10px;font-size:12.5px;font-weight:600;background:{{ mt.bg }};color:{{ mt.c }};white-space:nowrap;flex-shrink:0;">{{ mt.t }}</span>
+                  </sc-for>
+                </div>
+
+                <sc-if value="{{ mScan }}" hint-placeholder-val="{{ false }}">
+                  <sc-if value="{{ mScanIdle }}" hint-placeholder-val="{{ true }}">
+                    <div style="font-size:12.5px;color:var(--tx2);line-height:1.4;margin:8px 0 12px;">Looks for ONVIF cameras and recorders on the school network.</div>
+                    <button onClick="{{ mStartScan }}" style="height:48px;border:none;border-radius:13px;background:var(--ac);color:#fff;font-weight:600;font-size:15px;width:100%;">Start scan</button>
+                  </sc-if>
+                  <sc-if value="{{ mScanRun }}" hint-placeholder-val="{{ false }}">
+                    <div style="font-weight:600;font-size:14px;margin-top:8px;">Scanning 192.168.1.0/24…</div>
+                    <div style="height:8px;background:var(--bg);border-radius:6px;overflow:hidden;position:relative;margin-top:9px;">
+                      <div style="position:absolute;top:0;bottom:0;width:30%;background:var(--ac);border-radius:6px;animation:vg-scan 1.1s linear infinite;"></div>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ mScanDone }}" hint-placeholder-val="{{ false }}">
+                    <div style="font-weight:600;font-size:14px;margin:8px 0 2px;">3 devices found</div>
+                    <sc-for list="{{ mFound }}" as="f" hint-placeholder-count="3">
+                      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 0;border-bottom:1px solid var(--line);">
+                        <div style="flex:1;min-width:0;"><div style="font-weight:600;font-size:13.5px;">{{ f.n }}</div><div style="font-size:11.5px;color:var(--tx3);">{{ f.meta }}</div></div>
+                        <sc-if value="{{ f.isNew }}" hint-placeholder-val="{{ true }}">
+                          <span onClick="{{ f.add }}" style="padding:8px 16px;border-radius:10px;background:var(--chip);color:var(--ac2);font-weight:600;font-size:12.5px;white-space:nowrap;">Add</span>
+                        </sc-if>
+                        <sc-if value="{{ f.notNew }}" hint-placeholder-val="{{ false }}">
+                          <span style="font-size:12px;color:var(--tx3);white-space:nowrap;">{{ f.label }}</span>
+                        </sc-if>
+                      </div>
+                    </sc-for>
+                  </sc-if>
+                </sc-if>
+
+                <sc-if value="{{ mDvr }}" hint-placeholder-val="{{ false }}">
+                  <sc-if value="{{ mDvrForm }}" hint-placeholder-val="{{ true }}">
+                    <div style="font-size:12.5px;color:var(--tx2);line-height:1.4;margin:8px 0 12px;">Connect a recorder and every camera plugged into it comes along.</div>
+                    <div style="display:flex;flex-direction:column;gap:10px;">
+                      <div style="display:flex;gap:10px;">
+                        <input defaultValue="192.168.1.50" placeholder="IP address" style="flex:1;min-width:0;height:46px;border:1px solid var(--line);border-radius:12px;padding:0 13px;font-size:14px;font-family:ui-monospace,Menlo,monospace;background:var(--card);color:var(--tx);outline:none;box-sizing:border-box;">
+                        <input defaultValue="554" placeholder="Port" style="width:80px;height:46px;border:1px solid var(--line);border-radius:12px;padding:0 13px;font-size:14px;font-family:ui-monospace,Menlo,monospace;background:var(--card);color:var(--tx);outline:none;box-sizing:border-box;">
+                      </div>
+                      <div style="display:flex;gap:10px;">
+                        <input defaultValue="admin" placeholder="Username" style="flex:1;min-width:0;height:46px;border:1px solid var(--line);border-radius:12px;padding:0 13px;font-size:14px;background:var(--card);color:var(--tx);outline:none;box-sizing:border-box;">
+                        <input type="password" defaultValue="password" placeholder="Password" style="flex:1;min-width:0;height:46px;border:1px solid var(--line);border-radius:12px;padding:0 13px;font-size:14px;background:var(--card);color:var(--tx);outline:none;box-sizing:border-box;">
+                      </div>
+                      <button onClick="{{ mDvrConnect }}" style="height:48px;border:none;border-radius:13px;background:var(--ac);color:#fff;font-weight:600;font-size:15px;width:100%;">Connect &amp; pull channels</button>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ mDvrConnecting }}" hint-placeholder-val="{{ false }}">
+                    <div style="font-weight:600;font-size:14px;margin-top:8px;">Connecting to recorder…</div>
+                    <div style="height:8px;background:var(--bg);border-radius:6px;overflow:hidden;position:relative;margin-top:9px;">
+                      <div style="position:absolute;top:0;bottom:0;width:30%;background:var(--ac);border-radius:6px;animation:vg-scan 1.1s linear infinite;"></div>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ mDvrChannels }}" hint-placeholder-val="{{ false }}">
+                    <div style="font-weight:600;font-size:14px;margin:8px 0 2px;">Connected · 8 channels found</div>
+                    <div style="font-size:12px;color:var(--tx3);line-height:1.4;margin-bottom:4px;">Name each camera and say where it is.</div>
+                    <sc-for list="{{ mDvrChRows }}" as="dc" hint-placeholder-count="8">
+                      <div style="padding:11px 0;border-bottom:1px solid var(--line);">
+                        <div style="display:flex;align-items:center;gap:10px;">
+                          <span style="font-size:11.5px;font-weight:700;color:var(--tx3);font-family:ui-monospace,Menlo,monospace;flex-shrink:0;width:38px;">{{ dc.ch }}</span>
+                          <input defaultValue="{{ dc.nm }}" style="flex:1;min-width:0;height:42px;border:1px solid var(--line);border-radius:11px;padding:0 11px;font-size:13.5px;background:var(--card);color:var(--tx);outline:none;box-sizing:border-box;">
+                          <div onClick="{{ dc.toggle }}" style="width:44px;height:26px;border-radius:14px;background:{{ dc.tgBg }};position:relative;flex-shrink:0;">
+                            <div style="width:22px;height:22px;border-radius:50%;background:#fff;position:absolute;top:2px;left:{{ dc.knob }}px;transition:left .15s;"></div>
+                          </div>
+                        </div>
+                        <select style="width:100%;height:42px;margin-top:8px;border:1px solid var(--line);border-radius:11px;padding:0 11px;font-size:13.5px;background:var(--card);color:var(--tx);outline:none;box-sizing:border-box;">
+                          <sc-for list="{{ areaOpts }}" as="ao" hint-placeholder-count="3"><option>{{ ao }}</option></sc-for>
+                        </select>
+                      </div>
+                    </sc-for>
+                    <button onClick="{{ mDvrAdd }}" style="height:48px;border:none;border-radius:13px;background:var(--ac);color:#fff;font-weight:600;font-size:15px;width:100%;margin-top:14px;">Add {{ mDvrChCount }} cameras</button>
+                  </sc-if>
+                </sc-if>
+
+                <sc-if value="{{ mSingle }}" hint-placeholder-val="{{ false }}">
+                  <sc-if value="{{ mTestIdle }}" hint-placeholder-val="{{ true }}">
+                    <div style="font-size:12.5px;color:var(--tx2);line-height:1.4;margin:8px 0 12px;">{{ mSingleLead }}</div>
+                    <div style="display:flex;flex-direction:column;gap:10px;">
+                      <input defaultValue="{{ mSingleVal }}" placeholder="{{ mSinglePh }}" style="height:46px;border:1px solid var(--line);border-radius:12px;padding:0 13px;font-size:13.5px;font-family:ui-monospace,Menlo,monospace;background:var(--card);color:var(--tx);outline:none;box-sizing:border-box;width:100%;">
+                      <sc-if value="{{ mIsIp }}" hint-placeholder-val="{{ true }}">
+                        <div style="display:flex;gap:10px;">
+                          <input defaultValue="admin" placeholder="Username" style="flex:1;min-width:0;height:46px;border:1px solid var(--line);border-radius:12px;padding:0 13px;font-size:14px;background:var(--card);color:var(--tx);outline:none;box-sizing:border-box;">
+                          <input type="password" defaultValue="password" placeholder="Password" style="flex:1;min-width:0;height:46px;border:1px solid var(--line);border-radius:12px;padding:0 13px;font-size:14px;background:var(--card);color:var(--tx);outline:none;box-sizing:border-box;">
+                        </div>
+                      </sc-if>
+                      <button onClick="{{ mRunTest }}" style="height:48px;border:none;border-radius:13px;background:var(--ac);color:#fff;font-weight:600;font-size:15px;width:100%;">Test connection</button>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ mTestRun }}" hint-placeholder-val="{{ false }}">
+                    <div style="font-weight:600;font-size:14px;margin-top:8px;">Fetching a test frame…</div>
+                    <div style="height:8px;background:var(--bg);border-radius:6px;overflow:hidden;position:relative;margin-top:9px;">
+                      <div style="position:absolute;top:0;bottom:0;width:30%;background:var(--ac);border-radius:6px;animation:vg-scan 1.1s linear infinite;"></div>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ mTestOk }}" hint-placeholder-val="{{ false }}">
+                    <div style="margin-top:4px;">
+                      <dc-import name="CamGrid" title="" note="" cams="{{ mTestCam }}" hint-size="100%,190px"></dc-import>
+                      <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px;">
+                        <input defaultValue="New camera" placeholder="Camera name" style="height:46px;border:1px solid var(--line);border-radius:12px;padding:0 13px;font-size:14px;background:var(--card);color:var(--tx);outline:none;box-sizing:border-box;width:100%;">
+                        <select style="width:100%;height:46px;border:1px solid var(--line);border-radius:12px;padding:0 12px;font-size:14px;background:var(--card);color:var(--tx);outline:none;box-sizing:border-box;">
+                          <sc-for list="{{ areaOpts }}" as="ao2" hint-placeholder-count="3"><option>{{ ao2 }}</option></sc-for>
+                        </select>
+                        <button onClick="{{ mAddSingle }}" style="height:48px;border:none;border-radius:13px;background:var(--ac);color:#fff;font-weight:600;font-size:15px;width:100%;">Add camera</button>
+                      </div>
+                    </div>
+                  </sc-if>
+                </sc-if>
+              </div>
+            </sc-if>
+          </div>
+          <div style="background:var(--card);border:1.5px dashed var(--line);border-radius:16px;padding:16px 18px;margin-top:12px;">
+            <div style="font-weight:600;font-size:14px;color:var(--tx2);">Live video streaming — not connected yet</div>
+            <div style="font-size:12.5px;color:var(--tx3);margin-top:3px;line-height:1.4;">This prototype shows detection frames, not real streams.</div>
+          </div>
+        </div>
+      </sc-if>
+
+    </div>
+
+    <div style="flex-shrink:0;display:flex;background:var(--panel);border-top:1px solid var(--line);padding:8px 6px 26px;">
+      <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="4">
+        <div onClick="{{ t.go }}" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 0;color:{{ t.c }};min-height:44px;">
+          <svg width="23" height="23" viewBox="0 0 18 18" fill="none"><path d="{{ t.d }}" stroke="{{ t.c }}" stroke-width="{{ t.sw }}" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+          <span style="font-size:11px;font-weight:{{ t.fw }};">{{ t.t }}</span>
+        </div>
+      </sc-for>
+    </div>
+    </sc-if>
+  </div>
+</x-import>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:&quot;520px&quot;,&quot;height&quot;:&quot;960px&quot;},&quot;startSignedIn&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Demo&quot;},&quot;schoolName&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot; &quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Demo&quot;}}">
+const TOOLDEF = {
+  attend:{title:'Attendance', lead:'Recorded automatically by face recognition at the four entrance cameras.', run:'Show',
+    empty:'Choose a group and date, then press Show.',
+    camTitle:'Entrance cameras', camNote:'Green box = recognised, red = not enrolled.'},
+  count:{title:'People counting', lead:'How many people are in a place, now or at any past time.', run:'Show',
+    empty:'Pick a place and a time range.',
+    camTitle:'Cameras counting this area', camNote:'The blue dashed line is the counting line.'},
+  lost:{title:'Lost items', lead:'Describe what was lost and roughly where. The system searches the footage for it.', run:'Search',
+    empty:'Describe the item, then press Search.',
+    camTitle:'Where the item was seen', camNote:'Green box = matched object; amber means less sure.'},
+  track:{title:'Track a person', lead:'Rebuild where someone went across campus, for investigations only.', run:'Build path',
+    empty:'Choose a person and a time window.',
+    camTitle:'Each sighting on camera', camNote:'Green = face match; blue = appearance match.'},
+  fight:{title:'Fights', lead:'Altercations confirmed over 3 or more seconds, always with the video.', run:'Show',
+    empty:'', camTitle:'Cameras where fight detection is on', camNote:'Off in sports halls, where rough movement is normal.'},
+  weapon:{title:'Weapons', lead:'Runs continuously on all 208 cameras. Every detection is reviewed by a person.', run:'Show',
+    empty:'', camTitle:'Highest-risk cameras', camNote:'Green = scanned, nothing found.'},
+  intrude:{title:'Intrusion', lead:'Restricted areas that alert when someone enters outside allowed hours.', run:'Show',
+    empty:'', camTitle:'Cameras watching restricted areas', camNote:'The orange outline is the protected zone.'}
+};
+
+class Component extends DCLogic {
+  state = { authed:this.props.startSignedIn ?? false, role:'admin', view:'home', tool:null, dark:false, askNote:'', peopleQ:'', notif:{fight:true, attendSum:true},
+    wpState:null, ctTick:0,
+    msrc:[
+      {n:'NVR 1–2 — Main building', meta:'192.168.1.41 · 32 channels', ch:32, st:'ok'},
+      {n:'DVR 3–4 — Building A', meta:'192.168.1.43 · 28 channels', ch:28, st:'ok'},
+      {n:'DVR 5–6 — Building B', meta:'192.168.1.45 · 24 channels', ch:24, st:'ok'},
+      {n:'DVR 7 — Building C', meta:'192.168.1.47 · 16 channels', ch:16, st:'down'},
+      {n:'NVR 8–9 — Science block, Gymnasium', meta:'192.168.1.48 · 32 channels', ch:32, st:'ok'},
+      {n:'NVR 10–11 — Cafeteria, Library', meta:'192.168.1.50 · 22 channels', ch:22, st:'ok'},
+      {n:'NVR 12–13 — Gates & perimeter', meta:'192.168.1.52 · 52 channels', ch:52, st:'ok'},
+      {n:'Gate cam 5 — bus lane', meta:'192.168.1.121 · 1 channel', ch:1, st:'ok'},
+      {n:'Playground PTZ', meta:'rtsp://192.168.1.130/main · 1 channel', ch:1, st:'auth'}
+    ],
+    srcForm:false, srcMode:'scan', srcScan:'idle', srcFound:[], dvrStep:'form',
+    dvrCh:[true,true,true,true,true,true,true,true], srcTest:'idle', editKey:null, delivEdit:null, lang:'en', quiet:true, quietFrom:'15:30', quietTo:'07:00',
+    profile:{name:'Greenfield International School', hoursFrom:'07:30', hoursTo:'15:00', termFrom:'2025-09-01', termTo:'2026-06-20', cutoff:'08:00'},
+    chans:{fight:{Push:true,Email:true,SMS:false}, weapon:{Push:true,Email:true,SMS:true}, attend:{Push:false,Email:true,SMS:false}, intr:{Push:true,Email:true,SMS:false}},
+    deliv:{app:{on:true, dest:'Mohamed\u2019s iPhone'}, email:{on:true, dest:'mohamed61fouad@gmail.com'}, sms:{on:false, dest:''}, wa:{on:false, dest:''}},
+
+    ans:null, searching:false, ackd:{}, fgPlace:'Anywhere',
+    zones:[{n:'Chemistry lab',h:'Locked outside 8am–4pm',on:true},{n:'Server room',h:'Locked outside 9am–5pm',on:true},
+      {n:'Rooftop access door',h:'Locked at all times',on:true},{n:'Storage — gymnasium',h:'Locked outside 8am–6pm',on:true},
+      {n:'Boundary fence — east',h:'Locked at all times',on:false}] };
+  askRef=React.createRef(); f1=React.createRef(); f2=React.createRef(); f3=React.createRef(); f4=React.createRef();
+
+  static AREAS=[
+    {n:'Main entrance',cap:120,x:2,y:64,w:24,h:32,f:0.71},
+    {n:'Cafeteria',cap:400,x:28,y:56,w:33,h:40,f:0.93},
+    {n:'Assembly hall',cap:600,x:63,y:52,w:35,h:44,f:0.34},
+    {n:'Library',cap:150,x:2,y:4,w:30,h:52,f:0.52},
+    {n:'Classrooms',cap:900,x:34,y:4,w:36,h:46,f:0.78},
+    {n:'Playground',cap:800,x:72,y:4,w:26,h:42,f:0.41}
+  ];
+  areaCounts(){ const t=this.state.ctTick||0;
+    return Component.AREAS.map((a,i)=>{ const jit=(((t*7+i*i*11+i*5)%9)-4)/100;
+      return {...a, v:Math.max(1, Math.round(a.cap*Math.min(0.99, Math.max(0.06, a.f+jit)))) }; }); }
+  open = (t) => { const v=this.state.view; this.setState({from:(v==='tool'?this.state.from:v)||'home', view:'tool', tool:t, ans:null, searching:false, askNote:'', wpState:null, ctTick:(this.state.ctTick||0)+1}); if(t==='fight'||t==='weapon'||t==='intrude'||t==='count') setTimeout(()=>this.run(),0); };
+  back = () => this.setState({view:this.state.from||'home', tool:null, ans:null, searching:false});
+  val(r,d){ return r.current ? r.current.value : d; }
+
+  run = () => {
+    const t=this.state.tool;
+    if(t==='attend'){ const g=this.val(this.f1,'All students');
+      const tot=g==='All staff'?168:(g.indexOf('Grade')===0?142:1742), abs=g==='All staff'?4:(g.indexOf('Grade')===0?9:63), late=g==='All staff'?2:(g.indexOf('Grade')===0?6:41);
+      this.setState({ans:{hd:(tot-abs).toLocaleString()+' of '+tot.toLocaleString()+' arrived', sub:g+' · Wednesday, July 29, 2026',
+        stats:[{l:'Present',v:Math.round((tot-abs)/tot*100)+'%'},{l:'Absent',v:String(abs)},{l:'Late',v:String(late)},{l:'Last entry',v:'8:31'}],
+        rowsTitle:'Needs follow-up', rows:[
+          {n:'Karim Adel',sub:'No arrival recorded',badge:'✕ Absent',k:'rd'},{n:'Hana Saleh',sub:'No arrival recorded',badge:'✕ Absent',k:'rd'},
+          {n:'Omar Khaled',sub:'Main entrance · 8:14am',badge:'! Late',k:'am'},{n:'Salma Reda',sub:'Gate 3 · 8:22am',badge:'! Late',k:'am'},
+          {n:'Layla Ahmed',sub:'Main entrance · 7:42am',badge:'✓ On time',k:'gn'}]}});
+    }
+    if(t==='count'){ const p=this.val(this.f1,'Cafeteria'), w=this.val(this.f2,'Right now');
+      const areas=this.areaCounts(), hit=areas.find(a=>a.n===p);
+      const cap=hit?hit.cap:areas.reduce((x,a)=>x+a.cap,0);
+      const now=hit?hit.v:areas.reduce((x,a)=>x+a.v,0), pct=Math.round(now/cap*100);
+      let bars=null;
+      if(w!=='Right now'){ const L=w==='Today by hour'?['7am','8am','9am','10am','11am','12pm']:['Mon','Tue','Wed','Thu','Fri'];
+        const V=L.map(()=>Math.round(cap*(0.25+Math.random()*0.7))), mx=Math.max(...V);
+        bars=L.map((l,i)=>({l, v:String(V[i]), pct:Math.round(V[i]/mx*100)+'%'})); }
+      this.setState({ans:{place:p, n1:Math.round(now*0.4), n2:Math.round(now*0.35),
+        hd:now+' people in the '+p.toLowerCase(), sub:pct+'% of safe capacity ('+cap+') · updated seconds ago',
+        stats:[{l:'Right now',v:String(now)},{l:'Peak today',v:String(Math.round(cap*0.94))}], barsTitle:w, bars, hasMap:true}});
+    }
+    if(t==='lost'){ const it=this.val(this.f1,'Backpack'), col=this.val(this.f2,'Black'), ar=this.val(this.f3,'Anywhere'), wn=this.val(this.f4,'Today');
+      const label=(col==='Any'?'':col.toLowerCase()+' ')+it.toLowerCase();
+      this.setState({searching:true, ans:null});
+      clearTimeout(this._t); this._t=setTimeout(()=>this.setState({searching:false, ans:{label,
+        hd:'3 possible matches', sub:'A '+label+' · '+ar.toLowerCase()+' · '+wn.toLowerCase(), stats:[],
+        rowsTitle:'Best matches first', rows:[
+          {n:'Cafeteria — table row 3',sub:'12:41pm · left on a table',badge:'94%',k:'gn'},
+          {n:'Cafeteria — exit corridor',sub:'12:38pm · carried by a student',badge:'88%',k:'gn'},
+          {n:'Library — study area',sub:'11:20am · similar item on a chair',badge:'71%',k:'am'}],
+        foot:'If none look right, widen the area or time range and search again.'}}),1600);
+    }
+    if(t==='track'){ const who=this.val(this.f1,'Layla Ahmed');
+      this.setState({ans:{who, hd:who+' · 6 sightings', sub:'Wednesday, July 29, 2026 · 7:00 to 15:00', logged:true,
+        stats:[{l:'On campus',v:'7h 06m'},{l:'Cameras seen on',v:'6'}],
+        path:[{t:'7:42am',p:'Main entrance',d:'Entered campus · identified by face'},
+          {t:'7:51am',p:'Bldg A — Corridor 1',d:'Walking towards classrooms'},
+          {t:'10:05am',p:'Bldg A — Corridor 3',d:'Break period movement'},
+          {t:'12:34pm',p:'Cafeteria',d:'Lunch · stayed 26 minutes'},
+          {t:'1:02pm',p:'Playground — north',d:'Outdoor break'},
+          {t:'2:48pm',p:'Main entrance',d:'Left campus'}]}});
+    }
+    if(t==='fight'){ const p=this.val(this.f1,'Anywhere');
+      const all=[{t:'Building B — Yard 2',area:'Outdoor areas',m:'Today, 11:03am · 7 seconds · 2 people',badge:'Not reviewed',k:'rd',crit:true},
+        {t:'Building A — Corridor 3',area:'Corridors',m:'Jul 27, 12:40pm · 4 seconds · 3 people',badge:'Reviewed',k:'gn'},
+        {t:'Playground — north',area:'Outdoor areas',m:'Jul 22, 1:15pm · 5 seconds · 2 people',badge:'Not a fight',k:'gy'}];
+      const list=all.filter(f=>p==='Anywhere'||f.area===p);
+      this.setState({fgPlace:p, ans:{hd:list.length+(list.length===1?' incident':' incidents'), sub:'Last 30 days · '+p.toLowerCase(), stats:[], cards:list}});
+    }
+    if(t==='weapon'){ this.setState({ans:{isWeapon:true, hd:'No weapon detected on campus', sub:'Monitoring every camera · last check 2 seconds ago', stats:[],
+      rowsTitle:'Past detections — shown honestly', rows:[
+        {n:'Main gate — entrance',sub:'Jul 11 · knife-shaped object',badge:'False alarm',k:'gy'},
+        {n:'Playground — east',sub:'May 3 · toy replica',badge:'False alarm',k:'gy'},
+        {n:'Building C — corridor',sub:'Feb 18 · knife-shaped object',badge:'Confirmed',k:'rd'}],
+      foot:'Every detection is reviewed by a person before any action is taken.'}}); }
+    if(t==='intrude'){ this.setState({ans:{hd:'1 breach today', sub:'1 still needs review', stats:[],
+      rowsTitle:'Recent breaches', rows:[
+        {n:'Chemistry lab',sub:'Today, 6:12am · unidentified person',badge:'Open',k:'rd'},
+        {n:'Rooftop access door',sub:'Yesterday, 11:42pm · unidentified',badge:'Resolved',k:'gn'},
+        {n:'Server room',sub:'Jul 26, 7:20pm · T. Nassar (IT)',badge:'Authorised',k:'gy'}]}}); }
+  };
+
+  doAsk = () => {
+    const q=(this.askRef.current?this.askRef.current.value:'').toLowerCase();
+    const map=[[['absent','attendance','present','arrive','late'],'attend'],[['how many','count','busy','crowd'],'count'],
+      [['intrusion','restricted','breach'],'intrude'],[['fight','altercation'],'fight'],[['weapon','knife','gun'],'weapon'],
+      [['lost','backpack','bag','phone','jacket','laptop','missing'],'lost'],[['track','where did','went','path'],'track']];
+    for(const [ks,v] of map){ if(ks.some(k=>q.includes(k))){ this.open(v); setTimeout(()=>this.run(),0); return; } }
+    if(q.trim()) this.setState({askNote:'I didn’t catch that — try one of the suggestions, or pick a tool.'});
+  };
+  askKey = (e) => { if(e.key==='Enter') this.doAsk(); };
+  componentWillUnmount(){ clearTimeout(this._t); clearTimeout(this._srT); }
+
+  prep(cams){ return cams.map(c=>({ ...c, on:!c.off, off:!!c.off, zoneOn:!!c.zone,
+    zlt:(c.zone&&c.zone.y<24)?'3px':'-18px', zll:(c.zone&&c.zone.y<24)?'3px':'-2px',
+    zx:c.zone?c.zone.x:0, zy:c.zone?c.zone.y:0, zw:c.zone?c.zone.w:0, zh:c.zone?c.zone.h:0, zl:c.zone?c.zone.l:'',
+    lineOn:!!c.line, line:c.line||0, time:c.time||'14:32:07',
+    boxes:(c.boxes||[]).map(b=>({...b, hasL:!!b.l})), open:()=>{} })); }
+
+  renderVals(){
+    const s=this.state, admin=s.role==='admin', t=s.tool, def=t?TOOLDEF[t]:null;
+    const G='#3ec776', R='#e5564a', B='#5b9bd8', O='#dfa23f';
+    const BADGE={rd:{bg:'var(--rd-bg)',c:'var(--rd)'}, am:{bg:'var(--am-bg)',c:'var(--am)'}, gn:{bg:'var(--chip)',c:'var(--ac2)'}, gy:{bg:'var(--bg)',c:'var(--tx2)'}};
+    const ansRaw=s.ans;
+    const ans=ansRaw?{...ansRaw, logged:!!ansRaw.logged,
+      hasRows:!!ansRaw.rows, rows:(ansRaw.rows||[]).map(r=>({...r, bg:BADGE[r.k].bg, c:BADGE[r.k].c})),
+      hasBars:!!ansRaw.bars, bars:ansRaw.bars||[],
+      hasPath:!!ansRaw.path, path:ansRaw.path||[],
+      hasCards:!!ansRaw.cards, cards:(ansRaw.cards||[]).map(cd=>({...cd, bg:BADGE[cd.k].bg, c:BADGE[cd.k].c,
+        ackd:!!s.ackd[cd.t], canAck:cd.crit&&!s.ackd[cd.t], ack:()=>this.setState({ackd:{...s.ackd,[cd.t]:true}})})),
+      hasFoot:!!ansRaw.foot, stats:ansRaw.stats||[]}:null;
+    const ctList=this.areaCounts();
+    const ctTone=(v2,cap)=>{ const p2=v2/cap; return p2>0.85?{bd:'var(--rd)',fill:'var(--rd-bg)',tc:'var(--rd)',bar:'var(--rd)'}
+      : (p2>0.6?{bd:'var(--am)',fill:'var(--am-bg)',tc:'var(--am)',bar:'var(--am)'} : {bd:'var(--ac)',fill:'var(--chip)',tc:'var(--ac2)',bar:'var(--ac)'}); };
+    const wpLiveCam=this.prep([{n:'Main gate — entrance', s:'Detected 8:47:02am · 78% confidence', time:'08:47:02',
+      boxes:[{x:34,y:26,w:20,h:46,c:'#e5564a',l:'Knife-shaped 78%'}]}]);
+
+    const F={
+      attend:[{label:'Group',ref:this.f1,options:['All students','All staff','Grade 7','Grade 8','Grade 9']},
+              {label:'Date',ref:this.f2,options:['Today — Wed, Jul 29','Tue, Jul 28','Mon, Jul 27']}],
+      count:[{label:'Place',ref:this.f1,options:['Main entrance','Cafeteria','Assembly hall','Library','Classrooms','Playground','Whole campus']},
+             {label:'When',ref:this.f2,options:['Right now','Today by hour','This week by day']}],
+      lost:[{label:'Item',ref:this.f1,options:['Backpack','Laptop','Phone','Jacket','Water bottle','Sports bag']},
+            {label:'Colour',ref:this.f2,options:['Black','Any','Blue','Red','Grey','Green']},
+            {label:'Last seen area',ref:this.f3,options:['Anywhere','Cafeteria','Library','Gymnasium','Corridors','Playground']},
+            {label:'Since',ref:this.f4,options:['Today','Yesterday','Last 3 days']}],
+      track:[{label:'Find',ref:this.f1,options:['Layla Ahmed','Omar Khaled','Karim Adel','Unknown visitor (from clip)']},
+             {label:'Time window',ref:this.f2,options:['Whole school day','Morning only','Afternoon only']}],
+      fight:[{label:'Place',ref:this.f1,options:['Anywhere','Corridors','Outdoor areas']},
+             {label:'Period',ref:this.f2,options:['Last 30 days','Last 7 days','Today']}],
+      weapon:[{label:'Show detections from',ref:this.f1,options:['This school year','Last 90 days','Last 30 days']}],
+      intrude:[{label:'Show breaches from',ref:this.f1,options:['Today','Last 7 days','Last 30 days']}]
+    };
+    const fields=(t?F[t]:[]).map(f=>({...f, change:()=>{}}));
+
+    const A=ans||{}, aWho=A.who?A.who.split(' ')[0]:'', aPlace=A.place||'Cafeteria', aLabel=A.label||'item';
+    const camsFor={
+      attend:[{n:'Main entrance',s:'Recognising · 2 people',time:'07:42:11',boxes:[{x:18,y:26,w:20,h:44,c:G,l:'Layla A. 96%'},{x:52,y:31,w:19,h:41,c:G,l:'Nour H. 94%'}]},
+        {n:'Gate 5 — bus lane',s:'Unknown face — not enrolled',time:'07:42:11',boxes:[{x:40,y:27,w:20,h:44,c:R,l:'Unknown'}]}],
+      count:[{n:aPlace+' — cam 1',s:'Counting · '+(A.n1||0)+' tracked',line:58,boxes:[{x:14,y:30,w:16,h:38,c:B,l:'1'},{x:44,y:34,w:16,h:36,c:B,l:'2'},{x:70,y:28,w:16,h:40,c:B,l:'3'}]},
+        {n:aPlace+' — cam 2',s:'Counting · '+(A.n2||0)+' tracked',line:54,boxes:[{x:26,y:32,w:17,h:38,c:B,l:'4'},{x:58,y:36,w:16,h:35,c:B,l:'5'}]}],
+      lost:[{n:'Cafeteria — table row 3',s:'94% match · 12:41pm',time:'12:41:02',boxes:[{x:38,y:56,w:16,h:20,c:G,l:aLabel+' 94%'}]},
+        {n:'Library — study area',s:'71% match · 11:20am',time:'11:20:15',boxes:[{x:58,y:52,w:15,h:19,c:O,l:'71%'}]}],
+      track:[{n:'7:42am — Main entrance',s:'Face match · 96%',time:'07:42:11',boxes:[{x:30,y:28,w:19,h:44,c:G,l:aWho+' 96%'}]},
+        {n:'12:34pm — Cafeteria',s:'Appearance match · 92%',time:'12:34:07',boxes:[{x:24,y:32,w:18,h:40,c:B,l:'92%'}]}],
+      fight:[{n:'Building B — Yard 2',s:'Incident 11:03am',time:'11:03:18',boxes:[{x:28,y:28,w:19,h:44,c:R,l:'Aggression 7s'},{x:47,y:30,w:19,h:42,c:R,l:''}]},
+        {n:'Building A — Corridor 3',s:'Monitoring · clear',boxes:[{x:22,y:32,w:16,h:38,c:B,l:'Normal'}]}],
+      weapon:[{n:'Main gate — entrance',s:'Scanning · clear',boxes:[{x:30,y:30,w:18,h:42,c:G,l:'No weapon'}]},
+        {n:'Building C — corridor',s:'Scanning · clear',boxes:[{x:52,y:32,w:17,h:40,c:G,l:'No weapon'}]}],
+      intrude:[{n:'Chemistry lab — door',s:'Breach detected 6:12am',time:'06:12:44',zone:{x:10,y:18,w:52,h:62,l:'Restricted'},boxes:[{x:24,y:34,w:19,h:42,c:R,l:'Person in zone'}]},
+        {n:'Boundary fence — east',s:'Paused by IT',zone:{x:8,y:44,w:82,h:34,l:'Paused'},boxes:[]}]
+    };
+
+    const toolsDef=[['attend','Attendance','Who arrived, who’s missing'],['count','People counting','How many, anywhere'],
+      ['lost','Lost items','Search footage for it'],['track','Track a person','Always logged'],
+      ['intrude','Intrusion','Restricted areas'],['fight','Fights','Reviewed with video'],
+      ['weapon','Weapons','Human-reviewed, always'],['people','People','Students, staff and groups']];
+    const chipDef=[['Who was absent today?','attend'],['How busy is the cafeteria?','count'],['Lost a black backpack','lost'],['Where did Layla go today?','track']];
+
+    const attn = [
+      {k:'Needs review',ic:'!',bg:'var(--rd-bg)',c:'var(--rd)',t:'Possible fight — Building B yard',s:'11 min ago · 7 seconds · 2 people',act:'Watch the clip',go:()=>this.open('fight')},
+      {k:'Attendance',ic:'●',bg:'var(--am-bg)',c:'var(--am)',t:'34 students not yet arrived',s:'Grade 8 · as of 8:40am',act:'See who',go:()=>{this.open('attend');setTimeout(()=>this.run(),0);}}
+    ];
+
+    const mAll=s.msrc.reduce((a,b)=>a+(b.ch||1),0);
+    const mUp=s.msrc.filter(x=>x.st==='ok').reduce((a,b)=>a+(b.ch||1),0);
+    const mDown=s.msrc.filter(x=>x.st!=='ok').map(x=>x.st==='down'
+      ? x.n+' is offline — '+x.ch+(x.ch===1?' camera is':' cameras are')+' not recording'
+      : x.n+' is refusing the saved password');
+    const fmtT=(t)=>{ if(!t) return ''; const p2=t.split(':'); let h=Number(p2[0]); const ap=h>=12?'pm':'am'; h=h%12||12; return h+':'+p2[1]+ap; };
+    const fmtD=(d)=>{ if(!d) return ''; return new Date(d+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); };
+    const P=s.profile, setP=(k)=>(e)=>{ if(e.target.value) this.setState({profile:{...this.state.profile,[k]:e.target.value}}); };
+    const profileRows=[
+      {k:'name', l:'School name', disp:P.name, aType:'text', va:P.name, two:false, saveA:setP('name')},
+      {k:'hours', l:'School hours', disp:fmtT(P.hoursFrom)+' – '+fmtT(P.hoursTo), aType:'time', va:P.hoursFrom, vb:P.hoursTo, two:true, saveA:setP('hoursFrom'), saveB:setP('hoursTo')},
+      {k:'term', l:'Term', disp:fmtD(P.termFrom)+' – '+fmtD(P.termTo), aType:'date', va:P.termFrom, vb:P.termTo, two:true, saveA:setP('termFrom'), saveB:setP('termTo')},
+      {k:'cutoff', l:'Attendance cut-off', disp:fmtT(P.cutoff)+' — later is late', aType:'time', va:P.cutoff, two:false, saveA:setP('cutoff')}
+    ].map(r=>({...r, editing:s.editKey===r.k, plain:s.editKey!==r.k, actLabel:s.editKey===r.k?'Done':'Edit',
+      edit:()=>this.setState({editKey:s.editKey===r.k?null:r.k})}));
+    const alertRows=[['fight','Fight alerts','Immediately'],['weapon','Weapon alerts','Immediately · reviewed by a person first'],['attend','Morning attendance summary','9:00am each school day'],['intr','Intrusion alerts','When someone enters a restricted area']]
+      .map(([k,t2,sub])=>({t:t2, s:sub, chs:['Push','Email','SMS'].map(ch=>{ const on=s.chans[k][ch];
+        return {t:ch, bg:on?'var(--chip)':'var(--bg)', c:on?'var(--ac2)':'var(--tx3)',
+          toggle:()=>this.setState({chans:{...s.chans,[k]:{...s.chans[k],[ch]:!on}}})}; })}));
+    const delivRows=[['app','VisionGuard app',null,''],['email','Email','email','name@school.edu'],['sms','Text message (SMS)','tel','+20 1xx xxx xxxx'],['wa','WhatsApp','tel','+20 1xx xxx xxxx']]
+      .map(([k,t2,inType,ph])=>{ const d=s.deliv[k], editable=!!inType, editing=s.delivEdit===k;
+        let sub=d.dest||'';
+        if(k==='app') sub='This phone';
+        else if(!d.dest) sub=(k==='email'?'No address yet':'No number yet')+(d.on?' — add one so this can work':'');
+        return {t:t2, inType:inType||'text', ph, editing, plainSub:!editing, sub, editable, dest:d.dest,
+          actLabel:editing?'Done':(d.dest?'Change':'Add'),
+          change:()=>this.setState({delivEdit:editing?null:k}),
+          save:(e)=>this.setState({deliv:{...this.state.deliv,[k]:{...this.state.deliv[k], dest:e.target.value}}}),
+          tgBg:d.on?'var(--ac)':'#c3ccc4', knob:d.on?20:2,
+          toggle:()=>this.setState({deliv:{...s.deliv,[k]:{...d, on:!d.on}}, delivEdit:(!d.on&&editable&&!d.dest)?k:s.delivEdit})}; });
+    const langChips=[['en','English'],['ar','\u0627\u0644\u0639\u0631\u0628\u064a\u0629']].map(([k,t2])=>({t:t2,
+      bg:s.lang===k?'var(--chip)':'var(--bg)', c:s.lang===k?'var(--ac2)':'var(--tx3)',
+      pick:()=>{ if(s.lang!==k) this.setState({lang:k}); }}));
+    const TABIC={home:'M3.2 7.8 L9 3 L14.8 7.8 V15 H3.2 Z',
+      tools:'M2.8 3.4 H7.6 V8.2 H2.8 Z M10.4 3.4 H15.2 V8.2 H10.4 Z M2.8 10.4 H7.6 V15.2 H2.8 Z M10.4 10.4 H15.2 V15.2 H10.4 Z',
+      people:'M6.2 3.6 a2.2 2.2 0 1 0 .01 0 M2.9 14.4 c0-2.5 1.7-3.9 3.3-3.9 s3.3 1.4 3.3 3.9 M12.2 5.4 a1.9 1.9 0 1 0 .01 0 M11.5 11.1 c1.8 .3 3.3 1.4 3.3 3.1',
+      account:'M9 3.4 a2.6 2.6 0 1 0 .01 0 M3.6 15 c0-3 2.4-4.6 5.4-4.6 s5.4 1.6 5.4 4.6'};
+    TABIC.system='M2.6 9.5 H5.8 L7.8 5 L10.3 13.5 L12.2 9.5 H15.4';
+    const PPL=[
+      {n:'Layla Ahmed',type:'Student',sub:'Grade 8 — B',g:'Rana Ahmed (mother) · +20 100 555 0143',photo:true,att:'On time · 7:42am'},
+      {n:'Omar Khaled',type:'Student',sub:'Grade 8 — A',g:'Khaled Samir (father) · +20 100 555 0167',photo:true,att:'Late · 8:14am'},
+      {n:'Karim Adel',type:'Student',sub:'Grade 7 — C',g:'Adel Hassan (father) · +20 100 555 0121',photo:false,att:'Absent today'},
+      {n:'Mona Fathy',type:'Student',sub:'Grade 9 — A',g:'Nour Fathy (mother) · +20 100 555 0177',photo:true,att:'On time · 7:36am'},
+      {n:'Sara Ibrahim',type:'Staff',sub:'Deputy head',g:'',photo:true,att:'On site · 7:10am'},
+      {n:'Dina Mostafa',type:'Staff',sub:'Grade 7 teacher',g:'',photo:true,att:'On site · 7:22am'},
+      {n:'DHL courier',type:'Visitor',sub:'Registered Jul 28, one day',g:'',photo:false,att:'Signed out 2:10pm'}
+    ];
+    const pq=(s.peopleQ||'').trim().toLowerCase(), pTab=s.pTab||'All';
+    const MPEOPLE=PPL.filter(p=>(pTab==='All'||p.type===pTab)&&(!pq||p.n.toLowerCase().includes(pq))).map(p=>({
+      n:p.n, sub:p.sub, g:p.g, att:p.att, hasG:!!p.g, isStu:p.type==='Student',
+      init:p.n.split(' ').map(w=>w[0]).slice(0,2).join(''),
+      b:p.type, bg:p.type==='Student'?'var(--chip)':(p.type==='Staff'?'var(--bg)':'var(--am-bg)'),
+      c:p.type==='Student'?'var(--ac2)':(p.type==='Staff'?'var(--tx2)':'var(--am)'),
+      ph:p.photo?'Photo on file':'No photo yet', phBg:p.photo?'var(--chip)':'var(--am-bg)', phC:p.photo?'var(--ac2)':'var(--am)',
+      open:s.pOpen===p.n, closed:s.pOpen!==p.n, chev:s.pOpen===p.n?'⌃':'›',
+      tap:()=>this.setState({pOpen:s.pOpen===p.n?null:p.n}),
+      goHist:()=>this.setState({view:'hist', histName:p.n, histFrom:'people'}),
+      goTrk:()=>{ this.open('track'); setTimeout(()=>this.run(),0); }}));
+    const GRPS=[{n:'Grade 7',c:'138 students · 5 classes',here:129},{n:'Grade 8',c:'142 students · 5 classes',here:133},
+      {n:'Grade 9',c:'129 students · 4 classes',here:124},{n:'All staff',c:'168 people',here:164},{n:'Bus riders',c:'214 students',here:201}];
+    const GRP=GRPS.find(g=>g.n===s.grpName)||GRPS[0];
+    const ROSTER={
+      'Grade 7':[['Karim Adel','7 — C','Absent'],['Yasmin Tarek','7 — A','On time · 7:38am'],['Hassan Nabil','7 — B','On time · 7:44am'],['Farida Sami','7 — C','Late · 8:09am'],['Ziad Ashraf','7 — A','On time · 7:31am'],['Malak Hisham','7 — D','On time · 7:47am']],
+      'Grade 8':[['Layla Ahmed','8 — B','On time · 7:42am'],['Omar Khaled','8 — A','Late · 8:14am'],['Salma Reda','8 — C','Late · 8:22am'],['Hana Saleh','8 — B','Absent'],['Youssef Emad','8 — A','On time · 7:29am'],['Nour Hany','8 — D','On time · 7:51am']],
+      'Grade 9':[['Mona Fathy','9 — A','On time · 7:36am'],['Adam Wael','9 — B','On time · 7:40am'],['Jana Mostafa','9 — C','On time · 7:33am'],['Seif Amr','9 — A','Late · 8:05am']],
+      'All staff':[['Sara Ibrahim','Deputy head','On site · 7:10am'],['Tarek Nassar','IT manager','On site · 7:18am'],['Dina Mostafa','Grade 7 teacher','On site · 7:22am'],['Amira Fouad','Grade 9 teacher','On site · 7:15am']],
+      'Bus riders':[['Layla Ahmed','Route 3','On time · 7:42am'],['Ziad Ashraf','Route 1','On time · 7:31am'],['Jana Mostafa','Route 5','On time · 7:33am'],['Farida Sami','Route 3','Late · 8:09am']]
+    };
+    const stTone=(x)=>x.indexOf('Absent')===0?{bg:'var(--rd-bg)',c:'var(--rd)',g:'✕ '}:(x.indexOf('Late')===0?{bg:'var(--am-bg)',c:'var(--am)',g:'! '}:{bg:'var(--chip)',c:'var(--ac2)',g:'✓ '});
+    const GRPPEOPLE=(ROSTER[GRP.n]||[]).map(([n2,sub2,st2])=>({n:n2, sub:sub2, status:stTone(st2).g+st2.split(' · ')[0], init:n2.split(' ').map(w=>w[0]).slice(0,2).join(''),
+      bg:'var(--chip)', c:'var(--ac2)', sBg:stTone(st2).bg, sC:stTone(st2).c,
+      goHist:()=>this.setState({view:'hist', histName:n2, histFrom:'group'})}));
+    const hn=s.histName||'Layla Ahmed';
+    const hSub=((PPL.find(p=>p.n===hn)||{}).sub)||(((ROSTER[GRP.n]||[]).find(r=>r[0]===hn)||[])[1])||'Student';
+    const seed=hn.length;
+    const todayRaw=(((ROSTER[GRP.n]||[]).find(r=>r[0]===hn)||[])[2])||((PPL.find(p=>p.n===hn)||{}).att)||'On time · 7:42am';
+    let todayMins=null;
+    if(todayRaw.indexOf('Absent')===0) todayMins=0;
+    else { const mt=todayRaw.match(/(\d+):(\d+)/); todayMins=mt?Number(mt[1])*60+Number(mt[2]):462; }
+    const HDAYS=[['Thu 16',501],['Sun 19',null],['Mon 20',null],['Tue 21',null],['Wed 22',null],['Thu 23',null],['Sun 26',0],['Mon 27',492],['Tue 28',null],['Wed 29',todayMins]];
+    const JIT=[0,7,-5,12,-9,3,16,-3,9,-7];
+    let sum=0, cnt=0;
+    const HBARS=HDAYS.map(([d,fixed],i)=>{
+      if(fixed===0) return {d, t:'Absent', pct:'100%', col:'var(--rd)'};
+      const mins=fixed!==null?fixed:(448+JIT[i]+((seed*3+i*i*5)%11));
+      sum+=mins; cnt++;
+      const h2=Math.floor(mins/60), m2=String(mins%60).padStart(2,'0');
+      return {d, t:(h2%12||12)+':'+m2+'am', pct:Math.max(8,Math.round((mins-430)/80*100))+'%', col:mins>480?'var(--am)':'var(--ac)'}; });
+    const avg=Math.round(sum/cnt), aH=Math.floor(avg/60), aM=String(avg%60).padStart(2,'0');
+    const usual=(aH%12||12)+':'+aM;
+    const hLate=2+(todayMins>480?1:0), hAbs=1+(todayMins===0?1:0), hTerm=21, hPresent=hTerm-hAbs;
+    const hFlags=[];
+    if(todayMins===0) hFlags.push({d:'Wednesday, Jul 29',s:'No arrival recorded at any entrance',b:'Absent',bg:'var(--rd-bg)',c:'var(--rd)'});
+    else if(todayMins>480) hFlags.push({d:'Wednesday, Jul 29',s:'Main entrance · '+(Math.floor(todayMins/60)%12||12)+':'+String(todayMins%60).padStart(2,'0')+'am',b:'Late',bg:'var(--am-bg)',c:'var(--am)'});
+    hFlags.push({d:'Monday, Jul 27',s:'Main entrance · 8:12am',b:'Late',bg:'var(--am-bg)',c:'var(--am)'},
+      {d:'Sunday, Jul 26',s:'No arrival recorded at any entrance',b:'Absent',bg:'var(--rd-bg)',c:'var(--rd)'},
+      {d:'Thursday, Jul 16',s:'Gate 3 · 8:21am',b:'Late',bg:'var(--am-bg)',c:'var(--am)'});
+    const HIST={n:hn, sub:hSub, hd:'Present '+hPresent+' of '+hTerm+' days',
+      lead:'This term · usually arrives around '+usual+'am, before the 8:00am cut-off.',
+      stats:[{l:'Attendance',v:Math.round(hPresent/hTerm*100)+'%'},{l:'Late arrivals',v:String(hLate)},{l:'Absences',v:String(hAbs)},{l:'Usual arrival',v:usual}],
+      bars:HBARS, flags:hFlags};
+    const tabDef=[['home','Ask'],['tools','Tools'],['people','People'],['system','System'],['account','Account']];
+    const cur=s.view==='tool'?'tools':((s.view==='group'||s.view==='hist')?'people':s.view);
+    const tabs=tabDef.map(([id,label])=>({t:label, d:TABIC[id], c:cur===id?'var(--ac)':'var(--tx3)',
+      fw:cur===id?'700':'500', sw:cur===id?'2':'1.6',
+      go:()=>this.setState({view:id, tool:null, askNote:''})}));
+
+    return {
+      showLogin:!s.authed, authed:s.authed,
+      signIn:()=>this.setState({authed:true, view:'home'}),
+      loginKey:(e)=>{ if(e.key==='Enter') this.setState({authed:true, view:'home'}); },
+      signOut:()=>this.setState({authed:false}),
+      vHome:s.view==='home', vTool:s.view==='tool', vAccount:s.view==='account', vTools:s.view==='tools', vSystem:s.view==='system',
+      todayStats:[{l:'On campus now',v:'1,679'},{l:'Absent',v:'63'},{l:'Late',v:'41'},{l:'Visitors',v:'4'}],
+      recent:[
+        {t:'Attendance · Grade 8',s:'Checked 12 minutes ago',go:()=>{this.open('attend');setTimeout(()=>this.run(),0);}},
+        {t:'Lost items · black backpack',s:'Searched yesterday, 3 matches',go:()=>{this.open('lost');setTimeout(()=>this.run(),0);}},
+        {t:'Cafeteria · people counting',s:'Checked yesterday at 12:40pm',go:()=>{this.open('count');setTimeout(()=>this.run(),0);}}
+      ],
+      greeting:'Good morning, Mohamed.',
+      statusLine:mUp===mAll?('Campus is calm · '+mAll+' cameras'):(mUp+' of '+mAll+' cameras up'),
+      schoolName:this.props.schoolName || 'Greenfield International School',
+      whoName:'Mohamed Fouad', whoRole:'Administrator', whoInit:'MF',
+      askRef:this.askRef, askKey:this.askKey, doAsk:this.doAsk, focusAsk:()=>{if(this.askRef.current)this.askRef.current.focus();},
+      hasAskNote:!!s.askNote, askNote:s.askNote,
+      chips:chipDef.map(([q,v])=>({q, go:()=>{this.open(v); setTimeout(()=>this.run(),0);}})),
+      attn, tabs,
+      tools:toolsDef.filter(t2=>t2[0]!=='people').map(([id,tt,d])=>({t:tt,d,go:()=>this.open(id)})),
+      allTools:[['attend','Attendance','Who arrived, who’s missing'],['count','People counting','How many, anywhere'],
+        ['lost','Lost items','Search footage for it'],['track','Track a person','Always logged'],
+        ['intrude','Intrusion','Restricted areas'],['fight','Fights','Reviewed with video'],
+        ['weapon','Weapons','Human-reviewed, always']].map(([id,tt,d])=>({t:tt,d,go:()=>this.open(id)})),
+      vPeople:s.view==='people',
+      mobPeopleSearch:(e)=>this.setState({peopleQ:e.target.value}),
+      pTabs:['All','Student','Staff','Visitor'].map(k=>({t:{All:'All',Student:'Students',Staff:'Staff',Visitor:'Visitors'}[k],
+        bg:(s.pTab||'All')===k?'var(--chip)':'var(--bg)', c:(s.pTab||'All')===k?'var(--ac2)':'var(--tx3)',
+        go:()=>this.setState({pTab:k, pOpen:null})})),
+      pCount:{All:'2,118 people',Student:'1,742 students',Staff:'168 staff',Visitor:'12 visitors this week'}[s.pTab||'All'],
+      mobPeople:MPEOPLE,
+      pNone:MPEOPLE.length===0,
+      mGroups:GRPS.map(g=>({...g, go:()=>this.setState({view:'group', grpName:g.n, pOpen:null})})),
+      vGroup:s.view==='group', vHist:s.view==='hist',
+      backPeople:()=>this.setState({view:'people'}),
+      backFromHist:()=>this.setState({view:s.histFrom==='group'?'group':'people'}),
+      grp:GRP, grpPeople:GRPPEOPLE, hist:HIST,
+      profileRows, alertRows, delivRows, langChips,
+      langNote:s.lang==='ar'?'Arabic numbers and dates switch now — full right-to-left layout lands next build.':'Interface language for this account.',
+      quietLabel:'Quiet hours · '+fmtT(s.quietFrom)+' – '+fmtT(s.quietTo),
+      quietBg:s.quiet?'var(--ac)':'#c3ccc4', quietKnob:s.quiet?20:2, toggleQuiet:()=>this.setState({quiet:!s.quiet}),
+      quietEditing:s.editKey==='quiet', quietPlain:s.editKey!=='quiet',
+      quietEdit:()=>this.setState({editKey:s.editKey==='quiet'?null:'quiet'}),
+      quietFrom:s.quietFrom, quietTo:s.quietTo,
+      saveQuietFrom:(e)=>{ if(e.target.value) this.setState({quietFrom:e.target.value}); },
+      saveQuietTo:(e)=>{ if(e.target.value) this.setState({quietTo:e.target.value}); },
+      back:this.back, runTool:this.run,
+      toolTitle:def?def.title:'', toolLead:def?def.lead:'', runLabel:def?def.run:'Show',
+      fields, isTrack:t==='track', isIntrude:t==='intrude',
+      showEmpty:!!t&&!ans&&!s.searching&&!!def&&!!def.empty, emptyText:def?def.empty:'',
+      showSearching:s.searching, showSummary:!!ans&&!(ans.isWeapon&&s.wpState), ans,
+      ctHasMap:!!(ans&&ans.hasMap),
+      ctMap:ctList.map(a=>({...a, n:String(a.v), l:a.n, ...ctTone(a.v,a.cap)})),
+      ctAreas:ctList.map(a=>({n:a.n, v:String(a.v), pct:Math.round(a.v/a.cap*100)+'%', bar:ctTone(a.v,a.cap).bar})),
+      isWeapon:!!(ans&&ans.isWeapon), wpLiveCam,
+      wpClear:!s.wpState, wpLive:s.wpState==='live', wpConfirmed:s.wpState==='confirmed', wpDismissed:s.wpState==='dismissed',
+      wpSimulate:()=>this.setState({wpState:'live'}), wpConfirm:()=>this.setState({wpState:'confirmed'}),
+      wpDismiss:()=>this.setState({wpState:'dismissed'}), wpReset:()=>this.setState({wpState:null}),
+      wpSteps:[
+        {ic:'✓', bg:'var(--rd)', c:'var(--card)', t:'Security desk notified', s:'Push and call · acknowledged by Sara Ibrahim'},
+        {ic:'✓', bg:'var(--rd)', c:'var(--card)', t:'Entrance cameras pinned to live view', s:'All 6 cameras, full-rate recording'},
+        {ic:'●', bg:'var(--am)', c:'var(--card)', t:'Head teacher being contacted', s:'Calling · no answer yet'},
+        {ic:'○', bg:'var(--bg)', c:'var(--tx2)', t:'Police — not contacted', s:'Your decision, never the system’s.'}
+      ],
+      camTitle:def?def.camTitle:'', camNote:def?def.camNote:'', cams:this.prep(t&&ans?camsFor[t]:[]),
+      zones:s.zones.map((z,i)=>({...z, tgBg:z.on?'var(--ac)':'#c3ccc4', knob:z.on?20:2,
+        toggle:()=>{const n=s.zones.slice(); n[i]={...n[i],on:!n[i].on}; this.setState({zones:n});}})),
+      darkBg:s.dark?'var(--ac)':'#c3ccc4', darkKnob:s.dark?20:2,
+      toggleDark:()=>{const d=!s.dark; this.setState({dark:d}); document.body.classList.toggle('vgdark',d);},
+      setAdmin:()=>this.setState({role:'admin'}), setIT:()=>this.setState({role:'it'}),
+      adminBg:admin?'var(--chip)':'var(--bg)', adminC:admin?'var(--ac2)':'var(--tx3)',
+      itBg:!admin?'var(--chip)':'var(--bg)', itC:!admin?'var(--ac2)':'var(--tx3)',
+      sysTitle:admin?'System status':'System health',
+      msources:s.msrc.map(ms=>({...ms,
+        badge:ms.st==='ok'?'✓ Connected':(ms.st==='down'?'✕ Offline':'! Password'),
+        bg:ms.st==='ok'?'var(--chip)':(ms.st==='down'?'var(--rd-bg)':'var(--am-bg)'),
+        c:ms.st==='ok'?'var(--ac2)':(ms.st==='down'?'var(--rd)':'var(--am)')})),
+      sysHd:mUp===mAll?('All '+mAll+' cameras online'):(mUp+' of '+mAll+' cameras online'),
+      sysSub:mDown.length?mDown.join('; ')+'.':'Everything is recording and being analysed.',
+      camStatIcon:mUp===mAll?'✓':'!', camStatColor:mUp===mAll?'var(--ac)':'var(--am)',
+      srcFormOff:!s.srcForm, srcFormOn:s.srcForm,
+      srcAddOpen:()=>this.setState({srcForm:true, srcMode:'scan', srcScan:'idle', srcFound:[], dvrStep:'form', srcTest:'idle'}),
+      areaOpts:['Main building','Building A','Building B','Building C','Cafeteria','Gates & perimeter','Playground'],
+      mSrcTabs:[['scan','Scan network'],['dvr','Add DVR / NVR'],['ip','Add IP camera'],['rtsp','Paste RTSP URL']].map(([k,t2])=>({t:t2,
+        bg:s.srcMode===k?'var(--ac)':'var(--bg)', c:s.srcMode===k?'#fff':'var(--tx2)',
+        go:()=>{ clearTimeout(this._srT); this.setState({srcMode:k, srcScan:'idle', srcFound:[], dvrStep:'form', srcTest:'idle'}); }})),
+      mScan:s.srcMode==='scan', mDvr:s.srcMode==='dvr', mSingle:s.srcMode==='ip'||s.srcMode==='rtsp', mIsIp:s.srcMode==='ip',
+      mSingleLead:s.srcMode==='ip'?'Add one camera directly by its address on the network.':'The escape hatch — works with anything that produces a video stream, whatever the brand.',
+      mSingleVal:s.srcMode==='ip'?'192.168.1.140':'rtsp://user:pass@192.168.1.150:554/stream1',
+      mSinglePh:s.srcMode==='ip'?'IP address':'RTSP URL',
+      mScanIdle:s.srcScan==='idle', mScanRun:s.srcScan==='run', mScanDone:s.srcScan==='done',
+      mStartScan:()=>{ this.setState({srcScan:'run', srcFound:[]});
+        this._srT=setTimeout(()=>this.setState({srcScan:'done', srcFound:[
+          {n:'Hikvision DS-7732NI (NVR)', ip:'192.168.1.42', ch:32, dup:true, added:false},
+          {n:'Dahua IPC-HDW2431T', ip:'192.168.1.126', ch:1, dup:false, added:false},
+          {n:'ONVIF device (unnamed)', ip:'192.168.1.131', ch:1, dup:false, added:false}]}),1600); },
+      mFound:s.srcFound.map((f,i)=>({...f, meta:f.ip+' · '+f.ch+(f.ch===1?' channel':' channels'),
+        isNew:!f.dup&&!f.added, notNew:!!(f.dup||f.added), label:f.dup?'Already added':'✓ Added',
+        add:()=>{ const arr=this.state.srcFound.slice(); if(arr[i].added||arr[i].dup) return; arr[i]={...arr[i], added:true};
+          this.setState({srcFound:arr, msrc:[...this.state.msrc, {n:f.n, meta:f.ip+' · '+f.ch+(f.ch===1?' channel':' channels'), st:'ok'}]}); }})),
+      mDvrForm:s.dvrStep==='form', mDvrConnecting:s.dvrStep==='connecting', mDvrChannels:s.dvrStep==='channels',
+      mDvrConnect:()=>{ this.setState({dvrStep:'connecting'}); this._srT=setTimeout(()=>this.setState({dvrStep:'channels'}),1300); },
+      mDvrChCount:s.dvrCh.filter(Boolean).length,
+      mDvrChRows:s.dvrCh.map((on,i)=>({ch:'CH '+(i+1), nm:'Camera '+(i+1), on, tgBg:on?'var(--ac)':'#c3ccc4', knob:on?20:2,
+        toggle:()=>{ const c2=s.dvrCh.slice(); c2[i]=!c2[i]; this.setState({dvrCh:c2}); }})),
+      mDvrAdd:()=>{ const cnt=s.dvrCh.filter(Boolean).length;
+        this.setState({msrc:[...this.state.msrc, {n:'DVR — 192.168.1.50', meta:'192.168.1.50 · '+cnt+' channels', st:'ok'}], srcForm:false, dvrStep:'form'}); },
+      mTestIdle:s.srcTest==='idle', mTestRun:s.srcTest==='run', mTestOk:s.srcTest==='ok',
+      mRunTest:()=>{ this.setState({srcTest:'run'}); this._srT=setTimeout(()=>this.setState({srcTest:'ok'}),1100); },
+      mTestCam:this.prep([{n:'Test frame', s:'Connection OK · H.264 · 1080p · 12 fps', time:'08:47:12', boxes:[]}]),
+      mAddSingle:()=>this.setState({srcForm:false, srcTest:'idle',
+        msrc:[...this.state.msrc, {n:s.srcMode==='rtsp'?'RTSP stream — manual':'IP camera — 192.168.1.140',
+          meta:(s.srcMode==='rtsp'?'rtsp://…':'192.168.1.140')+' · 1 channel', st:'ok'}]})
+    };
+  }
+}
+</script>
+</body>
+</html>

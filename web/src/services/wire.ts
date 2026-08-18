@@ -1,0 +1,597 @@
+/** What the engine actually sends.
+ *
+ *  These mirror `engine/vg/api/schemas.py`. They are deliberately NOT the same
+ *  as `@/types` — the engine sends numbers, ISO-8601 UTC instants and enums;
+ *  `@/types` are the rendered shapes the pages draw. `format.ts` converts one
+ *  into the other, which is why the pages never had to change.
+ *
+ *  Keep this file in sync with the OpenAPI document at /docs. If the two ever
+ *  disagree, the engine's document wins. */
+
+/* ---------- primitives ---------- */
+
+export type Severity = 'info' | 'warn' | 'critical';
+export type MatchKind = 'face' | 'appearance' | 'none';
+export type SourceStatus = 'ok' | 'down' | 'auth';
+export type SourceType = 'NVR' | 'DVR' | 'IP camera' | 'RTSP';
+export type PersonType = 'Student' | 'Staff' | 'Visitor';
+export type ReviewVerdict = 'pending' | 'confirmed' | 'dismissed';
+export type BreachStatus = 'open' | 'authorised' | 'resolved';
+export type ScheduleMode = 'outside' | 'inside' | 'always';
+export type AttendanceStatus = 'on_time' | 'late' | 'absent' | 'unknown';
+
+/** A moment in time.
+ *
+ *  `utc` is the truth; `tzOffsetMinutes` is the *school's* offset, not the
+ *  viewer's. Rendering uses both so a phone abroad still shows the time the
+ *  school experienced. */
+export interface Instant {
+  utc: string;
+  tzOffsetMinutes: number;
+}
+
+/** Fractions of the frame, origin top-left. Multiply by 100 for the UI. */
+export interface Box {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  label?: string | null;
+  confidence?: number | null;
+  kind: 'person' | 'weapon' | 'object' | 'face' | 'match';
+  match: MatchKind;
+  severity: Severity;
+  /** The appearance identity following this body. Holds across leaving the
+   *  frame and across cameras — with or without a face ever being seen. */
+  trackId?: string | null;
+}
+
+export interface Point {
+  x: number;
+  y: number;
+}
+
+export interface ZoneOverlay {
+  id: string;
+  label: string;
+  polygon: Point[];
+  enabled: boolean;
+}
+
+export interface CameraView {
+  id: string;
+  name: string;
+  offline: boolean;
+  capturedAt?: Instant | null;
+  /** True when this is the last good frame of a dropped stream. */
+  stale: boolean;
+  peopleCount?: number | null;
+  boxes: Box[];
+  zone?: ZoneOverlay | null;
+  countLine?: number | null;
+  snapshotUrl?: string | null;
+  streamUrl?: string | null;
+}
+
+/** Everything that changes frame to frame, in one payload.
+ *
+ *  Boxes and headcount travel together because they come from the same
+ *  inference pass — split across two polls they could disagree by a frame. */
+export interface CameraDetections {
+  cameraId: string;
+  at?: Instant | null;
+  boxes: Box[];
+  /** null means nothing measured this camera — not zero. */
+  peopleCount?: number | null;
+  inferenceMs?: number | null;
+}
+
+/** A number plus what kind of number it is, so the UI can format it. */
+export interface Metric {
+  key: string;
+  label: string;
+  value?: number | null;
+  unit: 'count' | 'percent' | 'seconds' | 'ratio' | 'text';
+  text?: string | null;
+  total?: number | null;
+  severity: Severity;
+}
+
+export interface Clip {
+  id: string;
+  url: string;
+  thumbnailUrl?: string | null;
+  durationSeconds: number;
+  startsAt: Instant;
+}
+
+export interface PersonRef {
+  id?: string | null;
+  name?: string | null;
+  type?: PersonType | null;
+  match: MatchKind;
+  confidence?: number | null;
+}
+
+/* ---------- intrusion ---------- */
+
+export interface Schedule {
+  mode: ScheduleMode;
+  days: string[];
+  start?: string | null;
+  end?: string | null;
+}
+
+export interface Zone {
+  id: string;
+  name: string;
+  cameraId: string;
+  schedule: Schedule;
+  enabled: boolean;
+  polygon: Point[];
+  breachesToday: number;
+}
+
+export interface Breach {
+  id: string;
+  zoneId: string;
+  zoneName: string;
+  cameraId: string;
+  cameraName: string;
+  at: Instant;
+  subject: PersonRef;
+  status: BreachStatus;
+  severity: Severity;
+  confidence: number;
+  dwellSeconds: number;
+  clip?: Clip | null;
+  modelVersion?: string | null;
+}
+
+/* ---------- weapons ---------- */
+
+export interface WeaponDetection {
+  id: string;
+  at: Instant;
+  cameraId: string;
+  cameraName: string;
+  location: string;
+  item: string;
+  confidence: number;
+  severity: Severity;
+  verdict: ReviewVerdict;
+  reviewedBy?: string | null;
+  reviewedAt?: Instant | null;
+  dismissalReason?: string | null;
+  box?: Box | null;
+  clip?: Clip | null;
+  modelVersion?: string | null;
+}
+
+/* ---------- fights ---------- */
+
+export interface FightIncident {
+  id: string;
+  at: Instant;
+  cameraId: string;
+  cameraName: string;
+  location: string;
+  area: string;
+  durationSeconds: number;
+  participants: number;
+  confidence: number;
+  severity: Severity;
+  reviewed: boolean;
+  markedNotAFight: boolean;
+  clip?: Clip | null;
+  modelVersion?: string | null;
+}
+
+/* ---------- attendance ---------- */
+
+export interface AttendanceRecord {
+  person: PersonRef;
+  status: AttendanceStatus;
+  seenAt?: Instant | null;
+  cameraId?: string | null;
+  location?: string | null;
+  minutesLate?: number | null;
+}
+
+export interface AttendanceDay {
+  date: string;
+  status: AttendanceStatus;
+  seenAt?: Instant | null;
+  location?: string | null;
+}
+
+export interface AttendanceResult {
+  mode: 'group' | 'person';
+  date: string;
+  subject: string;
+  expected: number;
+  present: number;
+  late: number;
+  absent: number;
+  metrics: Metric[];
+  records: AttendanceRecord[];
+  days: AttendanceDay[];
+  cameras: CameraView[];
+}
+
+/* ---------- counting ---------- */
+
+export interface CountBarPart {
+  name: string;
+  value: number;
+  live: boolean;
+}
+
+export interface CountBar {
+  label: string;
+  value: number;
+  at?: Instant | null;
+  /** Per-area split of this bucket. A bar with one number and no area attached
+   *  is unreadable on a site with six places. */
+  parts: CountBarPart[];
+}
+
+export interface CountArea {
+  id: string;
+  name: string;
+  count: number;
+  capacity: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  severity: Severity;
+  /** True when a camera measured this. False means it is a demo figure, and
+   *  the page has to say so rather than let it pass as real. */
+  live: boolean;
+}
+
+export interface CountResult {
+  place: string;
+  count: number;
+  capacity?: number | null;
+  measuredAt: Instant;
+  deduplicated: boolean;
+  metrics: Metric[];
+  bars: CountBar[];
+  barsTitle?: string | null;
+  areas: CountArea[];
+  cameras: CameraView[];
+}
+
+/* ---------- lost items ---------- */
+
+export interface SearchJob {
+  id: string;
+  state: 'queued' | 'running' | 'done' | 'failed';
+  progress: number;
+  submittedAt: Instant;
+  clipsSearched: number;
+  clipsTotal: number;
+  error?: string | null;
+}
+
+export interface LostHit {
+  cameraId: string;
+  cameraName: string;
+  at: Instant;
+  confidence: number;
+  note?: string | null;
+  box?: Box | null;
+  clip?: Clip | null;
+}
+
+export interface LostResult {
+  job: SearchJob;
+  query: { item: string; colour?: string | null; area?: string | null; since?: string | null };
+  hits: LostHit[];
+  cameras: CameraView[];
+}
+
+/* ---------- track ---------- */
+
+export interface TrackStop {
+  at: Instant;
+  until?: Instant | null;
+  cameraId: string;
+  cameraName: string;
+  place: string;
+  match: MatchKind;
+  confidence: number;
+  clip?: Clip | null;
+}
+
+export interface TrackResult {
+  subject: PersonRef;
+  date: string;
+  /** Receipt proving the audit row was written before this was returned. */
+  auditId: string;
+  sightings: number;
+  firstSeen?: Instant | null;
+  lastSeen?: Instant | null;
+  metrics: Metric[];
+  path: TrackStop[];
+  cameras: CameraView[];
+}
+
+/* ---------- system ---------- */
+
+export interface Recorder {
+  id: string;
+  name: string;
+  cameras: number;
+  online: boolean;
+  ip?: string | null;
+}
+
+export interface PipelineStage {
+  key: string;
+  name: string;
+  detail: string;
+  healthy: boolean;
+  severity: Severity;
+  restartable: boolean;
+  modelVersion?: string | null;
+}
+
+export interface SystemHealth {
+  camerasOnline: number;
+  camerasTotal: number;
+  recordersOnline: number;
+  recordersTotal: number;
+  severity: Severity;
+  gpuPercent?: number | null;
+  cpuPercent?: number | null;
+  storagePercent?: number | null;
+  uptimeSeconds?: number | null;
+  metrics: Metric[];
+  recorders: Recorder[];
+  pipeline: PipelineStage[];
+  cameras: CameraView[];
+}
+
+export interface CameraSource {
+  id: string;
+  name: string;
+  type: SourceType;
+  ip: string;
+  channels: number;
+  status: SourceStatus;
+  area?: string | null;
+  lastError?: string | null;
+}
+
+export interface FoundDevice {
+  name: string;
+  ip: string;
+  channels: number;
+  type: SourceType;
+  duplicate: boolean;
+  added: boolean;
+}
+
+export interface DvrChannel {
+  channel: string;
+  name: string;
+  enabled: boolean;
+  resolution?: string | null;
+}
+
+export interface DvrConnectResult {
+  sourceId: string;
+  channels: DvrChannel[];
+  status: SourceStatus;
+}
+
+export interface TestConnectionResult {
+  ok: boolean;
+  status: SourceStatus;
+  camera?: CameraView | null;
+  error?: string | null;
+  latencyMs?: number | null;
+}
+
+/* ---------- directory ---------- */
+
+export interface DirectoryPerson {
+  id: string;
+  name: string;
+  type: PersonType;
+  group?: string | null;
+  detail?: string | null;
+  guardianName?: string | null;
+  guardianRelation?: string | null;
+  guardianPhone?: string | null;
+  photoOnFile: boolean;
+  attendanceToday?: AttendanceStatus | null;
+}
+
+export interface GroupSummary {
+  name: string;
+  people: number;
+  classes?: number | null;
+  here: number;
+}
+
+export interface GroupDetail {
+  summary: GroupSummary;
+  roster: AttendanceRecord[];
+}
+
+export interface AttendanceTrend {
+  date: string;
+  label: string;
+  presentRatio: number;
+}
+
+export interface AttendanceFlag {
+  date: string;
+  detail: string;
+  kind: string;
+  severity: Severity;
+}
+
+export interface PersonHistory {
+  person: DirectoryPerson;
+  periodLabel: string;
+  presentDays: number;
+  totalDays: number;
+  metrics: Metric[];
+  trend: AttendanceTrend[];
+  flags: AttendanceFlag[];
+}
+
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  role: 'admin' | 'it';
+  lastActive?: Instant | null;
+}
+
+/* ---------- home / live ---------- */
+
+export interface AttentionItem {
+  id: string;
+  kind: 'weapon' | 'intrusion' | 'camera' | 'attendance' | 'system';
+  at: Instant;
+  severity: Severity;
+  title: string;
+  detail: string;
+  target: string;
+  targetId?: string | null;
+  acknowledged: boolean;
+  clip?: Clip | null;
+}
+
+export interface LiveEvent {
+  type:
+    | 'weapon.detected'
+    | 'weapon.reviewed'
+    | 'fight.detected'
+    | 'intrusion.breach'
+    | 'camera.status'
+    | 'count.updated'
+    | 'system.health';
+  at: Instant;
+  attention?: AttentionItem | null;
+  breach?: Breach | null;
+  weapon?: WeaponDetection | null;
+  fight?: FightIncident | null;
+  camera?: CameraView | null;
+  health?: SystemHealth | null;
+}
+
+/* ---------- settings ---------- */
+
+export interface SchoolProfile {
+  name: string;
+  hoursFrom: string;
+  hoursTo: string;
+  termFrom: string;
+  termTo: string;
+  lateCutoff: string;
+  timezone: string;
+}
+
+export interface AlertRule {
+  key: string;
+  title: string;
+  detail: string;
+  push: boolean;
+  email: boolean;
+  sms: boolean;
+}
+
+export interface DeliveryTarget {
+  key: 'app' | 'email' | 'sms' | 'wa';
+  title: string;
+  enabled: boolean;
+  destination: string;
+  editable: boolean;
+}
+
+/** What the app chrome needs before any page loads.
+ *
+ *  `today` is the SCHOOL's date, decided by the engine — a device with a wrong
+ *  clock must not choose which day an attendance register belongs to. */
+export interface SiteInfo {
+  name: string;
+  today: string;
+  timezone: string;
+  tzOffsetMinutes: number;
+  camerasOnline: number;
+  camerasTotal: number;
+  places: string[];
+  areas: string[];
+}
+
+export interface Problem {
+  error: string;
+  detail?: string | null;
+  retryable: boolean;
+}
+
+/* ---------- live tracking ---------- */
+
+export interface TrackedIdentity {
+  stableId: string;
+  cameraId: string;
+  cameraName: string;
+  at: Instant;
+  box: Box;
+  personId?: string | null;
+  name?: string | null;
+  match: MatchKind;
+}
+
+export interface LiveTracking {
+  running: boolean;
+  reason?: string | null;
+  cameras: string[];
+  identities: TrackedIdentity[];
+}
+
+/* ---------- enrolment ----------
+ *
+ *  No image data crosses this boundary in either direction beyond the upload
+ *  itself. The browser keeps its own thumbnails; the engine embeds the photo,
+ *  returns an assessment, and drops the pixels. The gallery stores 128-number
+ *  vectors and never images — a vector cannot be turned back into a
+ *  photograph, which is what limits the exposure of children's biometric data. */
+
+export interface EnrolmentPhoto {
+  id: string;
+  usable: boolean;
+  /** 0-100, from face size and detector confidence. */
+  score: number;
+  facePixels: number;
+  confidence: number;
+  /** Cosine similarity against this person's other staged photos. High is bad:
+   *  the same pose again adds nothing to recognition. */
+  similarity: number;
+  /** Rough head turn. The sign distinguishes two angles. */
+  yaw: number;
+  note: string;
+  source: string;
+}
+
+export interface EnrolmentSession {
+  id: string;
+  name: string;
+  type: PersonType;
+  personId: string;
+  group?: string | null;
+  detail?: string | null;
+  photos: EnrolmentPhoto[];
+  usableCount: number;
+  requiredCount: number;
+  /** Save stays disabled until this is true. */
+  ready: boolean;
+  advice: string;
+}

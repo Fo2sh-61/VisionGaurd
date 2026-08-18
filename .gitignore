@@ -1,0 +1,65 @@
+# dependencies
+node_modules
+
+# build output
+dist
+dist-ssr
+*.local
+
+# TypeScript incremental build cache
+*.tsbuildinfo
+
+# editor / OS
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+Thumbs.db
+
+# vite
+.vite
+
+# --- engine ---------------------------------------------------------------
+
+# secrets: camera credentials live here and must never be committed
+engine/.env
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# runtime data: database, extracted clips, captured footage
+engine/data/
+
+# --- model weights ---------------------------------------------------------
+# 1.2 GB of binaries. Tracked out of band, not in git.
+# models/MODELS.md and models/README.md ARE tracked — they are the record of
+# what is supposed to be in the folder.
+models/*.pt
+models/*.pth
+models/*.onnx
+models/*.engine
+models/*.weights
+models/*.safetensors
+
+# generated per-model sidecars — regenerate with engine/tools/audit_models.py
+models/*_pt.yaml
+models/*_pth.yaml
+models/*_onnx.yaml
+models/*_engine.yaml
+
+# --- speckit / repo hygiene (added 18 Aug 2026) -----------------------------
+_to_delete/
+.speckit-init.zip
+
+# kaggle API credentials - never commit
+models/knife detection/kaggle.json
+
+# 659 MB of training clips - tracked out of band, like the weights
+models/knife detection/knife_clips/
+models/knife detection/archive/

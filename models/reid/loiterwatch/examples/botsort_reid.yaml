@@ -1,0 +1,26 @@
+# Ultralytics tracker config with appearance ReID turned on.
+#   python -m loiterwatch live -c examples/live.yaml --tracker examples/botsort_reid.yaml
+#
+# This is the cheap first fix for IDs resetting: BoT-SORT keeps an appearance
+# model per track, so a person who steps out and back usually keeps their ID.
+# Requires ultralytics >= 8.3 (older builds reject `with_reid`).
+
+tracker_type: botsort
+
+track_high_thresh: 0.25
+track_low_thresh: 0.1
+new_track_thresh: 0.25
+match_thresh: 0.8
+fuse_score: true
+
+# Frames a lost track is remembered before its ID is retired.
+# 900 ~= 30 seconds at 30 fps. Raise it if people leave view for longer.
+track_buffer: 900
+
+gmc_method: sparseOptFlow
+
+# Appearance matching
+proximity_thresh: 0.5
+appearance_thresh: 0.25
+with_reid: true
+model: auto

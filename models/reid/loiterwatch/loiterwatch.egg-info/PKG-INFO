@@ -1,0 +1,14 @@
+Metadata-Version: 2.4
+Name: loiterwatch
+Version: 0.1.0
+Summary: Detector-agnostic temporal rules engine for loitering and casing detection
+Requires-Python: >=3.10
+Requires-Dist: PyYAML>=6.0
+Provides-Extra: dev
+Requires-Dist: pytest>=7.0; extra == "dev"
+Requires-Dist: numpy; extra == "dev"
+Requires-Dist: opencv-python; extra == "dev"
+Provides-Extra: live
+Requires-Dist: ultralytics>=8.1; extra == "live"
+Requires-Dist: opencv-python; extra == "live"
+Requires-Dist: numpy; extra == "live"

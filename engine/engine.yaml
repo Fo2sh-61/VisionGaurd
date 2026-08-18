@@ -1,0 +1,247 @@
+# VisionGuard engine configuration.
+#
+# What the system is. Secrets are NOT here — reference them as ${VAR} and put
+# the values in engine/.env (gitignored). See .env.example.
+
+site_name: Greenfield International School
+timezone: Africa/Cairo
+
+# School hours, in site-local time.
+#
+# `from`/`to` bound what counts as arriving. A sighting outside this window is
+# still recorded — it is real, and it matters for tracking a person — but it is
+# not an arrival, so the night caretaker does not get marked present.
+#
+# `late_cutoff` is the line between on-time and late.
+#
+# TESTING AT NIGHT: these are now REAL hours, so a sighting at 01:14 is
+# correctly not an arrival. If you are testing outside 06:30-16:00 and want
+# arrivals to register, widen to `from: "00:00"` / `to: "23:59"` — and change
+# it back before anyone sees a register. `dev.ps1 doctor` prints the current
+# window every time so this can never be a silent surprise.
+hours:
+  from: "06:30"
+  to: "16:00"
+  late_cutoff: "08:00"
+  term_from: "2025-09-01"
+  term_to: "2026-06-20"
+
+api:
+  host: 127.0.0.1
+  port: 8000
+  # Vite dev servers for web/ and mobile/
+  cors_origins:
+    - http://localhost:5173
+    - http://localhost:5174
+  poll_seconds: 5.0
+
+storage:
+  database_url: sqlite:///engine/data/visionguard.db
+  clips_dir: engine/data/clips
+  footage_dir: engine/data/footage
+  clip_pre_roll_seconds: 5.0
+  clip_post_roll_seconds: 10.0
+  clip_retention_days: 30
+
+# ---------------------------------------------------------------------------
+# Models
+#
+# See models/README.md for what each of these actually is. Two things worth
+# repeating here:
+#   - `weapons` is YOLO-World with 18 saved text prompts. It is zero-shot, not
+#     fine-tuned, and has never seen school CCTV. Treat its scores with suspicion
+#     until the eval harness says otherwise.
+#   - Always point at a .pt. A .engine is compiled for one GPU and one TensorRT
+#     version; it is a build output, not an artifact.
+# ---------------------------------------------------------------------------
+models:
+  person:
+    task: detect
+    weights: models/yolov8s.pt
+    imgsz: 640
+    conf: 0.35
+    iou: 0.45
+    classes: [person]          # COCO class 0 only — everything else is discarded
+    half: true
+    version: coco-yolov8s
+
+  weapons:
+    task: detect
+    weights: models/yolov8m-worldv2-school.pt
+    imgsz: 960                 # matches the exported engine; small objects need it
+    conf: 0.25                 # tuned for RECALL — the human gate recovers precision
+    iou: 0.45
+    half: true
+    version: worldv2-school-2026-05-06
+
+  # Trained closed-set alternative for weapons. Scored against the same golden
+  # clips as `weapons` — it may well win, and it is 50x smaller.
+  weapons_oiv7:
+    task: detect
+    weights: models/yolov8n-oiv7.pt
+    imgsz: 640
+    conf: 0.30
+    classes: [Handgun, Rifle, Shotgun, Knife, Kitchen knife, Dagger, Sword, Axe, Weapon]
+    version: oiv7-baseline
+
+  search:
+    task: detect
+    weights: models/yolov8m-worldv2-search.pt
+    imgsz: 960
+    conf: 0.25
+    version: worldv2-search-2026-05-09
+
+  pose:
+    task: pose
+    weights: models/yolov8s-pose.pt
+    imgsz: 640
+    conf: 0.35
+    version: coco-pose-yolov8s
+
+  # Face recognition. SETTLED — SFace stays; see DEV_PLAN.md §0.2. Recorded
+  # here so the Model Manager (Phase 3b) has a row to bind to and so every
+  # model the system uses is visible in one place. Currently DECLARATIVE ONLY:
+  # FacePipeline() still constructs itself with its own defaults and does not
+  # read this section, so editing it changes nothing yet.
+  #
+  # Changing these weights invalidates every enrolled face. Embeddings from
+  # different face models are not comparable — gallery.py refuses to mix them,
+  # by design.
+  face:
+    task: embed
+    weights: models/face_recognition_sface_2021dec.onnx
+    device: cpu               # 37 MB ONNX; the GPU is busy with detection
+    version: sface-2021dec
+
+  # Body re-identification, for track-a-person (Phase 6).
+  #
+  # DELIBERATELY UNSET. models/osnet_x1_0_market1501.pth is present, but
+  # models/README.md records that osnet_x1_0 and osnet_ain_x1_0 are DIFFERENT
+  # architectures and are not interchangeable — so the file being here proves
+  # nothing about which one the code will need. Fill this in when the real
+  # re-ID model is handed over, along with its architecture and how it loads.
+  # An entry pointing at the wrong architecture fails at load time in a way
+  # that reads like a corrupt file.
+  #
+  # reid:
+  #   task: embed
+  #   weights: models/<the-one-you-hand-over>.pth
+  #   version: <architecture>-<dataset>
+
+# ---------------------------------------------------------------------------
+# Areas
+#
+# A named place and how many people safely belong in it. Cameras join an area
+# through their `area:` field, and People Counting groups by it.
+#
+# `capacity` drives the "% of capacity" figure. Leave it out (or set 0) and the
+# page shows the headcount with NO percentage — which is the honest answer,
+# because a percentage of an invented denominator reads as precise and means
+# nothing. Fill these in with real numbers for the rooms you actually have.
+# ---------------------------------------------------------------------------
+areas:
+  Main entrance:
+    capacity: 40             # measured: the entrance hall comfortably holds ~40
+
+# ---------------------------------------------------------------------------
+# Cameras
+#
+# `source` accepts:
+#   webcam:0            local capture device by index
+#   rtsp://user:pass@…  network stream (put the password in .env)
+#   file:path/to.mp4    recorded clip, looped — used for offline testing
+#
+# `fps` is the ANALYTICS rate only — how often models run. It does NOT throttle
+# capture: frames are read at the camera's own rate so the live view stays
+# current, and only the analytics pipeline is sampled down. Raising this costs
+# GPU; it does not make the live view smoother, which is already at the
+# camera's native rate.
+# ---------------------------------------------------------------------------
+cameras:
+  - id: cam-laptop
+    name: Laptop webcam
+    source: webcam:0
+    kind: Webcam
+    # The area name is what People Counting groups by, so this is the line that
+    # makes the webcam *be* the main entrance. Counting reads live numbers for
+    # any area a camera actually watches, and falls back to demo figures for
+    # the rest.
+    area: Main entrance
+    fps: 5
+    # `attendance` turns on face recognition for this camera. Faces need to be
+    # ~80px wide to be identified, so this belongs on entrance cameras where
+    # people pass close, not on wide corridor views.
+    #
+    # Each feature costs models. Drop one and its model stops loading:
+    #   attendance  YuNet + SFace   ~44 ms   who arrived
+    #   counting    YOLO person     ~23 ms   how many in frame  (GPU)
+    #   intrusion   YOLO person     shared with counting, free once loaded
+    # `[attendance]` alone runs 2 models and no GPU at all.
+    #
+    # `track` follows one person across cameras. On the webcam only for
+    # now: it costs ~2 ms of CPU per frame on top of the person detector it
+    # shares, and its rows are dense.
+    features: [attendance, counting, intrusion, track]
+
+  # The deterministic test camera. Prefer this over the webcam for everything
+  # except final confirmation: it is identical every run, locks no device, runs
+  # while you read the logs, and any change in its output is your code rather
+  # than the lighting. Files loop automatically.
+  #
+  # The sidecar walk-through_*.json holds 21 hand-marked ground-truth points
+  # (`event` / `negative`, by frame number) — that is a regression suite you
+  # already own, and it is what Model Manager benchmarks against in Phase 3b.
+  #
+  # Off by default so a normal start does not run two cameras. Turn it on with
+  # `.\dev.ps1 up -Clip`, which flips this and disables the webcam.
+  - id: cam-clip
+    name: Walk-through clip
+    source: file:engine/data/footage/walk-through_cam-laptop_20260805-121705.mp4
+    kind: File
+    area: Development
+    fps: 5
+    enabled: false
+    features: [attendance, counting, intrusion]
+
+  - id: cam-rtsp-1
+    name: Test camera 1
+    source: ${VG_RTSP_1:rtsp://127.0.0.1:8554/unset}
+    kind: RTSP
+    area: Development
+    fps: 5
+    enabled: false             # flip to true once VG_RTSP_1 is set in .env
+    features: [intrusion, counting, weapons]
+
+# ---------------------------------------------------------------------------
+# Zones
+#
+# Geometry is NORMALISED — fractions of the frame, origin top-left. Same units
+# the front end renders in, so nothing needs to know the camera resolution.
+# Give either `polygon: [[x,y], …]` or the shorthand `rect: [x, y, w, h]`.
+#
+# schedule.mode:
+#   outside   restricted OUTSIDE the window  (a lab, locked after hours)
+#   inside    restricted DURING the window   (an exam hall, in session)
+#   always    restricted at all times        (a server room)
+# ---------------------------------------------------------------------------
+zones:
+  - id: zone-desk
+    name: Test restricted area
+    camera: cam-laptop
+    rect: [0.10, 0.18, 0.52, 0.62]
+    enabled: true
+    min_dwell_seconds: 2.0     # ignore someone walking through the edge of frame
+    schedule:
+      mode: always             # always-on so it can be tested at any hour
+
+  - id: zone-chem
+    name: Chemistry lab
+    camera: cam-rtsp-1
+    rect: [0.15, 0.20, 0.60, 0.65]
+    enabled: true
+    min_dwell_seconds: 3.0
+    schedule:
+      mode: outside
+      days: [mon, tue, wed, thu, fri]
+      from: "08:00"
+      to: "16:00"

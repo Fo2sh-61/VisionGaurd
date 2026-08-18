@@ -1,0 +1,89 @@
+/* VisionGuard design tokens — from ../../design/VisionGuard.dc.html.
+   Kept byte-identical to mobile/src/styles/tokens.css so both apps share one
+   palette. Light is the default; `body.dark` swaps the whole palette. */
+
+:root {
+  --bg: #f2f5f2;
+  --panel: #e9efe9;
+  --card: #ffffff;
+  --line: #e0e7e1;
+  --tx: #1f2b26;
+  --tx2: #57655d;
+  --tx3: #8a968e;
+  --ac: #33705b;
+  --ac2: #285948;
+  --chip: #dfe9e0;
+  --rd: #a5372c;
+  --rd-bg: #f7e3e0;
+  --am: #8a6a14;
+  --am-bg: #f3ecd9;
+  --sh: 0 1px 3px rgba(30, 42, 36, 0.07);
+
+  /* text that sits on an --ac fill; flips to ink in dark so buttons stay legible */
+  --on-ac: #ffffff;
+  --hover: rgba(255, 255, 255, 0.55);
+  --toggle-off: #c3ccc4;
+
+  /* detection-overlay colours (fixed — they read against the dark camera frame) */
+  --det-green: #3ec776;
+  --det-red: #e5564a;
+  --det-blue: #5b9bd8;
+  --det-amber: #dfa23f;
+
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --radius-xl: 14px;
+}
+
+body.dark {
+  --bg: #161c19;
+  --panel: #1c2420;
+  --card: #212a25;
+  --line: #2e3933;
+  --tx: #e4eae5;
+  --tx2: #a3b0a8;
+  --tx3: #718076;
+  --ac: #5cae91;
+  --ac2: #7cc3a9;
+  --chip: #2a3d34;
+  --rd: #d97e70;
+  --rd-bg: #41302c;
+  --am: #cfa955;
+  --am-bg: #3a3527;
+  --sh: 0 1px 3px rgba(0, 0, 0, 0.3);
+
+  --on-ac: #10201a;
+  --hover: rgba(255, 255, 255, 0.06);
+  --toggle-off: #3c4a43;
+
+  color-scheme: dark;
+}
+
+@keyframes vg-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+@keyframes vg-scan {
+  0% {
+    left: -30%;
+  }
+  100% {
+    left: 110%;
+  }
+}
+
+/* Slow green halo on the camera the tracker expects someone to walk into next.
+   Two seconds, soft, and only ever on one tile at a time — it has to pull the
+   eye without reading as an alarm, because a prediction is a guess and must
+   not look like a sighting. */
+@keyframes vg-nextcam {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(92, 174, 145, 0); }
+  50%      { box-shadow: 0 0 0 7px rgba(92, 174, 145, 0.26); }
+}
