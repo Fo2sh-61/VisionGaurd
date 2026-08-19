@@ -73,7 +73,7 @@ population, not a Western benchmark set.
 |---|---|---|
 | `yolov8s.pt` | Stock COCO YOLOv8s, 80 classes, 11.2M params, 500 epochs | **The workhorse.** Person detection for intrusion, counting, tracking |
 | `yolo11m.pt` | Stock COCO YOLO11m, 80 classes | Bigger/slower alternative to the above |
-| `yolov8s-pose.pt` | COCO pose, 1 class + 17 keypoints, 11.6M params | **Fight detection foundation.** Pose-over-time is far cheaper than a video classifier and doesn't need the deferred fights model to get started |
+| `yolov8s-pose.pt` | COCO pose, 1 class + 17 keypoints, 11.6M params | **Nothing uses it.** It was bought as the foundation for fight detection, which is now out of scope. Still configured in `engine.yaml` and loaded by nothing — keep it or drop it, but it is not pending work |
 | `yolov8n-oiv7.pt` | Open Images V7, 601 classes, 3.5M params | Weapons cross-check; broad object vocabulary for lost items |
 | `yolov8m-worldv2.pt` | Stock YOLO-World v2, un-prompted (COCO 80) | The base the two custom variants were made from. Re-prompt it for new open-vocab tasks |
 | `face_detection_yunet_2023mar.onnx` | OpenCV Zoo YuNet, 227 KB | Face **detection** for attendance. Runs via `cv2.FaceDetectorYN`, no extra dependency |

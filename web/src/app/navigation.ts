@@ -29,7 +29,6 @@ const ICON = {
   'lost-items': 'M7.5 3 a4.2 4.2 0 1 0 0.01 0 M11.2 11.2 L15.5 15.5',
   track: 'M3.5 14.5 C7 6.5 11 12.5 14.5 4',
   intrusion: 'M3.5 4.5 H14.5 V13.5 H3.5 Z M9 7.8 a1.2 1.2 0 1 0 .01 0',
-  fights: 'M10 2.5 L5.5 10 H9 L8 15.5 L12.5 8 H9 Z',
   weapons: 'M5 15.5 V3 H13.5 L11 6 L13.5 9 H5',
   system: 'M2.5 9.5 H6 L8 5 L10.5 13 L12.5 9.5 H15.5',
   people:

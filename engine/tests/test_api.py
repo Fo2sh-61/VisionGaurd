@@ -144,28 +144,6 @@ class TestBehaviouralContract:
         assert entry["subject"] == "Omar Khaled"
         assert entry["action"] == "track.search"
 
-    def test_fight_duration_is_a_measurement_not_a_string(self, client):
-        # The UI's "7 seconds" must be what the model actually measured, and the
-        # >=3s product rule is enforced server-side.
-        for f in client.get("/fights?window=Last 30 days").json():
-            assert isinstance(f["durationSeconds"], (int, float))
-            assert f["durationSeconds"] >= 3.0
-            assert isinstance(f["participants"], int)
-
-    def test_not_a_fight_is_kept_as_a_training_label(self, client):
-        before = len(client.get("/audit").json())
-        body = client.post("/fights/f1/feedback",
-                           json={"notAFight": True, "actor": "Mohamed Fouad"}).json()
-        assert body["markedNotAFight"] is True
-        # The button is only honest if the label is stored, not just rendered.
-        assert len(client.get("/audit").json()) == before + 1
-
-    def test_a_marked_incident_is_not_deleted(self, client):
-        client.post("/fights/f1/feedback",
-                    json={"notAFight": True, "actor": "x"})
-        assert "f1" in [f["id"] for f in
-                        client.get("/fights?window=Last 30 days").json()]
-
     def test_offline_cameras_are_flagged_not_omitted(self, client):
         """"NO SIGNAL — showing last received frame."""
         cams = client.get("/system/health").json()["cameras"]
@@ -264,9 +242,6 @@ class TestCoverage:
         ("PATCH", "/zones/{id}"),        # setZoneEnabled
         ("GET", "/breaches"),            # getBreaches
         ("GET", "/intrusion/cameras"),   # getIntrusionCameras
-        ("GET", "/fights"),              # getFights
-        ("POST", "/fights/{id}/feedback"),  # markNotAFight
-        ("GET", "/fights/cameras"),      # getFightCameras
         ("GET", "/weapons/detections"),  # getWeaponDetections
         ("POST", "/weapons/{id}/review"),   # (new) confirm/dismiss
         ("GET", "/weapons/cameras"),     # getWeaponCameras

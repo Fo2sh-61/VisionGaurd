@@ -186,20 +186,6 @@ export interface Breach {
 
 export type IntrusionWindow = 'Today' | 'Last 7 days' | 'Last 30 days';
 
-/* ---------- fights ---------- */
-
-export type FightPlace = 'Anywhere' | 'Corridors' | 'Outdoor areas';
-
-export interface FightIncident {
-  id: string;
-  location: string;
-  area: Exclude<FightPlace, 'Anywhere'>;
-  time: string;
-  meta: string;
-  status: string;
-  critical: boolean;
-}
-
 /* ---------- weapons ---------- */
 
 export type WeaponWindow = 'Last 30 days' | 'Last 90 days' | 'This school year';
@@ -300,7 +286,6 @@ export type ToolId =
   | 'attendance'
   | 'counting'
   | 'intrusion'
-  | 'fights'
   | 'weapons'
   | 'lost-items'
   | 'track'

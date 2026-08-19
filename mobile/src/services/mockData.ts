@@ -128,7 +128,6 @@ export const TOOLS_LIST: ToolDef[] = [
   TOOL_DEFS.lost,
   TOOL_DEFS.track,
   TOOL_DEFS.intrude,
-  TOOL_DEFS.fight,
   TOOL_DEFS.weapon,
 ];
 

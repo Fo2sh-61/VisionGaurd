@@ -168,25 +168,6 @@ export interface WeaponDetection {
   modelVersion?: string | null;
 }
 
-/* ---------- fights ---------- */
-
-export interface FightIncident {
-  id: string;
-  at: Instant;
-  cameraId: string;
-  cameraName: string;
-  location: string;
-  area: string;
-  durationSeconds: number;
-  participants: number;
-  confidence: number;
-  severity: Severity;
-  reviewed: boolean;
-  markedNotAFight: boolean;
-  clip?: Clip | null;
-  modelVersion?: string | null;
-}
-
 /* ---------- attendance ---------- */
 
 export interface AttendanceRecord {
@@ -487,7 +468,6 @@ export interface LiveEvent {
   type:
     | 'weapon.detected'
     | 'weapon.reviewed'
-    | 'fight.detected'
     | 'intrusion.breach'
     | 'camera.status'
     | 'count.updated'
@@ -496,7 +476,6 @@ export interface LiveEvent {
   attention?: AttentionItem | null;
   breach?: Breach | null;
   weapon?: WeaponDetection | null;
-  fight?: FightIncident | null;
   camera?: CameraView | null;
   health?: SystemHealth | null;
 }

@@ -72,11 +72,6 @@ class Store(Protocol):
     ) -> S.WeaponDetection | None: ...
     def weapon_cameras(self) -> list[S.CameraView]: ...
 
-    def fights(self, since_days: int, area: str | None) -> list[S.FightIncident]: ...
-    def flag_fight(
-        self, incident_id: str, feedback: S.FightFeedback
-    ) -> S.FightIncident | None: ...
-    def fight_cameras(self) -> list[S.CameraView]: ...
 
     def attendance(
         self, mode: str, subject: str, on: str
@@ -126,7 +121,6 @@ class MockStore:
         self._zones = self._build_zones()
         self._breaches = self._build_breaches()
         self._weapons = self._build_weapons()
-        self._fights = self._build_fights()
         self._attention = self._build_attention()
         self._audit: list[S.AuditEntry] = []
         self._sources = self._build_sources()
@@ -319,62 +313,6 @@ class MockStore:
                 boxes=[box(0.20, 0.30, 0.16, 0.40, label="Person", confidence=0.91),
                        box(0.48, 0.28, 0.17, 0.44, label="Person", confidence=0.94)],
                 snapshot_url="/cameras/w-gate/snapshot",
-            )
-        ]
-
-    # -- fights -------------------------------------------------------------
-
-    def _build_fights(self) -> list[S.FightIncident]:
-        return [
-            S.FightIncident(
-                id="f1", at=at(11, 3), camera_id="f-yard2", camera_name="Yard 2",
-                location="Building B - Yard 2", area="Outdoor areas",
-                duration_seconds=7.0, participants=2, confidence=0.78,
-                severity=S.Severity.CRITICAL, reviewed=False,
-                clip=S.Clip(id="clip-f1", url="/clips/f1.mp4",
-                            duration_seconds=22.0, starts_at=at(11, 3)),
-                model_version="unversioned",
-            ),
-            S.FightIncident(
-                id="f2", at=at(12, 41, TODAY - timedelta(days=4)),
-                camera_id="f-corr", camera_name="Building A corridor",
-                location="Building A - first floor", area="Corridors",
-                duration_seconds=4.0, participants=3, confidence=0.61,
-                severity=S.Severity.WARN, reviewed=True, marked_not_a_fight=True,
-                model_version="unversioned",
-            ),
-        ]
-
-    def fights(self, since_days: int, area: str | None) -> list[S.FightIncident]:
-        cutoff = datetime.now(timezone.utc) - timedelta(days=since_days)
-        out = [f for f in self._fights if f.at.utc >= cutoff]
-        if area and area != "Anywhere":
-            out = [f for f in out if f.area == area]
-        return out
-
-    def flag_fight(
-        self, incident_id: str, feedback: S.FightFeedback
-    ) -> S.FightIncident | None:
-        for i, fight in enumerate(self._fights):
-            if fight.id == incident_id:
-                self._fights[i] = fight.model_copy(update={
-                    "marked_not_a_fight": feedback.not_a_fight, "reviewed": True,
-                })
-                # This is a training label, not just a UI state change.
-                self._log(feedback.actor, "fight.feedback", incident_id,
-                          "not a fight" if feedback.not_a_fight else "confirmed")
-                return self._fights[i]
-        return None
-
-    def fight_cameras(self) -> list[S.CameraView]:
-        return [
-            S.CameraView(
-                id="f-yard2", name="Yard 2", captured_at=at(11, 3), people_count=2,
-                boxes=[box(0.30, 0.36, 0.16, 0.40, label="Person", confidence=0.88,
-                           severity=S.Severity.CRITICAL),
-                       box(0.44, 0.34, 0.17, 0.42, label="Person", confidence=0.85,
-                           severity=S.Severity.CRITICAL)],
-                snapshot_url="/cameras/f-yard2/snapshot",
             )
         ]
 
@@ -665,10 +603,6 @@ class MockStore:
                                 detail="Person + weapons running", healthy=True,
                                 severity=S.Severity.INFO, restartable=True,
                                 model_version="coco-yolov8s"),
-                S.PipelineStage(key="fights", name="Fight detection",
-                                detail="No model loaded - not yet trained",
-                                healthy=False, severity=S.Severity.WARN,
-                                restartable=False),
                 S.PipelineStage(key="storage", name="Clip storage",
                                 detail="30 day retention, 47% used", healthy=True,
                                 severity=S.Severity.INFO),

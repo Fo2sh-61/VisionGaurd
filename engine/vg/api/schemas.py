@@ -352,42 +352,6 @@ class WeaponReview(Wire):
 
 
 # ---------------------------------------------------------------------------
-# fights
-# ---------------------------------------------------------------------------
-
-class FightIncident(Wire):
-    """Duration and participants are numbers here.
-
-    types.ts packs them into `meta: '7 seconds - 2 people'`. The product rule is
-    that a fight needs >= 3 seconds, enforced server-side, and the UI's "7
-    seconds" must be the model's actual measurement — so it travels as a float.
-    """
-
-    id: str
-    at: Instant
-    camera_id: str
-    camera_name: str
-    location: str
-    area: str
-    duration_seconds: float
-    participants: int
-    confidence: Confidence
-    severity: Severity
-    reviewed: bool = False
-    marked_not_a_fight: bool = False
-    clip: Clip | None = None
-    model_version: str | None = None
-
-
-class FightFeedback(Wire):
-    """The label that retrains the classifier. Worth storing properly."""
-
-    not_a_fight: bool = True
-    actor: str
-    reason: str | None = None
-
-
-# ---------------------------------------------------------------------------
 # attendance
 # ---------------------------------------------------------------------------
 
@@ -817,7 +781,6 @@ class LiveEvent(Wire):
     type: Literal[
         "weapon.detected",
         "weapon.reviewed",
-        "fight.detected",
         "intrusion.breach",
         "camera.status",
         "count.updated",
@@ -827,7 +790,6 @@ class LiveEvent(Wire):
     attention: AttentionItem | None = None
     breach: Breach | None = None
     weapon: WeaponDetection | None = None
-    fight: FightIncident | None = None
     camera: CameraView | None = None
     health: SystemHealth | None = None
 

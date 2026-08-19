@@ -201,7 +201,7 @@ export function ToolPage() {
             {answer.cards && (
               <div className="stack" style={{ marginTop: 16 }}>
                 {answer.cards.map((c) => (
-                  <FightCard key={c.id} card={c} />
+                  <AnswerCard key={c.id} card={c} />
                 ))}
               </div>
             )}
@@ -326,8 +326,8 @@ function Legend({ tone, label }: { tone: Tone; label: string }) {
   );
 }
 
-function FightCard({ card }: { card: { title: string; meta: string; badge: string; tone: 'good' | 'warn' | 'bad' | 'neutral'; criticalUnacked: boolean; acked: boolean } }) {
-  const [acked, setAcked] = useState(card.acked);
+/** One result card. Named for fights once; it renders any tool's answer. */
+function AnswerCard({ card }: { card: { title: string; meta: string; badge: string; tone: 'good' | 'warn' | 'bad' | 'neutral'; criticalUnacked: boolean; acked: boolean } }) {
   const toneColors = { good: { bg: 'var(--chip)', fg: 'var(--ac2)' }, warn: { bg: 'var(--am-bg)', fg: 'var(--am)' }, bad: { bg: 'var(--rd-bg)', fg: 'var(--rd)' }, neutral: { bg: 'var(--bg)', fg: 'var(--tx2)' } };
   const c = toneColors[card.tone];
 
@@ -342,12 +342,6 @@ function FightCard({ card }: { card: { title: string; meta: string; badge: strin
       <div style={{ fontSize: 12.5, color: 'var(--tx2)', marginTop: 4, lineHeight: 1.4 }}>{card.meta}</div>
       <div style={{ display: 'flex', gap: 14, alignItems: 'center', marginTop: 11 }}>
         <span style={{ color: 'var(--ac)', fontWeight: 600, fontSize: 13 }}>Watch clip</span>
-        {card.criticalUnacked && !acked && (
-          <button type="button" className="linkbtn" style={{ color: 'var(--tx2)' }} onClick={() => setAcked(true)}>
-            Not a fight
-          </button>
-        )}
-        {acked && <span style={{ color: 'var(--ac2)', fontWeight: 600, fontSize: 12.5 }}>✓ Noted — thanks</span>}
       </div>
     </div>
   );

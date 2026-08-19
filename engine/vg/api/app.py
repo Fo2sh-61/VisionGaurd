@@ -814,34 +814,6 @@ def _mount(app: FastAPI) -> None:
     async def get_weapon_cameras(store: StoreDep) -> list[S.CameraView]:
         return store.weapon_cameras()
 
-    # ---------------------------------------------------------------- fights
-    @app.get("/fights", response_model=list[S.FightIncident], tags=["fights"])
-    async def get_fights(
-        store: StoreDep,
-        window: Annotated[str, Query()] = "Today",
-        place: Annotated[str, Query(description="Anywhere | Corridors | Outdoor areas")] = "Anywhere",
-    ) -> list[S.FightIncident]:
-        return store.fights(window_days(window), place)
-
-    @app.post("/fights/{incident_id}/feedback", response_model=S.FightIncident,
-              tags=["fights"])
-    async def fight_feedback(
-        incident_id: str, feedback: S.FightFeedback, store: StoreDep
-    ) -> S.FightIncident:
-        """'Not a fight' is a training label, not just a UI state.
-
-        It is stored as a negative example for the classifier, which is the
-        only thing that makes the button honest.
-        """
-        result = store.flag_fight(incident_id, feedback)
-        if result is None:
-            raise HTTPException(404, f"no incident {incident_id!r}")
-        return result
-
-    @app.get("/fights/cameras", response_model=list[S.CameraView], tags=["fights"])
-    async def get_fight_cameras(store: StoreDep) -> list[S.CameraView]:
-        return store.fight_cameras()
-
     # ------------------------------------------------------------ attendance
     @app.get("/attendance", response_model=S.AttendanceResult, tags=["attendance"])
     async def get_attendance(

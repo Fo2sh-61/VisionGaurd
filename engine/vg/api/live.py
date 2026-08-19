@@ -6,7 +6,7 @@ Everything else keeps returning demo data.
 That hybrid is deliberate. The alternative — one big switch from mock to real —
 means nothing works until everything works, and every feature has to land at
 once. This way each capability moves across on its own: today the camera list,
-health and snapshots are real while attendance and fights are still fixtures,
+health and snapshots are real while weapons and alerts are still unbuilt,
 and the console does not care. When intrusion goes live it overrides
 `breaches()` and nothing else changes.
 
@@ -796,11 +796,6 @@ class LiveStore(MockStore):
             self._people_stage(),
             # Honest about what is not built yet. A green tick next to a feature
             # that does not exist is how a school ends up trusting nothing.
-            S.PipelineStage(
-                key="fights", name="Fight detection",
-                detail="No model - not yet trained",
-                healthy=False, severity=S.Severity.WARN, restartable=False,
-            ),
             S.PipelineStage(
                 key="weapons", name="Weapon detection",
                 detail="Model present but not wired to the API - "

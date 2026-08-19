@@ -25,8 +25,6 @@ import type {
   DetectionBox,
   CountResult,
   DirectoryPerson,
-  FightIncident,
-  FightPlace,
   FoundDevice,
   GroupMember,
   GroupSummary,
@@ -54,7 +52,6 @@ import {
   attendanceStatusLine,
   attendanceTone,
   formatCount,
-  formatDuration,
   formatEventTime,
   formatLongDate,
   formatMetrics,
@@ -317,38 +314,6 @@ export async function getBreaches(window: IntrusionWindow): Promise<Breach[]> {
 /** CHANGED: was synchronous. The engine has to be asked. */
 export async function getIntrusionCameras(): Promise<Camera[]> {
   return toCameras(await get<W.CameraView[]>('/intrusion/cameras'));
-}
-
-/* ---------- fights ---------- */
-
-export async function getFights(
-  window: IntrusionWindow,
-  place: FightPlace,
-): Promise<FightIncident[]> {
-  const fights = await get<W.FightIncident[]>('/fights', { window, place });
-  return fights.map((f) => ({
-    id: f.id,
-    location: f.location,
-    area: f.area as Exclude<FightPlace, 'Anywhere'>,
-    time: formatEventTime(f.at),
-    // The duration is the model's actual measurement, not a fixed string.
-    meta: `${formatDuration(f.durationSeconds)} · ${f.participants} people`,
-    status: f.markedNotAFight ? 'Marked not a fight' : f.reviewed ? 'Reviewed' : 'Not reviewed',
-    critical: f.severity === 'critical',
-  }));
-}
-
-/** The label that retrains detection, so the actor is recorded with it. */
-export async function markNotAFight(id: string, actor = 'unknown'): Promise<void> {
-  await post<W.FightIncident>(`/fights/${encodeURIComponent(id)}/feedback`, {
-    notAFight: true,
-    actor,
-  });
-}
-
-/** CHANGED: was synchronous. */
-export async function getFightCameras(): Promise<Camera[]> {
-  return toCameras(await get<W.CameraView[]>('/fights/cameras'));
 }
 
 /* ---------- weapons ---------- */
