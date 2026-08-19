@@ -1,76 +1,57 @@
-# VisionGuard AI
+# VisionGuard
 
-School campus vision system for Greenfield International School — a console that
-answers questions about campus activity (attendance, headcounts, lost items,
-intrusion, fights, weapons) with the footage attached.
-
-This repository holds **two front-end apps and the design source they were built
-from**. Both apps are front end only: every number, camera frame and detection on
-screen comes from fixtures. Nothing talks to a model yet.
+School campus vision system for Greenfield International School — a console that answers questions about campus activity (attendance, headcounts, restricted zones, weapons, lost items, where a person went) with the footage attached.
 
 ```
-VisionGuard/
-  web/       desktop console — sidebar shell, 960px content column
-  mobile/    phone app — bottom tab bar, one generic tool screen
-  design/    the design documents both apps were built from
+engine/    Python FastAPI + OpenCV/YOLO backend — the vision engine and API
+web/       React desktop console — wired to the engine
+mobile/    React phone app — still on fixtures
+models/    Model weights (untracked) + what each one actually is
+design/    Design documents the apps were built from
+docs/      Plan, architecture decisions, and archived history
 ```
 
-## Running them
+## Run it
 
-The two apps are independent installs with independent dependencies. Run either
-on its own, or both at once in separate terminals.
-
-```bash
-cd web      && npm install && npm run dev    # http://localhost:5173
-cd mobile   && npm install && npm run dev    # http://localhost:5174
+```powershell
+.\dev.ps1 doctor                     # pre-flight checks — run first
+.\dev.ps1 up -Mock                   # UI work: instant start, no models, no camera
+.\dev.ps1 up -Clip                   # pipeline work: deterministic recorded clip
+.\dev.ps1 up -AllowSystemPython      # real cameras
+.\dev.ps1 down                       # stop everything, free the ports
 ```
 
-Sign in with any password — it's a demo build.
+Console at `http://localhost:5173`, engine at `http://127.0.0.1:8000`, API docs at `/docs`.
 
-## Why two apps rather than one responsive app
+There is no `.venv` yet — deliberately, until the re-ID model handover decides the Python version. System Python 3.14 works (torch 2.11.0+cu128, CUDA on an RTX 2080).
 
-The mobile design isn't a narrower version of the console; it's a different
-shell. The console has a sidebar of eleven destinations grouped ASK / WATCH /
-MANAGE, and one page per tool. The phone app has five bottom tabs, collapses all
-seven tools into a single screen driven by one answer object, and adds an Account
-tab that the console keeps in Settings. Sharing a codebase would have meant
-branching on viewport at nearly every level, so they're separate.
+## Test it
 
-They do share the palette (`styles/tokens.css` is the same file in both) and the
-same demo school, so the two read as one product.
+```powershell
+python -m pytest engine
+cd web; npx tsc -b --force     # NOT --noEmit: project references make it a silent no-op
+```
 
-## Where the design lives
+## Current state
 
-`design/` holds the source documents. `VisionGuard.dc.html` and
-`VisionGuard Mobile.dc.html` are the two specs the apps implement — open them in
-a browser to see the intended behaviour, including states the screenshots don't
-cover. `design/shots/` are screenshots of an **earlier** build and no longer
-match the current design (notably the sidebar and the sign-in screen); trust the
-`.dc.html` files over the images.
+Camera ingest, attendance, browser enrolment, live overlays, the tracking engine, and counting for one area run on **real data**. Restricted zones, weapons, lost items, users, audit and notifications are **still fixtures**, and there is **no authentication yet**.
 
-## Wiring the AI later
+`STATUS.md` has the honest per-feature breakdown. Do not show this to a school as finished until `docs/PLAN.md` says the release gates are met.
 
-Each app has the same seam: `src/services/api.ts`. Every function there is
-already `async` and returns a type from `types.ts`, so replacing the bodies with
-`fetch` calls leaves the screens untouched. `src/services/mockData.ts` is the
-fixture file and goes away when a backend exists.
+## The documents
 
-Detection overlays are described in percentages of the frame (`DetectionBox`,
-`CameraZone`), so a real detector's normalised coordinates drop straight in.
+| File | What it is |
+|---|---|
+| `.specify/memory/constitution.md` | The engineering rules. Highest authority |
+| `docs/PLAN.md` | What to build and in what order. The only plan |
+| `STATUS.md` | What is real today, and what's blocked |
+| `AGENTS.md` | Entry point for AI coding agents |
+| `docs/archive/` | Superseded documents, kept for history. **Never plan from these** |
 
-## Deliberate honesty in the UI
+## How it works, briefly
 
-Carried over from the design in both apps, because they're product decisions
-rather than decoration:
+Cameras feed a frame bus. One person-detection pass fans out to counting, zones and tracking; face recognition runs separately on entrance cameras only. Workers turn frames into events, events go to SQLite, and the API serves both apps.
 
-- Camera tiles say **LIVE** only when the camera is up. An offline camera is
-  labelled **NO SIGNAL — showing last received frame**, never a frozen image
-  passed off as live.
-- A weapon detection always waits for a person to confirm or dismiss it. The
-  system never calls anyone, locks anything, or notifies a parent on its own.
-- Weapons and fights show false alarms in their history rather than hiding them,
-  so the counts stay honest.
-- Every "Track a person" search writes an audit entry *before* the result
-  renders, and the screen says so.
-- Paused intrusion zones stay visible in the list and on the camera grid.
-- Both apps state plainly that live streaming isn't connected in this build.
+Two identity signals are kept deliberately separate: **a face names a person, clothing only says "the same body."** They are never merged — green means identified by face, blue means matched by appearance.
+
+Adding a feature touches four files and nothing else — see `AGENTS.md`.

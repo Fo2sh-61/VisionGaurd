@@ -1,131 +1,63 @@
 # Feature Specification: [FEATURE NAME]
 
 **Feature Branch**: `[###-feature-name]`
-
 **Created**: [DATE]
-
 **Status**: Draft
-
 **Input**: User description: "$ARGUMENTS"
+
+> Keep this short. Describe **what** the user needs and **why** — never how to build it.
+> No frameworks, file names, class names, or database choices. Delete any section that
+> genuinely does not apply rather than padding it.
+
+## Why this feature *(mandatory)*
+
+[2–4 sentences. What problem does an operator have today, and what changes for them?]
 
 ## User Scenarios & Testing *(mandatory)*
 
-<!--
-  IMPORTANT: User stories should be PRIORITIZED as user journeys ordered by importance.
-  Each user story/journey must be INDEPENDENTLY TESTABLE - meaning if you implement just ONE of them,
-  you should still have a viable MVP (Minimum Viable Product) that delivers value.
+### Primary story
 
-  Assign priorities (P1, P2, P3, etc.) to each story, where P1 is the most critical.
-  Think of each story as a standalone slice of functionality that can be:
-  - Developed independently
-  - Tested independently
-  - Deployed independently
-  - Demonstrated to users independently
--->
+[One paragraph in plain language: who does what, and what they get.]
 
-### User Story 1 - [Brief Title] (Priority: P1)
+**Acceptance scenarios**
 
-[Describe this user journey in plain language]
+1. **Given** [starting state], **When** [action], **Then** [what the user sees]
+2. **Given** [starting state], **When** [action], **Then** [what the user sees]
 
-**Why this priority**: [Explain the value and why it has this priority level]
+### Edge cases
 
-**Independent Test**: [Describe how this can be tested independently - e.g., "Can be fully tested by [specific action] and delivers [specific value]"]
-
-**Acceptance Scenarios**:
-
-1. **Given** [initial state], **When** [action], **Then** [expected outcome]
-2. **Given** [initial state], **When** [action], **Then** [expected outcome]
-
----
-
-### User Story 2 - [Brief Title] (Priority: P2)
-
-[Describe this user journey in plain language]
-
-**Why this priority**: [Explain the value and why it has this priority level]
-
-**Independent Test**: [Describe how this can be tested independently]
-
-**Acceptance Scenarios**:
-
-1. **Given** [initial state], **When** [action], **Then** [expected outcome]
-
----
-
-### User Story 3 - [Brief Title] (Priority: P3)
-
-[Describe this user journey in plain language]
-
-**Why this priority**: [Explain the value and why it has this priority level]
-
-**Independent Test**: [Describe how this can be tested independently]
-
-**Acceptance Scenarios**:
-
-1. **Given** [initial state], **When** [action], **Then** [expected outcome]
-
----
-
-[Add more user stories as needed, each with an assigned priority]
-
-### Edge Cases
-
-<!--
-  ACTION REQUIRED: The content in this section represents placeholders.
-  Fill them out with the right edge cases.
--->
-
-- What happens when [boundary condition]?
-- How does system handle [error scenario]?
+- What happens when the camera is offline or the subsystem is not running?
+- What happens when there is genuinely nothing to show (empty vs zero vs unknown)?
+- [Any others specific to this feature]
 
 ## Requirements *(mandatory)*
 
-<!--
-  ACTION REQUIRED: The content in this section represents placeholders.
-  Fill them out with the right functional requirements.
--->
+Numbered `[PHASE]-FR-001` — e.g. `P0-FR-001`. Product-level `FR-xx` numbers belong to
+`docs/PLAN.md` and must not be reused here.
 
-### Functional Requirements
+- **[PHASE]-FR-001**: System MUST [specific, testable capability]
+- **[PHASE]-FR-002**: System MUST [specific, testable capability]
+- **[PHASE]-FR-003**: Users MUST be able to [key interaction]
 
-- **FR-001**: System MUST [specific capability, e.g., "allow users to create accounts"]
-- **FR-002**: System MUST [specific capability, e.g., "validate email addresses"]
-- **FR-003**: Users MUST be able to [key interaction, e.g., "reset their password"]
-- **FR-004**: System MUST [data requirement, e.g., "persist user preferences"]
-- **FR-005**: System MUST [behavior, e.g., "log all security events"]
-
-*Example of marking unclear requirements:*
-
-- **FR-006**: System MUST authenticate users via [NEEDS CLARIFICATION: auth method not specified - email/password, SSO, OAuth?]
-- **FR-007**: System MUST retain user data for [NEEDS CLARIFICATION: retention period not specified]
-
-### Key Entities *(include if feature involves data)*
-
-- **[Entity 1]**: [What it represents, key attributes without implementation]
-- **[Entity 2]**: [What it represents, relationships to other entities]
+Mark anything uncertain as **[NEEDS CLARIFICATION: question]** rather than guessing.
 
 ## Success Criteria *(mandatory)*
 
-<!--
-  ACTION REQUIRED: Define measurable success criteria.
-  These must be technology-agnostic and measurable.
--->
+Measurable, and written so a non-engineer could check them.
 
-### Measurable Outcomes
+- **SC-001**: [e.g. "An operator can tell within 2 seconds whether a page is showing real or demo data"]
+- **SC-002**: [e.g. "A breach appears with its clip within 5 seconds of someone entering the zone"]
 
-- **SC-001**: [Measurable metric, e.g., "Users can complete account creation in under 2 minutes"]
-- **SC-002**: [Measurable metric, e.g., "System handles 1000 concurrent users without degradation"]
-- **SC-003**: [User satisfaction metric, e.g., "90% of users successfully complete primary task on first attempt"]
-- **SC-004**: [Business metric, e.g., "Reduce support tickets related to [X] by 50%"]
+## Out of scope
+
+- [What this feature explicitly does not cover, so nobody assumes it]
+
+## Constitution check *(mandatory)*
+
+Confirm this feature does not break the rules in `.specify/memory/constitution.md`. Note any
+principle that needs special care here — most often: no fake data, face vs clothing kept
+distinct, honest degradation, server-side permissions, latency budget.
 
 ## Assumptions
 
-<!--
-  ACTION REQUIRED: The content in this section represents placeholders.
-  Fill them out with the right assumptions based on reasonable defaults
-  chosen when the feature description did not specify certain details.
--->
-
-- [Assumption about target users, e.g., "Users have stable internet connectivity"]
-- [Assumption about scope boundaries, e.g., "Mobile support is out of scope for v1"]
-- [Assumption about data/environment, e.g., "Existing authentication system will be reused"]
-- [Dependency on existing system/service, e.g., "Requires access to the existing user profile API"]
+- [Anything you decided without being told, so it can be challenged]
