@@ -29,6 +29,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from vg import db
+from vg.clock import Clock, clock_for
 
 log = logging.getLogger(__name__)
 
@@ -79,10 +80,10 @@ class PathStop:
 class AppearanceStore:
     """Appearance sightings, and the paths built from them."""
 
-    def __init__(self, database: Path | str, tz_offset_minutes: int = 0,
+    def __init__(self, database: Path | str, clock: Clock | int | str = 0,
                  min_gap_seconds: float = DEFAULT_MIN_GAP_SECONDS) -> None:
         self.path = Path(database)
-        self.tz_offset_minutes = tz_offset_minutes
+        self.clock = clock_for(clock)
         self.min_gap_seconds = min_gap_seconds
 
         self._lock = threading.RLock()
@@ -100,7 +101,7 @@ class AppearanceStore:
         A path belongs to a school day, and a server in another timezone must
         not decide where the boundary falls.
         """
-        return (when + timedelta(minutes=self.tz_offset_minutes)).strftime("%Y-%m-%d")
+        return self.clock.local_date(when)
 
     # -- writing ------------------------------------------------------------
 

@@ -68,7 +68,7 @@ def store():
     """
     with tempfile.TemporaryDirectory() as tmp:
         gallery = FaceGallery(Path(tmp) / "g.db", model=MODEL, threshold=0.363)
-        sightings = SightingStore(Path(tmp) / "s.db", tz_offset_minutes=CAIRO)
+        sightings = SightingStore(Path(tmp) / "s.db", clock=CAIRO)
 
         for pid, name, group in [
             ("p-layla", "Layla Ahmed", "Grade 8"),

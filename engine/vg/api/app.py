@@ -322,9 +322,7 @@ def _start_recognition(cfg, registry, roster=None, face=None, tracking=None):
                 database, model=pipeline.model_name, threshold=pipeline.threshold
             )
 
-        from vg.api.live import _tz_offset_minutes
-
-        sightings = SightingStore(database, _tz_offset_minutes(cfg.timezone))
+        sightings = SightingStore(database, cfg.timezone)
 
         if gallery.size == 0:
             # Still start: the console should show that recognition is running
@@ -383,14 +381,13 @@ def _start_counts(cfg, registry, roster, people):
         import threading
         from pathlib import Path
 
-        from vg.api.live import _tz_offset_minutes
         from vg.events.counts import SAMPLE_SECONDS, AreaCountStore
 
         database = Path(str(cfg.storage.database_url).replace("sqlite:///", ""))
         if not database.is_absolute():
             database = vgconfig.REPO_DIR / database
 
-        store = AreaCountStore(database, _tz_offset_minutes(cfg.timezone))
+        store = AreaCountStore(database, cfg.timezone)
         stop = threading.Event()
 
         def sample() -> None:
@@ -440,7 +437,6 @@ def _start_tracking(cfg, registry, roster, detector):
     try:
         from pathlib import Path
 
-        from vg.api.live import _tz_offset_minutes
         from vg.events.appearance import AppearanceStore
         from vg.features.tracking import TrackingWorker
         from vg.identity.appearance import AppearanceTracker
@@ -456,7 +452,7 @@ def _start_tracking(cfg, registry, roster, detector):
             detector,
             TrackerPool(frame_rate=rate),
             AppearanceTracker(),
-            AppearanceStore(database, _tz_offset_minutes(cfg.timezone)),
+            AppearanceStore(database, cfg.timezone),
             cameras=cameras,
             rate_hz=rate,
             boost_hz=12.0,

@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 from datetime import date, datetime, timezone
 
+from vg.clock import Clock, clock_for
 from vg.config import EngineConfig
 from vg.api import schemas as S
 from vg.api.store import MockStore
@@ -26,10 +27,16 @@ from vg.ingest.registry import CameraRegistry
 log = logging.getLogger(__name__)
 
 
-def _instant(when: datetime | None, offset_minutes: int) -> S.Instant | None:
+def _instant(when: datetime | None, clock: Clock) -> S.Instant | None:
+    """An instant, stamped with the offset that was in force *when it happened*.
+
+    Not the offset at startup and not the offset today. An arrival at 07:42 on
+    a July morning still reads 07:42 in December, so a register printed in July
+    still matches the screen after the clocks change.
+    """
     if when is None:
         return None
-    return S.Instant(utc=when, tz_offset_minutes=offset_minutes)
+    return S.Instant(utc=when, tz_offset_minutes=clock.offset_minutes(when))
 
 
 def _day_label(iso_date: str) -> str:
@@ -81,7 +88,10 @@ class LiveStore(MockStore):
         # than invented numbers. Absent means those windows have nothing real
         # to show and say so instead of falling back to fixtures.
         self.counts = counts
-        self._offset = _tz_offset_minutes(config.timezone)
+        # The site's clock, asked per timestamp. Holding one number from
+        # startup left every time an hour out after the October change until
+        # somebody restarted the engine, and nothing said so.
+        self.clock = clock_for(config.timezone)
         # Set by the lifespan when a subsystem failed to start. Surfaced on
         # System Health so a degraded engine is visible on the page an operator
         # opens to ask exactly that.
@@ -129,7 +139,7 @@ class LiveStore(MockStore):
             id=worker.config.id,
             name=worker.config.name,
             offline=not online,
-            captured_at=_instant(frame.captured_at if frame else None, self._offset),
+            captured_at=_instant(frame.captured_at if frame else None, self.clock),
             # Stale means "this pixel data is not current", which is true
             # whenever the stream is down but we still have something to show.
             stale=bool(frame) and not online,
@@ -334,7 +344,7 @@ class LiveStore(MockStore):
 
         return S.CameraDetections(
             camera_id=camera_id,
-            at=_instant(frame.captured_at if frame else None, self._offset),
+            at=_instant(frame.captured_at if frame else None, self.clock),
             boxes=self._boxes(camera_id, feature) if online else [],
             people_count=self._people_count(camera_id, online),
             inference_ms=round(result.inference_ms, 1) if result else None,
@@ -365,11 +375,16 @@ class LiveStore(MockStore):
         offered rooms this school does not have.
         """
         areas = self.areas()
+        # `today` is the *site's* date, not the server's. The schema has said
+        # so since it was written; the code sent the UTC date, so between
+        # midnight and 03:00 Cairo the whole console was a day behind - the
+        # attendance register included.
+        now = datetime.now(timezone.utc)
         return S.SiteInfo(
             name=self.config.site_name,
-            today=datetime.now(timezone.utc).date().isoformat(),
+            today=self.clock.local_date(now),
             timezone=self.config.timezone,
-            tz_offset_minutes=self._offset,
+            tz_offset_minutes=self.clock.offset_minutes(now),
             cameras_online=self.registry.online,
             cameras_total=self.registry.total,
             places=([self.ALL_PLACES] + areas) if areas else [],
@@ -541,7 +556,7 @@ class LiveStore(MockStore):
             place=selected_name,
             count=selected_count,
             capacity=selected_cap or None,
-            measured_at=_instant(datetime.now(timezone.utc), self._offset),
+            measured_at=_instant(datetime.now(timezone.utc), self.clock),
             # Areas are SUMMED across their cameras. Nothing de-duplicates a
             # person standing where two cameras overlap, so claiming otherwise
             # would be a straight overstatement. Real de-duplication needs
@@ -572,8 +587,10 @@ class LiveStore(MockStore):
             return [], None, "No headcount history is being recorded."
 
         if window == "Today by hour":
-            on = datetime.now(timezone.utc).date().isoformat()
-            buckets = self.counts.by_hour(on)
+            # The site's today, not the server's. Rows are filed under the
+            # site's date, so between midnight and 03:00 Cairo a UTC date
+            # asked for yesterday's chart and got an empty one.
+            buckets = self.counts.by_hour(self.clock.today())
             title = "Today by hour"
         elif window == "This week by day":
             buckets = self.counts.by_day(7)
@@ -711,7 +728,7 @@ class LiveStore(MockStore):
         return S.LostResult(
             job=S.SearchJob(
                 id="unavailable", state="failed", progress=0.0,
-                submitted_at=_instant(datetime.now(timezone.utc), self._offset),
+                submitted_at=_instant(datetime.now(timezone.utc), self.clock),
                 clips_searched=0, clips_total=0,
             ),
             query=query, hits=[], cameras=[],
@@ -790,6 +807,30 @@ class LiveStore(MockStore):
             out.append(S.Capability(key=key, name=name, state=state, reason=reason))
         return out
 
+    def _clock_stage(self) -> S.PipelineStage:
+        """Rule 8: a subsystem that failed to start says so in the UI.
+
+        A clock that cannot be resolved does not crash anything - it just
+        quietly relabels every time in the console. Cairo would read three
+        hours early, so a 6:12am arrival shows as 3:12am and nobody looking at
+        it has any way to tell. That is worse than a crash and it belongs on
+        the page an operator opens to ask what is wrong.
+        """
+        if not self.clock.ok:
+            return S.PipelineStage(
+                key="clock", name="Site clock",
+                detail=self.clock.error or "the site timezone could not be read",
+                healthy=False, severity=S.Severity.CRITICAL, restartable=False,
+            )
+        offset = self.clock.offset_minutes()
+        sign = "+" if offset >= 0 else "-"
+        return S.PipelineStage(
+            key="clock", name="Site clock",
+            detail=f"{self.clock.name}, currently UTC{sign}"
+                   f"{abs(offset) // 60:02d}:{abs(offset) % 60:02d}",
+            healthy=True, severity=S.Severity.INFO, restartable=False,
+        )
+
     def health(self) -> S.SystemHealth:
         online, total = self.registry.online, self.registry.total
         sources = self.sources()
@@ -804,6 +845,7 @@ class LiveStore(MockStore):
             ),
             self._recognition_stage(),
             self._people_stage(),
+            self._clock_stage(),
             # Honest about what is not built yet. A green tick next to a feature
             # that does not exist is how a school ends up trusting nothing.
             S.PipelineStage(
@@ -1053,7 +1095,7 @@ class LiveStore(MockStore):
                 S.AttendanceDay(
                     date=day,
                     status=S.AttendanceStatus(entry.status),
-                    seen_at=_instant(entry.first_seen, self._offset),
+                    seen_at=_instant(entry.first_seen, self.clock),
                     location=self._camera_name(entry.camera_id),
                     minutes_late=entry.minutes_late,
                 )
@@ -1094,7 +1136,7 @@ class LiveStore(MockStore):
                     confidence=entry.confidence,
                 ),
                 status=S.AttendanceStatus(entry.status),
-                seen_at=_instant(entry.first_seen, self._offset),
+                seen_at=_instant(entry.first_seen, self.clock),
                 camera_id=entry.camera_id,
                 location=self._camera_name(entry.camera_id),
                 minutes_late=entry.minutes_late,
@@ -1155,7 +1197,7 @@ class LiveStore(MockStore):
         # Face sightings first - the strong claim.
         for sighting in self.sightings.sightings_on(on, person_id):
             stops.append(S.TrackStop(
-                at=_instant(sighting.seen_at, self._offset),
+                at=_instant(sighting.seen_at, self.clock),
                 camera_id=sighting.camera_id,
                 camera_name=self._camera_name(sighting.camera_id) or sighting.camera_id,
                 place=self._area_of(sighting.camera_id),
@@ -1166,8 +1208,8 @@ class LiveStore(MockStore):
         # Then the body, wherever the face was not visible.
         for stop in self.tracking.store.path_for(person_id, on):
             stops.append(S.TrackStop(
-                at=_instant(stop.first_seen, self._offset),
-                until=_instant(stop.last_seen, self._offset) if stop.seconds > 0 else None,
+                at=_instant(stop.first_seen, self.clock),
+                until=_instant(stop.last_seen, self.clock) if stop.seconds > 0 else None,
                 camera_id=stop.camera_id,
                 camera_name=self._camera_name(stop.camera_id) or stop.camera_id,
                 place=self._area_of(stop.camera_id),
@@ -1418,7 +1460,7 @@ class LiveStore(MockStore):
                 ok=True, status=S.SourceStatus.OK, latency_ms=latency,
                 camera=S.CameraView(
                     id="probe", name=f"{frame.width}x{frame.height}",
-                    captured_at=_instant(frame.captured_at, self._offset),
+                    captured_at=_instant(frame.captured_at, self.clock),
                 ),
             )
         finally:
@@ -1442,29 +1484,3 @@ def _source_type(kind: str) -> S.SourceType:
     # Webcams and files have no place in the front end's SourceType vocabulary;
     # 'IP camera' is the closest honest label for a single direct stream.
     return mapping.get(kind, S.SourceType.IP_CAMERA)
-
-
-def _tz_offset_minutes(timezone_name: str) -> int:
-    """The site's current UTC offset, in minutes.
-
-    Windows ships no system timezone database, so `zoneinfo` needs the `tzdata`
-    package (it is in requirements.txt). Falling back to 0 silently would put
-    every timestamp in the console three hours out for Cairo — an event at
-    6:12am would read 3:12am — so the failure is logged loudly instead.
-    """
-    try:
-        from zoneinfo import ZoneInfo
-
-        offset = datetime.now(ZoneInfo(timezone_name)).utcoffset()
-        if offset is None:
-            raise ValueError("no UTC offset")
-        return int(offset.total_seconds() // 60)
-    except Exception as exc:
-        log.error(
-            "cannot resolve timezone %r (%s) - every timestamp shown in the "
-            "console will be in UTC, not local time. Install tzdata: "
-            "pip install tzdata",
-            timezone_name,
-            exc,
-        )
-        return 0

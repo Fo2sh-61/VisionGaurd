@@ -29,6 +29,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from vg import db
+from vg.clock import Clock, clock_for
 
 log = logging.getLogger(__name__)
 
@@ -63,9 +64,9 @@ class AreaPoint:
 class AreaCountStore:
     """Writes headcount samples, and reads them back as chart buckets."""
 
-    def __init__(self, database: Path | str, tz_offset_minutes: int = 0) -> None:
+    def __init__(self, database: Path | str, clock: Clock | int | str = 0) -> None:
         self.path = Path(database)
-        self.tz_offset_minutes = tz_offset_minutes
+        self.clock = clock_for(clock)
 
         self._lock = threading.RLock()
         self._conn = db.connect(self.path)
@@ -74,7 +75,9 @@ class AreaCountStore:
         self._last_sample: datetime | None = None
 
     def _local(self, when: datetime) -> datetime:
-        return when + timedelta(minutes=self.tz_offset_minutes)
+        """The site's wall clock at that instant, so an hour bucket stays put
+        when the clocks change."""
+        return self.clock.local(when)
 
     # -- writing ------------------------------------------------------------
 

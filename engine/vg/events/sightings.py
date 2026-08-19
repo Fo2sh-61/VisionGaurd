@@ -28,10 +28,11 @@ import logging
 import sqlite3
 import threading
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import datetime, time, timezone
 from pathlib import Path
 
 from vg import db
+from vg.clock import Clock, clock_for, minutes_late
 
 log = logging.getLogger(__name__)
 
@@ -115,9 +116,11 @@ class SightingStore:
     # fill the table.
     DEBOUNCE_SECONDS = 60.0
 
-    def __init__(self, database: Path | str, tz_offset_minutes: int = 0) -> None:
+    def __init__(self, database: Path | str, clock: Clock | int | str = 0) -> None:
         self.path = Path(database)
-        self.tz_offset_minutes = tz_offset_minutes
+        # Asked per instant, never cached. An offset held from startup is an
+        # hour wrong from the last Friday in October until someone restarts.
+        self.clock = clock_for(clock)
 
         self._lock = threading.RLock()
         self._conn = db.connect(self.path)
@@ -134,7 +137,7 @@ class SightingStore:
         local is still on the previous UTC day, and putting an arrival on the
         wrong date silently corrupts the register.
         """
-        return (when + timedelta(minutes=self.tz_offset_minutes)).date().isoformat()
+        return self.clock.local_date(when)
 
     # -- writing ------------------------------------------------------------
 
@@ -254,7 +257,7 @@ class SightingStore:
         grouped: dict[str, dict] = {}
         for row in rows:
             seen = _parse(row["seen_at"])
-            local = (seen + timedelta(minutes=self.tz_offset_minutes)).time()
+            local = self.clock.local_time(seen)
             if day_start is not None and local < day_start:
                 continue
             if day_end is not None and local > day_end:
@@ -296,17 +299,10 @@ class SightingStore:
         """
         if cutoff is None:
             return "on_time", None
-        local_first = (first + timedelta(minutes=self.tz_offset_minutes)).time()
+        local_first = self.clock.local_time(first)
         if local_first <= cutoff:
             return "on_time", None
-        minutes = int(
-            (
-                datetime.combine(date.today(), local_first)
-                - datetime.combine(date.today(), cutoff)
-            ).total_seconds()
-            // 60
-        )
-        return "late", minutes
+        return "late", minutes_late(local_first, cutoff)
 
     def register(
         self,
@@ -387,7 +383,7 @@ class SightingStore:
         grouped: dict[str, dict] = {}
         for row in rows:
             seen = _parse(row["seen_at"])
-            local = (seen + timedelta(minutes=self.tz_offset_minutes)).time()
+            local = self.clock.local_time(seen)
             if day_start is not None and local < day_start:
                 continue
             if day_end is not None and local > day_end:

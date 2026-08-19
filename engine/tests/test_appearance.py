@@ -218,7 +218,7 @@ class TestStore:
         """A path belongs to a school day. A server in another timezone must
         not decide where that boundary falls."""
         with tempfile.TemporaryDirectory() as tmp:
-            s = AppearanceStore(Path(tmp) / "a.db", tz_offset_minutes=180)
+            s = AppearanceStore(Path(tmp) / "a.db", clock=180)
             late = datetime(2026, 8, 15, 22, 30, tzinfo=timezone.utc)
             assert s.local_date(late) == "2026-08-16"
             s.close()

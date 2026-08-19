@@ -130,24 +130,31 @@ class TestBackpressure:
 
 class TestTimezone:
     def test_cairo_resolves_to_a_real_offset(self):
-        from vg.api.live import _tz_offset_minutes
+        from datetime import datetime, timezone
+
+        from vg.clock import SiteClock
 
         # Windows has no system tz database. Without the `tzdata` package this
         # silently returned 0 and a 6:12am breach displayed as 3:12am.
-        assert _tz_offset_minutes("Africa/Cairo") == 180
+        summer = datetime(2026, 7, 15, 4, 42, tzinfo=timezone.utc)
+        assert SiteClock("Africa/Cairo").offset_minutes(summer) == 180
 
     def test_utc_is_zero(self):
-        from vg.api.live import _tz_offset_minutes
+        from vg.clock import SiteClock
 
-        assert _tz_offset_minutes("UTC") == 0
+        assert SiteClock("UTC").offset_minutes() == 0
 
     def test_unknown_zone_falls_back_loudly(self, caplog):
-        from vg.api.live import _tz_offset_minutes
+        from vg.clock import SiteClock
 
         with caplog.at_level("ERROR"):
-            assert _tz_offset_minutes("Mars/Olympus_Mons") == 0
-        # Falling back is acceptable; doing it silently is not.
+            clock = SiteClock("Mars/Olympus_Mons")
+        assert clock.offset_minutes() == 0
+        # Falling back is acceptable; doing it silently is not. The clock also
+        # keeps the reason so System Health can show it, because a log line is
+        # not something anybody reads while looking at a wrong timestamp.
         assert "tzdata" in caplog.text
+        assert clock.ok is False and "tzdata" in clock.error
 
 
 # ---------------------------------------------------------------------------

@@ -22,7 +22,7 @@ CAIRO = 180  # UTC+3, in minutes
 @pytest.fixture
 def store():
     with tempfile.TemporaryDirectory() as tmp:
-        s = SightingStore(Path(tmp) / "s.db", tz_offset_minutes=CAIRO)
+        s = SightingStore(Path(tmp) / "s.db", clock=CAIRO)
         yield s
         s.close()
 
