@@ -348,19 +348,23 @@ class LiveStore(MockStore):
     # -- overrides ----------------------------------------------------------
 
     def site(self) -> S.SiteInfo:
-        base = super().site()
-        places = [self.ALL_PLACES] + [
-            a.name for a in self.count(self.ALL_PLACES, "Right now").areas
-        ]
-        return base.model_copy(update={
-            "places": places,
-            "name": self.config.site_name,
-            "today": datetime.now(timezone.utc).date().isoformat(),
-            "timezone": self.config.timezone,
-            "tz_offset_minutes": self._offset,
-            "cameras_online": self.registry.online,
-            "cameras_total": self.registry.total,
-        })
+        """The app chrome. Built outright, not copied from the fixtures.
+
+        It used to start from `MockStore.site()` and overwrite seven of the
+        eight fields. The eighth was `areas`, so every dropdown in the console
+        offered rooms this school does not have.
+        """
+        areas = self.areas()
+        return S.SiteInfo(
+            name=self.config.site_name,
+            today=datetime.now(timezone.utc).date().isoformat(),
+            timezone=self.config.timezone,
+            tz_offset_minutes=self._offset,
+            cameras_online=self.registry.online,
+            cameras_total=self.registry.total,
+            places=([self.ALL_PLACES] + areas) if areas else [],
+            areas=areas,
+        )
 
     def zones(self) -> list[S.Zone]:
         """Zones from engine.yaml, not fixtures.
@@ -399,7 +403,10 @@ class LiveStore(MockStore):
         # The one place the zone outline IS the subject, so it is drawn here.
         with_zones = {z.camera_id for z in self.config.zones}
         views = [self.camera_view(cid, include_zone=True) for cid in with_zones]
-        return [v for v in views if v is not None] or super().intrusion_cameras()
+        # No `or super()`: a site with no zones drawn yet has no intrusion
+        # cameras, and saying so is the truth. Demo cameras appearing here
+        # once looked exactly like a working zone.
+        return [v for v in views if v is not None]
 
     def sources(self) -> list[S.CameraSource]:
         """The configured cameras, with their true status."""
@@ -433,86 +440,114 @@ class LiveStore(MockStore):
     def count(self, place: str, window: str) -> S.CountResult:
         """How many people are in each area, right now.
 
-        Live for any area a camera actually watches; demo figures for the rest,
-        flagged as such. Mixing the two silently is what made the console
-        untrustworthy before, so `CountArea.live` carries the difference all the
-        way to the screen.
+        Built from the configured areas alone. It used to start from
+        `MockStore.count()` and paint real numbers over the demo ones, which
+        left every area nobody watches sitting on the plan with an invented
+        headcount beside it. `live` marked the difference, but a number on a
+        plan is read long before the flag beside it is.
 
-        "Right now" is the only honest window today. There is no time-series
-        table yet, so the historical bars stay as fixtures and the page still
-        renders them — but the number on the tile is measured.
+        An area with no camera measuring it now reports no count rather than a
+        plausible one. "Right now" is still the only honest window: there is
+        real history once `AreaCountStore` has recorded some, and an empty
+        chart saying so before that.
         """
-        base = super().count(place, window)
         counts = self._area_counts()
+        names = self.areas()
 
-        areas = [
-            area.model_copy(update={
-                "count": counts[area.name],
-                "live": True,
-                "capacity": self._capacity(area.name, area.capacity),
-                "severity": self._fill_severity(
-                    counts[area.name], self._capacity(area.name, area.capacity)),
-            })
-            if area.name in counts else area
-            for area in base.areas
-        ]
-
-        # Areas the config knows about but the fixtures never invented. A camera
-        # added at runtime should appear here rather than being invisible.
-        known = {a.name for a in areas}
-        for name, value in counts.items():
-            if name in known:
-                continue
+        # A simple grid, because engine.yaml carries no floor-plan geometry.
+        # Overlapping rectangles at a fixed point were worse: several areas
+        # stacked on one spot read as a single room.
+        areas: list[S.CountArea] = []
+        for i, name in enumerate(names):
             capacity = self._capacity(name, 0)
+            measured = name in counts
+            col, row = i % 4, i // 4
             areas.append(S.CountArea(
-                id=name.lower().replace(" ", "-"), name=name,
-                count=value, capacity=capacity,
-                x=0.05, y=0.05, w=0.18, h=0.22,
-                severity=self._fill_severity(value, capacity), live=True,
+                id=name.lower().replace(" ", "-"),
+                name=name,
+                count=counts.get(name, 0),
+                capacity=capacity,
+                x=min(0.78, 0.04 + col * 0.24), y=min(0.74, 0.06 + row * 0.24),
+                w=0.18, h=0.18,
+                severity=self._fill_severity(counts.get(name, 0), capacity),
+                # False means nothing measured this area, so its 0 is "we
+                # cannot see", not "nobody is there".
+                live=measured,
             ))
 
+        uncovered = [a.name for a in areas if not a.live]
         if place == self.ALL_PLACES:
-            total = sum(a.count for a in areas)
-            capacity = sum(a.capacity for a in areas)
-            selected_name, selected_count, selected_cap = self.ALL_PLACES, total, capacity
-            live = all(a.live for a in areas)
+            selected_name = self.ALL_PLACES
+            # Sum only the areas actually being measured. An area with no
+            # camera contributes nothing rather than a zero, because "nobody
+            # there" and "we cannot see" must not add up to the same total.
+            selected_count = sum(a.count for a in areas if a.live)
+            selected_cap = sum(a.capacity for a in areas if a.live)
+            # ANY, not ALL. The total really was measured — it is just
+            # incomplete, which is what `uncovered` below says. Requiring every
+            # area to be live made a real headcount label itself "not
+            # measured" the moment one camera was off.
+            live = any(a.live for a in areas)
         else:
-            selected = next((a for a in areas if a.name == place), areas[0])
-            selected_name, selected_count = selected.name, selected.count
-            selected_cap, live = selected.capacity, selected.live
+            selected = next((a for a in areas if a.name == place), None)
+            if selected is None:
+                selected_name, selected_count, selected_cap, live = place, 0, 0, False
+            else:
+                selected_name, selected_count = selected.name, selected.count
+                selected_cap, live = selected.capacity, selected.live
 
         bars, bars_title, bars_note = self._history(window)
 
-        return base.model_copy(update={
-            "bars": bars,
-            "bars_title": bars_title or base.bars_title,
-            "place": selected_name,
-            "count": selected_count,
-            "capacity": selected_cap,
-            "measured_at": _instant(datetime.now(timezone.utc), self._offset),
+        metrics = [
+            S.Metric(key="here", label="People here",
+                     value=selected_count if live else None,
+                     unit="count" if live else "text",
+                     text=None if live else "No camera is counting this area"),
+            S.Metric(key="capacity", label="Safe capacity", value=selected_cap),
+        ]
+        if selected_cap and live:
+            metrics.append(S.Metric(key="fill", label="Of capacity",
+                                    value=selected_count / selected_cap,
+                                    unit="percent"))
+        else:
+            metrics.append(S.Metric(
+                key="fill", label="Of capacity", unit="text",
+                text="No capacity set for this area" if live
+                else "Nothing is measuring this area"))
+        metrics.append(S.Metric(
+            key="source", label="Source", unit="text",
+            text="Measured live" if live else "Not measured"))
+        # Rule 5: never claim precision the code lacks. A campus total that
+        # quietly omits three rooms is not a campus total.
+        if live and uncovered and place == self.ALL_PLACES:
+            metrics.append(S.Metric(
+                key="coverage", label="Not included", unit="text",
+                text=f"No camera is counting {', '.join(sorted(uncovered))}"))
+        if bars_note:
+            metrics.append(S.Metric(key="history", label="History",
+                                    unit="text", text=bars_note))
+
+        return S.CountResult(
+            place=selected_name,
+            count=selected_count,
+            capacity=selected_cap or None,
+            measured_at=_instant(datetime.now(timezone.utc), self._offset),
             # Areas are SUMMED across their cameras. Nothing de-duplicates a
             # person standing where two cameras overlap, so claiming otherwise
             # would be a straight overstatement. Real de-duplication needs
             # cross-camera identity, which is the tracking feature's job.
-            "deduplicated": False,
-            "areas": areas,
-            "metrics": [
-                S.Metric(key="here", label="People here", value=selected_count),
-                S.Metric(key="capacity", label="Safe capacity", value=selected_cap),
-                *([S.Metric(key="fill", label="Of capacity",
-                            value=selected_count / selected_cap, unit="percent")]
-                  if selected_cap else
-                  [S.Metric(key="fill", label="Of capacity", unit="text",
-                            text="No capacity set for this area")]),
-                S.Metric(key="source", label="Source", unit="text",
-                         text="Measured live" if live else "Demo figure"),
-            ],
-            "cameras": [
+            deduplicated=False,
+            metrics=metrics,
+            bars=bars,
+            bars_title=bars_title,
+            areas=areas,
+            # No `or super().cameras`: an area with no camera shows no tile.
+            cameras=[
                 v for v in (self.camera_view(cid, feature="counting")
                             for cid in self._cameras_for(selected_name))
                 if v is not None
-            ] or base.cameras,
-        })
+            ],
+        )
 
     def _history(self, window: str):
         """Real hour/day buckets, split by area.
@@ -605,8 +640,145 @@ class LiveStore(MockStore):
     def areas(self) -> list[str]:
         # From the live registry, so an area introduced by a camera added at
         # runtime is immediately offered in the dropdowns.
-        known = sorted({c.area for c in self.registry.configs() if c.area})
-        return known or super().areas()
+        return sorted({c.area for c in self.registry.configs() if c.area})
+
+    # -- not built yet ------------------------------------------------------
+    #
+    # These override MockStore purely to stop it answering. Each is a feature
+    # the console has a page for and the engine cannot yet serve, so the page
+    # gets nothing plus a reason from `capabilities()` rather than a plausible
+    # row somebody might act on.
+    #
+    # A banner saying "not available" above a list of three invented breaches
+    # would be worse than either on its own: the page would contradict itself,
+    # and the rows are the half people believe.
+    #
+    # When one of these is built, delete its stub here and flip its entry in
+    # `capabilities()`. Until then this list IS the to-do list.
+
+    def breaches(self, since_days: int) -> list[S.Breach]:
+        return []
+
+    def weapons(self, since_days: int) -> list[S.WeaponDetection]:
+        return []
+
+    def weapon_cameras(self) -> list[S.CameraView]:
+        return []
+
+    def review_weapon(self, detection_id: str,
+                      review: S.WeaponReview) -> S.WeaponDetection | None:
+        # Nothing to review, so nothing is found. The endpoint 404s, which is
+        # the truth: that detection does not exist.
+        return None
+
+    def users(self) -> list[S.User]:
+        # There is no auth at all yet. Inventing an accounts table implies
+        # access control that is not there, which is the most dangerous
+        # fixture in the set.
+        return []
+
+    def audit(self, limit: int) -> list[S.AuditEntry]:
+        # Real entries, from this process. They are lost on restart and
+        # `capabilities()` says so, but what is here actually happened.
+        return super().audit(limit)
+
+    def attention(self) -> list[S.AttentionItem]:
+        return []
+
+    def acknowledge(self, item_id: str, actor: str) -> S.AttentionItem | None:
+        return None
+
+    def alert_rules(self) -> list[S.AlertRule]:
+        return []
+
+    def delivery_targets(self) -> list[S.DeliveryTarget]:
+        return []
+
+    def search_lost(self, query: S.LostQuery) -> S.LostResult:
+        # `failed`, not `done` with no hits: "we searched and found nothing"
+        # and "we never searched" are different answers, and only one of them
+        # should stop somebody looking for a child's missing bag.
+        return S.LostResult(
+            job=S.SearchJob(
+                id="unavailable", state="failed", progress=0.0,
+                submitted_at=_instant(datetime.now(timezone.utc), self._offset),
+                clips_searched=0, clips_total=0,
+            ),
+            query=query, hits=[], cameras=[],
+        )
+
+    def scan(self) -> list[S.FoundDevice]:
+        return []
+
+    def capabilities(self) -> list[S.Capability]:
+        """What the console can honestly show right now, and why not otherwise.
+
+        This is the list every page checks before it renders a number. It
+        exists because a page cannot tell an empty register from a broken one:
+        both arrive as zero rows. Guessing misleads in both directions — an
+        empty day read as a fault, or a dead subsystem read as "nobody came".
+
+        Nothing here reports DEMO. `LiveStore` no longer serves a fixture
+        under any condition, so demo is `MockStore`'s answer and only reachable
+        with VG_MOCK=1, where the whole store is fixtures and says so.
+        """
+        # Why a subsystem is down, when the lifespan told us. Beats a generic
+        # sentence: "weights not found: yolov8s.pt" is actionable, "not
+        # running" is not.
+        def live(available: bool, reason: str, detail: str | None = None):
+            if available:
+                return S.DataState.LIVE, None
+            return S.DataState.UNAVAILABLE, f"{reason} ({detail})" if detail else reason
+
+        cameras_up = self.registry.total > 0
+        recognition = self.recognition_live
+        counting = self.people_worker is not None
+        tracking = self.tracking is not None
+        gallery = self.gallery is not None
+
+        states = {
+            "cameras": live(cameras_up, "No cameras are configured."),
+            "attendance": live(
+                recognition,
+                "Face recognition is not running, so no register is being kept.",
+                self.recognition_error),
+            "people": live(gallery, "The face gallery is not loaded, so the "
+                           "directory cannot be read.", self.recognition_error),
+            "groups": live(gallery, "The face gallery is not loaded, so groups "
+                           "cannot be listed.", self.recognition_error),
+            "count": live(counting, "Person detection is not running, so nobody "
+                          "is being counted.", self.people_error),
+            "track": live(tracking, "Tracking is not running, so no path can be "
+                          "built.", self.tracking_error),
+            # Not built yet. Saying "not built" is the truth and is different
+            # from "broken" — an operator should not be waiting for these to
+            # come back.
+            "breaches": (S.DataState.UNAVAILABLE,
+                         "Restricted zones are not built yet. Occupancy is "
+                         "measured but nothing is recorded."),
+            "weapons": (S.DataState.UNAVAILABLE,
+                        "Weapon detection is not built yet. No camera is being "
+                        "checked for weapons."),
+            "search_lost": (S.DataState.UNAVAILABLE,
+                            "Lost item search is not built yet. No footage is "
+                            "being searched."),
+            "users": (S.DataState.UNAVAILABLE,
+                      "There are no accounts yet. Everyone using this console "
+                      "has full access."),
+            "audit": (S.DataState.UNAVAILABLE,
+                      "The audit trail is kept in memory only and is lost when "
+                      "the engine restarts."),
+            "attention": (S.DataState.UNAVAILABLE,
+                          "Alerts are not built yet. Nothing is being sent to "
+                          "anybody."),
+        }
+
+        out: list[S.Capability] = []
+        for key, name in self.CAPABILITIES:
+            state, reason = states.get(
+                key, (S.DataState.UNAVAILABLE, "Not built yet."))
+            out.append(S.Capability(key=key, name=name, state=state, reason=reason))
+        return out
 
     def health(self) -> S.SystemHealth:
         online, total = self.registry.online, self.registry.total
@@ -734,7 +906,10 @@ class LiveStore(MockStore):
         so plainly rather than reporting them absent as if it had looked.
         """
         if self.gallery is None:
-            return super().people()
+            # No gallery means nobody is enrolled that we can see. An
+            # invented directory here would be a list of children who do
+            # not attend this school.
+            return []
 
         today = self.sightings.local_date(datetime.now(timezone.utc)) if self.sightings else None
         register = self._register(today) if today else None
@@ -782,9 +957,61 @@ class LiveStore(MockStore):
             day_end=hours.end,
         )
 
+    # -- honest emptiness ---------------------------------------------------
+    #
+    # These replace what used to be `super()` calls. The rule they serve is
+    # that an empty answer plus a stated reason is honest, and an invented one
+    # never is however plausible it looks. The reason itself travels on
+    # `/system/capabilities`, so a page can say *why* it is empty rather than
+    # leaving an operator to guess between "nobody came" and "nothing was on".
+
+    def _empty_attendance(self, mode: str, subject: str,
+                          on: str) -> S.AttendanceResult:
+        """A register nobody was watching. Not a register of absences.
+
+        `expected` stays 0 rather than the roll size: claiming 400 expected and
+        0 present would read as a school where nobody turned up.
+        """
+        return S.AttendanceResult(
+            mode="person" if mode == "person" else "group",
+            date=on, subject=subject,
+            expected=0, present=0, late=0, absent=0,
+            metrics=[S.Metric(
+                key="source", label="Source", unit="text",
+                text="Face recognition is not running, so nothing was recorded",
+            )],
+        )
+
+    def _empty_track(self, query: S.TrackQuery, actor: str) -> S.TrackResult:
+        """No path, and the search still goes in the audit trail.
+
+        Constitution rule 11: the audit entry is written before the result
+        returns. That a search found nothing does not make it less of a search
+        of a named child's movements, and an unlogged one is exactly the
+        search somebody would want unlogged.
+        """
+        who = query.who or query.person_id or "?"
+        entry = self._log(actor, "track.search", who,
+                          f"{query.date} - tracking unavailable")
+        return S.TrackResult(
+            subject=S.PersonRef(id=query.person_id, name=who,
+                                type=S.PersonType.STUDENT,
+                                match=S.MatchKind.NONE),
+            date=query.date,
+            audit_id=entry.id,
+            sightings=0,
+            metrics=[S.Metric(
+                key="source", label="Source", unit="text",
+                text="Tracking is not running, so no path could be built",
+            )],
+        )
+
     def attendance(self, mode: str, subject: str, on: str) -> S.AttendanceResult:
         if not self.recognition_live:
-            return super().attendance(mode, subject, on)
+            # An invented register marks real children present or absent.
+            # Empty, with the reason on /system/capabilities, is the only
+            # honest answer when nothing was watching.
+            return self._empty_attendance(mode, subject, on)
 
         register = self._register(on)
         people = {p.id: p for p in self.gallery.people()}
@@ -792,7 +1019,7 @@ class LiveStore(MockStore):
         if mode == "person":
             person = self.gallery.find_by_name(subject) or self.gallery.person(subject)
             if person is None:
-                return super().attendance(mode, subject, on)
+                return self._empty_attendance(mode, subject, on)
 
             history = self.sightings.history(person.id, days=30)
             days = [
@@ -872,15 +1099,18 @@ class LiveStore(MockStore):
         difference is the whole basis on which an operator decides how much to
         believe a path.
 
-        Falls back to fixtures when tracking is not running, rather than
-        returning an empty day that looks like "this person went nowhere".
+        Returns an empty path when tracking is not running, with the reason
+        on /system/capabilities so the page can say which it is. It used to
+        serve fixtures here instead, on the reasoning that an empty day looks
+        like "this person went nowhere" — but an invented day looks like
+        somewhere they went, which is worse and much harder to notice.
         """
         if self.tracking is None or self.sightings is None:
-            return super().track(query, actor)
+            return self._empty_track(query, actor)
 
         person_id, name = self._resolve_person(query)
         if person_id is None:
-            return super().track(query, actor)
+            return self._empty_track(query, actor)
 
         on = query.date
         stops: list[S.TrackStop] = []
@@ -964,7 +1194,7 @@ class LiveStore(MockStore):
 
     def groups(self) -> list[S.GroupSummary]:
         if self.gallery is None:
-            return super().groups()
+            return []
 
         people = self.gallery.people()
         if not people:

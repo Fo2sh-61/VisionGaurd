@@ -36,3 +36,37 @@ def pytest_collection_modifyitems(config, items):
     for item in items:
         if "camera" in item.keywords:
             item.add_marker(skip)
+
+
+@pytest.fixture
+def bare_live_store():
+    """A `LiveStore` with cameras configured and every subsystem absent.
+
+    This is the state that used to make pages lie: real enough to be serving
+    an operator, with nothing behind the features they are looking at. A
+    freshly installed engine, or a running one after a model failed to load.
+    """
+    from vg.api.live import LiveStore
+    from vg import config as vgconfig
+    from vg.ingest.registry import CameraRegistry
+
+    cfg = vgconfig.load()
+    # No workers started, so nothing is online and nothing has a frame.
+    registry = CameraRegistry([])
+    return LiveStore(config=cfg, registry=registry)
+
+
+@pytest.fixture
+def live_ish_store():
+    """A `LiveStore` with its cameras actually configured.
+
+    Enough for the capability list to report something as live, so the
+    "a live capability offers no excuse" rule has something to check.
+    """
+    from vg.api.live import LiveStore
+    from vg import config as vgconfig
+    from vg.ingest.registry import CameraRegistry
+
+    cfg = vgconfig.load()
+    registry = CameraRegistry(cfg.cameras)
+    return LiveStore(config=cfg, registry=registry)

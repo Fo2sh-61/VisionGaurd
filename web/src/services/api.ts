@@ -486,6 +486,30 @@ export async function recordTrackSearch(_query: TrackQuery, _actor: string): Pro
 
 /* ---------- system + users ---------- */
 
+/** What the console can honestly show right now, and why not otherwise.
+ *
+ *  Every page that renders a number checks this first. A page cannot tell an
+ *  empty register from a broken one — both arrive as zero rows — and guessing
+ *  misleads either way: a real empty day read as a fault, or a dead subsystem
+ *  read as "nobody came".
+ *
+ *  Never throws. If the engine cannot be reached at all, everything is
+ *  unavailable for that reason, which is exactly what the screen should say. */
+export async function getCapabilities(): Promise<W.Capability[]> {
+  try {
+    return await get<W.Capability[]>('/system/capabilities');
+  } catch (err) {
+    return [{
+      key: 'engine',
+      name: 'The engine',
+      state: 'unavailable',
+      reason: `The console cannot reach the engine (${
+        err instanceof Error ? err.message : 'no response'
+      }). Nothing on this page is live.`,
+    }];
+  }
+}
+
 export async function getSystemHealth(): Promise<SystemHealth> {
   const health = await get<W.SystemHealth>('/system/health');
 

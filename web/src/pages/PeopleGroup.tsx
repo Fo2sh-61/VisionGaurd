@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Badge, Card, PageHeader, toneGlyph } from '@/components/ui';
+import { Badge, Card, DataNotice, PageHeader, toneGlyph } from '@/components/ui';
 import { getGroup } from '@/services/api';
 import type { GroupMember, GroupSummary } from '@/types';
+import { useCapability } from '@/app/CapabilityContext';
 
 export function PeopleGroup() {
+  const capability = useCapability('groups');
   const { name = '' } = useParams();
   const navigate = useNavigate();
   const [summary, setSummary] = useState<GroupSummary | null>(null);
@@ -26,6 +28,7 @@ export function PeopleGroup() {
           ‹ People
         </button>
       </div>
+      <DataNotice capability={capability} />
       <PageHeader title={summary.name} lead={`${summary.count} · ${summary.here} on campus today`} />
 
       <Card>

@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import { AuthProvider } from '@/app/AuthContext';
 import { CameraProvider } from '@/app/CameraContext';
+import { CapabilityProvider } from '@/app/CapabilityContext';
 import { SiteProvider } from '@/app/SiteContext';
 import { ThemeProvider } from '@/app/ThemeContext';
 import { AppRoutes } from '@/app/routes';
@@ -19,11 +20,17 @@ createRoot(document.getElementById('root')!).render(
             same cameras, and they stay on screen as NO SIGNAL when the engine
             is unreachable rather than vanishing. */}
         <CameraProvider>
-          <AuthProvider>
-            <BrowserRouter>
-              <AppRoutes />
-            </BrowserRouter>
-          </AuthProvider>
+          {/* CapabilityProvider says which features are measured and which
+              are not, with the reason. Pages check it before rendering a
+              number, because an empty register and a broken one arrive
+              looking identical. */}
+          <CapabilityProvider>
+            <AuthProvider>
+              <BrowserRouter>
+                <AppRoutes />
+              </BrowserRouter>
+            </AuthProvider>
+          </CapabilityProvider>
         </CameraProvider>
       </SiteProvider>
     </ThemeProvider>

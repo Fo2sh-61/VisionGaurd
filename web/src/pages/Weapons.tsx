@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react';
 import { CamGrid } from '@/components/CamGrid';
-import { Badge, Card, Field, PageHeader, Select } from '@/components/ui';
+import { Badge, Card, DataNotice, Field, PageHeader, Select } from '@/components/ui';
 import { getWeaponCameras, getWeaponDetections } from '@/services/api';
 import { WEAPON_STEPS } from '@/services/content';
 import { useSite } from '@/app/SiteContext';
 import type { Camera, WeaponDetection, WeaponState, WeaponWindow } from '@/types';
+import { useCapability } from '@/app/CapabilityContext';
 
 const WINDOWS: WeaponWindow[] = ['Last 30 days', 'Last 90 days', 'This school year'];
 
 export function Weapons() {
+  const capability = useCapability('weapons');
   const [when, setWhen] = useState<WeaponWindow>('Last 90 days');
   const [detections, setDetections] = useState<WeaponDetection[]>([]);
   const [state, setState] = useState<WeaponState>('clear');
@@ -25,6 +27,7 @@ export function Weapons() {
 
   return (
     <>
+      <DataNotice capability={capability} />
       <PageHeader
         title="Knife detection"
         lead={`Looks for knife-shaped objects on all ${cameraTotal} cameras. Every detection is reviewed by a person before anything happens.`}

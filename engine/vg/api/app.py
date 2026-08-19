@@ -971,6 +971,21 @@ def _mount(app: FastAPI) -> None:
         return store.audit(limit)
 
     # ---------------------------------------------------------------- system
+    @app.get("/system/capabilities", response_model=list[S.Capability],
+             tags=["system"])
+    async def get_capabilities(store: StoreDep) -> list[S.Capability]:
+        """What the console can honestly show, and why not otherwise.
+
+        Every page checks this before rendering a number. A page cannot tell an
+        empty register from a broken one — both arrive as zero rows — and
+        guessing misleads either way: a real empty day read as a fault, or a
+        dead subsystem read as "nobody came".
+
+        200 always, like /system/health. A degraded engine is a state the UI
+        renders, not an error it has to handle.
+        """
+        return store.capabilities()
+
     @app.get("/system/health", response_model=S.SystemHealth, tags=["system"])
     async def get_health(store: StoreDep) -> S.SystemHealth:
         """Degradation arrives as payload, never as a 5xx.

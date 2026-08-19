@@ -104,6 +104,7 @@ class Store(Protocol):
     def alert_rules(self) -> list[S.AlertRule]: ...
     def delivery_targets(self) -> list[S.DeliveryTarget]: ...
     def audit(self, limit: int) -> list[S.AuditEntry]: ...
+    def capabilities(self) -> list[S.Capability]: ...
 
 
 # ===========================================================================
@@ -594,6 +595,40 @@ class MockStore:
                                        else "Credentials rejected" if s == "auth"
                                        else None))
             for i, n, t, ip, c, s in spec
+        ]
+
+    #: Every capability the console can render, in the operator's words. One
+    #: entry per thing a page can show, keyed by the store method that serves
+    #: it. `LiveStore` answers the same list with real states; keeping the
+    #: catalogue here means a new capability cannot be added to one and
+    #: forgotten in the other.
+    CAPABILITIES: tuple[tuple[str, str], ...] = (
+        ("cameras", "Camera streams"),
+        ("attendance", "Attendance register"),
+        ("people", "People directory"),
+        ("groups", "Groups"),
+        ("count", "People counting"),
+        ("track", "Track a person"),
+        ("breaches", "Restricted zones"),
+        ("weapons", "Weapon detection"),
+        ("search_lost", "Lost item search"),
+        ("users", "Users and roles"),
+        ("audit", "Audit trail"),
+        ("attention", "Alerts"),
+    )
+
+    def capabilities(self) -> list[S.Capability]:
+        """Fixtures, and they say so.
+
+        Every number this store returns was invented to exercise the UI. That
+        is legitimate — it is how the console gets built without cameras — but
+        only while the screen admits it, so there is no branch here that could
+        report LIVE by accident.
+        """
+        return [
+            S.Capability(key=key, name=name, state=S.DataState.DEMO,
+                         reason="Demo mode: every number on this page is invented.")
+            for key, name in self.CAPABILITIES
         ]
 
     def health(self) -> S.SystemHealth:

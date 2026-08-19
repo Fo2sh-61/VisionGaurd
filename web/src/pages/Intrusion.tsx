@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import { CamGrid } from '@/components/CamGrid';
-import { Badge, Card, Field, PageHeader, Select, Toggle, toneGlyph } from '@/components/ui';
+import { Badge, Card, DataNotice, Field, PageHeader, Select, Toggle, toneGlyph } from '@/components/ui';
 import { getBreaches, getIntrusionCameras, getZones, setZoneEnabled } from '@/services/api';
 import type { Breach, Camera, IntrusionWindow, Zone } from '@/types';
+import { useCapability } from '@/app/CapabilityContext';
 
 const WINDOWS: IntrusionWindow[] = ['Today', 'Last 7 days', 'Last 30 days'];
 
 export function Intrusion() {
+  const capability = useCapability('breaches');
   const [zones, setZones] = useState<Zone[]>([]);
   const [when, setWhen] = useState<IntrusionWindow>('Today');
   const [breaches, setBreaches] = useState<Breach[]>([]);
@@ -31,6 +33,7 @@ export function Intrusion() {
 
   return (
     <>
+      <DataNotice capability={capability} />
       <PageHeader
         title="Restricted zones"
         lead="Restricted areas that alert when someone enters outside allowed hours."

@@ -2,11 +2,12 @@ import { useCallback, useState } from 'react';
 import { useAccount } from '@/app/AuthContext';
 import { useAutoRun } from '@/app/useAutoRun';
 import { CamGrid } from '@/components/CamGrid';
-import { Badge, Card, CardHeader, Empty, Field, PageHeader, Select, Stats, toneGlyph } from '@/components/ui';
+import { Badge, Card, CardHeader, DataNotice, Empty, Field, PageHeader, Select, Stats, toneGlyph } from '@/components/ui';
 import { exportAttendance, getAttendance } from '@/services/api';
 import { useChoice, useGroupNames, usePersonNames } from '@/app/useOptions';
 import { useToday } from '@/app/SiteContext';
 import type { AttendanceMode, AttendanceResult } from '@/types';
+import { useCapability } from '@/app/CapabilityContext';
 
 const MODES: Record<string, AttendanceMode> = {
   'A whole group': 'group',
@@ -14,6 +15,7 @@ const MODES: Record<string, AttendanceMode> = {
 };
 
 export function Attendance() {
+  const capability = useCapability('attendance');
   const account = useAccount();
 
   const groups = useGroupNames();
@@ -75,6 +77,7 @@ export function Attendance() {
 
   return (
     <>
+      <DataNotice capability={capability} />
       <PageHeader
         title="Attendance"
         lead="Recorded automatically by face recognition at the four entrance cameras."

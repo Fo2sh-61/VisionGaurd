@@ -28,11 +28,12 @@ import { useCameras } from '@/app/CameraContext';
 import { useToday } from '@/app/SiteContext';
 import { usePersonNames } from '@/app/useOptions';
 import { CameraFrame } from '@/components/CameraFrame';
-import { Card, PageHeader } from '@/components/ui';
+import { Card, DataNotice, PageHeader } from '@/components/ui';
 import { correctIdentity, getLiveTracking, trackPerson } from '@/services/api';
 import { identifiedByFace } from '@/services/format';
 import type * as W from '@/services/wire';
 import type { Camera, TrackResult } from '@/types';
+import { useCapability } from '@/app/CapabilityContext';
 
 /* ---------- evidence colours ----------
  *
@@ -91,6 +92,7 @@ function neighboursOf(cameras: Camera[], cameraId: string): Camera[] {
 }
 
 export function TrackPerson() {
+  const capability = useCapability('track');
   const account = useAccount();
   const today = useToday();
   const people = usePersonNames();
@@ -372,6 +374,7 @@ export function TrackPerson() {
 
   return (
     <>
+      <DataNotice capability={capability} />
       <PageHeader
         title="Track a person"
         lead="Rebuild where someone went across campus, for investigations only."

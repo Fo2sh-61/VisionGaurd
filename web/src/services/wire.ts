@@ -339,6 +339,20 @@ export interface PipelineStage {
   modelVersion?: string | null;
 }
 
+/** Where a page's data came from. There is no fourth answer.
+ *
+ *  'live' is measured. 'unavailable' is an honest refusal and always carries a
+ *  reason. 'demo' is invented on purpose and only reachable with VG_MOCK=1. */
+export type DataState = 'live' | 'unavailable' | 'demo';
+
+export interface Capability {
+  key: string;
+  name: string;
+  state: DataState;
+  /** Why, in the operator's words. Set whenever state is not 'live'. */
+  reason?: string | null;
+}
+
 export interface SystemHealth {
   camerasOnline: number;
   camerasTotal: number;

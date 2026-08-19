@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useAutoRun } from '@/app/useAutoRun';
 import { CameraFrame } from '@/components/CameraFrame';
-import { Card, CardHeader, Empty, Field, PageHeader, Select, Stats } from '@/components/ui';
+import { Card, CardHeader, DataNotice, Empty, Field, PageHeader, Select, Stats } from '@/components/ui';
 import { getCount } from '@/services/api';
 import { useChoice, usePlaces } from '@/app/useOptions';
 import type { CountArea, CountResult, CountWindow, Tone } from '@/types';
+import { useCapability } from '@/app/CapabilityContext';
 
 const WINDOWS: CountWindow[] = ['Right now', 'Today by hour', 'This week by day'];
 
@@ -13,6 +14,7 @@ const WINDOWS: CountWindow[] = ['Right now', 'Today by hour', 'This week by day'
 const SEGMENT = ['#33705b', '#5b9bd8', '#8a6a14', '#a5372c', '#6b5b95', '#3e8c8c'];
 
 export function Counting() {
+  const capability = useCapability('count');
   const places = usePlaces();
   const [place, setPlace] = useState('');
   // Hold a valid choice while the options are still arriving.
@@ -53,6 +55,7 @@ export function Counting() {
 
   return (
     <>
+      <DataNotice capability={capability} />
       <PageHeader
         title="People counting"
         lead="How many people are in a place, now or at any past time."

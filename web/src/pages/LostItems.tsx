@@ -19,11 +19,12 @@
 import { useCallback, useState } from 'react';
 import { useAutoRun } from '@/app/useAutoRun';
 import { CamGrid } from '@/components/CamGrid';
-import { Card, Field, PageHeader, Select } from '@/components/ui';
+import { Card, DataNotice, Field, PageHeader, Select } from '@/components/ui';
 import { searchLostItem } from '@/services/api';
 import { LOST_SINCE } from '@/services/content';
 import { useSite } from '@/app/SiteContext';
 import type { LostResult } from '@/types';
+import { useCapability } from '@/app/CapabilityContext';
 
 type Phase = 'idle' | 'searching' | 'done';
 
@@ -54,6 +55,7 @@ function chipStyle(on: boolean) {
 }
 
 export function LostItems() {
+  const capability = useCapability('search_lost');
   // Areas come from the engine — they are the real camera groupings, not copy.
   const areas = useSite().site?.areas ?? [];
   const [bag, setBag] = useState(BAGS[0]);
@@ -96,6 +98,7 @@ export function LostItems() {
 
   return (
     <>
+      <DataNotice capability={capability} />
       <PageHeader
         title="Lost bag"
         lead="Say what the bag looks like and where it went missing. The system searches the recorded footage for it."

@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Badge, Card, CardHeader, PageHeader } from '@/components/ui';
+import { Badge, Card, CardHeader, DataNotice, PageHeader } from '@/components/ui';
 import { getUsers } from '@/services/api';
 import { CAPABILITIES } from '@/services/content';
 import type { User } from '@/types';
+import { useCapability } from '@/app/CapabilityContext';
 
 export function Users() {
+  const capability = useCapability('users');
   const [users, setUsers] = useState<User[]>([]);
 
   useEffect(() => {
@@ -13,6 +15,7 @@ export function Users() {
 
   return (
     <>
+      <DataNotice capability={capability} />
       <PageHeader title="Users" lead="Who can sign in, and what they are allowed to do." />
 
       <Card>

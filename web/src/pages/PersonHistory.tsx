@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { Badge, Card, PageHeader, Stats } from '@/components/ui';
+import { Badge, Card, DataNotice, PageHeader, Stats } from '@/components/ui';
 import { getHistory } from '@/services/api';
 import type { PersonHistory as PersonHistoryData } from '@/types';
+import { useCapability } from '@/app/CapabilityContext';
 
 export function PersonHistory() {
+  const capability = useCapability('people');
   const { name = '' } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
@@ -30,6 +32,7 @@ export function PersonHistory() {
           {backLabel}
         </button>
       </div>
+      <DataNotice capability={capability} />
       <PageHeader title={history.name} lead={`${history.sub} · attendance this term`} />
 
       <Card>

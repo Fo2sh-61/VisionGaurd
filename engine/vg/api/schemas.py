@@ -594,6 +594,40 @@ class PipelineStage(Wire):
     model_version: str | None = None
 
 
+class DataState(str, Enum):
+    """Where a page's data came from. There is no fourth answer.
+
+    The distinction the UI has to draw is not "good/bad", it is "believe this
+    or do not". LIVE is measured. UNAVAILABLE is an honest refusal and always
+    carries a reason. DEMO is invented on purpose, for showing the console to
+    someone without cameras, and must never appear outside demo mode.
+    """
+
+    LIVE = "live"
+    UNAVAILABLE = "unavailable"
+    DEMO = "demo"
+
+
+class Capability(Wire):
+    """One thing the console can show, and whether it currently can.
+
+    This is the list the screen checks before it renders a number. It exists
+    because a page cannot tell an empty register from a broken one, and
+    guessing wrong in either direction misleads an operator: invented rows
+    read as fact, and a real empty day reads as a fault.
+    """
+
+    #: Matches the store method that serves it — "attendance", "track".
+    key: str
+    #: What an operator calls it, not what the code calls it.
+    name: str
+    state: DataState
+    #: Why, in the operator's words. Required when UNAVAILABLE, and absent
+    #: when LIVE — an explanation attached to a working feature reads as a
+    #: fault report.
+    reason: str | None = None
+
+
 class SystemHealth(Wire):
     cameras_online: int
     cameras_total: int

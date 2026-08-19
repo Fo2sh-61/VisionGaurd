@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import type { Capability } from '@/services/wire';
 import type { Stat, Tone } from '@/types';
 
 /** Tone → the pair of tokens the design uses for every status pill. */
@@ -150,6 +151,37 @@ export function Toggle({
     >
       <span className="toggle__knob" style={{ left: on ? 18 : 2 }} />
     </button>
+  );
+}
+
+/** Says why a page has nothing to show, instead of leaving it blank.
+ *
+ *  A blank page and a quiet morning look identical, so this is the difference
+ *  between "nobody came" and "nothing was watching". It renders nothing at all
+ *  when the capability is live, so a page can mount it unconditionally and
+ *  cannot forget to.
+ *
+ *  Amber, not red: an unbuilt feature is not a fault, and an operator should
+ *  not be waiting for it to come back. */
+export function DataNotice({ capability }: { capability: Capability | null }) {
+  if (!capability || capability.state === 'live') return null;
+
+  const demo = capability.state === 'demo';
+  return (
+    <div
+      role="status"
+      style={{
+        display: 'flex', gap: 10, alignItems: 'baseline',
+        padding: '11px 14px', borderRadius: 10, marginBottom: 14,
+        background: 'var(--am-bg)', color: 'var(--am)',
+        fontSize: 13.5, lineHeight: 1.45,
+      }}
+    >
+      <span style={{ fontWeight: 700, whiteSpace: 'nowrap' }}>
+        {demo ? 'Demo data' : 'Not available'}
+      </span>
+      <span>{capability.reason ?? `${capability.name} is not available.`}</span>
+    </div>
   );
 }
 

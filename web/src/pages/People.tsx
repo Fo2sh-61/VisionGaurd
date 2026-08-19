@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Badge, Card, PageHeader } from '@/components/ui';
+import { Badge, Card, DataNotice, PageHeader } from '@/components/ui';
 import { getGroups, getPeople } from '@/services/api';
 import type { DirectoryPerson, GroupSummary, PersonType } from '@/types';
+import { useCapability } from '@/app/CapabilityContext';
 
 const TABS: { key: PersonType | 'All'; label: string }[] = [
   { key: 'All', label: 'All' },
@@ -19,6 +20,7 @@ const COUNTS: Record<PersonType | 'All', string> = {
 };
 
 export function People() {
+  const capability = useCapability('people');
   const navigate = useNavigate();
   const [people, setPeople] = useState<DirectoryPerson[]>([]);
   const [groups, setGroups] = useState<GroupSummary[]>([]);
@@ -41,6 +43,7 @@ export function People() {
 
   return (
     <>
+      <DataNotice capability={capability} />
       <PageHeader
         title="People"
         lead="Everyone in your school — students, staff and registered visitors. Records come from the school database; this console reads them."
