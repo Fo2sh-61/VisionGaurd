@@ -25,6 +25,22 @@ import numpy as np
 
 log = logging.getLogger(__name__)
 
+#: How long a lost track stays alive before its ID is retired. Long enough to
+#: survive someone passing behind a pillar, short enough that a different
+#: person arriving later does not inherit the ID — which would put one
+#: person's history onto another and is the worst failure this file has.
+LOST_TRACK_SECONDS = 6.0
+
+#: ByteTrack counts the buffer in frames, but not the frames you think.
+#: `BYTETracker.__init__` computes `max_time_lost = int(frame_rate / 30 * 
+#: track_buffer)`, so `track_buffer` is quoted against an implied 30 fps
+#: regardless of the real rate. `track_buffer=30` therefore bought 5 frames at
+#: 5 Hz — one second, not the six the old comment here claimed, and 0.4 s while
+#: the Track page boosts analysis to 12 Hz. A person glancing away came back
+#: with a new ID. Scaling by 30 cancels the implied rate and makes the window
+#: exactly LOST_TRACK_SECONDS at whatever frame rate the tracker is told.
+TRACK_BUFFER = int(round(30.0 * LOST_TRACK_SECONDS))
+
 # ByteTrack's own defaults, restated here so they are visible and tunable
 # without reaching into the ultralytics package. Names match its config file.
 TRACKER_DEFAULTS = dict(
@@ -32,10 +48,7 @@ TRACKER_DEFAULTS = dict(
     track_high_thresh=0.25,
     track_low_thresh=0.10,
     new_track_thresh=0.25,
-    # Frames a lost track stays alive. At 5 Hz analytics, 30 frames is six
-    # seconds — long enough to survive someone passing behind a pillar, short
-    # enough that a different person arriving later does not inherit the ID.
-    track_buffer=30,
+    track_buffer=TRACK_BUFFER,
     match_thresh=0.80,
     fuse_score=True,
 )
@@ -90,6 +103,12 @@ class PersonTracker:
     def __init__(self, frame_rate: float = 5.0, **overrides) -> None:
         from ultralytics.trackers import BYTETracker
 
+        # Tell it the rate it is fed at its SLOWEST. The tracking worker boosts
+        # from its idle rate to 12 Hz while someone is watching the Track page,
+        # and the window scales with whatever is passed here: quoting the boost
+        # rate would stretch the idle window to fourteen seconds, which is long
+        # enough for the next person through the door to inherit an ID. Erring
+        # short costs a fragmented path; erring long costs the wrong name.
         args = SimpleNamespace(**{**TRACKER_DEFAULTS, **overrides})
         # frame_rate feeds the motion model's expectations about how far a
         # person moves between frames. Passing 30 for a 5 Hz feed makes it
