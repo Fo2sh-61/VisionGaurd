@@ -132,7 +132,7 @@ def calibrate_gallery(model: str) -> int:
             print("  angles enrolled, faces too small, or poor lighting. Fix the")
             print("  captures before trusting any number this produces.")
     else:
-        print(f"With one person there is no false-accept measurement.")
+        print("With one person there is no false-accept measurement.")
         print(f"Genuine 5th pct is {percentile(genuine, 5):.3f} — a threshold above")
         print("that would start rejecting the person you enrolled.")
     print("-" * 62 + "\n")

@@ -18,7 +18,7 @@ would be the single most damaging bug in this system.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from vg.features.base import FeatureWorker
 from vg.ingest.source import Frame

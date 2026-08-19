@@ -20,7 +20,7 @@ zone near the bottom edge — which is the safe direction to be wrong.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from vg.config import ZoneConfig
 from vg.features.base import FeatureWorker

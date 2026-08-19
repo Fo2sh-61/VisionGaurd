@@ -17,10 +17,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from vg.events.appearance import AppearanceStore, PathStop
+from vg.events.appearance import AppearanceStore
 from vg.identity.appearance import (
     BINDING_TTL_SECONDS,
-    MIN_FACE_CONTAINMENT,
     AppearanceSighting,
     AppearanceTracker,
     _containment,

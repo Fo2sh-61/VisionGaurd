@@ -26,7 +26,6 @@ import pytest
 from vg.identity.enrolment import (
     MIN_CONFIDENCE,
     REQUIRED_PHOTOS,
-    TOO_SIMILAR,
     EnrolmentService,
     describe_angle,
     quality_score,
@@ -408,7 +407,6 @@ def client(gallery):
     is injected here. That is also the behaviour being relied on by
     `test_enrolment_is_unavailable_not_broken` below.
     """
-    import cv2
     from fastapi.testclient import TestClient
 
     from vg.api.app import create_app

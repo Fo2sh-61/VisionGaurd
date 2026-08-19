@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timezone
 
 from vg.events.sightings import Sighting, SightingStore
 from vg.features.base import FeatureWorker

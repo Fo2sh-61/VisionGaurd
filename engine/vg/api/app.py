@@ -238,7 +238,7 @@ def _start_people(cfg, registry, roster):
     of these — in which case the person model is never loaded at all, and the
     error is None because nothing is wrong.
     """
-    from vg.config import ZoneConfig  # noqa: F401  (documents the zone type)
+    # Zones here are vg.config.ZoneConfig - polygons in frame fractions.
 
     cameras = [
         c.id for c in roster
@@ -381,7 +381,6 @@ def _start_counts(cfg, registry, roster, people):
 
     try:
         import threading
-        import time
         from pathlib import Path
 
         from vg.api.live import _tz_offset_minutes
