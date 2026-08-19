@@ -154,6 +154,11 @@ export function severityToNeutralTone(severity: Severity): Tone {
 export function boxColor(box: WireBox): BoxColor {
   if (box.severity === 'critical') return 'red';
   if (box.match === 'face') return 'green';
+  // A tracked body that a face has named is green too. The box is drawn
+  // because clothing matched, so `match` stays APPEARANCE and would leave it
+  // blue forever — but the Track page's own legend promises green for
+  // "Identified by face", and a name on the box means exactly that.
+  if (identifiedByFace(box.label)) return 'green';
   if (box.match === 'appearance') return 'blue';
   if (box.severity === 'warn') return 'amber';
   return 'blue';

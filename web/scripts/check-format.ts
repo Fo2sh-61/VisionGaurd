@@ -96,6 +96,19 @@ eq('an empty label is not a name', identifiedByFace(''), false);
 eq('"Unknown" is a placeholder, not a name', identifiedByFace('Unknown'), false);
 eq('"Unknown person" is not a name', identifiedByFace('Unknown person'), false);
 
+// ...and the box beside the badge must agree with it. A tracked body carries
+// match='appearance' whatever its face is doing, so reading the match kind left
+// it blue while the badge said 'Identified by face' — the picture contradicting
+// the words directly above it.
+eq('named tracked body draws green',
+   boxColor({ x:0,y:0,w:1,h:1, kind:'match', match:'appearance', severity:'info', label:'Layla A.' }), 'green');
+eq('unnamed tracked body stays blue',
+   boxColor({ x:0,y:0,w:1,h:1, kind:'person', match:'appearance', severity:'info' }), 'blue');
+eq('an "Unknown" label is not a face match',
+   boxColor({ x:0,y:0,w:1,h:1, kind:'face', match:'none', severity:'info', label:'Unknown' }), 'blue');
+eq('a weapon is red whatever its label',
+   boxColor({ x:0,y:0,w:1,h:1, kind:'weapon', match:'none', severity:'critical', label:'Layla A.' }), 'red');
+
 // The regression itself. This identity is what the endpoint really sends: a
 // named person whose match kind is nonetheless 'appearance'.
 const namedBody = { name: 'Layla A.', match: 'appearance' as const };
