@@ -49,7 +49,7 @@ Tests: `python -m pytest engine` · `cd web; npx tsc -b --force`
 
 No `.venv` yet — deliberately blocked on the re-ID handover. System Python 3.14 works: torch 2.11.0+cu128, CUDA true on an RTX 2080.
 
-**Test count unverified this cycle.** `HANDOFF.md` reported 270 passing; nobody has re-run it since. P0-10 fixes that.
+**Tests verified 19 Aug 2026: 270 passed, 6 skipped** (`python -m pytest engine`, 10s). `npx tsc -b --force` is clean. The third gate, `pyflakes`, could not run at all — it is in `engine/requirements.txt` but is not installed in system Python 3.14. P0-10 puts all three in CI.
 
 ## Housekeeping
 
