@@ -23,11 +23,12 @@ walking past the lens at the wrong moment should not define the hour.
 from __future__ import annotations
 
 import logging
-import sqlite3
 import threading
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+from vg import db
 
 log = logging.getLogger(__name__)
 
@@ -64,12 +65,10 @@ class AreaCountStore:
 
     def __init__(self, database: Path | str, tz_offset_minutes: int = 0) -> None:
         self.path = Path(database)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
         self.tz_offset_minutes = tz_offset_minutes
 
         self._lock = threading.RLock()
-        self._conn = sqlite3.connect(self.path, check_same_thread=False)
-        self._conn.row_factory = sqlite3.Row
+        self._conn = db.connect(self.path)
         self._conn.executescript(SCHEMA)
         self._conn.commit()
         self._last_sample: datetime | None = None

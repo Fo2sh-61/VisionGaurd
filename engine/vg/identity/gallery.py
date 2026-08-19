@@ -27,13 +27,14 @@ blast radius but does not by itself settle the legal position.
 from __future__ import annotations
 
 import logging
-import sqlite3
 import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
+
+from vg import db
 
 log = logging.getLogger(__name__)
 
@@ -116,15 +117,12 @@ class FaceGallery:
         margin: float = DEFAULT_MARGIN,
     ) -> None:
         self.path = Path(database)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
         self.model = model
         self.threshold = threshold
         self.margin = margin
 
         self._lock = threading.RLock()
-        self._conn = sqlite3.connect(self.path, check_same_thread=False)
-        self._conn.row_factory = sqlite3.Row
-        self._conn.execute("PRAGMA foreign_keys = ON")
+        self._conn = db.connect(self.path)
         self._conn.executescript(SCHEMA)
         self._conn.commit()
 

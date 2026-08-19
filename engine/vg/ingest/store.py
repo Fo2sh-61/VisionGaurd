@@ -16,11 +16,11 @@ watched, not erase the evidence that it existed and produced events.
 from __future__ import annotations
 
 import logging
-import sqlite3
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
+from vg import db
 from vg.config import CameraConfig
 
 log = logging.getLogger(__name__)
@@ -47,10 +47,8 @@ class CameraStore:
 
     def __init__(self, database: Path | str) -> None:
         self.path = Path(database)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
-        self._conn = sqlite3.connect(self.path, check_same_thread=False)
-        self._conn.row_factory = sqlite3.Row
+        self._conn = db.connect(self.path)
         self._conn.executescript(SCHEMA)
         self._conn.commit()
 
