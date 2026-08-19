@@ -159,6 +159,26 @@ export function boxColor(box: WireBox): BoxColor {
   return 'blue';
 }
 
+/** Has a face put a name to this body, right now?
+ *
+ *  Read from the name, never from the match kind. `/tracking/live` reports
+ *  APPEARANCE on every identity by design: the body is being followed because
+ *  its clothing matched, and that stays true whether or not a face is readable
+ *  in the frame. So `match === 'face'` is not a weaker version of this
+ *  question, it is a different question whose answer never changes.
+ *
+ *  The name is the honest signal. The engine attaches a label only when a face
+ *  was matched inside that body in that frame, and drops it again the moment
+ *  the face turns away — which is exactly what "identified right now" means.
+ *  A stored binding carried forward is the bug that once put one person's name
+ *  on every body on the camera, so nothing here may outlive the frame.
+ *
+ *  "Unknown" is the placeholder the recogniser uses for a face it could not
+ *  put a name to. It is not a name. */
+export function identifiedByFace(name: string | null | undefined): boolean {
+  return !!name && !name.startsWith('Unknown');
+}
+
 export function matchLabel(match: MatchKind, confidence: number): string {
   const pct = formatPercent(confidence);
   if (match === 'face') return `Face match · ${pct}`;

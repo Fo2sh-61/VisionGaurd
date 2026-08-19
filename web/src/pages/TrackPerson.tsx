@@ -30,6 +30,7 @@ import { usePersonNames } from '@/app/useOptions';
 import { CameraFrame } from '@/components/CameraFrame';
 import { Card, PageHeader } from '@/components/ui';
 import { correctIdentity, getLiveTracking, trackPerson } from '@/services/api';
+import { identifiedByFace } from '@/services/format';
 import type * as W from '@/services/wire';
 import type { Camera, TrackResult } from '@/types';
 
@@ -304,7 +305,11 @@ export function TrackPerson() {
 
   /* ---------- derived view data ---------- */
 
-  const identified = seenNow ? seenNow.match === 'face' : (subject?.identified ?? false);
+  // From the NAME, not the match kind. `/tracking/live` reports APPEARANCE on
+  // every identity by design, so the match kind answered "why are we following
+  // this body", never "do we know who it is" — which is how the badge came to
+  // read "Not identified by face" beside the person's own name.
+  const identified = seenNow ? identifiedByFace(seenNow.name) : (subject?.identified ?? false);
   // The appearance id the engine issued. This is the number that survives
   // leaving the frame and changing camera, so it is what the screen shows.
   const shownId = following ? `#${following}` : (subject?.id ?? '#?');
@@ -318,17 +323,19 @@ export function TrackPerson() {
    *  person who is not there. */
   const candidates = useMemo(() => {
     const found = liveState?.identities ?? [];
-    return found.slice(0, 4).map((identity, i) => ({
-      identity,
-      camera: cameras.find((c) => c.id === identity.cameraId),
-      letter: ['A', 'B', 'C', 'D'][i],
-      confidence: identity.match === 'face' ? 'Fairly sure' : 'Not sure',
-      why:
-        identity.match === 'face'
-          ? `A face match named this body ${identity.name ? `as ${identity.name}` : ''}.`.trim()
+    return found.slice(0, 4).map((identity, i) => {
+      const named = identifiedByFace(identity.name);
+      return {
+        identity,
+        camera: cameras.find((c) => c.id === identity.cameraId),
+        letter: ['A', 'B', 'C', 'D'][i],
+        confidence: named ? 'Fairly sure' : 'Not sure',
+        why: named
+          ? `A face match named this body as ${identity.name}.`
           : 'Following clothing colour and build only — no face has been matched to this body.',
-      neighbours: neighboursOf(cameras, identity.cameraId),
-    }));
+        neighbours: neighboursOf(cameras, identity.cameraId),
+      };
+    });
   }, [liveState, cameras]);
 
   const livePath = useMemo(
@@ -567,7 +574,7 @@ export function TrackPerson() {
               <div className="empty">Nobody is in view on this camera right now.</div>
             )}
             {(manCam.boxes ?? []).map((box, i) => {
-              const known = !!box.label && !box.label.startsWith('Unknown');
+              const known = identifiedByFace(box.label);
               const name = known ? box.label! : 'Unknown person';
               return (
                 <div key={`${box.x}-${i}`} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 0', borderTop: '1px solid var(--line)' }}>

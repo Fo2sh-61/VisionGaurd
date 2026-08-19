@@ -13,6 +13,7 @@
 import {
   formatEventTime, formatTime, formatClock, formatDuration, formatSchedule,
   formatMetric, toDetectionBox, toCameraZone, severityToTone, boxColor, formatLongDate,
+  identifiedByFace,
 } from '../src/services/format';
 
 let pass = 0, fail = 0;
@@ -73,6 +74,33 @@ eq('today label', formatEventTime(cairo(utcNow)).startsWith('Today, '), true);
 const y = new Date(now.getTime() - 86400000 - 180*60000).toISOString();
 eq('yesterday label', formatEventTime(cairo(y)).startsWith('Yesterday, '), true);
 eq('old date has no year when same year', formatEventTime(cairo('2026-01-26T16:20:00Z')), 'Jan 26, 7:20pm');
+
+/* ---------- track: what "identified by face" is read from ----------
+ *
+ *  `/tracking/live` sets `match` to APPEARANCE on every identity, always, by
+ *  design (app.py) — a body is being followed because its clothing matched,
+ *  and a readable face is an annotation on top of that, never the reason the
+ *  box exists. The match kind therefore cannot answer "has a face named this
+ *  person"; it answers "why are we following this body", which is a different
+ *  question with a constant answer.
+ *
+ *  Only the name can answer it, because the engine sets a label only when a
+ *  face was matched INSIDE that body in THAT frame. Reading the match kind is
+ *  what made the Track page print "Not identified by face" directly beside the
+ *  person's own name. */
+
+eq('a name means a face named them', identifiedByFace('Layla A.'), true);
+eq('no name means clothing only', identifiedByFace(null), false);
+eq('undefined is not identified', identifiedByFace(undefined), false);
+eq('an empty label is not a name', identifiedByFace(''), false);
+eq('"Unknown" is a placeholder, not a name', identifiedByFace('Unknown'), false);
+eq('"Unknown person" is not a name', identifiedByFace('Unknown person'), false);
+
+// The regression itself. This identity is what the endpoint really sends: a
+// named person whose match kind is nonetheless 'appearance'.
+const namedBody = { name: 'Layla A.', match: 'appearance' as const };
+eq('named body, appearance match, IS identified', identifiedByFace(namedBody.name), true);
+eq('reading the match kind gets it wrong', namedBody.match === 'face', false);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
