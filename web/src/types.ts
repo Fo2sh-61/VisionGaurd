@@ -332,7 +332,8 @@ export interface DirectoryPerson {
 export interface GroupSummary {
   name: string;
   count: string;
-  here: number;
+  /** null when nothing is recording attendance. */
+  here: number | null;
 }
 
 export interface GroupMember {
@@ -343,6 +344,8 @@ export interface GroupMember {
 }
 
 export interface AttendanceBar {
+  /** ISO date. The row key: weekday labels repeat every five rows. */
+  date: string;
   day: string;
   label: string;
   pct: number;

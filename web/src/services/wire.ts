@@ -184,6 +184,7 @@ export interface AttendanceDay {
   status: AttendanceStatus;
   seenAt?: Instant | null;
   location?: string | null;
+  minutesLate?: number | null;
 }
 
 export interface AttendanceResult {
@@ -410,7 +411,8 @@ export interface GroupSummary {
   name: string;
   people: number;
   classes?: number | null;
-  here: number;
+  /** null when nothing is recording attendance. Zero would mean empty. */
+  here: number | null;
 }
 
 export interface GroupDetail {
@@ -422,6 +424,9 @@ export interface AttendanceTrend {
   date: string;
   label: string;
   presentRatio: number;
+  /** Present is binary for one person on one day; this is what tells a late
+   *  morning apart from an on-time one. */
+  status: AttendanceStatus;
 }
 
 export interface AttendanceFlag {

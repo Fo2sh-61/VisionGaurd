@@ -29,7 +29,14 @@ export function PeopleGroup() {
         </button>
       </div>
       <DataNotice capability={capability} />
-      <PageHeader title={summary.name} lead={`${summary.count} · ${summary.here} on campus today`} />
+      <PageHeader
+        title={summary.name}
+        lead={
+          summary.here === null
+            ? summary.count
+            : `${summary.count} · ${summary.here} on campus today`
+        }
+      />
 
       <Card>
         {roster.map((member) => (

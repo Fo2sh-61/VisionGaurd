@@ -55,7 +55,6 @@ import {
   formatEventTime,
   formatLongDate,
   formatMetrics,
-  formatPercent,
   formatSchedule,
   formatShortDate,
   formatTime,
@@ -682,11 +681,15 @@ export async function getHistory(name: string): Promise<PersonHistory> {
     heading: `${h.presentDays} of ${h.totalDays} days present`,
     lead: h.periodLabel,
     stats: formatMetrics(h.metrics),
+    // One person on one day is here or not, so the bar is full or empty and
+    // the colour carries the rest. A percentage per day would have read as
+    // "60% present on Tuesday", which means nothing for one child.
     bars: h.trend.map((t) => ({
+      date: t.date,
       day: t.label,
-      label: formatPercent(t.presentRatio),
-      pct: Math.round(t.presentRatio * 100),
-      tone: t.presentRatio >= 0.9 ? 'good' : t.presentRatio >= 0.6 ? 'warn' : 'bad',
+      label: attendanceLabel(t.status),
+      pct: t.status === 'absent' ? 0 : 100,
+      tone: attendanceTone(t.status),
     })),
     flags: h.flags.map((f) => ({
       date: formatShortDate(f.date),

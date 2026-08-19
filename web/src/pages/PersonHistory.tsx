@@ -6,7 +6,7 @@ import type { PersonHistory as PersonHistoryData } from '@/types';
 import { useCapability } from '@/app/CapabilityContext';
 
 export function PersonHistory() {
-  const capability = useCapability('people');
+  const capability = useCapability('attendance');
   const { name = '' } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
@@ -41,11 +41,11 @@ export function PersonHistory() {
         <Stats items={history.stats} columns={4} />
 
         <div className="section-title" style={{ marginTop: 8 }}>
-          Arrival times, last 10 school days
+          Day by day
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {history.bars.map((bar) => (
-            <div key={bar.day} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div key={bar.date} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <span style={{ width: 56, fontSize: 13, color: 'var(--tx2)', flexShrink: 0 }}>{bar.day}</span>
               <div className="bar-track">
                 <div
@@ -73,8 +73,8 @@ export function PersonHistory() {
           ))}
         </div>
         <div style={{ fontSize: 12.5, color: 'var(--tx3)', marginTop: 14 }}>
-          Bar length is how late in the morning they arrived. Amber is after the 8:00am cut-off, red
-          is an absence.
+          One row per day the cameras were recording. Green is on time, amber is after the cut-off,
+          red is not seen at all. Days nothing was recording are not counted either way.
         </div>
       </Card>
 
@@ -82,8 +82,13 @@ export function PersonHistory() {
         <div className="section-title" style={{ marginBottom: 4 }}>
           Days that needed follow-up
         </div>
+        {history.flags.length === 0 && (
+          <div className="row__muted" style={{ padding: '6px 0' }}>
+            Nothing to follow up.
+          </div>
+        )}
         {history.flags.map((flag) => (
-          <div key={flag.date} className="row" style={{ gridTemplateColumns: '1.2fr 1.6fr .7fr' }}>
+          <div key={`${flag.date}-${flag.badge}`} className="row" style={{ gridTemplateColumns: '1.2fr 1.6fr .7fr' }}>
             <span className="row__name">{flag.date}</span>
             <span className="row__muted">{flag.detail}</span>
             <span>

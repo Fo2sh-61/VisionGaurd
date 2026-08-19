@@ -16,7 +16,7 @@ The methods still inherited from MockStore are the honest to-do list.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from vg.config import EngineConfig
 from vg.api import schemas as S
@@ -30,6 +30,16 @@ def _instant(when: datetime | None, offset_minutes: int) -> S.Instant | None:
     if when is None:
         return None
     return S.Instant(utc=when, tz_offset_minutes=offset_minutes)
+
+
+def _day_label(iso_date: str) -> str:
+    """"2026-08-19" -> "Wed 19". The date is already site-local.
+
+    The weekday alone repeats every five rows, which leaves a reader unable to
+    say which Tuesday a bar refers to.
+    """
+    day = date.fromisoformat(iso_date)
+    return f"{day.strftime('%a')} {day.day}"
 
 
 class LiveStore(MockStore):
@@ -936,14 +946,29 @@ class LiveStore(MockStore):
             timezone=self.config.timezone,
         )
 
-    def _register(self, on: str):
+    #: What `groups()` calls the bucket for people with no group set. Kept in
+    #: one place because the register filters on the same string the dropdown
+    #: was populated from, and the two drifting apart would empty a group.
+    UNGROUPED = "Everyone"
+
+    def _group_of(self, person) -> str:
+        return person.group or self.UNGROUPED
+
+    def _register(self, on: str, group: str | None = None):
         """The day's register. Absence is derived from missing sightings.
 
         Bounded by school hours so a sighting at 01:14 does not count as an
         on-time arrival just because it precedes the 08:00 cutoff.
+
+        `group` narrows who is expected. Without it the page headed "Grade 8"
+        listed every enrolled person in the school, which is not a Grade 8
+        register and would have been read as one.
         """
         hours = self.config.hours
-        expected = [p.id for p in self.gallery.people() if p.photo_on_file]
+        expected = [
+            p.id for p in self.gallery.people()
+            if p.photo_on_file and (group is None or self._group_of(p) == group)
+        ]
         return self.sightings.register(
             on,
             expected,
@@ -1008,35 +1033,52 @@ class LiveStore(MockStore):
             # honest answer when nothing was watching.
             return self._empty_attendance(mode, subject, on)
 
-        register = self._register(on)
-        people = {p.id: p for p in self.gallery.people()}
-
         if mode == "person":
             person = self.gallery.find_by_name(subject) or self.gallery.person(subject)
             if person is None:
                 return self._empty_attendance(mode, subject, on)
 
-            history = self.sightings.history(person.id, days=30)
+            # P0-04. Every day here used to be reported on time and `late`
+            # was hardcoded to 0, while the day register applied the cutoff
+            # properly. Same child, same morning, two screens, two answers.
+            # The cutoff and the school-hours bound are the register's, so
+            # there is now only one rule.
+            hours = self.config.hours
+            history = self.sightings.history(
+                person.id, days=self.HISTORY_DAYS,
+                cutoff=hours.late_cutoff,
+                day_start=hours.start, day_end=hours.end,
+            )
             days = [
                 S.AttendanceDay(
                     date=day,
-                    status=S.AttendanceStatus.ON_TIME,
+                    status=S.AttendanceStatus(entry.status),
                     seen_at=_instant(entry.first_seen, self._offset),
-                    location=None,
+                    location=self._camera_name(entry.camera_id),
+                    minutes_late=entry.minutes_late,
                 )
-                for day, entry in history.items()
+                for day, entry in sorted(history.items(), reverse=True)
             ]
+            late = sum(1 for d in days if d.status == S.AttendanceStatus.LATE)
             return S.AttendanceResult(
                 mode="person", date=on, subject=person.name,
-                expected=len(days), present=len(days), late=0,
+                expected=len(days), present=len(days), late=late,
                 absent=0,
                 metrics=[
                     S.Metric(key="days_seen", label="Days seen", value=len(days)),
+                    S.Metric(key="late", label="Times late", value=late),
                     S.Metric(key="sightings", label="Total sightings",
                              value=sum(e.sightings for e in history.values())),
                 ],
                 days=days, cameras=self.live_cameras(),
             )
+
+        # Narrow to the group that was asked for. A blank subject is the whole
+        # school; anything else is the name the dropdown was populated with, so
+        # it either matches a bucket or matches nobody, and matching nobody is
+        # the honest answer for a group that has no one in it.
+        register = self._register(on, group=subject or None)
+        people = {p.id: p for p in self.gallery.people()}
 
         records = []
         for entry in register.entries:
@@ -1195,22 +1237,149 @@ class LiveStore(MockStore):
         if not people:
             return []
 
-        today = self.sightings.local_date(datetime.now(timezone.utc))
-        register = self._register(today)
+        # The roll is enrolment and is known either way. Who is here is
+        # recognition, and without it the honest answer is "unknown" - this
+        # used to crash instead, because the register was read unconditionally.
+        register = None
+        if self.recognition_live:
+            register = self._register(
+                self.sightings.local_date(datetime.now(timezone.utc)))
+
         by_group: dict[str, list] = {}
         for person in people:
-            by_group.setdefault(person.group or "Everyone", []).append(person)
+            by_group.setdefault(self._group_of(person), []).append(person)
+
+        def here(members) -> int | None:
+            if register is None:
+                return None
+            return sum(1 for m in members
+                       if (e := register.entry(m.id)) and e.status != "absent")
 
         return [
-            S.GroupSummary(
-                name=name, people=len(members), classes=None,
-                here=sum(
-                    1 for m in members
-                    if (e := register.entry(m.id)) and e.status != "absent"
-                ),
-            )
+            S.GroupSummary(name=name, people=len(members), classes=None,
+                           here=here(members))
             for name, members in sorted(by_group.items())
         ]
+
+    def group(self, name: str) -> S.GroupDetail | None:
+        """One group's register for today.
+
+        `MockStore`'s version built the roster from an unfiltered register, so
+        every group showed the whole school. Here the filter is the same one
+        `groups()` counted with, which is what makes the header and the list
+        agree.
+        """
+        if self.gallery is None:
+            return None
+
+        summary = next((g for g in self.groups() if g.name == name), None)
+        if summary is None:
+            return None
+
+        roster = []
+        if self.recognition_live:
+            today = self.sightings.local_date(datetime.now(timezone.utc))
+            roster = self.attendance("group", name, today).records
+        return S.GroupDetail(summary=summary, roster=roster)
+
+    #: How far back a person's history looks. Days, not weeks: a term is the
+    #: unit a head teacher thinks in and 30 recorded days is close to one.
+    HISTORY_DAYS = 30
+
+    def history(self, person: str) -> S.PersonHistory | None:
+        """One person's attendance over the days the system was watching.
+
+        The denominator is deliberately not a calendar month. Weekends,
+        holidays and every hour the engine was switched off would all land in
+        it as absences, and a child with perfect attendance would read as
+        truant. `days_recorded` counts only days somebody — anybody — was seen,
+        which is the same as saying the system was up and looking.
+
+        With recognition down the page still opens and still names the person:
+        she is enrolled, nothing was watching, and "no such person" would say
+        the first of those is false. The numbers come back empty and
+        `/system/capabilities` carries the reason.
+        """
+        if self.gallery is None:
+            return None
+
+        who = self.gallery.find_by_name(person) or self.gallery.person(person)
+        if who is None:
+            return None
+
+        card = S.DirectoryPerson(
+            id=who.id, name=who.name, type=S.PersonType(who.type),
+            group=who.group, detail=who.detail,
+            photo_on_file=who.photo_on_file,
+        )
+
+        if not self.recognition_live:
+            return S.PersonHistory(
+                person=card, period_label="No days recorded",
+                present_days=0, total_days=0,
+                metrics=[S.Metric(
+                    key="source", label="Source", unit="text",
+                    text="Face recognition is not running, so nothing was recorded",
+                )],
+            )
+
+        hours = self.config.hours
+        recorded = self.sightings.days_recorded(limit=self.HISTORY_DAYS)
+        seen = self.sightings.history(
+            who.id, days=self.HISTORY_DAYS,
+            cutoff=hours.late_cutoff, day_start=hours.start, day_end=hours.end,
+        )
+
+        present = [d for d in recorded if d in seen]
+        late = [d for d in present if seen[d].status == "late"]
+        missed = [d for d in recorded if d not in seen]
+
+        # Oldest first, so the chart reads left to right like a week does.
+        trend = [
+            S.AttendanceTrend(
+                date=day,
+                label=_day_label(day),
+                present_ratio=1.0 if day in seen else 0.0,
+                status=(S.AttendanceStatus(seen[day].status) if day in seen
+                        else S.AttendanceStatus.ABSENT),
+            )
+            for day in reversed(recorded)
+        ]
+
+        flags = [
+            S.AttendanceFlag(date=day, kind="absence", severity=S.Severity.WARN,
+                             detail="Not seen on a day the cameras were recording")
+            for day in missed
+        ] + [
+            S.AttendanceFlag(
+                date=day, kind="late", severity=S.Severity.INFO,
+                detail=(f"Arrived {seen[day].minutes_late} minutes after the "
+                        f"{hours.late_cutoff.strftime('%H:%M')} cut-off"),
+            )
+            for day in late
+        ]
+        flags.sort(key=lambda f: f.date, reverse=True)
+
+        metrics = [
+            S.Metric(key="present", label="Days present", value=len(present),
+                     total=len(recorded)),
+            S.Metric(key="late", label="Times late", value=len(late)),
+        ]
+        # A percentage of nothing is not 0%, it is unanswerable. Saying 0%
+        # attendance for a school that has recorded no days is the kind of
+        # number somebody acts on.
+        if recorded:
+            metrics.append(S.Metric(key="rate", label="Attendance",
+                                    value=len(present) / len(recorded),
+                                    unit="percent"))
+
+        return S.PersonHistory(
+            person=card,
+            period_label=(f"Last {len(recorded)} recorded days"
+                          if recorded else "No days recorded"),
+            present_days=len(present), total_days=len(recorded),
+            metrics=metrics, trend=trend, flags=flags,
+        )
 
     def test_connection(self, req: S.TestConnectionRequest) -> S.TestConnectionResult:
         """Actually open the stream and pull a frame.

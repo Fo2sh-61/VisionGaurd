@@ -203,29 +203,110 @@ class SightingStore:
             ).fetchall()
         return [_to_sighting(r) for r in rows]
 
-    def history(self, person_id: str, days: int = 30) -> dict[str, RegisterEntry]:
-        """One person's last N school days, keyed by ISO date."""
+    def days_recorded(self, limit: int = 30) -> list[str]:
+        """Site-local dates on which the system recorded *anybody*, newest first.
+
+        This is the only honest denominator for "days present". A calendar
+        month counts weekends, holidays and every hour the engine was switched
+        off as absences, which would make a child with perfect attendance look
+        truant. A day nobody at all was seen is a day nothing was watching, so
+        it is not a day anyone can be marked absent for.
+        """
         with self._lock:
             rows = self._conn.execute(
-                "SELECT local_date, MIN(seen_at) AS first_seen, MAX(seen_at) AS last_seen, "
-                "COUNT(*) AS n, MAX(confidence) AS conf "
-                "FROM sighting WHERE person_id = ? "
-                "GROUP BY local_date ORDER BY local_date DESC LIMIT ?",
-                (person_id, days),
+                "SELECT DISTINCT local_date FROM sighting "
+                "ORDER BY local_date DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [r["local_date"] for r in rows]
+
+    def history(
+        self,
+        person_id: str,
+        days: int = 30,
+        cutoff: time | None = None,
+        day_start: time | None = None,
+        day_end: time | None = None,
+    ) -> dict[str, RegisterEntry]:
+        """One person's last N recorded days, keyed by ISO date.
+
+        Only days this person was actually seen appear. `cutoff` decides
+        on_time vs late exactly as `register` does; without it every day comes
+        back "on_time", which is a claim the data does not support, so callers
+        that show a status must pass one.
+
+        `day_start`/`day_end` bound what counts as an arrival for the same
+        reason they do in `register`: a 01:14 corridor walk is a real sighting
+        and belongs in tracking, but it is not arriving for school.
+        """
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT local_date, seen_at, confidence, camera_id FROM sighting "
+                "WHERE person_id = ? AND local_date IN ("
+                "  SELECT DISTINCT local_date FROM sighting WHERE person_id = ?"
+                "  ORDER BY local_date DESC LIMIT ?"
+                ") ORDER BY seen_at",
+                (person_id, person_id, days),
             ).fetchall()
 
-        return {
-            row["local_date"]: RegisterEntry(
+        # Grouped in Python, not SQL: the school-hours window is a site-local
+        # comparison and SQLite has no timezone maths.
+        grouped: dict[str, dict] = {}
+        for row in rows:
+            seen = _parse(row["seen_at"])
+            local = (seen + timedelta(minutes=self.tz_offset_minutes)).time()
+            if day_start is not None and local < day_start:
+                continue
+            if day_end is not None and local > day_end:
+                continue
+
+            entry = grouped.setdefault(row["local_date"], {
+                "first_seen": seen,
+                "last_seen": seen,
+                "camera_id": row["camera_id"],
+                "n": 0,
+                "conf": 0.0,
+            })
+            entry["last_seen"] = seen
+            entry["n"] += 1
+            entry["conf"] = max(entry["conf"], row["confidence"])
+
+        out: dict[str, RegisterEntry] = {}
+        for on, entry in grouped.items():
+            status, minutes_late = self._lateness(entry["first_seen"], cutoff)
+            out[on] = RegisterEntry(
                 person_id=person_id,
-                status="on_time",  # refined by the caller, which knows the cutoff
-                first_seen=_parse(row["first_seen"]),
-                last_seen=_parse(row["last_seen"]),
-                camera_id=None,
-                confidence=row["conf"],
-                sightings=row["n"],
+                status=status,
+                first_seen=entry["first_seen"],
+                last_seen=entry["last_seen"],
+                camera_id=entry["camera_id"],
+                confidence=entry["conf"],
+                sightings=entry["n"],
+                minutes_late=minutes_late,
             )
-            for row in rows
-        }
+        return out
+
+    def _lateness(
+        self, first: datetime, cutoff: time | None
+    ) -> tuple[str, int | None]:
+        """on_time/late for one arrival, and by how many minutes.
+
+        One implementation so the day register and a person's history can
+        never disagree about whether the same morning was late.
+        """
+        if cutoff is None:
+            return "on_time", None
+        local_first = (first + timedelta(minutes=self.tz_offset_minutes)).time()
+        if local_first <= cutoff:
+            return "on_time", None
+        minutes = int(
+            (
+                datetime.combine(date.today(), local_first)
+                - datetime.combine(date.today(), cutoff)
+            ).total_seconds()
+            // 60
+        )
+        return "late", minutes
 
     def register(
         self,
@@ -272,20 +353,11 @@ class SightingStore:
                 continue
 
             first = _parse(row["first_seen"])
-            local_first = (first + timedelta(minutes=self.tz_offset_minutes)).time()
-            late = local_first > cutoff
-            minutes_late = None
-            if late:
-                minutes_late = int(
-                    (
-                        datetime.combine(date.today(), local_first)
-                        - datetime.combine(date.today(), cutoff)
-                    ).total_seconds() // 60
-                )
+            status, minutes_late = self._lateness(first, cutoff)
 
             entries.append(RegisterEntry(
                 person_id=person_id,
-                status="late" if late else "on_time",
+                status=status,
                 first_seen=first,
                 last_seen=_parse(row["last_seen"]),
                 camera_id=first_cameras.get(person_id),

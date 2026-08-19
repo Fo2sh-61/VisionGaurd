@@ -706,8 +706,14 @@ class MockStore:
         trend = [
             S.AttendanceTrend(date=str(TODAY - timedelta(days=i)),
                               label=["Mon", "Tue", "Wed", "Thu", "Fri"][4 - i],
-                              present_ratio=r)
-            for i, r in enumerate([1.0, 1.0, 0.0, 1.0, 1.0])
+                              present_ratio=r, status=s)
+            for i, (r, s) in enumerate([
+                (1.0, S.AttendanceStatus.ON_TIME),
+                (1.0, S.AttendanceStatus.LATE),
+                (0.0, S.AttendanceStatus.ABSENT),
+                (1.0, S.AttendanceStatus.ON_TIME),
+                (1.0, S.AttendanceStatus.ON_TIME),
+            ])
         ]
         return S.PersonHistory(
             person=who, period_label="Last 30 school days",

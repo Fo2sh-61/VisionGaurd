@@ -365,10 +365,18 @@ class AttendanceRecord(Wire):
 
 
 class AttendanceDay(Wire):
+    """One past day for one person. The row `AttendanceRecord` is for a group.
+
+    Carries `minutes_late` for the same reason the group row does: "Late" on
+    its own is a different conversation with a parent than "Late by four
+    minutes".
+    """
+
     date: str  # ISO date, "2026-07-29"
     status: AttendanceStatus
     seen_at: Instant | None = None
     location: str | None = None
+    minutes_late: int | None = None
 
 
 class AttendanceResult(Wire):
@@ -716,10 +724,17 @@ class DirectoryPerson(Wire):
 
 
 class GroupSummary(Wire):
+    """How many are in a group, and how many of them are here.
+
+    `here` is None when nothing is recording attendance. Zero would say the
+    group is empty today, which is a different and much louder claim than
+    "nobody was watching".
+    """
+
     name: str
     people: int
     classes: int | None = None
-    here: int
+    here: int | None = None
 
 
 class GroupDetail(Wire):
@@ -728,9 +743,17 @@ class GroupDetail(Wire):
 
 
 class AttendanceTrend(Wire):
+    """One day in a person's history chart.
+
+    `present_ratio` is binary for one person on one day — they were here or
+    they were not. `status` is what separates a late morning from an on-time
+    one, which the ratio alone cannot say.
+    """
+
     date: str
     label: str
     present_ratio: Annotated[float, Field(ge=0.0, le=1.0)]
+    status: AttendanceStatus = AttendanceStatus.ON_TIME
 
 
 class AttendanceFlag(Wire):

@@ -59,6 +59,17 @@ def test_site_does_not_borrow_fixture_areas(bare_live_store):
     assert bare_live_store.site().areas == []
 
 
+def test_history_and_group_do_not_fall_back_to_fixtures(bare_live_store):
+    """The last two screens that did.
+
+    Both names below are MockStore's own fixtures, so a fall-through returns
+    a full page about a child who does not attend this school rather than
+    None. What the real ones do instead is in test_person_history.py.
+    """
+    assert bare_live_store.history("Layla Ahmed") is None
+    assert bare_live_store.group("Grade 8") is None
+
+
 # -- the list the screen checks --------------------------------------------
 
 
