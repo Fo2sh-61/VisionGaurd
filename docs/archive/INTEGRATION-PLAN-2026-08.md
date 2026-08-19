@@ -1,3 +1,7 @@
+> **⚠ SUPERSEDED — history only. Do not plan from this file.**
+> The current plan is `docs/PLAN.md`; current state is `STATUS.md`.
+> Archived 19 Aug 2026.
+
 # Closing the loop: wiring the front end to a real engine
 
 > ## ⚠ SUPERSEDED — do not plan from this document

@@ -1,3 +1,7 @@
+> **⚠ SUPERSEDED — history only. Do not plan from this file.**
+> The current plan is `docs/PLAN.md`; current state is `STATUS.md`.
+> Archived 19 Aug 2026.
+
 # VisionGuard — Full Project Analysis (Current State)
 
 **Prepared:** 18 Aug 2026 · **Source:** direct read of the repository at `E:\VisionGuard` (all engine source, both front ends, configs, model inventory, and the three planning documents)

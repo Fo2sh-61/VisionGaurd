@@ -1,3 +1,7 @@
+> **⚠ SUPERSEDED — history only. Do not plan from this file.**
+> The current plan is `docs/PLAN.md`; current state is `STATUS.md`.
+> Archived 19 Aug 2026.
+
 # VisionGuard — Completion Plan
 
 **Prepared:** 10 August 2026
