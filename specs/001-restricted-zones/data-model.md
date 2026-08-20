@@ -5,25 +5,45 @@ shape.
 
 ---
 
-## 1. `camera.restricted` — the toggle
+## 1. `camera_restricted` — the toggle
 
-Added to the existing `camera` table in `engine/vg/ingest/store.py`.
+**Corrected after the pipeline run.** This section originally specified a
+`restricted` column on the existing `camera` table. That could never work, and
+the recorded-clip check is what proved it: **most cameras have no row in
+`camera` at all.** The baseline roster comes from `engine.yaml`; that table
+holds only what the console has added since. The toggle therefore 404'd on
+every camera a site starts with, including the walk-through clip.
+
+Inserting a stub `camera` row on first toggle was considered and rejected:
+`merge_cameras` lets a stored row win a clash, so flipping a toggle would
+quietly freeze that camera's name, fps and features, and later edits to
+`engine.yaml` would stop taking effect with nothing on screen to say why.
+
+New table in `engine/vg/ingest/store.py`:
 
 | Column | Type | Notes |
 |---|---|---|
+| `camera_id` | `TEXT PRIMARY KEY` | not a foreign key — the camera may live only in `engine.yaml` |
 | `restricted` | `INTEGER NOT NULL DEFAULT 0` | 1 = the whole frame is a restricted zone |
+| `changed_at` | `TEXT NOT NULL` | UTC ISO-8601 |
 
-Added with an `ALTER TABLE` guarded by `PRAGMA table_info(camera)` so an
-existing database upgrades in place and a fresh one gets it from `CREATE TABLE`.
+Created by `CREATE TABLE IF NOT EXISTS`, so an existing database gains it on
+the next start without losing a row and without migration tooling.
 
 **Accessors** on `CameraStore`:
-- `set_restricted(camera_id: str, restricted: bool) -> bool` — returns False if
-  no such camera, so the endpoint can 404 truthfully.
-- `restricted_ids() -> set[str]` — read by the worker.
+- `set_restricted(camera_id: str, restricted: bool) -> None` — an upsert. It
+  accepts any id, because this table cannot see which cameras exist.
+- `restricted_ids() -> set[str]` — read by the worker and by `LiveStore`.
 
 **Rules**
-- Default 0. A new camera is not watched until somebody switches it on.
-- A removed camera (`removed_at` set) is excluded from `restricted_ids()`.
+- Default off. A new camera is not watched until somebody switches it on.
+- **Existence is checked against the roster, not this table.**
+  `LiveStore.set_zone_enabled` refuses an id that is not in
+  `registry.configs()`, which is how the endpoint 404s truthfully.
+- `CameraStore.remove` deletes the row: removing a camera has to stop it being
+  watched. The scenes it already produced are kept.
+- `LiveStore._restricted_ids()` intersects with the roster, so a camera removed
+  after somebody restricted it does not keep appearing as a watched area.
 
 ---
 

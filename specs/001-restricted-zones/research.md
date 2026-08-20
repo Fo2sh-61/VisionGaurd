@@ -99,9 +99,20 @@ them and get them wrong.
 
 **Traps found, and how each is handled:**
 
+**Corrected during implementation: zones gets its own `Recorder` instance**,
+pointed at `clips_dir/zones/`, rather than sharing the one behind the
+operator's record button. This section assumed one shared recorder, and that
+would have made the two features fight over a camera: an automatic scene in
+progress would refuse an operator pressing Record, and the retention rule here
+(one clip per camera) would be deleting files out of a folder somebody else
+records into. Two instances each take their own frame subscription, so both can
+run at once and neither can stop the other's file. The "one recording per
+camera" rule the recorder enforces is about its own dictionary, and each
+instance has its own.
+
 | Trap | Handling |
 |---|---|
-| `Recorder.start()` raises `AlreadyRecording` if the operator is manually recording that camera | Catch it. The scene is still logged, with `clip: None` and reason "camera was already being recorded by an operator". Never a crash, never a stolen file. |
+| `Recorder.start()` raises `AlreadyRecording` | Catch it. The scene is still logged, with `clip: None` and reason "a recording was already running on this camera". With a dedicated recorder this can only mean an internal double-start, so the reason deliberately does **not** name an operator — blaming a person for it would be a guess printed as fact. Never a crash, never a stolen file. |
 | `MAX_SECONDS` is 600 (10 min); the spec wants 2 min | Do not change the module constant — the manual button legitimately wants 10 minutes. Stop the scene from the worker at 120 s. |
 | A dark camera produces no file at all | `state == "failed"` comes back with a reason; the scene stores that reason and the entry says the clip is unavailable. |
 | Recording writes to `clips_dir` | Zone clips go to `clips_dir/zones/` so the retention rule (one per camera) can be applied without touching operator recordings. |
@@ -232,3 +243,35 @@ test in this feature's commit.
 | mp4v clips may not play in every browser | Verify by eye on the dev laptop during the manual check; it is the format the existing recorder already produces, so this is a pre-existing condition, not new |
 | A busy camera rewrites its clip often, so a watched entry can be replaced mid-viewing | Acceptable at this scale and stated on the entry; the working-day retention target in Out of scope is the real fix |
 | Recording every scene on 208 cameras is real disk churn | Out of scope now; sizing happens at installation. The per-camera cap bounds it at cameras × 2 min |
+
+---
+
+## D11 — The toggle must not close a scene from the API thread
+
+**Found by the recorded-clip run, not by any test.** Switching a camera off
+destroyed the recording of the scene that was running: the entry read "clip no
+longer kept" seconds after it was made.
+
+`set_zone_enabled` runs on the API thread and called `ZonesWorker.set_restricted`,
+which closed the live scene. Meanwhile that camera's own worker thread was
+inside `analyse`, past the restricted check and part-way through a detection
+call. When it resumed, the scene it held had been popped, so it opened a
+**second** scene and started a second recording — and when that one saved, it
+replaced the first one's clip. The feature deleted the evidence of the very
+event it had just recorded.
+
+**Decision**: `set_restricted` is one assignment and nothing else. Each camera
+closes its own scene on its next frame, at the top of `analyse`, which already
+had that branch. `stop()` joins the threads before calling `close_all` for the
+same reason.
+
+**Why not a lock**: it would work, and it would be the third thing in this
+file that has to be reasoned about across threads. `FeatureWorker` gives each
+camera exactly one thread; keeping every mutation of a camera's scene on that
+thread means there is nothing to lock. A test asserts the file contains no
+`threading`, no `Lock(` and no `Thread(`, so the shortcut cannot be taken back.
+
+**Cost**: the scene closes on the next frame rather than that instant — under
+a second at 2 Hz, and the extra fraction of a second is in the clip, which is
+the harmless direction. The page is correct immediately either way: it reads
+the toggle from the database, not from the worker.
