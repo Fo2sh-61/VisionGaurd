@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { Badge, Card, DataNotice, PageHeader, Stats } from '@/components/ui';
+import { Badge, Card, DataNotice, Empty, LoadError, PageHeader, Stats } from '@/components/ui';
 import { getHistory } from '@/services/api';
 import type { PersonHistory as PersonHistoryData } from '@/types';
 import { useCapability } from '@/app/CapabilityContext';
+import { useAsync } from '@/app/useAsync';
 
 export function PersonHistory() {
   const capability = useCapability('attendance');
@@ -11,19 +11,47 @@ export function PersonHistory() {
   const navigate = useNavigate();
   const location = useLocation();
   const state = location.state as { from?: 'people' | 'group'; groupName?: string } | null;
-  const [history, setHistory] = useState<PersonHistoryData | null>(null);
+  const person = decodeURIComponent(name);
 
-  useEffect(() => {
-    void getHistory(decodeURIComponent(name)).then(setHistory);
-  }, [name]);
-
-  if (!history) return null;
+  const { data: history, error, loading, reload } = useAsync<PersonHistoryData | null>(
+    () => getHistory(person),
+    [person],
+    null,
+  );
 
   const backLabel = state?.from === 'group' ? `‹ ${state.groupName}` : '‹ People';
   const backTo =
     state?.from === 'group' && state.groupName
       ? `/people/groups/${encodeURIComponent(state.groupName)}`
       : '/people';
+
+  // Previously `if (!history) return null`, which meant a failed request drew
+  // an empty page with no way to tell whether this person has no history or
+  // the engine simply could not be reached. The back link matters most in
+  // exactly that case, so it is now always rendered.
+  if (!history) {
+    return (
+      <>
+        <div style={{ marginBottom: 4 }}>
+          <button type="button" className="linkbtn" onClick={() => navigate(backTo)}>
+            {backLabel}
+          </button>
+        </div>
+        <DataNotice capability={capability} />
+        <LoadError error={error} onRetry={reload} what={`${person}'s history`} />
+        <PageHeader title={person} lead="Attendance this term" />
+        <Card>
+          {loading ? (
+            <Empty>Loading attendance history…</Empty>
+          ) : error ? (
+            <Empty>No history is shown, because it could not be loaded.</Empty>
+          ) : (
+            <Empty>No attendance history for {person} yet.</Empty>
+          )}
+        </Card>
+      </>
+    );
+  }
 
   return (
     <>
@@ -33,6 +61,7 @@ export function PersonHistory() {
         </button>
       </div>
       <DataNotice capability={capability} />
+      <LoadError error={error} onRetry={reload} what={`${person}'s history`} />
       <PageHeader title={history.name} lead={`${history.sub} · attendance this term`} />
 
       <Card>

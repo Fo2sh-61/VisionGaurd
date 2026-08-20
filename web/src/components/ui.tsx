@@ -189,6 +189,60 @@ export function Empty({ children }: { children: ReactNode }) {
   return <div className="empty">{children}</div>;
 }
 
+/** The request failed. Say so, and offer the one useful action.
+ *
+ *  Renders nothing when `error` is null, so a page mounts it unconditionally
+ *  and cannot forget to — the same reason `DataNotice` works that way.
+ *
+ *  Red, unlike `DataNotice`'s amber, and the difference is the point. Amber
+ *  means "this feature is not built yet, stop waiting for it". Red means
+ *  "this should work and right now it does not", which is worth a retry and
+ *  possibly worth telling somebody about.
+ *
+ *  It sits above the data rather than replacing it. A refresh that fails
+ *  while an operator is reading a table should not blank the table: what is
+ *  on screen was true when it arrived, and removing it says less than
+ *  leaving it with a warning attached. */
+export function LoadError({
+  error,
+  onRetry,
+  what,
+}: {
+  error: string | null;
+  onRetry?: () => void;
+  /** What could not be loaded, e.g. "the register". Used in the sentence. */
+  what?: string;
+}) {
+  if (!error) return null;
+
+  return (
+    <div
+      role="alert"
+      style={{
+        display: 'flex', gap: 10, alignItems: 'baseline', flexWrap: 'wrap',
+        padding: '11px 14px', borderRadius: 10, marginBottom: 14,
+        background: 'var(--rd-bg)', color: 'var(--rd)',
+        fontSize: 13.5, lineHeight: 1.45,
+      }}
+    >
+      <span style={{ fontWeight: 700, whiteSpace: 'nowrap' }}>
+        {what ? `Could not load ${what}` : 'Could not load this'}
+      </span>
+      <span>{error}</span>
+      {onRetry && (
+        <button
+          type="button"
+          className="linkbtn"
+          onClick={onRetry}
+          style={{ color: 'inherit', fontWeight: 600, textDecoration: 'underline' }}
+        >
+          Try again
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function StatusDot({ tone, children }: { tone: Tone; children: ReactNode }) {
   const color = toneColors[tone].fg;
   return (

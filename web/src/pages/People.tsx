@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Badge, Card, DataNotice, PageHeader } from '@/components/ui';
+import { Badge, Card, DataNotice, Empty, LoadError, PageHeader } from '@/components/ui';
 import { getGroups, getPeople } from '@/services/api';
 import type { DirectoryPerson, GroupSummary, PersonType } from '@/types';
 import { useCapability } from '@/app/CapabilityContext';
+import { useAsync } from '@/app/useAsync';
 
 const TABS: { key: PersonType | 'All'; label: string }[] = [
   { key: 'All', label: 'All' },
@@ -12,25 +13,30 @@ const TABS: { key: PersonType | 'All'; label: string }[] = [
   { key: 'Visitor', label: 'Visitors' },
 ];
 
-const COUNTS: Record<PersonType | 'All', string> = {
-  All: '2,118 people',
-  Student: '1,742 students',
-  Staff: '168 staff',
-  Visitor: '12 visitors this week',
+/** What one tab calls the thing it is counting. Singular/plural is decided
+ *  against the real number, so "1 students" cannot happen. */
+const NOUN: Record<PersonType | 'All', [one: string, many: string]> = {
+  All: ['person', 'people'],
+  Student: ['student', 'students'],
+  Staff: ['staff member', 'staff'],
+  Visitor: ['visitor', 'visitors'],
 };
+
+const NO_PEOPLE: DirectoryPerson[] = [];
+const NO_GROUPS: GroupSummary[] = [];
 
 export function People() {
   const capability = useCapability('people');
   const navigate = useNavigate();
-  const [people, setPeople] = useState<DirectoryPerson[]>([]);
-  const [groups, setGroups] = useState<GroupSummary[]>([]);
   const [tab, setTab] = useState<PersonType | 'All'>('All');
   const [query, setQuery] = useState('');
 
-  useEffect(() => {
-    void getPeople().then(setPeople);
-    void getGroups().then(setGroups);
-  }, []);
+  const {
+    data: people, error: peopleError, loading: peopleLoading, reload: reloadPeople,
+  } = useAsync(() => getPeople(), [], NO_PEOPLE);
+  const {
+    data: groups, error: groupsError, loading: groupsLoading, reload: reloadGroups,
+  } = useAsync(() => getGroups(), [], NO_GROUPS);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -39,11 +45,23 @@ export function People() {
     );
   }, [people, tab, query]);
 
-  const heading = COUNTS[tab] + (query.trim() ? ` · matching “${query.trim()}”` : '');
+  // The heading used to come from a hard-coded table - "2,118 people",
+  // "1,742 students" - which the page printed whatever the engine returned,
+  // including when it returned nothing or failed outright. It is now counted
+  // from the rows actually on screen, and says nothing at all until they are
+  // there. A directory that invents its own size is exactly the fixture the
+  // constitution forbids.
+  const known = !peopleLoading && !peopleError;
+  const [one, many] = NOUN[tab];
+  const counted = filtered.length === 1 ? `1 ${one}` : `${filtered.length} ${many}`;
+  const heading = !known
+    ? peopleError ? 'People' : 'Counting…'
+    : counted + (query.trim() ? ` · matching “${query.trim()}”` : '');
 
   return (
     <>
       <DataNotice capability={capability} />
+      <LoadError error={peopleError} onRetry={reloadPeople} what="the people directory" />
       <PageHeader
         title="People"
         lead="Everyone in your school — students, staff and registered visitors. Records come from the school database; this console reads them."
@@ -129,10 +147,18 @@ export function People() {
           </div>
         ))}
 
-        {filtered.length === 0 && (
-          <div style={{ textAlign: 'center', padding: '30px 10px', color: 'var(--tx3)', fontSize: 13.5 }}>
-            Nobody matches that name.
-          </div>
+        {peopleLoading && <Empty>Loading the directory…</Empty>}
+        {peopleError && !peopleLoading && (
+          <Empty>Nobody is listed, because the directory could not be loaded.</Empty>
+        )}
+        {known && filtered.length === 0 && (
+          <Empty>
+            {query.trim()
+              ? 'Nobody matches that name.'
+              : people.length === 0
+                ? 'The directory is empty. Nobody has been added yet.'
+                : `No ${many} in the directory.`}
+          </Empty>
         )}
       </Card>
 
@@ -141,6 +167,11 @@ export function People() {
         <div style={{ fontSize: 13, color: 'var(--tx2)', margin: '2px 0 6px' }}>
           Open one to see who is in it. Attendance and counting can answer for any of these.
         </div>
+        <LoadError error={groupsError} onRetry={reloadGroups} what="the group list" />
+        {groupsLoading && <Empty>Loading groups…</Empty>}
+        {!groupsLoading && !groupsError && groups.length === 0 && (
+          <Empty>No groups have been set up yet.</Empty>
+        )}
         {groups.map((g) => (
           <button
             key={g.name}

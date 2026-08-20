@@ -1,28 +1,37 @@
-import { useEffect, useState } from 'react';
-import { Badge, Card, CardHeader, DataNotice, PageHeader } from '@/components/ui';
+import { Badge, Card, CardHeader, DataNotice, Empty, LoadError, PageHeader } from '@/components/ui';
 import { getUsers } from '@/services/api';
 import { CAPABILITIES } from '@/services/content';
 import type { User } from '@/types';
 import { useCapability } from '@/app/CapabilityContext';
+import { useAsync } from '@/app/useAsync';
+
+const NO_USERS: User[] = [];
 
 export function Users() {
   const capability = useCapability('users');
-  const [users, setUsers] = useState<User[]>([]);
+  const { data: users, error, loading, reload } = useAsync(() => getUsers(), [], NO_USERS);
 
-  useEffect(() => {
-    void getUsers().then(setUsers);
-  }, []);
+  // "0 people can sign in" is a claim, and we can only make it when the
+  // engine actually answered with none. While loading, or after a failure,
+  // the honest header is the one that counts nothing.
+  const counted = !loading && !error;
 
   return (
     <>
       <DataNotice capability={capability} />
+      <LoadError error={error} onRetry={reload} what="the account list" />
       <PageHeader title="Users" lead="Who can sign in, and what they are allowed to do." />
 
       <Card>
         <CardHeader
-          title={`${users.length} people can sign in`}
+          title={counted ? `${users.length} people can sign in` : 'Who can sign in'}
           sub="Only admins can add or change accounts."
         />
+
+        {loading && <Empty>Loading accounts…</Empty>}
+        {counted && users.length === 0 && (
+          <Empty>No accounts yet. An admin adds the first one.</Empty>
+        )}
 
         {users.map((user) => (
           <div
