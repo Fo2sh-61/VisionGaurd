@@ -133,20 +133,24 @@ instance has its own.
 | `Recorder.start()` raises `AlreadyRecording` | Catch it. The scene is still logged, with `clip: None` and reason "a recording was already running on this camera". With a dedicated recorder this can only mean an internal double-start, so the reason deliberately does **not** name an operator — blaming a person for it would be a guess printed as fact. Never a crash, never a stolen file. |
 | `MAX_SECONDS` is 600 (10 min); the spec wants 2 min | Do not change the module constant — the manual button legitimately wants 10 minutes. Stop the scene from the worker at 120 s. |
 | A dark camera produces no file at all | `state == "failed"` comes back with a reason; the scene stores that reason and the entry says the clip is unavailable. |
-| Recording writes to `clips_dir` | Zone clips go to `clips_dir/zones/` so the retention rule (one per camera) can be applied without touching operator recordings. |
+| Recording writes to `clips_dir` | Zone clips go to `clips_dir/zones/` so the retention rule (newest three per camera) can be applied without touching operator recordings. |
 
 **Actor string**: `"restricted-zones"`, not a person. The recorder logs who
 asked, and pretending an operator pressed record would be a lie in the log.
 
 ---
 
-## D5 — "One clip per camera" — when the old file is deleted
+## D5 — "Newest three clips per camera" — when an old file is deleted
 
-**Decision**: when a scene closes and its clip is saved, delete the previous
-scene's clip file **for that camera only**, then mark the old row
+**Decision**: when a scene closes and its clip is saved, each camera keeps
+its three newest saved clips; whatever that pushes past the cap has its file
+deleted, **for that camera only**, and the row marked
 `clip_state = 'replaced'`. Order matters: mark first, then unlink, so a crash
 between the two leaves a row that honestly says the clip is gone rather than a
 row pointing at a deleted file.
+
+*(Amended 2026-08-21: shipped as one clip per camera; the owner widened it
+to three the next day. The mechanism did not change, only the offset.)*
 
 **Rationale**: P4-FR-008 as answered by the owner (2026-08-20: per camera).
 Deleting on *close of the next scene* rather than on *open* means the previous
@@ -258,7 +262,7 @@ test in this feature's commit.
 
 | Risk | Mitigation |
 |---|---|
-| mp4v clips may not play in every browser | Verify by eye on the dev laptop during the manual check; it is the format the existing recorder already produces, so this is a pre-existing condition, not new |
+| ~~mp4v clips may not play in every browser~~ | **Happened, 2026-08-21**: the clip endpoint served real bytes and the player decoded nothing, because browsers do not decode MPEG-4 Part 2 at all. The recorder now asks for H.264 (`avc1`) first — OpenCV encodes it through the OS's Media Foundation on Windows — and falls back to mp4v only where no H.264 encoder exists, with a warning in the log. See `FOURCC_PREFERENCE` in `engine/vg/ingest/recorder.py`. |
 | A busy camera rewrites its clip often, so a watched entry can be replaced mid-viewing | Acceptable at this scale and stated on the entry; the working-day retention target in Out of scope is the real fix |
 | Recording every scene on 208 cameras is real disk churn | Out of scope now; sizing happens at installation. The per-camera cap bounds it at cameras × 2 min |
 

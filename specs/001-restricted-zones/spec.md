@@ -81,10 +81,11 @@ operator presses **Watch clip** on the log entry and sees what happened.
   clip.
 - **P4-FR-007**: A stopped recording MUST be saved and playable from its log
   entry via Watch clip.
-- **P4-FR-008**: To bound storage, only the most recent scene's clip is kept
-  **per camera** — a busy camera never replaces a quiet camera's clip. Log
-  entries for replaced clips MUST remain listed, with the Watch clip control
-  disabled and stating why.
+- **P4-FR-008**: To bound storage, only the three most recent scenes' clips
+  are kept **per camera** — a fourth replaces that camera's oldest, and a
+  busy camera never replaces a quiet camera's clip. Log entries for replaced
+  clips MUST remain listed, with the Watch clip control disabled and stating
+  why. *(Amended by the owner 2026-08-21; originally one clip per camera.)*
 - **P4-FR-009**: A recording MUST have a maximum length; if a person stays
   past it, the clip ends there and the log entry says it was cut at the limit.
 - **P4-FR-010**: A toggled-off camera MUST remain visible in the list, and
@@ -116,7 +117,7 @@ operator presses **Watch clip** on the log entry and sees what happened.
   the zone.
 - Schedules or restricted hours — a toggled camera is restricted around the
   clock until toggled off.
-- Keeping more than the most recent scene's clip per camera. (Interim rule:
+- Keeping more than the three most recent scenes' clips per camera. (Interim rule:
   the goal is to keep clips for roughly a working day, sized against the
   storage of the real deployment machine — decided at installation, not now.)
 - Notifications or alerts fanning out from a detection.

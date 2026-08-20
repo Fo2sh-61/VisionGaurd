@@ -593,7 +593,7 @@ def _start_zones(cfg, registry, roster, detector, cameras_store):
             # one behind the operator's record button. Sharing that one would
             # make the two features fight for the same camera: an automatic
             # scene in progress would refuse an operator pressing Record, and
-            # the retention rule here (one clip per camera) would be running
+            # the retention rule here (a few clips per camera) would be running
             # over a folder somebody else's files are in. Separate recorders
             # each get their own frame subscription, so both can run at once
             # and neither can stop the other's file.

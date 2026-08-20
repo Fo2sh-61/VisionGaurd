@@ -119,7 +119,7 @@ The template event feature. Built as `spec 001-restricted-zones`: `features/zone
 **Two deliberate gaps, both stated on screen:**
 
 - **No schedules.** A restricted camera is restricted around the clock until it is switched off. `Zone.schedule` is always `ALWAYS`.
-- **One clip per camera.** A new scene replaces the previous clip on *that camera only*; the older entry stays listed with its Watch clip control disabled and a reason. The real target — roughly a working day of clips, sized to the deployment machine — is an installation decision, not a code one.
+- **Three clips per camera** (owner decision 2026-08-21; shipped as one, widened the next day). A new scene pushes out *that camera's* oldest clip beyond three; the older entry stays listed with its Watch clip control disabled and a reason. The real target — roughly a working day of clips, sized to the deployment machine — is an installation decision, not a code one.
 
 **Done when:** ~~entering a zone in restricted hours gives a breach + clip within 5 s; in permitted hours, nothing; a paused zone stays visible and stops alerting.~~ Met, with "restricted hours" read as "restricted at all", per the settled no-schedules decision. A switched-off camera stays listed with its history.
 

@@ -93,9 +93,10 @@ Only these need a real webcam, per `AGENTS.md`:
   one second.
 - **Latency** — how long from stepping into view to the entry appearing.
   Should feel under 5 s.
-- **The clip plays** — mp4v in the browser. If it does not, that is a
-  pre-existing recorder format issue, not this feature; report it rather than
-  changing the recorder here.
+- **The clip plays** — H.264 in the browser. The recorder asks the OS for an
+  H.264 encoder first and falls back to mp4v only on a machine that has
+  none; mp4v does not decode in a browser, so if the player shows no
+  picture, look for the recorder's fallback warning in the engine log.
 - **No orange rectangle** anywhere on the page.
 
 ---
@@ -107,5 +108,5 @@ Only these need a real webcam, per `AGENTS.md`:
 - [ ] No fixture zone or breach reachable outside demo mode
 - [ ] `STATUS.md` updated: Restricted zones moves from **Fake** to **Real**
 - [ ] `docs/PLAN.md` P4 marked done, with what was and was not built
-      (no schedules, one clip per camera)
+      (no schedules, three clips per camera)
 - [ ] Committed with its tests in the same commit

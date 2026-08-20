@@ -249,7 +249,14 @@ class TestWhatTheConsoleIsTold:
             bare_live_store.recorder = recorder
             recorder.start(CAMERA, actor="mohamed")
             publish(bus, 6)
-            settle(1.2)
+            # Wait for the limit to have actually fired and the file to be
+            # closed, not a fixed nap: closing an H.264 file takes real time,
+            # and this test is about the *already stopped* path, which only
+            # exists once the recording has genuinely finished.
+            deadline = time.monotonic() + 10.0
+            while recorder.running() and time.monotonic() < deadline:
+                time.sleep(0.05)
+            assert not recorder.running(), "the limit never fired"
 
             result = bare_live_store.stop_recording(CAMERA, "mohamed")
 
@@ -308,3 +315,107 @@ class TestWhatTheConsoleIsTold:
 
         assert result.ok is False
         assert "not sending frames" in result.reason
+
+
+class TestTheFilePlaysInABrowser:
+    """The console plays clips in a <video> tag, and browsers cannot decode
+    MPEG-4 Part 2. A recording saved as mp4v looked perfectly healthy — real
+    file, real frames, plays in a desktop player — and rendered in the console
+    as a player with no picture. That is rule 4 through a codec: the button
+    said Watch clip and the watching never happened.
+
+    OpenCV's pip build ships no H.264 encoder (licensing), but on Windows it
+    encodes through the OS's own Media Foundation, so asking costs nothing:
+    a machine that can produce a browser-playable file does, and one that
+    cannot still gets mp4v — a real recording, watchable in a desktop player,
+    which beats no recording at all.
+    """
+
+    class _FakeWriter:
+        """Stands in for cv2.VideoWriter; records what codec was asked for."""
+
+        opened_for: set[int] = set()
+        asked: list[int] = []
+
+        def __init__(self, path, fourcc, fps, size) -> None:
+            type(self).asked.append(fourcc)
+            self._ok = fourcc in type(self).opened_for
+
+        def isOpened(self) -> bool:
+            return self._ok
+
+        def write(self, image) -> None:
+            pass
+
+        def release(self) -> None:
+            pass
+
+    @pytest.fixture
+    def fake_writer(self, monkeypatch):
+        fake = self._FakeWriter
+        fake.asked = []
+        fake.opened_for = set()
+        monkeypatch.setattr(cv2, "VideoWriter", fake)
+        return fake
+
+    def test_h264_is_asked_for_before_mp4v(self, bus, recorder, fake_writer):
+        from vg.ingest.recorder import FOURCC_PREFERENCE
+
+        assert FOURCC_PREFERENCE[0] == "avc1", (
+            "the browser-playable codec must be the first choice"
+        )
+        assert FOURCC_PREFERENCE[-1] == "mp4v", (
+            "and mp4v the last resort, so a recording always exists"
+        )
+
+        fake_writer.opened_for = {cv2.VideoWriter_fourcc(*"avc1")}
+        recorder.start(CAMERA, actor="mohamed")
+        publish(bus, 15)
+        settle()
+        recording = recorder.stop(CAMERA, actor="mohamed")
+
+        assert fake_writer.asked[0] == cv2.VideoWriter_fourcc(*"avc1")
+        assert recording.state == "saved"
+
+    def test_a_machine_without_h264_falls_back_to_mp4v(
+            self, bus, recorder, fake_writer):
+        # The writer refuses avc1; the recording must still happen rather
+        # than fail on a machine with a lean OS install.
+        fake_writer.opened_for = {cv2.VideoWriter_fourcc(*"mp4v")}
+        recorder.start(CAMERA, actor="mohamed")
+        publish(bus, 15)
+        settle()
+        recording = recorder.stop(CAMERA, actor="mohamed")
+
+        assert fake_writer.asked[:2] == [
+            cv2.VideoWriter_fourcc(*"avc1"),
+            cv2.VideoWriter_fourcc(*"mp4v"),
+        ], "tried in preference order"
+        assert recording.state == "saved"
+
+    def test_this_machine_writes_a_file_the_browser_can_decode(self, bus, recorder):
+        # End to end with the real writer. Skipped, not failed, on a machine
+        # with no H.264 encoder: that machine records honest mp4v and the
+        # console cannot play it, which the manual check has to catch.
+        probe_path = str(recorder.directory / "probe.mp4")
+        probe = cv2.VideoWriter(
+            probe_path, cv2.VideoWriter_fourcc(*"avc1"), 15.0, (320, 240))
+        can_encode = probe.isOpened()
+        probe.release()
+        Path(probe_path).unlink(missing_ok=True)
+        if not can_encode:
+            pytest.skip("no H.264 encoder on this machine")
+
+        recorder.start(CAMERA, actor="mohamed")
+        publish(bus, 20)
+        settle()
+        recording = recorder.stop(CAMERA, actor="mohamed")
+
+        assert recording.state == "saved"
+        capture = cv2.VideoCapture(str(recording.path))
+        raw = int(capture.get(cv2.CAP_PROP_FOURCC))
+        capture.release()
+        tag = "".join(chr((raw >> 8 * i) & 0xFF) for i in range(4)).lower()
+        assert tag in ("avc1", "h264"), (
+            f"the file is {tag!r} — a browser cannot decode that"
+        )

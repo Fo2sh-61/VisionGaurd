@@ -14,7 +14,7 @@
 | People counting | **Real for "Main entrance"** only (the laptop webcam). Over-counts — reads 4–6 for one person. Other areas are demo and labelled |
 | System health | **Real** — honest per-subsystem, including startup failure reasons |
 | Track a person | **Engine real, page part fake** — badge bug, clip save writes nothing |
-| Restricted zones | **Real** — any camera can be marked restricted; its whole frame is the zone. Scenes are logged and recorded, one clip kept per camera. No schedules |
+| Restricted zones | **Real** — any camera can be marked restricted; its whole frame is the zone. Scenes are logged and recorded, last three clips kept per camera. No schedules |
 | Weapons, lost items | **Fake** — models present, no worker, no tables. The pages now say so instead of showing an all-clear (P0-08) |
 | Users, audit, notifications | **Auth is real** (P2) — argon2 accounts, server-enforced roles, sessions revocable. Audit still lives in RAM |
 | Mobile app | **Fake** — entirely fixtures, including random numbers |

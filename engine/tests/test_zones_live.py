@@ -216,27 +216,46 @@ class TestStorage:
         assert store.restricted_ids() == {"cam-old"}
         store.close()
 
-    def test_new_clip_replaces_the_previous_one_for_that_camera_only(
-            self, scenes, tmp_path):
-        # P4-FR-008. A busy camera must never delete a quiet camera's clip.
-        a_old = tmp_path / "a-old.mp4"
-        a_new = tmp_path / "a-new.mp4"
-        b_clip = tmp_path / "b.mp4"
-        for path in (a_old, a_new, b_clip):
-            path.write_bytes(b"clip")
+    def test_a_camera_keeps_its_last_three_clips(self, scenes, tmp_path):
+        # P4-FR-008 as amended (owner, 2026-08-21): three per camera, not one.
+        from vg.events.zones import CLIPS_KEPT_PER_CAMERA
 
-        first = scenes.open("cam-a", START)
-        scenes.attach_clip(first, a_old)
+        assert CLIPS_KEPT_PER_CAMERA == 3
+
+        files, ids = [], []
+        for i in range(4):
+            path = tmp_path / f"a-{i}.mp4"
+            path.write_bytes(b"clip")
+            files.append(path)
+            scene_id = scenes.open("cam-a", START + timedelta(minutes=i))
+            scenes.attach_clip(scene_id, path)
+            ids.append(scene_id)
+
+        # The fourth clip pushes out the first and only the first.
+        states = [scenes.get(i).clip_state for i in ids]
+        assert states == ["replaced", "saved", "saved", "saved"]
+        assert [f.exists() for f in files] == [False, True, True, True]
+
+    def test_the_oldest_clip_goes_first_and_other_cameras_are_untouched(
+            self, scenes, tmp_path):
+        # A busy camera must never delete a quiet camera's clip.
+        b_clip = tmp_path / "b.mp4"
+        b_clip.write_bytes(b"clip")
         other = scenes.open("cam-b", START)
         scenes.attach_clip(other, b_clip)
 
-        second = scenes.open("cam-a", START + timedelta(minutes=5))
-        scenes.attach_clip(second, a_new)
+        ids = []
+        for i in range(5):
+            path = tmp_path / f"a-{i}.mp4"
+            path.write_bytes(b"clip")
+            scene_id = scenes.open("cam-a", START + timedelta(minutes=i))
+            scenes.attach_clip(scene_id, path)
+            ids.append(scene_id)
 
-        assert scenes.get(first).clip_state == "replaced"
-        assert not a_old.exists()
-        assert scenes.get(second).clip_state == "saved"
-        assert a_new.exists()
+        states = [scenes.get(i).clip_state for i in ids]
+        assert states == ["replaced", "replaced", "saved", "saved", "saved"], (
+            "oldest first, newest three kept"
+        )
         assert scenes.get(other).clip_state == "saved", "camera B is untouched"
         assert b_clip.exists()
 
@@ -248,10 +267,11 @@ class TestStorage:
         scenes.close(first, START + timedelta(seconds=12), "nobody")
         scenes.attach_clip(first, old)
 
-        new = tmp_path / "new.mp4"
-        new.write_bytes(b"clip")
-        second = scenes.open("cam-a", START + timedelta(minutes=1))
-        scenes.attach_clip(second, new)
+        for i in range(3):  # three newer clips push the first one out
+            path = tmp_path / f"new-{i}.mp4"
+            path.write_bytes(b"clip")
+            later = scenes.open("cam-a", START + timedelta(minutes=i + 1))
+            scenes.attach_clip(later, path)
 
         kept = scenes.get(first)
         assert kept.clip_state == "replaced"
@@ -266,13 +286,13 @@ class TestStorage:
         clip.write_bytes(b"clip")
         first = scenes.open("cam-a", START)
         scenes.attach_clip(first, clip)
-        for i in range(3):
+        for i in range(4):
             later = scenes.open("cam-a", START + timedelta(minutes=i + 1))
             path = tmp_path / f"later-{i}.mp4"
             path.write_bytes(b"clip")
             scenes.attach_clip(later, path)
 
-        assert len(scenes.recent(since_days=1, camera_id="cam-a")) == 4
+        assert len(scenes.recent(since_days=1, camera_id="cam-a")) == 5
         assert scenes.get(first) is not None
         assert not hasattr(scenes, "delete")
 
@@ -761,20 +781,21 @@ class TestBreachLog:
     def test_a_replaced_entry_has_no_clip_and_says_why(
             self, store_and_cameras, scenes, tmp_path):
         store, _ = store_and_cameras
-        old, new = tmp_path / "old.mp4", tmp_path / "new.mp4"
-        old.write_bytes(b"clip")
-        new.write_bytes(b"clip")
-
-        first = scenes.open("cam-a", datetime.now(timezone.utc))
-        scenes.attach_clip(first, old)
-        second = scenes.open("cam-a", datetime.now(timezone.utc))
-        scenes.attach_clip(second, new)
+        base = datetime.now(timezone.utc) - timedelta(minutes=10)
+        ids = []
+        for i in range(4):  # the fourth pushes the first out
+            path = tmp_path / f"clip-{i}.mp4"
+            path.write_bytes(b"clip")
+            scene_id = scenes.open("cam-a", base + timedelta(minutes=i))
+            scenes.attach_clip(scene_id, path)
+            ids.append(scene_id)
 
         entries = {b.id: b for b in store.breaches(1)}
-        assert entries[first].clip is None
-        assert entries[first].clip_state == "replaced"
-        assert "no longer kept" in entries[first].clip_reason
-        assert entries[second].clip is not None
+        assert entries[ids[0]].clip is None
+        assert entries[ids[0]].clip_state == "replaced"
+        assert "no longer kept" in entries[ids[0]].clip_reason
+        for kept in ids[1:]:
+            assert entries[kept].clip is not None
 
     def test_every_entry_without_a_clip_carries_a_reason(
             self, store_and_cameras, scenes):
@@ -938,21 +959,23 @@ class TestRecording:
         cut = [s for s in scenes.recent(since_days=1) if s.end_reason == "limit"][0]
         assert cut.clip_state == "saved"
 
-    def test_a_second_scene_replaces_the_first_clip_on_that_camera(
+    def test_a_fourth_scene_replaces_the_oldest_clip_on_that_camera(
             self, scenes, tmp_path):
         recorder = FakeRecorder(tmp_path / "zones")
         detector = FakeDetector()
         zw = worker(scenes, detector=detector, recorder=recorder,
                     restricted=("cam-a", "cam-b"))
-        walk(zw, detector, [(0.0, 1), (2.0, 0)])
+        for i in range(4):
+            walk(zw, detector, [(i * 10.0, 1), (i * 10.0 + 2.0, 0)])
         walk(zw, detector, [(0.0, 1), (2.0, 0)], camera_id="cam-b")
-        walk(zw, detector, [(10.0, 1), (12.0, 0)])
 
         by_camera = {}
         for scene in scenes.recent(since_days=1):
             by_camera.setdefault(scene.camera_id, []).append(scene)
 
-        assert [s.clip_state for s in by_camera["cam-a"]] == ["saved", "replaced"]
+        # recent() is newest first.
+        assert [s.clip_state for s in by_camera["cam-a"]] == [
+            "saved", "saved", "saved", "replaced"]
         assert [s.clip_state for s in by_camera["cam-b"]] == ["saved"], (
             "a busy camera must not delete a quiet camera's clip"
         )
@@ -1014,20 +1037,19 @@ class TestClipEndpoint:
         assert "no longer on disk" in response.json()["detail"]
 
     def test_replaced_clip_is_not_served(self, app, authed, scenes, clips_dir):
-        first_file = clips_dir / "a1.mp4"
-        second_file = clips_dir / "a2.mp4"
-        first_file.write_bytes(b"one")
-        second_file.write_bytes(b"two")
-
-        first = scenes.open("cam-a", datetime.now(timezone.utc))
-        scenes.attach_clip(first, first_file)
-        second = scenes.open("cam-a", datetime.now(timezone.utc))
-        scenes.attach_clip(second, second_file)
+        base = datetime.now(timezone.utc) - timedelta(minutes=10)
+        first = None
+        for i in range(4):  # the fourth pushes the first out
+            path = clips_dir / f"a{i}.mp4"
+            path.write_bytes(f"clip {i}".encode())
+            scene_id = scenes.open("cam-a", base + timedelta(minutes=i))
+            scenes.attach_clip(scene_id, path)
+            first = first or scene_id
 
         response = authed(app).get(f"/breaches/{first}/clip")
         assert response.status_code == 404
         assert "no longer kept" in response.json()["detail"]
-        assert response.content != b"two", "never somebody else's clip"
+        assert b"clip 3" not in response.content, "never somebody else's clip"
 
     def test_clip_endpoint_refuses_a_path_outside_the_clips_directory(
             self, app, authed, scenes, clips_dir, tmp_path):

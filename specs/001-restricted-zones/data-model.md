@@ -69,7 +69,7 @@ optionally per camera.
 ### `clip_state` transitions
 
 ```
-none ──start ok──> recording ──saved──> saved ──next scene saved──> replaced
+none ──start ok──> recording ──saved──> saved ──4th newer clip saved──> replaced
  │                     │
  │                     └──recorder failed──> failed
  └──recorder refused (already recording) ──> failed
@@ -83,7 +83,8 @@ file on disk goes away.
 1. `clip_state == 'saved'` ⟹ `clip_path` is set and the file exists.
 2. `clip_state != 'saved'` ⟹ the Watch clip control is disabled and
    `clip_reason` explains why.
-3. At most one row per `camera_id` has `clip_state == 'saved'`.
+3. At most `CLIPS_KEPT_PER_CAMERA` (3) rows per `camera_id` have
+   `clip_state == 'saved'`.
 4. At most one row per `camera_id` has `ended_at IS NULL`.
 5. A row is never deleted.
 
@@ -94,7 +95,7 @@ file on disk goes away.
 | `open(camera_id, started_at) -> str` | insert, return id |
 | `note_people(scene_id, count)` | raise `peak_people` if higher |
 | `close(scene_id, ended_at, end_reason)` | set the end |
-| `attach_clip(scene_id, path)` | `saved`, and mark that camera's previous `saved` row `replaced` + unlink its file |
+| `attach_clip(scene_id, path)` | `saved`, and mark that camera's `saved` rows beyond the newest three `replaced` + unlink their files |
 | `fail_clip(scene_id, reason)` | `failed` with the operator-readable reason |
 | `recent(since_days, camera_id=None) -> list[Scene]` | newest first |
 | `close_orphans(reason='shutdown')` | on start, close any row left open by a crash — so nothing shows as recording forever |
@@ -143,7 +144,7 @@ Left `None` for restricted-zone cameras, so no rectangle is drawn
 
 | Entity | Lives in | Survives restart |
 |---|---|---|
-| Restricted flag | `camera.restricted` | **yes** |
+| Restricted flag | `camera_restricted` | **yes** |
 | Scene | `zone_scene` | **yes** |
-| Clip file | `clips_dir/zones/` | **yes**, one per camera |
+| Clip file | `clips_dir/zones/` | **yes**, newest three per camera |
 | In-flight scene state | `ZonesWorker` memory | no — closed as `shutdown` on next start |

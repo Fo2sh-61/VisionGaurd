@@ -7,9 +7,10 @@ The worker in `features/zones.py` owns that rule; this file only stores it.
 
 Three decisions worth stating:
 
-**Rows are never deleted.** Only files are. When a camera records a new scene
-the previous clip is removed to bound the disk, but the row stays listed with
-`clip_state = 'replaced'` and says so. An operator who saw an entry yesterday
+**Rows are never deleted.** Only files are. Each camera keeps its newest few
+clips (`CLIPS_KEPT_PER_CAMERA`); a new one pushes the oldest past the cap and
+its file is removed, but the row stays listed with `clip_state = 'replaced'`
+and says so. An operator who saw an entry yesterday
 must never find it gone today — that is how a log stops being evidence.
 
 **Mark, then unlink.** `attach_clip` writes `replaced` before deleting the file
@@ -62,6 +63,13 @@ END_REASONS = ("nobody", "limit", "switched_off", "shutdown")
 
 #: What happened to the clip. `saved` is the only one with a playable file.
 CLIP_STATES = ("none", "recording", "saved", "replaced", "failed")
+
+#: How many saved clips each camera keeps. When a new one saves, whatever
+#: this leaves over is replaced, oldest first. Per camera, so a busy doorway
+#: never costs a quiet corridor its evidence. Owner decision 2026-08-21 (was
+#: one); the real target — roughly a working day of clips, sized to the
+#: deployment machine — stays an installation decision.
+CLIPS_KEPT_PER_CAMERA = 3
 
 #: What a replaced entry says. One sentence, in the operator's words, because
 #: it is rendered next to a disabled button and has to explain it on its own.
@@ -158,11 +166,13 @@ class SceneStore:
             self._conn.commit()
 
     def attach_clip(self, scene_id: str, path: Path | str) -> None:
-        """This scene has a saved file; the camera's previous one goes.
+        """This scene has a saved file; the camera's oldest beyond the cap goes.
 
-        The previous row is marked `replaced` **before** its file is unlinked.
-        A crash in between then leaves a row that says the clip is gone, which
-        is true, rather than one that offers a file that is not there.
+        Each camera keeps its `CLIPS_KEPT_PER_CAMERA` newest saved clips —
+        this one plus the two before it. Whatever that pushes past the cap is
+        marked `replaced` **before** its file is unlinked: a crash in between
+        then leaves a row that says the clip is gone, which is true, rather
+        than one that offers a file that is not there.
         """
         path = Path(path)
         with self._lock:
@@ -174,18 +184,22 @@ class SceneStore:
                 return
             camera_id = row["camera_id"]
 
+            # The other saved rows for this camera, newest first. The first
+            # (cap - 1) stay; this scene fills the last slot.
             superseded = self._conn.execute(
                 "SELECT id, clip_path FROM zone_scene "
-                "WHERE camera_id = ? AND clip_state = 'saved' AND id != ?",
-                (camera_id, scene_id),
+                "WHERE camera_id = ? AND clip_state = 'saved' AND id != ? "
+                "ORDER BY started_at DESC LIMIT -1 OFFSET ?",
+                (camera_id, scene_id, CLIPS_KEPT_PER_CAMERA - 1),
             ).fetchall()
 
-            self._conn.execute(
-                "UPDATE zone_scene SET clip_state = 'replaced', clip_path = NULL, "
-                "clip_reason = ? WHERE camera_id = ? AND clip_state = 'saved' "
-                "AND id != ?",
-                (REPLACED_REASON, camera_id, scene_id),
-            )
+            if superseded:
+                marks = ",".join("?" * len(superseded))
+                self._conn.execute(
+                    "UPDATE zone_scene SET clip_state = 'replaced', "
+                    f"clip_path = NULL, clip_reason = ? WHERE id IN ({marks})",
+                    (REPLACED_REASON, *[old["id"] for old in superseded]),
+                )
             self._conn.execute(
                 "UPDATE zone_scene SET clip_state = 'saved', clip_path = ?, "
                 "clip_reason = NULL WHERE id = ?",
