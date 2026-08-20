@@ -1478,9 +1478,12 @@ class LiveStore(MockStore):
                 reason=f"{self._camera_name(camera_id)} is not sending frames, "
                        f"so there is nothing to record.")
 
-        camera = self.config.camera(camera_id)
         try:
-            rec = self.recorder.start(camera_id, actor, fps=camera.fps)
+            # No frame rate is passed. `camera.fps` is the analytics rate -
+            # how often models run - and handing it to the recorder is what
+            # turned two seconds of webcam into twenty-five seconds of slow
+            # motion. The recorder measures what the camera actually delivers.
+            rec = self.recorder.start(camera_id, actor)
         except AlreadyRecording:
             current = self.recorder.current(camera_id)
             return S.RecordingResult(

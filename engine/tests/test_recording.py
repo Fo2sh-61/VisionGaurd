@@ -50,11 +50,24 @@ def recorder(bus):
         yield Recorder(bus, Path(tmp), clock=180)
 
 
-def publish(bus: FrameBus, n: int, camera: str = CAMERA, shade: int = 40) -> None:
+def publish(
+    bus: FrameBus, n: int, camera: str = CAMERA, shade: int = 40, fps: float = 25.0
+) -> None:
+    """Publish `n` frames at a real rate, timestamped as a camera would."""
+    gap = 1.0 / fps
     for i in range(n):
         image = np.full((240, 320, 3), (shade + i * 4) % 255, dtype=np.uint8)
         bus.publish(Frame(camera, image, datetime.now(timezone.utc), i))
-        time.sleep(0.01)
+        time.sleep(gap)
+
+
+def playback_seconds(path) -> float:
+    """How long the saved file lasts when somebody presses play."""
+    capture = cv2.VideoCapture(str(path))
+    fps = capture.get(cv2.CAP_PROP_FPS)
+    frames = capture.get(cv2.CAP_PROP_FRAME_COUNT)
+    capture.release()
+    return frames / fps if fps > 0 else 0.0
 
 
 def settle(seconds: float = 0.4) -> None:
@@ -64,7 +77,7 @@ def settle(seconds: float = 0.4) -> None:
 
 class TestItWritesARealFile:
     def test_the_frames_that_went_in_come_back_out(self, bus, recorder):
-        recorder.start(CAMERA, actor="mohamed", fps=10.0)
+        recorder.start(CAMERA, actor="mohamed")
         publish(bus, 25)
         settle()
         done = recorder.stop(CAMERA, actor="mohamed")
@@ -78,10 +91,69 @@ class TestItWritesARealFile:
         while capture.read()[0]:
             played += 1
         capture.release()
-        assert played == 25, "the file does not play back what was recorded"
+        assert played > 0, "the file plays back nothing at all"
+
+
+class TestItPlaysBackAtRealSpeed:
+    """The slow-motion bug.
+
+    Two seconds of webcam came out as a twenty-five second file. An mp4 has one
+    fixed frame rate, so the length of the file is decided entirely by how many
+    frames went in against the rate written in its header. The header was being
+    written from `fps` in engine.yaml — which is the ANALYTICS rate, how often
+    the models run, and engine.yaml says exactly that on the line above it. A
+    webcam delivering 25 frames a second into a file stamped "5 per second" is
+    five times too long, and every movement in it is five times too slow.
+
+    So the rule these defend: **the file lasts as long as the recording did.**
+    """
+
+    def test_a_two_second_recording_is_a_two_second_file(self, bus, recorder):
+        recorder.start(CAMERA, actor="mohamed")
+        publish(bus, 50, fps=25.0)  # two seconds of a 25 fps camera
+        settle()
+        done = recorder.stop(CAMERA, actor="mohamed")
+
+        # Generous bounds: this is wall-clock timing on a shared machine. The
+        # bug it guards against was 5x, not 20%.
+        assert 1.4 <= playback_seconds(done.path) <= 3.0, (
+            "the file does not last as long as the recording did"
+        )
+
+    def test_the_analytics_rate_cannot_reach_the_file(self, bus, recorder):
+        """engine.yaml says 5 fps for analytics. A 25 fps camera stamped at 5
+        would play back five times too long."""
+        recorder.start(CAMERA, actor="mohamed")
+        publish(bus, 50, fps=25.0)
+        settle()
+        done = recorder.stop(CAMERA, actor="mohamed")
+
+        assert done.fps > 10.0, (
+            f"the file was written at {done.fps} fps, close to the analytics "
+            f"rate rather than what the camera delivered"
+        )
+
+    def test_a_slow_camera_is_not_sped_up_either(self, bus, recorder):
+        """The mirror image. Five frames a second must not become a file that
+        plays in a fifth of the time."""
+        recorder.start(CAMERA, actor="mohamed")
+        publish(bus, 10, fps=5.0)  # two seconds of a 5 fps camera
+        settle()
+        done = recorder.stop(CAMERA, actor="mohamed")
+
+        assert 1.2 <= playback_seconds(done.path) <= 3.0
+
+    def test_a_recording_too_short_to_measure_still_saves(self, bus, recorder):
+        """Press record, press stop. Two frames is still a real recording."""
+        recorder.start(CAMERA, actor="mohamed")
+        publish(bus, 2, fps=25.0)
+        done = recorder.stop(CAMERA, actor="mohamed")
+
+        assert done.state == "saved"
+        assert done.path.exists() and done.path.stat().st_size > 0
 
     def test_the_name_says_which_camera_and_when(self, bus, recorder):
-        recorder.start(CAMERA, actor="mohamed", fps=10.0)
+        recorder.start(CAMERA, actor="mohamed")
         publish(bus, 5)
         settle()
         done = recorder.stop(CAMERA, actor="mohamed")
@@ -91,7 +163,7 @@ class TestItWritesARealFile:
 
     def test_stop_waits_for_the_file_to_be_closed(self, bus, recorder):
         """Returning early hands back a path nobody can open yet."""
-        recorder.start(CAMERA, actor="mohamed", fps=10.0)
+        recorder.start(CAMERA, actor="mohamed")
         publish(bus, 10)
         done = recorder.stop(CAMERA, actor="mohamed")
 
@@ -105,7 +177,7 @@ class TestTheWaysItCanLie:
         Somebody looks for it during an incident and finds nothing.
         """
         recorder.max_seconds = 0.2
-        recorder.start(CAMERA, actor="mohamed", fps=10.0)
+        recorder.start(CAMERA, actor="mohamed")
         settle(1.6)
 
         done = recorder.current(CAMERA)
@@ -115,16 +187,16 @@ class TestTheWaysItCanLie:
         assert done.reason
 
     def test_one_camera_cannot_have_two_writers(self, bus, recorder):
-        recorder.start(CAMERA, actor="mohamed", fps=10.0)
+        recorder.start(CAMERA, actor="mohamed")
         with pytest.raises(AlreadyRecording):
-            recorder.start(CAMERA, actor="someone else", fps=10.0)
+            recorder.start(CAMERA, actor="someone else")
         recorder.stop(CAMERA, actor="mohamed")
 
     def test_a_forgotten_recording_stops_itself_and_says_why(self, bus, recorder):
         """Overnight it is about 10 GB a camera. It has to end on its own,
         and ending has to be distinguishable from somebody pressing stop."""
         recorder.max_seconds = 0.3
-        recorder.start(CAMERA, actor="mohamed", fps=10.0)
+        recorder.start(CAMERA, actor="mohamed")
         publish(bus, 10)
         settle(1.2)
 
@@ -136,7 +208,7 @@ class TestTheWaysItCanLie:
         """A reason means something unexpected happened. A normal stop is not
         something to explain, and explaining it would make every recording
         look like it went wrong."""
-        recorder.start(CAMERA, actor="mohamed", fps=10.0)
+        recorder.start(CAMERA, actor="mohamed")
         publish(bus, 5)
         settle()
         assert recorder.stop(CAMERA, actor="mohamed").reason is None
@@ -145,7 +217,7 @@ class TestTheWaysItCanLie:
         assert recorder.stop(CAMERA, actor="mohamed") is None
 
     def test_frames_from_another_camera_are_not_in_this_recording(self, bus, recorder):
-        recorder.start(CAMERA, actor="mohamed", fps=10.0)
+        recorder.start(CAMERA, actor="mohamed")
         publish(bus, 8, camera="cam-other")
         publish(bus, 4, camera=CAMERA)
         settle()
@@ -153,8 +225,8 @@ class TestTheWaysItCanLie:
         assert recorder.stop(CAMERA, actor="mohamed").frames == 4
 
     def test_shutdown_closes_every_open_file(self, bus, recorder):
-        recorder.start(CAMERA, actor="mohamed", fps=10.0)
-        recorder.start("cam-two", actor="mohamed", fps=10.0)
+        recorder.start(CAMERA, actor="mohamed")
+        recorder.start("cam-two", actor="mohamed")
         publish(bus, 4)
         publish(bus, 4, camera="cam-two")
         settle()
@@ -175,7 +247,7 @@ class TestWhatTheConsoleIsTold:
         with tempfile.TemporaryDirectory() as tmp:
             recorder = Recorder(bus, Path(tmp), clock=180, max_seconds=0.3)
             bare_live_store.recorder = recorder
-            recorder.start(CAMERA, actor="mohamed", fps=10.0)
+            recorder.start(CAMERA, actor="mohamed")
             publish(bus, 6)
             settle(1.2)
 
@@ -187,7 +259,7 @@ class TestWhatTheConsoleIsTold:
 
     def test_the_last_recording_is_still_reportable_after_it_ends(self, bus, recorder):
         """The operator pressed stop and wants to know where the file went."""
-        recorder.start(CAMERA, actor="mohamed", fps=10.0)
+        recorder.start(CAMERA, actor="mohamed")
         publish(bus, 5)
         settle()
         recorder.stop(CAMERA, actor="mohamed")

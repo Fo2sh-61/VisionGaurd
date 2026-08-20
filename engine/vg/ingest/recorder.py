@@ -52,6 +52,24 @@ NO_FRAMES_SECONDS = 15.0
 #: mp4v is what OpenCV ships everywhere. H.264 needs a licensed build.
 FOURCC = "mp4v"
 
+#: How many frames to watch before deciding the camera's real rate. An mp4's
+#: frame rate is fixed when the file is created and cannot be changed
+#: afterwards, so it has to be measured first rather than assumed.
+MEASURE_FRAMES = 10
+MEASURE_SECONDS = 1.0
+
+#: Bounds on the measured rate. A camera cannot honestly be under 1 fps here,
+#: and above 60 the file gets large for no visible gain.
+MIN_FPS = 1.0
+MAX_FPS = 60.0
+
+#: Only used when a recording ends before its rate could be measured - one or
+#: two frames and then stop. Never a configured value: `fps` in engine.yaml is
+#: the ANALYTICS rate, how often models run, and using it as a video frame rate
+#: is what once turned two seconds of webcam into a twenty-five second file in
+#: slow motion.
+FALLBACK_FPS = 15.0
+
 
 @dataclass
 class Recording:
@@ -126,13 +144,17 @@ class Recorder:
 
     # -- doing --------------------------------------------------------------
 
-    def start(self, camera_id: str, actor: str, fps: float = 10.0) -> Recording:
+    def start(self, camera_id: str, actor: str) -> Recording:
         """Begin recording. Raises `AlreadyRecording` if one is already running.
 
         The caller gets the recording back straight away rather than waiting
         for the first frame — the operator pressed a button and needs the
         indicator to change now, and a camera that turns out to be dark reports
         that a moment later through the same object.
+
+        There is deliberately no `fps` argument. The only frame rate a caller
+        could pass is the one from engine.yaml, which is the analytics rate,
+        and passing it produced slow motion. The recorder measures instead.
         """
         with self._lock:
             if camera_id in self._jobs:
@@ -144,7 +166,9 @@ class Recorder:
                 camera_id=camera_id,
                 started_at=started,
                 started_by=actor,
-                fps=max(1.0, fps),
+                # Provisional. Replaced by the measured rate before the file
+                # is opened; only survives if the recording ends first.
+                fps=FALLBACK_FPS,
             )
             job = _Job(recording=recording)
             job.thread = threading.Thread(
@@ -194,6 +218,27 @@ class Recorder:
         recording = job.recording
         writer: cv2.VideoWriter | None = None
         subscription = self.bus.subscribe(recording.camera_id, maxsize=8)
+
+        # Frames held back while the rate is being measured. They are the
+        # opening seconds of the recording, which on an incident is the part
+        # that matters, so they are kept rather than discarded.
+        pending: list = []
+        first_at = None
+        written = 0
+
+        def begin() -> bool:
+            """Measure, open the file, and write what was held back."""
+            nonlocal writer, first_at, written
+            recording.fps = _measured_fps(pending)
+            writer = self._open(recording, pending[0])
+            if writer is None:
+                return False
+            first_at = pending[0].captured_at
+            for held in pending:
+                written = self._pace(writer, held, first_at, recording.fps, written)
+            pending.clear()
+            return True
+
         try:
             while not job.stop.is_set():
                 if recording.seconds >= self.max_seconds:
@@ -205,7 +250,8 @@ class Recorder:
 
                 frame = subscription.get(timeout=1.0)
                 if frame is None:
-                    if recording.frames == 0 and recording.seconds >= NO_FRAMES_SECONDS:
+                    if (recording.frames == 0 and not pending
+                            and recording.seconds >= NO_FRAMES_SECONDS):
                         recording.reason = (
                             "The camera sent no frames, so there was nothing "
                             "to record."
@@ -213,18 +259,31 @@ class Recorder:
                         break
                     continue
 
-                if writer is None:
-                    writer = self._open(recording, frame)
-                    if writer is None:
-                        return  # _open recorded the reason
-                writer.write(frame.image)
                 recording.frames += 1
+
+                if writer is None:
+                    pending.append(frame)
+                    if _enough_to_measure(pending) and not begin():
+                        return  # _open recorded the reason
+                    continue
+
+                written = self._pace(
+                    writer, frame, first_at, recording.fps, written)
         except Exception as exc:
             log.exception("recording %s failed", recording.id)
             recording.state = "failed"
             recording.reason = f"Recording failed: {exc}"
         finally:
             self.bus.unsubscribe(subscription)
+            # Stopped before the rate could be measured. Two frames still make
+            # a real recording and it must not be thrown away.
+            if writer is None and pending and recording.state == "recording":
+                try:
+                    begin()
+                except Exception as exc:  # noqa: BLE001 - reported, not raised
+                    log.exception("recording %s could not be written", recording.id)
+                    recording.state = "failed"
+                    recording.reason = f"Recording failed: {exc}"
             if writer is not None:
                 writer.release()
             recording.stopped_at = datetime.now(timezone.utc)
@@ -243,6 +302,29 @@ class Recorder:
                 if self._jobs.get(recording.camera_id) is job:
                     self._jobs.pop(recording.camera_id, None)
                     self._finished[recording.camera_id] = recording
+
+    @staticmethod
+    def _pace(writer, frame, first_at: datetime, fps: float, written: int) -> int:
+        """Write one frame into the slots its own timestamp says it occupies.
+
+        An mp4 has a single fixed frame rate, so a file's length is entirely
+        decided by how many frames went in: play back 60 frames in a file
+        stamped "5 per second" and you get twelve seconds of slow motion out of
+        two seconds of camera. That was the bug.
+
+        Pacing against `captured_at` makes the length of the file equal the
+        length of the recording no matter what the camera actually did - jitter,
+        a rate that changes, a stall in the middle. A gap becomes a held frame,
+        which is the truth: the camera really did show that image for that long.
+
+        Total frames stay bounded by the ten-minute limit, so a stalled camera
+        cannot inflate the file beyond a normal recording.
+        """
+        elapsed = (frame.captured_at - first_at).total_seconds()
+        target = int(max(0.0, elapsed) * fps) + 1
+        for _ in range(target - written):
+            writer.write(frame.image)
+        return max(written, target)
 
     def _open(self, recording: Recording, frame) -> cv2.VideoWriter | None:
         """Open the file once the first frame has told us its size."""
@@ -264,6 +346,30 @@ class Recorder:
 
         recording.path = path
         return writer
+
+
+def _enough_to_measure(pending: list) -> bool:
+    """Enough frames in hand to say what rate this camera really runs at."""
+    if len(pending) >= MEASURE_FRAMES:
+        return True
+    span = (pending[-1].captured_at - pending[0].captured_at).total_seconds()
+    return span >= MEASURE_SECONDS
+
+
+def _measured_fps(pending: list) -> float:
+    """The camera's real rate, from the frames it actually delivered.
+
+    Never a configured number. `fps` in engine.yaml is the analytics rate -
+    how often models run - and engine.yaml says so on the line above it. Using
+    it as a video frame rate is what produced a twenty-five second file from
+    two seconds of webcam.
+    """
+    if len(pending) < 2:
+        return FALLBACK_FPS
+    span = (pending[-1].captured_at - pending[0].captured_at).total_seconds()
+    if span <= 0:
+        return FALLBACK_FPS
+    return min(MAX_FPS, max(MIN_FPS, (len(pending) - 1) / span))
 
 
 class AlreadyRecording(RuntimeError):
