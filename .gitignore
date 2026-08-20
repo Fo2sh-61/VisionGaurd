@@ -63,3 +63,8 @@ models/knife detection/kaggle.json
 # 659 MB of training clips - tracked out of band, like the weights
 models/knife detection/knife_clips/
 models/knife detection/archive/
+
+# training clips of real people - never commit. Consent and retention for
+# footage of minors is an open question (docs/PLAN.md D1), and a repo is the
+# one place footage can never be withdrawn from.
+models/knife detection/*.mp4
