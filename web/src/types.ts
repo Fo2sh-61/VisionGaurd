@@ -221,6 +221,12 @@ export interface LostResult {
   sub: string;
   hits: LostHit[];
   cameras: Camera[];
+  /** Did the search actually run? The engine is careful to answer `failed`
+   *  rather than `done` with no hits, because "we searched and found nothing"
+   *  and "we never searched" are different answers and only one of them
+   *  should stop somebody looking for a child's missing bag. The front end
+   *  used to drop this field, collapsing the two back into one. */
+  searched: boolean;
 }
 
 /* ---------- track a person ---------- */
@@ -267,6 +273,10 @@ export interface PipelineItem {
   name: string;
   detail: string;
   status: string;
+  /** How the engine rated this stage. Carried through because the page used
+   *  to render every row green, so "Needs attention" arrived in a healthy
+   *  badge - the engine did the honest work and the UI discarded it. */
+  tone: Tone;
   action?: string;
 }
 

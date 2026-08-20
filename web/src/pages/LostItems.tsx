@@ -19,14 +19,14 @@
 import { useCallback, useState } from 'react';
 import { useAutoRun } from '@/app/useAutoRun';
 import { CamGrid } from '@/components/CamGrid';
-import { Card, DataNotice, Field, PageHeader, Select } from '@/components/ui';
+import { Card, DataNotice, Empty, Field, LoadError, PageHeader, Select } from '@/components/ui';
 import { searchLostItem } from '@/services/api';
 import { LOST_SINCE } from '@/services/content';
 import { useSite } from '@/app/SiteContext';
 import type { LostResult } from '@/types';
 import { useCapability } from '@/app/CapabilityContext';
 
-type Phase = 'idle' | 'searching' | 'done';
+type Phase = 'idle' | 'searching' | 'done' | 'failed';
 
 const BAGS = ['Backpack', 'Sports bag', 'Handbag', 'Laptop bag'];
 
@@ -67,6 +67,7 @@ export function LostItems() {
   const [phase, setPhase] = useState<Phase>('idle');
   const [result, setResult] = useState<LostResult | null>(null);
   const [found, setFound] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   /** Any change to the query invalidates the answer on screen.
    *
@@ -78,6 +79,7 @@ export function LostItems() {
       setPhase('idle');
       setResult(null);
       setFound(null);
+      setError(null);
     };
   }
 
@@ -85,9 +87,20 @@ export function LostItems() {
     setPhase('searching');
     setResult(null);
     setFound(null);
-    const hits = await searchLostItem({ item: bag, colour, area: selectedArea, since });
-    setResult(hits);
-    setPhase('done');
+    setError(null);
+    try {
+      const hits = await searchLostItem({ item: bag, colour, area: selectedArea, since });
+      setResult(hits);
+      setPhase('done');
+    } catch (caught) {
+      // Without this the throw escaped, `setPhase('done')` never ran, and the
+      // page sat on "Searching…" indefinitely. Somebody looking for a child's
+      // missing bag would have waited at a spinner that was never going to
+      // finish. "We could not search" and "we searched and found nothing" are
+      // different answers and only one of them should stop them looking.
+      setError(caught instanceof Error ? caught.message : 'The search could not be run.');
+      setPhase('failed');
+    }
   }, [bag, colour, selectedArea, since]);
 
   useAutoRun(run);
@@ -187,6 +200,16 @@ export function LostItems() {
         </Card>
       )}
 
+      {phase === 'failed' && (
+        <Card>
+          <LoadError error={error} onRetry={() => void run()} what="the footage search" />
+          <Empty>
+            Nothing was searched, so nothing here rules anything out. The bag may still be
+            findable — try again, or ask someone to check the area.
+          </Empty>
+        </Card>
+      )}
+
       {phase === 'searching' && (
         <Card>
           <div style={{ fontWeight: 700, fontSize: 17 }}>Searching footage…</div>
@@ -237,6 +260,14 @@ export function LostItems() {
                 Start a new search
               </button>
             </div>
+
+            {result.hits.length === 0 && (
+              <Empty>
+                {result.searched
+                  ? 'Searched, and nothing matching turned up. That is a real answer: the bag was not seen on these cameras in this period.'
+                  : 'The footage was never searched, so this rules nothing out.'}
+              </Empty>
+            )}
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {result.hits.map((hit, i) => {

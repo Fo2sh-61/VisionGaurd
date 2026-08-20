@@ -1,40 +1,57 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { CamGrid } from '@/components/CamGrid';
 import { RecordButton } from '@/components/RecordButton';
-import { Badge, Card, DataNotice, Field, PageHeader, Select } from '@/components/ui';
+import { Badge, Card, DataNotice, Empty, Field, LoadError, PageHeader, Select } from '@/components/ui';
 import { getWeaponCameras, getWeaponDetections } from '@/services/api';
 import { WEAPON_STEPS } from '@/services/content';
 import { useSite } from '@/app/SiteContext';
 import type { Camera, WeaponDetection, WeaponState, WeaponWindow } from '@/types';
 import { useCapability } from '@/app/CapabilityContext';
+import { useAsync } from '@/app/useAsync';
 
 const WINDOWS: WeaponWindow[] = ['Last 30 days', 'Last 90 days', 'This school year'];
+
+const NO_DETECTIONS: WeaponDetection[] = [];
+const NO_CAMERAS: Camera[] = [];
 
 export function Weapons() {
   const capability = useCapability('weapons');
   const [when, setWhen] = useState<WeaponWindow>('Last 90 days');
-  const [detections, setDetections] = useState<WeaponDetection[]>([]);
   const [state, setState] = useState<WeaponState>('clear');
-  const [cameras, setCameras] = useState<Camera[]>([]);
   const cameraTotal = useSite().site?.camerasTotal ?? 0;
 
-  useEffect(() => {
-    void getWeaponCameras().then(setCameras);
-  }, []);
+  const { data: cameras } = useAsync(() => getWeaponCameras(), [], NO_CAMERAS);
+  const {
+    data: detections, error, loading, reload,
+  } = useAsync(() => getWeaponDetections(when), [when], NO_DETECTIONS);
 
-  useEffect(() => {
-    void getWeaponDetections(when).then(setDetections);
-  }, [when]);
+  // Nothing on this page may claim the campus is clear unless the detector is
+  // actually running. It used to render a green tick reading "No knife
+  // detected on campus - monitoring all N cameras - last check 2 seconds ago"
+  // from a `useState('clear')` that nothing ever changed, while the weapons
+  // worker did not exist. That is the most dangerous sentence in the console:
+  // it is a safety assurance produced by no measurement at all.
+  //
+  // The review workflow below it is driven by the same unchanging state, so it
+  // is gated on the same condition rather than left to contradict the notice
+  // sitting directly above it.
+  const watching = capability?.state === 'live';
+  // Only claim a number when the engine actually answered with one.
+  const counted = !loading && !error;
 
   return (
     <>
       <DataNotice capability={capability} />
       <PageHeader
         title="Knife detection"
-        lead={`Looks for knife-shaped objects on all ${cameraTotal} cameras. Every detection is reviewed by a person before anything happens.`}
+        lead={
+          watching
+            ? `Looks for knife-shaped objects on all ${cameraTotal} cameras. Every detection is reviewed by a person before anything happens.`
+            : 'Looks for knife-shaped objects and sends every detection to a person for review. Not running at the moment, so nothing is being watched.'
+        }
       />
 
-      {state === 'clear' && (
+      {watching && state === 'clear' && (
         <Card tight className="weapons-status">
           <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
             <div
@@ -56,7 +73,7 @@ export function Weapons() {
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 600, fontSize: 15.5 }}>No knife detected on campus</div>
               <div style={{ fontSize: 13.5, color: 'var(--tx2)' }}>
-                Monitoring all {cameraTotal} cameras · last check 2 seconds ago
+                Monitoring all {cameraTotal} cameras
               </div>
             </div>
             <button
@@ -71,7 +88,7 @@ export function Weapons() {
         </Card>
       )}
 
-      {state === 'live' && (
+      {watching && state === 'live' && (
         <div
           className="card"
           style={{ border: '2px solid var(--rd)', padding: 24 }}
@@ -144,7 +161,7 @@ export function Weapons() {
         </div>
       )}
 
-      {state === 'confirmed' && (
+      {watching && state === 'confirmed' && (
         <Card>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
             <span
@@ -229,7 +246,7 @@ export function Weapons() {
         </Card>
       )}
 
-      {state === 'dismissed' && (
+      {watching && state === 'dismissed' && (
         <Card tight>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
             <div
@@ -280,17 +297,32 @@ export function Weapons() {
         >
           <div>
             <div style={{ fontWeight: 700, fontSize: 19, letterSpacing: '-.01em' }}>
-              {detections.length} {detections.length === 1 ? 'detection' : 'detections'} ·{' '}
-              {when.toLowerCase()}
+              {counted
+                ? `${detections.length} ${detections.length === 1 ? 'detection' : 'detections'} · ${when.toLowerCase()}`
+                : `Detections · ${when.toLowerCase()}`}
             </div>
             <div style={{ fontSize: 13.5, color: 'var(--tx2)', marginTop: 2 }}>
-              False alarms are shown honestly — most detections turn out to be harmless.
+              {counted
+                ? 'False alarms are shown honestly — most detections turn out to be harmless.'
+                : error
+                  ? 'Not counted — the history could not be loaded.'
+                  : 'Counting…'}
             </div>
           </div>
           <Field label="Period">
             <Select value={when} onChange={(v) => setWhen(v as WeaponWindow)} options={WINDOWS} />
           </Field>
         </div>
+
+        <LoadError error={error} onRetry={reload} what="the detection history" />
+        {loading && <Empty>Loading detection history…</Empty>}
+        {counted && detections.length === 0 && (
+          <Empty>
+            {watching
+              ? `No detections ${when.toLowerCase()}.`
+              : 'No detections recorded. Knife detection has not been running.'}
+          </Empty>
+        )}
 
         {detections.map((d) => (
           <div key={d.id} className="row" style={{ gridTemplateColumns: '1.1fr 1.1fr 1fr 1.4fr .7fr' }}>

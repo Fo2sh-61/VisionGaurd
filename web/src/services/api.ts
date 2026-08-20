@@ -399,6 +399,7 @@ export async function searchLostItem(query: LostQuery): Promise<LostResult> {
     label,
     sub: `Searching for a ${label} · ${(query.area ?? '').toLowerCase()} · ${(query.since ?? '').toLowerCase()}`,
     hits,
+    searched: result.job.state === 'done',
     cameras: result.cameras.map((c, i) =>
       toCamera(c, result.hits[i] ? `${Math.round(result.hits[i].confidence * 100)}% match · ${formatTime(result.hits[i].at)}` : undefined),
     ),
@@ -504,6 +505,10 @@ export async function getSystemHealth(): Promise<SystemHealth> {
       name: p.name,
       detail: p.detail,
       status: p.healthy ? 'Healthy' : 'Needs attention',
+      // A stage the engine calls unhealthy must not be drawn green. The
+      // severity says how bad; `healthy` alone would flatten warn and bad
+      // into one colour.
+      tone: p.healthy ? ('good' as const) : severityToTone(p.severity),
       action: p.restartable ? 'Restart' : undefined,
     })),
     cameras: toCameras(health.cameras),

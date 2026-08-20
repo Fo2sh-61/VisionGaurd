@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTheme } from '@/app/ThemeContext';
-import { Card, PageHeader, Toggle } from '@/components/ui';
+import { Card, Empty, LoadError, PageHeader, Toggle } from '@/components/ui';
 import { getAlertRules, getDeliveryTargets, getSchoolProfile, getZones } from '@/services/api';
 import type { AlertChannel, AlertRule, DeliveryTarget, SchoolProfile, Zone } from '@/types';
 
@@ -60,7 +60,17 @@ export function Settings() {
   const [delivEdit, setDelivEdit] = useState<string | null>(null);
   const [zones, setZones] = useState<Zone[]>([]);
 
+  // Four independent reads. One failing must not blank the other three, so
+  // each keeps its own reason and the page renders whatever did arrive.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
+  const note = (what: string) => (error: unknown) =>
+    setLoadError(
+      `${what} could not be loaded: ${error instanceof Error ? error.message : 'the engine did not answer'}`,
+    );
+
   useEffect(() => {
+    setLoadError(null);
     void getSchoolProfile().then((p) =>
       setProfile({
         name: p.name,
@@ -70,7 +80,7 @@ export function Settings() {
         termTo: p.termTo,
         cutoff: p.lateCutoff,
       }),
-    );
+    ).catch(note('The school profile'));
 
     // The engine sends one boolean per channel; the UI groups them.
     void getAlertRules().then((rules) =>
@@ -82,7 +92,7 @@ export function Settings() {
           channels: { Push: r.push, Email: r.email, SMS: r.sms },
         })),
       ),
-    );
+    ).catch(note('Alert rules'));
 
     void getDeliveryTargets().then((targets) =>
       setDeliveries(
@@ -95,12 +105,12 @@ export function Settings() {
           ...DELIVERY_META[t.key],
         })),
       ),
-    );
+    ).catch(note('Delivery targets'));
 
     // Zones are managed on the Intrusion page; this is a read-only summary, so
     // both pages agree on the count.
-    void getZones().then(setZones);
-  }, []);
+    void getZones().then(setZones).catch(note('The zone summary'));
+  }, [tick]);
 
   const [quiet, setQuiet] = useState(true);
   const [quietFrom, setQuietFrom] = useState('15:30');
@@ -110,9 +120,13 @@ export function Settings() {
   const [lang, setLang] = useState<'en' | 'ar'>('en');
 
   const zonesPaused = zones.filter((z) => !z.enabled).length;
-  const zoneSummary = `${zones.length} protected areas · ${
-    zonesPaused ? `${zonesPaused} paused` : 'all active'
-  } — managed on the Intrusion page, so there is one source of truth`;
+  // "0 protected areas · all active" is a reassuring sentence to print when
+  // the request simply failed, so it is only printed when zones arrived.
+  const zoneSummary = zones.length === 0 && loadError
+    ? 'Zone summary unavailable — managed on the Intrusion page'
+    : `${zones.length} protected areas · ${
+        zonesPaused ? `${zonesPaused} paused` : 'all active'
+      } — managed on the Intrusion page, so there is one source of truth`;
 
   function toggleChannel(key: string, ch: AlertChannel) {
     setAlerts((current) =>
@@ -151,6 +165,7 @@ export function Settings() {
 
   return (
     <>
+      <LoadError error={loadError} onRetry={() => setTick((n) => n + 1)} />
       <PageHeader title="Settings" lead="Your school, your alerts, and how the console looks." />
 
       <Card>
@@ -242,6 +257,11 @@ export function Settings() {
           Pick how each alert reaches you.
         </div>
 
+        {alerts.length === 0 && (
+          <Empty>
+            {loadError ? 'Alert rules could not be loaded.' : 'No alert rules are set up yet.'}
+          </Empty>
+        )}
         {alerts.map((rule) => (
           <div
             key={rule.key}
@@ -320,6 +340,13 @@ export function Settings() {
           Switch each channel on or off, and change where it points. Edits save on their own.
         </div>
 
+        {deliveries.length === 0 && (
+          <Empty>
+            {loadError
+              ? 'Delivery targets could not be loaded.'
+              : 'No delivery targets yet, so alerts have nowhere to go.'}
+          </Empty>
+        )}
         {deliveries.map((d) => (
           <div
             key={d.key}
