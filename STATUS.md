@@ -1,6 +1,6 @@
 # VisionGuard — Status
 
-**Updated:** 20 Aug 2026 · **Commit:** `d6ce423` · Plan: `docs/PLAN.md` · Rules: `.specify/memory/constitution.md`
+**Updated:** 20 Aug 2026 · **Commit:** `d12b0f7` · Plan: `docs/PLAN.md` · Rules: `.specify/memory/constitution.md`
 
 ## Feature state
 
@@ -15,14 +15,14 @@
 | System health | **Real** — honest per-subsystem, including startup failure reasons |
 | Track a person | **Engine real, page part fake** — badge bug, clip save writes nothing |
 | Restricted zones | **Fake** — occupancy computed every frame, then thrown away |
-| Weapons, lost items | **Fake** — models present, no worker, no tables |
+| Weapons, lost items | **Fake** — models present, no worker, no tables. The pages now say so instead of showing an all-clear (P0-08) |
 | Users, audit, notifications | **Fake** — no auth of any kind; audit lives in RAM |
 | Mobile app | **Fake** — entirely fixtures, including random numbers |
-| Fights | **Removed from scope** — no model; remnants still in code (P0-05 removes them) |
+| Fights | **Removed from scope** — no model. Page, endpoints and mock methods all gone (P0-05) |
 
 ## P0 progress
 
-Nine of ten done. Each shipped with its regression test.
+**All ten done.** Each shipped with its regression test.
 
 | | | |
 |---|---|---|
@@ -33,15 +33,17 @@ Nine of ten done. Each shipped with its regression test.
 | P0-05 | fights removed | done |
 | P0-06 | SQLite WAL + busy-timeout | done |
 | P0-07 | dead buttons | done |
-| P0-08 | error / empty / degraded states on every page | **not started** |
+| P0-08 | error / empty / degraded states on every page | done |
 | P0-09 | person history + groups wired | done |
 | P0-10 | CI: the four gates | done |
 
 ## Next 3 things
 
-1. **P0-08** — the last P0. Error, empty and degraded states on every page
-2. **Add a git remote** — the CI workflow is committed but nothing runs it yet
-3. **P1-01** — one detection pass per camera per tick (F2: the detector runs twice per frame today)
+P0 is complete. Next is P1.
+
+1. **P1-01** — one detection pass per camera per tick (F2: the detector runs twice per frame today)
+2. **P1-03** — remove the private `_tracked_boxes` reach-in from `app.py:1085`
+3. **P1-04** — latency, queue and drop metrics on System Health
 
 ## Blocked on the owner
 
@@ -66,11 +68,11 @@ Tests: `.\dev.ps1 test` runs all four gates — pyflakes, pytest, smoke start, t
 
 No `.venv` yet — deliberately blocked on the re-ID handover. System Python 3.14 works: torch 2.11.0+cu128, CUDA true on an RTX 2080.
 
-**Gates verified 20 Aug 2026, all four green:** 375 passed, 6 skipped (46s) · pyflakes clean over `vg`, `tools` and `tests` · smoke start exit 0 · tsc clean.
+**Gates verified 20 Aug 2026, all four green:** 421 passed, 6 skipped (43s) · pyflakes clean over `vg`, `tools` and `tests` · smoke start exit 0 · tsc clean.
 
 Also verified on a **fresh clone with no `engine/data/` and no model weights** — the condition CI runs in: 374 passed, 7 skipped. The extra skip is the model-weights check, which has nothing to check on a machine that has no weights.
 
-`.github/workflows/ci.yml` is committed but **has never run** — the repository has no git remote. Adding one is what turns it on.
+`.github/workflows/ci.yml` is committed and the repo now has a remote (`Fo2sh-61/VisionGaurd`, private), so it runs on push. **It has not been observed passing yet** — nobody has checked the first run.
 
 ## Housekeeping
 
