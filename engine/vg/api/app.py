@@ -223,6 +223,7 @@ async def lifespan(app: FastAPI):
             tracking=tracking,
             counts=counts_store,
             recorder=app.state.recorder,
+            users=app.state.users,
         )
         store.recognition_error = app.state.recognition_error
         store.people_error = app.state.people_error

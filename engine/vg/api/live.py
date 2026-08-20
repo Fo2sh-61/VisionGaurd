@@ -65,8 +65,12 @@ class LiveStore(MockStore):
         tracking=None,
         counts=None,
         recorder=None,
+        users=None,
     ) -> None:
         super().__init__()
+        # Accounts. Real since P2, so the Users page stops saying the feature
+        # does not exist while people are signing in with it.
+        self.users_store = users
         self.config = config
         self.registry = registry
         self.gallery = gallery
@@ -715,10 +719,23 @@ class LiveStore(MockStore):
         return None
 
     def users(self) -> list[S.User]:
-        # There is no auth at all yet. Inventing an accounts table implies
-        # access control that is not there, which is the most dangerous
-        # fixture in the set.
-        return []
+        """The real accounts, from the auth database.
+
+        This used to return nothing with a note saying there was no auth at
+        all. There is now (P2), so returning nothing would be the opposite
+        lie: an operator would read "no accounts" on a console they had just
+        signed in to.
+
+        No password hash and no session token cross this boundary. The page
+        shows who can sign in, not how.
+        """
+        if self.users_store is None:
+            return []
+        return [
+            S.User(id=u.id, name=u.name, email=u.email, role=u.role)
+            for u in self.users_store.users()
+            if not u.disabled
+        ]
 
     def audit(self, limit: int) -> list[S.AuditEntry]:
         # Real entries, from this process. They are lost on restart and
@@ -808,9 +825,9 @@ class LiveStore(MockStore):
             "search_lost": (S.DataState.UNAVAILABLE,
                             "Lost item search is not built yet. No footage is "
                             "being searched."),
-            "users": (S.DataState.UNAVAILABLE,
-                      "There are no accounts yet. Everyone using this console "
-                      "has full access."),
+            "users": live(
+                self.users_store is not None,
+                "The accounts database is not loaded, so nobody can sign in."),
             "audit": (S.DataState.UNAVAILABLE,
                       "The audit trail is kept in memory only and is lost when "
                       "the engine restarts."),
