@@ -254,15 +254,23 @@ class SceneStore:
             rows = self._conn.execute(query, params).fetchall()
         return [_to_scene(r) for r in rows]
 
-    def count_since(self, since: datetime, camera_id: str) -> int:
-        """Scenes on one camera since an instant — the page's "today" number."""
+    def counts_since(self, since: datetime) -> dict[str, int]:
+        """Scenes per camera since an instant — the page's "today" numbers.
+
+        One query for the whole roster rather than one per camera. The camera
+        list is polled continuously and a site has 208 of them; asking 208
+        times for a number the index can group in one pass is how a cheap page
+        becomes an expensive one.
+
+        Cameras with no scenes are absent, so callers default to 0.
+        """
         with self._lock:
-            row = self._conn.execute(
-                "SELECT COUNT(*) AS n FROM zone_scene "
-                "WHERE camera_id = ? AND started_at >= ?",
-                (camera_id, _iso(since)),
-            ).fetchone()
-        return int(row["n"])
+            rows = self._conn.execute(
+                "SELECT camera_id, COUNT(*) AS n FROM zone_scene "
+                "WHERE started_at >= ? GROUP BY camera_id",
+                (_iso(since),),
+            ).fetchall()
+        return {row["camera_id"]: int(row["n"]) for row in rows}
 
     def close_db(self) -> None:
         with self._lock:

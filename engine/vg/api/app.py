@@ -22,7 +22,7 @@ from typing import Annotated
 
 from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 
 from vg import config as vgconfig
 from vg.auth import deps as auth_deps
@@ -1085,6 +1085,25 @@ def _mount(app: FastAPI) -> None:
         window: Annotated[str, Query(description="Today | Last 7 days | Last 30 days")] = "Today",
     ) -> list[S.Breach]:
         return store.breaches(window_days(window))
+
+    @app.get("/breaches/{breach_id}/clip", tags=["intrusion"])
+    async def get_breach_clip(breach_id: str, store: StoreDep):
+        """Play the clip recorded for one detection.
+
+        Same-origin on purpose: a `<video src>` cannot send an Authorization
+        header, so the browser reaches this through the dev proxy exactly the
+        way it reaches the camera streams. An absolute engine URL here would
+        play for nobody.
+
+        Everything that can go wrong is a 404 carrying the reason in words —
+        replaced, failed, never recorded, or a file that is no longer on disk.
+        None of them is a 500: the row is data, and a wrong one must not become
+        a stack trace or a way to read the disk.
+        """
+        path, reason = store.clip_for_breach(breach_id)
+        if path is None:
+            raise HTTPException(404, reason)
+        return FileResponse(path, media_type="video/mp4")
 
     @app.get("/intrusion/cameras", response_model=list[S.CameraView], tags=["intrusion"])
     async def get_intrusion_cameras(store: StoreDep) -> list[S.CameraView]:

@@ -144,22 +144,22 @@ P4-FR-007, 008.
 
 ### Tests for User Story 3 ⚠️ write first, watch them fail
 
-- [ ] T038 [P] [US3] `test_scene_start_starts_a_recording` in `engine/tests/test_zones_live.py` — against a fake recorder, so no video is written in tests
-- [ ] T039 [P] [US3] `test_recorder_failure_logs_the_scene_without_a_clip` in `engine/tests/test_zones_live.py` — `clip_state = "failed"`, a reason, and **no** `clip` on the wire (rule 4: never a fake save)
-- [ ] T040 [P] [US3] `test_already_recording_does_not_steal_the_operators_recording` in `engine/tests/test_zones_live.py` — `AlreadyRecording` is caught, the scene is still logged with a reason
-- [ ] T041 [P] [US3] `test_clip_endpoint_serves_a_saved_clip` in `engine/tests/test_zones_live.py` — 200 and `video/mp4`
-- [ ] T042 [P] [US3] `test_clip_endpoint_404s_when_the_file_is_missing` in `engine/tests/test_zones_live.py` — a row claiming saved with no file on disk is a 404 with a reason, never a 500 (rule 4)
-- [ ] T043 [P] [US3] `test_clip_endpoint_refuses_a_path_outside_the_clips_directory` in `engine/tests/test_zones_live.py` — closes the file-read hole
-- [ ] T044 [P] [US3] `test_replaced_clip_is_not_served` in `engine/tests/test_zones_live.py` — 404 with "the clip is no longer kept", never someone else's clip
+- [X] T038 [P] [US3] `test_scene_start_starts_a_recording` in `engine/tests/test_zones_live.py` — against a fake recorder, so no video is written in tests
+- [X] T039 [P] [US3] `test_recorder_failure_logs_the_scene_without_a_clip` in `engine/tests/test_zones_live.py` — `clip_state = "failed"`, a reason, and **no** `clip` on the wire (rule 4: never a fake save)
+- [X] T040 [P] [US3] `test_already_recording_does_not_steal_the_operators_recording` in `engine/tests/test_zones_live.py` — `AlreadyRecording` is caught, the scene is still logged with a reason
+- [X] T041 [P] [US3] `test_clip_endpoint_serves_a_saved_clip` in `engine/tests/test_zones_live.py` — 200 and `video/mp4`
+- [X] T042 [P] [US3] `test_clip_endpoint_404s_when_the_file_is_missing` in `engine/tests/test_zones_live.py` — a row claiming saved with no file on disk is a 404 with a reason, never a 500 (rule 4)
+- [X] T043 [P] [US3] `test_clip_endpoint_refuses_a_path_outside_the_clips_directory` in `engine/tests/test_zones_live.py` — closes the file-read hole
+- [X] T044 [P] [US3] `test_replaced_clip_is_not_served` in `engine/tests/test_zones_live.py` — 404 with "the clip is no longer kept", never someone else's clip
 
 ### Implementation for User Story 3
 
-- [ ] T045 [US3] Start and stop the recorder from the scene machine in `engine/vg/features/zones.py` — actor `"restricted-zones"` (never a person's name, the recorder logs who asked), clips into `clips_dir/zones/`, catching `AlreadyRecording` and recording it as the reason rather than crashing
-- [ ] T046 [US3] Enforce the 2-minute cap from the worker in `engine/vg/features/zones.py` — do **not** change `MAX_SECONDS` in `engine/vg/ingest/recorder.py`; the manual record button legitimately wants its 10 minutes
-- [ ] T047 [US3] Attach or fail the clip when a scene closes in `engine/vg/features/zones.py` — `attach_clip` on a saved recording, `fail_clip` with the recorder's own reason otherwise
-- [ ] T048 [US3] Add `GET /breaches/{scene_id}/clip` to `engine/vg/api/app.py` — `FileResponse`, `media_type="video/mp4"`; the path comes from the row and is verified to be inside the zones clip directory, never from the request; 404 with a plain reason for missing, replaced, failed or absent-file
-- [ ] T049 [US3] Populate `Breach.clip` in `engine/vg/api/live.py` — only when `clip_state == "saved"`, with a **same-origin relative** URL built the same way the stream URLs are. `<video src>` cannot send an Authorization header; this is the trap that made the camera streams go black last cycle
-- [ ] T050 [US3] Wire the Watch clip button in `web/src/pages/Intrusion.tsx` — plays when a clip exists, disabled with `clipReason` next to it when not. No dead buttons (P0-07, rule 4)
+- [X] T045 [US3] Start and stop the recorder from the scene machine in `engine/vg/features/zones.py` — actor `"restricted-zones"` (never a person's name, the recorder logs who asked), clips into `clips_dir/zones/`, catching `AlreadyRecording` and recording it as the reason rather than crashing
+- [X] T046 [US3] Enforce the 2-minute cap from the worker in `engine/vg/features/zones.py` — do **not** change `MAX_SECONDS` in `engine/vg/ingest/recorder.py`; the manual record button legitimately wants its 10 minutes
+- [X] T047 [US3] Attach or fail the clip when a scene closes in `engine/vg/features/zones.py` — `attach_clip` on a saved recording, `fail_clip` with the recorder's own reason otherwise
+- [X] T048 [US3] Add `GET /breaches/{scene_id}/clip` to `engine/vg/api/app.py` — `FileResponse`, `media_type="video/mp4"`; the path comes from the row and is verified to be inside the zones clip directory, never from the request; 404 with a plain reason for missing, replaced, failed or absent-file
+- [X] T049 [US3] Populate `Breach.clip` in `engine/vg/api/live.py` — only when `clip_state == "saved"`, with a **same-origin relative** URL built the same way the stream URLs are. `<video src>` cannot send an Authorization header; this is the trap that made the camera streams go black last cycle
+- [X] T050 [US3] Wire the Watch clip button in `web/src/pages/Intrusion.tsx` — plays when a clip exists, disabled with `clipReason` next to it when not. No dead buttons (P0-07, rule 4)
 
 **Checkpoint**: the whole chain works — toggle → detect → record → log → watch.
 
@@ -167,12 +167,12 @@ P4-FR-007, 008.
 
 ## Phase 6: Polish & cross-cutting
 
-- [ ] T051 Run the four gates: `python -m pytest engine` (count must be **above** 490), `python -m pyflakes engine/vg engine/tools engine/tests`, `cd web; npx tsc -b --force`
-- [ ] T052 Run the pipeline check from [quickstart.md](./quickstart.md) §3 — `.\dev.ps1 up -Clip`, walk the labelled clip through, confirm the entry appears and the clip plays
-- [ ] T053 [P] Update `STATUS.md` — Restricted zones moves from **Fake** to **Real**, with what was built and what was not (no schedules, one clip per camera)
-- [ ] T054 [P] Update `docs/PLAN.md` — mark P4 done, note the two deliberate gaps: no schedules, and clip retention is one per camera pending the storage decision at installation
+- [X] T051 Run the four gates: `python -m pytest engine` (count must be **above** 490), `python -m pyflakes engine/vg engine/tools engine/tests`, `cd web; npx tsc -b --force`
+- [X] T052 Run the pipeline check from [quickstart.md](./quickstart.md) §3 — `.\dev.ps1 up -Clip`, walk the labelled clip through, confirm the entry appears and the clip plays
+- [X] T053 [P] Update `STATUS.md` — Restricted zones moves from **Fake** to **Real**, with what was built and what was not (no schedules, one clip per camera)
+- [X] T054 [P] Update `docs/PLAN.md` — mark P4 done, note the two deliberate gaps: no schedules, and clip retention is one per camera pending the storage decision at installation
 - [ ] T055 Ask Mohamed for the manual webcam check in [quickstart.md](./quickstart.md) §4 — flicker on a real walk, latency by feel, and that the mp4 actually plays in the browser. Only his eyes can confirm these
-- [ ] T056 Commit with the tests in the same commit, stating the before and after pytest counts
+- [X] T056 Commit with the tests in the same commit, stating the before and after pytest counts
 
 ---
 

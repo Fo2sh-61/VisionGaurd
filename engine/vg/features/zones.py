@@ -60,10 +60,12 @@ MAX_SCENE_SECONDS = 120.0
 #: operator pressed record would be a lie in the recording log.
 ACTOR = "restricted-zones"
 
-#: What an entry says when the operator was already recording that camera by
-#: hand. The scene is still logged; the clip belongs to them.
+#: What an entry says when the recorder refused because one was already
+#: running on that camera. Deliberately does not name an operator: this
+#: feature has its own recorder, so the only thing that can be holding it is
+#: this feature, and blaming a person for it would be a guess printed as fact.
 BUSY_REASON = (
-    "No clip: an operator was already recording this camera by hand."
+    "No clip: a recording was already running on this camera."
 )
 
 
@@ -123,16 +125,26 @@ class ZonesWorker(FeatureWorker[ZonesResult]):
     # -- the toggle ---------------------------------------------------------
 
     def set_restricted(self, ids: set[str]) -> None:
-        """Which cameras are restricted, from the database. Takes effect now.
+        """Which cameras are restricted, from the database.
 
-        A camera just switched off has its live scene closed and whatever was
-        recorded saved — a scene that stayed open would show somebody standing
-        in an area that is no longer restricted.
+        One assignment, and nothing else. A camera just switched off has its
+        scene closed by **its own thread**, on its next frame, at the top of
+        `analyse` — which is why there is not a lock in this file.
+
+        Closing it here instead is what it looked like it should do, and it was
+        wrong: this runs on the API thread while the camera's worker thread may
+        be part-way through `analyse`, holding a scene it is about to write to.
+        Closing underneath it made that thread open a *second* scene on the next
+        line, and the second scene's clip then replaced the first one's — so
+        switching a camera off destroyed the recording of the very scene that
+        was running. The page showed "clip no longer kept" on an entry seconds
+        old.
+
+        The cost is that the scene closes on the next frame rather than this
+        instant — under a second. The page is right immediately either way: it
+        reads the toggle from the database, not from here.
         """
-        switched_off = set(self._live) - set(ids)
         self._restricted = set(ids)
-        for camera_id in switched_off:
-            self._close(camera_id, datetime.now(timezone.utc), "switched_off")
 
     def restricted(self) -> set[str]:
         return set(self._restricted)
@@ -209,15 +221,21 @@ class ZonesWorker(FeatureWorker[ZonesResult]):
         log.info("scene %s closed on %s (%s)", state.scene_id[:8], camera_id, reason)
 
     def close_all(self, reason: str = "shutdown") -> None:
-        """Shut down cleanly: no scene may be left showing as still running."""
+        """Close every running scene. Call only when no worker thread is live.
+
+        No scene may be left showing as still running, or the page reports
+        somebody standing in a restricted area who left when the engine did.
+        """
         for camera_id in list(self._live):
             self._close(camera_id, datetime.now(timezone.utc), reason)
 
     def stop(self) -> None:
-        # Before the threads go, so the last frame's scene is closed and its
-        # file released rather than left as an unplayable mp4.
-        self.close_all("shutdown")
+        # Threads first, then the scenes. The other order would close a scene
+        # underneath the thread still writing to it — the same race that
+        # `set_restricted` documents above. Once `super().stop()` returns, the
+        # camera threads are joined and this is the only one left.
         super().stop()
+        self.close_all("shutdown")
 
     # -- recording ----------------------------------------------------------
 

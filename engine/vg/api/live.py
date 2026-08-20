@@ -436,10 +436,15 @@ class LiveStore(MockStore):
     FRAME_CORNERS = ((0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0))
 
     def _restricted_ids(self) -> set[str]:
-        """Which cameras are switched on, from the database."""
+        """Which cameras are switched on, from the database.
+
+        Intersected with the roster, so a camera that has been removed since
+        somebody restricted it does not keep appearing as a watched area.
+        """
         if self.cameras is None:
             return set()
-        return self.cameras.restricted_ids()
+        roster = {c.id for c in self.registry.configs()}
+        return self.cameras.restricted_ids() & roster
 
     def _start_of_today(self) -> datetime:
         """Midnight at the *site*, as an instant.
@@ -461,7 +466,8 @@ class LiveStore(MockStore):
         its history with it (P4-FR-010).
         """
         restricted = self._restricted_ids()
-        since = self._start_of_today()
+        today = (self.scenes.counts_since(self._start_of_today())
+                 if self.scenes is not None else {})
         return [
             S.Zone(
                 id=camera.id,
@@ -470,10 +476,7 @@ class LiveStore(MockStore):
                 schedule=S.Schedule(mode=S.ScheduleMode.ALWAYS, days=[]),
                 enabled=camera.id in restricted,
                 polygon=[S.Point(x=x, y=y) for x, y in self.FRAME_CORNERS],
-                breaches_today=(
-                    self.scenes.count_since(since, camera.id)
-                    if self.scenes is not None else 0
-                ),
+                breaches_today=today.get(camera.id, 0),
             )
             for camera in self.registry.configs()
         ]
@@ -484,11 +487,19 @@ class LiveStore(MockStore):
         Written to the database first, so it survives a restart, then pushed
         into the running worker. Only writing one of the two is how a setting
         ends up meaning different things to the page and to the engine.
+
+        Existence is checked against the **roster**, not the camera table: the
+        baseline cameras come from engine.yaml and have no row there at all, so
+        asking the table would 404 on every camera a site starts with.
         """
-        if self.cameras is None or not self.cameras.set_restricted(zone_id, enabled):
-            # No camera store, or no such camera. Either way there is nothing
-            # to report changed, and the endpoint 404s rather than claiming it.
+        if self.cameras is None:
             return None
+        if not any(c.id == zone_id for c in self.registry.configs()):
+            # No such camera. The endpoint 404s rather than reporting a change
+            # it did not make.
+            return None
+
+        self.cameras.set_restricted(zone_id, enabled)
 
         if self.zones_worker is not None:
             self.zones_worker.set_restricted(self._restricted_ids())
@@ -554,6 +565,47 @@ class LiveStore(MockStore):
                 clip=self._scene_clip(scene),
             ))
         return out
+
+    def clip_for_breach(self, scene_id: str):
+        """The file for one scene, or why there is not one.
+
+        Returns `(path, reason)` — exactly one is set. The endpoint turns a
+        reason into a 404 with those words in it, so every refusal says what
+        happened rather than "not found".
+
+        **The path is never taken from the request.** The id is looked up, the
+        stored path is checked to be inside the zones clip directory, and only
+        then is anything opened. A row is data like any other; a wrong one must
+        not become a way to read the disk.
+        """
+        if self.scenes is None:
+            return None, "The detection log is not available."
+
+        scene = self.scenes.get(scene_id)
+        if scene is None:
+            return None, f"no detection {scene_id!r}"
+        if scene.clip_state != "saved" or scene.clip_path is None:
+            return None, (
+                scene.clip_reason
+                or "There is no clip for this detection."
+            )
+
+        root = self.config.storage.zone_clips_dir
+        try:
+            path = scene.clip_path.resolve()
+            path.relative_to(root.resolve())
+        except (OSError, ValueError):
+            log.error("scene %s names a clip outside %s: %s",
+                      scene_id, root, scene.clip_path)
+            return None, "That clip is not where it should be, so it was not served."
+
+        if not path.is_file():
+            # Rule 4: never claim a file that is not there. A row can outlive
+            # its file — a disk wiped by hand, a folder moved — and the honest
+            # answer is that it is gone, not a 500 from a failed open.
+            return None, "The clip is no longer on disk."
+
+        return path, ""
 
     @staticmethod
     def _no_clip_reason(scene) -> str | None:

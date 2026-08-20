@@ -36,20 +36,16 @@ CREATE TABLE IF NOT EXISTS camera (
     rotate      INTEGER NOT NULL DEFAULT 0,
     features    TEXT NOT NULL DEFAULT '',
     enabled     INTEGER NOT NULL DEFAULT 1,
-    restricted  INTEGER NOT NULL DEFAULT 0,
     removed_at  TEXT,
     created_at  TEXT NOT NULL
 );
-"""
 
-#: Columns added after the table first shipped, with the SQL to add each one.
-#: A fresh database gets them from `SCHEMA`; an existing one gets them here,
-#: because `CREATE TABLE IF NOT EXISTS` does nothing to a table that already
-#: exists — which is exactly how a new column silently never arrives on the
-#: one machine that matters, the one with the data on it.
-UPGRADES: tuple[tuple[str, str], ...] = (
-    ("restricted", "ALTER TABLE camera ADD COLUMN restricted INTEGER NOT NULL DEFAULT 0"),
-)
+CREATE TABLE IF NOT EXISTS camera_restricted (
+    camera_id   TEXT PRIMARY KEY,
+    restricted  INTEGER NOT NULL DEFAULT 0,
+    changed_at  TEXT NOT NULL
+);
+"""
 
 
 class CameraStore:
@@ -60,19 +56,7 @@ class CameraStore:
         self._lock = threading.RLock()
         self._conn = db.connect(self.path)
         self._conn.executescript(SCHEMA)
-        self._upgrade()
         self._conn.commit()
-
-    def _upgrade(self) -> None:
-        """Add any column this database predates. In place, keeping every row."""
-        existing = {
-            row["name"]
-            for row in self._conn.execute("PRAGMA table_info(camera)").fetchall()
-        }
-        for column, sql in UPGRADES:
-            if column not in existing:
-                log.info("adding camera.%s to %s", column, self.path.name)
-                self._conn.execute(sql)
 
     def add(
         self,
@@ -134,6 +118,11 @@ class CameraStore:
                 "WHERE id = ? AND removed_at IS NULL",
                 (datetime.now(timezone.utc).isoformat(), camera_id),
             )
+            # Removing a camera has to stop it being watched, or "remove"
+            # means nothing. The scenes it already produced are kept.
+            self._conn.execute(
+                "DELETE FROM camera_restricted WHERE camera_id = ?", (camera_id,)
+            )
             self._conn.commit()
         return cursor.rowcount > 0
 
@@ -146,31 +135,45 @@ class CameraStore:
             self._conn.commit()
         return cursor.rowcount > 0
 
-    def set_restricted(self, camera_id: str, restricted: bool) -> bool:
+    # -- restricted areas ---------------------------------------------------
+    #
+    # Its own table rather than a `restricted` column on `camera`, because
+    # most cameras have no row in `camera` at all: the baseline roster comes
+    # from engine.yaml and only what the console added since is stored here.
+    # A column could therefore never be written for the very cameras a site
+    # starts with — the toggle 404'd on every one of them.
+    #
+    # Inserting a stub `camera` row instead would be worse: `merge_cameras`
+    # lets a stored row win a clash, so flipping a toggle would quietly freeze
+    # that camera's name, fps and features at whatever they were, and later
+    # edits to engine.yaml would stop taking effect with nothing to say why.
+
+    def set_restricted(self, camera_id: str, restricted: bool) -> None:
         """Mark a camera's whole frame a restricted area, or stop.
 
-        Returns False when there is no such camera, so the endpoint above can
-        404 truthfully instead of reporting a change it did not make.
+        Accepts any id: this table knows nothing about which cameras exist,
+        and the roster — engine.yaml plus this store — is what the caller
+        checks before writing. Returning a "did that camera exist" answer from
+        here would be an answer to a question it cannot see.
         """
         with self._lock:
-            cursor = self._conn.execute(
-                "UPDATE camera SET restricted = ? WHERE id = ? AND removed_at IS NULL",
-                (1 if restricted else 0, camera_id),
+            self._conn.execute(
+                "INSERT INTO camera_restricted (camera_id, restricted, changed_at) "
+                "VALUES (?, ?, ?) "
+                "ON CONFLICT(camera_id) DO UPDATE SET "
+                "  restricted = excluded.restricted, changed_at = excluded.changed_at",
+                (camera_id, 1 if restricted else 0,
+                 datetime.now(timezone.utc).isoformat()),
             )
             self._conn.commit()
-        return cursor.rowcount > 0
 
     def restricted_ids(self) -> set[str]:
-        """Cameras whose whole frame is a restricted area, right now.
-
-        A removed camera is excluded: soft-deleting one has to stop it being
-        watched, or "remove" means nothing.
-        """
+        """Cameras whose whole frame is a restricted area, right now."""
         with self._lock:
             rows = self._conn.execute(
-                "SELECT id FROM camera WHERE restricted = 1 AND removed_at IS NULL"
+                "SELECT camera_id FROM camera_restricted WHERE restricted = 1"
             ).fetchall()
-        return {row["id"] for row in rows}
+        return {row["camera_id"] for row in rows}
 
     def all(self) -> list[CameraConfig]:
         with self._lock:

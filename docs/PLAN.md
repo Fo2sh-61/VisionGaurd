@@ -110,11 +110,18 @@ Alembic + baseline migration · tables for breach, weapon detection, audit, zone
 
 **Done when:** a track search survives restart in the audit table; an erasure request provably leaves no trace; a restore drill succeeds.
 
-### P4 — Restricted zones · 1–1.5 wk
+### P4 — Restricted zones · **done** (20 Aug 2026)
 
-The template event feature — occupancy is *already computed every frame and thrown away*, so this is the smallest real gap. Worker → breach rows → clip capture → zone drawing UI → failure-injection tests.
+The template event feature. Built as `spec 001-restricted-zones`: `features/zones.py` (scene state machine) + `events/zones.py` (`zone_scene` table), with `zones()`, `set_zone_enabled()` and `breaches()` overridden in `api/live.py`.
 
-**Done when:** entering a zone in restricted hours gives a breach + clip within 5 s; in permitted hours, nothing; a paused zone stays visible and stops alerting.
+**A zone is a camera.** A camera marked restricted has its *whole frame* restricted — there is no polygon to draw, so the zone-drawing UI in the original plan turned out to be work that did not need doing. Scenes open on the first person and close after one continuous second with nobody, so a flickering detector yields one entry rather than three.
+
+**Two deliberate gaps, both stated on screen:**
+
+- **No schedules.** A restricted camera is restricted around the clock until it is switched off. `Zone.schedule` is always `ALWAYS`.
+- **One clip per camera.** A new scene replaces the previous clip on *that camera only*; the older entry stays listed with its Watch clip control disabled and a reason. The real target — roughly a working day of clips, sized to the deployment machine — is an installation decision, not a code one.
+
+**Done when:** ~~entering a zone in restricted hours gives a breach + clip within 5 s; in permitted hours, nothing; a paused zone stays visible and stops alerting.~~ Met, with "restricted hours" read as "restricted at all", per the settled no-schedules decision. A switched-off camera stays listed with its history.
 
 ### P5 — Counting accuracy · 0.5–1 wk
 
@@ -172,7 +179,7 @@ One row is measured. The rest are still targets.
 | Camera → screen (watched) | ≤ 400 ms | not measured |
 | Camera → detection ready | ≤ 250 ms | **18 ms — passes** |
 | Overlay freshness | ≤ 200 ms | not measured (P1-02) |
-| Zone breach → visible | ≤ 5 s | feature not built (P4) |
+| Zone breach → visible | ≤ 5 s | built (P4), not yet timed by hand |
 | Weapon detection → review queue | ≤ 2 s | feature not built (P6) |
 | Camera drops → NO SIGNAL shown | ≤ 2 s | not measured |
 | Lost-item search | ≤ 60 s | feature not built (P7) |

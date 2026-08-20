@@ -165,24 +165,33 @@ class TestStorage:
         database = tmp_path / "cameras.db"
         store = CameraStore(database)
         store.add("cam-a", "Main entrance", "webcam:0")
-        assert store.set_restricted("cam-a", True) is True
+        store.set_restricted("cam-a", True)
         store.close()
 
         reopened = CameraStore(database)
         assert reopened.restricted_ids() == {"cam-a"}
         reopened.close()
 
-    def test_toggling_an_unknown_camera_reports_failure(self, cameras):
-        # So the endpoint can 404 instead of reporting a change it never made.
-        assert cameras.set_restricted("nope", True) is False
+    def test_a_yaml_camera_can_be_restricted(self, cameras):
+        # The baseline roster comes from engine.yaml and has no row in the
+        # camera table, so a `restricted` column there could never be written
+        # for it. Every camera a site starts with was in that position.
+        assert cameras.all() and "cam-yaml" not in {c.id for c in cameras.all()}
+        cameras.set_restricted("cam-yaml", True)
+        assert "cam-yaml" in cameras.restricted_ids()
+        assert "cam-yaml" not in {c.id for c in cameras.all()}, (
+            "restricting a camera must not turn it into a stored camera — that "
+            "would freeze its name and fps against later engine.yaml edits"
+        )
 
     def test_a_removed_camera_is_not_restricted(self, cameras):
         cameras.set_restricted("cam-a", True)
         cameras.remove("cam-a")
         assert cameras.restricted_ids() == set()
 
-    def test_an_existing_database_gains_the_column(self, tmp_path):
-        # The upgrade path: a database written before this feature existed.
+    def test_an_existing_database_keeps_its_cameras(self, tmp_path):
+        # The upgrade path: a database written before this feature existed
+        # gains the new table without losing a row.
         import sqlite3
 
         database = tmp_path / "old.db"
@@ -203,7 +212,7 @@ class TestStorage:
 
         store = CameraStore(database)
         assert [c.id for c in store.all()] == ["cam-old"], "the row must survive"
-        assert store.set_restricted("cam-old", True) is True
+        store.set_restricted("cam-old", True)
         assert store.restricted_ids() == {"cam-old"}
         store.close()
 
@@ -386,8 +395,28 @@ class TestCameraList:
 
     def test_toggling_an_unknown_camera_returns_none_so_the_api_404s(
             self, store_and_cameras):
-        store, _ = store_and_cameras
+        store, cameras = store_and_cameras
         assert store.set_zone_enabled("no-such-camera", True) is None
+        assert "no-such-camera" not in cameras.restricted_ids(), (
+            "a rejected toggle must not be written"
+        )
+
+    def test_a_camera_that_is_only_in_engine_yaml_can_be_toggled(
+            self, store_and_cameras):
+        # The roster is engine.yaml plus the store. This is the case that made
+        # the toggle 404 on the walk-through clip: it exists, it is on screen,
+        # and it has no row in the camera table.
+        store, cameras = store_and_cameras
+        from vg.config import CameraConfig
+
+        yaml_only = CameraConfig.parse(
+            {"id": "cam-yaml", "name": "From the config file",
+             "source": "webcam:9", "features": ["counting"]}, "cam-yaml")
+        store.registry.disabled["cam-yaml"] = yaml_only
+
+        updated = store.set_zone_enabled("cam-yaml", True)
+        assert updated is not None and updated.enabled is True
+        assert "cam-yaml" in cameras.restricted_ids()
 
     def test_breaches_today_counts_that_cameras_scenes(self, store_and_cameras, scenes):
         store, _ = store_and_cameras
@@ -578,11 +607,40 @@ class TestSceneMachine:
         walk(zw, detector, [(0.0, 1)])
         assert scenes.recent(since_days=1)[0].running is True
 
+        # The toggle is a single assignment; the camera's own thread closes
+        # its scene on the next frame. See `set_restricted` for why.
         zw.set_restricted(set())
+        walk(zw, detector, [(0.5, 1)])
 
         logged = scenes.recent(since_days=1)[0]
         assert logged.running is False
         assert logged.end_reason == "switched_off"
+
+    def test_switching_off_does_not_touch_the_scene_from_another_thread(
+            self, scenes, tmp_path):
+        # The race that destroyed a recording: closing from the API thread
+        # while the camera's worker thread was inside `analyse` made it open a
+        # second scene on the next line, whose clip then replaced the first
+        # one's. Switching a camera off deleted the clip of the scene that was
+        # running, and the entry read "clip no longer kept" seconds after it
+        # was made.
+        recorder = FakeRecorder(tmp_path / "zones")
+        detector = FakeDetector()
+        zw = worker(scenes, detector=detector, recorder=recorder)
+        walk(zw, detector, [(0.0, 1)])
+
+        zw.set_restricted(set())
+        assert scenes.recent(since_days=1)[0].running is True, (
+            "set_restricted must not close anything itself"
+        )
+        assert recorder.stopped == [], "nor stop a recording from another thread"
+
+        walk(zw, detector, [(0.5, 1)])
+        logged = scenes.recent(since_days=1)
+        assert len(logged) == 1, "no second scene may be opened"
+        assert logged[0].clip_state == "saved", (
+            "the clip of the scene that was running must survive"
+        )
 
     def test_toggling_a_camera_on_starts_watching_it(self, scenes):
         detector = FakeDetector()
@@ -598,7 +656,7 @@ class TestSceneMachine:
         detector = FakeDetector()
         zw = worker(scenes, detector=detector)
         walk(zw, detector, [(0.0, 1)])
-        zw.close_all("shutdown")
+        zw.close_all("shutdown")  # `stop()` calls this once the threads are joined
 
         logged = scenes.recent(since_days=1)[0]
         assert logged.running is False
@@ -634,9 +692,16 @@ class TestFeatureIndependence:
 
         from vg.features import zones
 
+        # The module docstring says "no threading in this file", so check the
+        # code rather than the prose.
         source = inspect.getsource(zones)
-        assert "threading.Thread" not in source
-        assert "import threading" not in source
+        code = source[source.index('"""', source.index('"""') + 3) + 3:]
+        for construct in ("import threading", "threading.", "Lock(", "Thread("):
+            assert construct not in code, (
+                f"{construct!r}: each camera already has exactly one thread, and "
+                "the toggle is a single assignment — this file needs no lock "
+                "and must not grow one"
+            )
 
     def test_zones_is_a_feature_worker(self):
         from vg.features.base import FeatureWorker
@@ -772,3 +837,215 @@ class TestCapabilities:
         state = capability(store, "breaches")
         assert state.state is S.DataState.LIVE
         assert state.reason is None
+
+
+# ---------------------------------------------------------------------------
+# US3 — the clip records, saves, and plays
+# ---------------------------------------------------------------------------
+
+class TestRecording:
+    def test_scene_start_starts_a_recording(self, scenes, tmp_path):
+        recorder = FakeRecorder(tmp_path / "zones")
+        detector = FakeDetector()
+        zw = worker(scenes, detector=detector, recorder=recorder)
+        walk(zw, detector, [(0.0, 1)])
+
+        assert recorder.started == ["cam-a"]
+        assert scenes.recent(since_days=1)[0].clip_state == "recording"
+
+    def test_the_recorder_is_told_a_feature_asked_not_a_person(
+            self, scenes, tmp_path):
+        # The recorder logs who asked. Naming an operator who pressed nothing
+        # would be a lie in the recording log.
+        from vg.features.zones import ACTOR
+
+        recorded = []
+
+        class Watching(FakeRecorder):
+            def start(self, camera_id, actor):
+                recorded.append(actor)
+                return super().start(camera_id, actor)
+
+        detector = FakeDetector()
+        zw = worker(scenes, detector=detector,
+                    recorder=Watching(tmp_path / "zones"))
+        walk(zw, detector, [(0.0, 1)])
+
+        assert recorded == [ACTOR] == ["restricted-zones"]
+
+    def test_the_clip_is_saved_and_attached_when_the_scene_ends(
+            self, scenes, tmp_path):
+        recorder = FakeRecorder(tmp_path / "zones")
+        detector = FakeDetector()
+        zw = worker(scenes, detector=detector, recorder=recorder)
+        walk(zw, detector, [(0.0, 1), (2.0, 0)])
+
+        assert recorder.stopped == ["cam-a"]
+        scene = scenes.recent(since_days=1)[0]
+        assert scene.clip_state == "saved"
+        assert scene.clip_path.exists()
+        assert scene.playable is True
+
+    def test_recorder_failure_logs_the_scene_without_a_clip(
+            self, scenes, tmp_path):
+        # Rule 4: never a fake save. A dark camera writes no file, and the
+        # entry says so instead of offering one.
+        recorder = FakeRecorder(tmp_path / "zones", fails=True)
+        detector = FakeDetector()
+        zw = worker(scenes, detector=detector, recorder=recorder)
+        walk(zw, detector, [(0.0, 1), (2.0, 0)])
+
+        scene = scenes.recent(since_days=1)[0]
+        assert scene.clip_state == "failed"
+        assert scene.clip_path is None
+        assert "no frames" in scene.clip_reason
+        assert scene.playable is False
+
+    def test_already_recording_does_not_steal_the_operators_recording(
+            self, scenes, tmp_path):
+        # The scene is still worth logging; the file is not ours to take.
+        recorder = FakeRecorder(tmp_path / "zones", already=True)
+        detector = FakeDetector()
+        zw = worker(scenes, detector=detector, recorder=recorder)
+        walk(zw, detector, [(0.0, 1), (2.0, 0)])
+
+        scene = scenes.recent(since_days=1)[0]
+        assert scene.running is False, "the scene is still logged"
+        assert scene.clip_state == "failed"
+        assert scene.clip_reason and "already running" in scene.clip_reason
+        assert recorder.stopped == [], "we must not stop somebody else's file"
+
+    def test_no_recorder_at_all_still_logs_the_scene(self, scenes):
+        detector = FakeDetector()
+        zw = worker(scenes, detector=detector, recorder=None)
+        walk(zw, detector, [(0.0, 1), (2.0, 0)])
+
+        scene = scenes.recent(since_days=1)[0]
+        assert scene.clip_state == "failed"
+        assert "recording is not running" in scene.clip_reason
+
+    def test_a_cut_scene_saves_what_it_has_and_the_next_one_records(
+            self, scenes, tmp_path):
+        from vg.features.zones import MAX_SCENE_SECONDS
+
+        recorder = FakeRecorder(tmp_path / "zones")
+        detector = FakeDetector()
+        zw = worker(scenes, detector=detector, recorder=recorder)
+        walk(zw, detector, [(0.0, 1), (MAX_SCENE_SECONDS + 0.5, 1)])
+
+        assert recorder.started == ["cam-a", "cam-a"]
+        assert recorder.stopped == ["cam-a"]
+        cut = [s for s in scenes.recent(since_days=1) if s.end_reason == "limit"][0]
+        assert cut.clip_state == "saved"
+
+    def test_a_second_scene_replaces_the_first_clip_on_that_camera(
+            self, scenes, tmp_path):
+        recorder = FakeRecorder(tmp_path / "zones")
+        detector = FakeDetector()
+        zw = worker(scenes, detector=detector, recorder=recorder,
+                    restricted=("cam-a", "cam-b"))
+        walk(zw, detector, [(0.0, 1), (2.0, 0)])
+        walk(zw, detector, [(0.0, 1), (2.0, 0)], camera_id="cam-b")
+        walk(zw, detector, [(10.0, 1), (12.0, 0)])
+
+        by_camera = {}
+        for scene in scenes.recent(since_days=1):
+            by_camera.setdefault(scene.camera_id, []).append(scene)
+
+        assert [s.clip_state for s in by_camera["cam-a"]] == ["saved", "replaced"]
+        assert [s.clip_state for s in by_camera["cam-b"]] == ["saved"], (
+            "a busy camera must not delete a quiet camera's clip"
+        )
+
+
+class TestClipEndpoint:
+    @pytest.fixture
+    def app(self, user_store, store_and_cameras):
+        from vg.api import app as app_module
+        from vg.api.app import create_app
+
+        store, _ = store_and_cameras
+        app_module.set_store(store)
+        application = create_app()
+        application.state.users = user_store
+        yield application
+        app_module.set_store(MockStore())
+
+    @pytest.fixture
+    def clips_dir(self, store_and_cameras, tmp_path, monkeypatch):
+        """Point the store's clip folder at a throwaway directory."""
+        store, _ = store_and_cameras
+        directory = tmp_path / "zone-clips"
+        directory.mkdir()
+        monkeypatch.setattr(
+            type(store.config.storage), "zone_clips_dir",
+            property(lambda self: directory),
+        )
+        return directory
+
+    def test_clip_endpoint_serves_a_saved_clip(
+            self, app, authed, scenes, clips_dir):
+        clip = clips_dir / "cam-a_1.mp4"
+        clip.write_bytes(b"pretend mp4")
+        scene_id = scenes.open("cam-a", datetime.now(timezone.utc))
+        scenes.attach_clip(scene_id, clip)
+
+        response = authed(app).get(f"/breaches/{scene_id}/clip")
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "video/mp4"
+        assert response.content == b"pretend mp4"
+
+    def test_clip_endpoint_404s_for_an_unknown_scene(self, app, authed):
+        response = authed(app).get("/breaches/nope/clip")
+        assert response.status_code == 404
+
+    def test_clip_endpoint_404s_when_the_file_is_missing(
+            self, app, authed, scenes, clips_dir):
+        # Rule 4: never claim a file that is not there. A row saying "saved"
+        # with nothing on disk is a 404 with a reason, never a 500.
+        clip = clips_dir / "gone.mp4"
+        clip.write_bytes(b"clip")
+        scene_id = scenes.open("cam-a", datetime.now(timezone.utc))
+        scenes.attach_clip(scene_id, clip)
+        clip.unlink()
+
+        response = authed(app).get(f"/breaches/{scene_id}/clip")
+        assert response.status_code == 404
+        assert "no longer on disk" in response.json()["detail"]
+
+    def test_replaced_clip_is_not_served(self, app, authed, scenes, clips_dir):
+        first_file = clips_dir / "a1.mp4"
+        second_file = clips_dir / "a2.mp4"
+        first_file.write_bytes(b"one")
+        second_file.write_bytes(b"two")
+
+        first = scenes.open("cam-a", datetime.now(timezone.utc))
+        scenes.attach_clip(first, first_file)
+        second = scenes.open("cam-a", datetime.now(timezone.utc))
+        scenes.attach_clip(second, second_file)
+
+        response = authed(app).get(f"/breaches/{first}/clip")
+        assert response.status_code == 404
+        assert "no longer kept" in response.json()["detail"]
+        assert response.content != b"two", "never somebody else's clip"
+
+    def test_clip_endpoint_refuses_a_path_outside_the_clips_directory(
+            self, app, authed, scenes, clips_dir, tmp_path):
+        # The file-read hole. The path is never taken from the request, but a
+        # row could still be wrong; it is checked before anything is opened.
+        outside = tmp_path / "secrets.mp4"
+        outside.write_bytes(b"not yours")
+        scene_id = scenes.open("cam-a", datetime.now(timezone.utc))
+        scenes.attach_clip(scene_id, outside)
+
+        response = authed(app).get(f"/breaches/{scene_id}/clip")
+        assert response.status_code == 404
+        assert response.content != b"not yours"
+
+    def test_the_path_is_never_taken_from_the_request(self, app, authed):
+        # Belt and braces: an id shaped like a traversal finds no row.
+        client = authed(app)
+        for attempt in ("../../etc/passwd", "..%2F..%2Fsecrets.mp4"):
+            response = client.get(f"/breaches/{attempt}/clip")
+            assert response.status_code in (404, 405), attempt
+            assert b"root:" not in response.content
