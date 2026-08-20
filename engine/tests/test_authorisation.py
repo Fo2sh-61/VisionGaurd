@@ -458,3 +458,72 @@ class TestTheConsoleStoresNoRole:
         assert "RequireSignIn" in source, (
             "the app shell must be behind a sign-in guard"
         )
+
+
+# ---------------------------------------------------------------------------
+# the camera streams
+# ---------------------------------------------------------------------------
+
+class TestStreamsAreReachableFromAnImgTag:
+    """A live view is `<img src=...>`, and an image tag cannot send a header.
+
+    P2 put every endpoint behind sign-in, which was right, and quietly turned
+    every camera tile black. The stream request arrived with no credentials,
+    came back 401, and the browser drew nothing. Detection carried on working
+    the whole time — it happens on the server and never touches the browser —
+    so it looked like a video fault rather than an auth one.
+
+    The cookie is the only credential an image tag can carry, and it is
+    `SameSite=Strict`, so it is only sent when the engine and the page share an
+    origin. The dev server proxies the engine to make that true; production
+    serves both from one origin for the same reason.
+    """
+
+    def test_a_cookie_alone_is_enough(self, app, anon, user_store):
+        """No Authorization header anywhere in this request."""
+        user_store.create_user("head@test.local", "Head Teacher", "admin",
+                               "a-long-enough-test-password")
+        login = anon.post("/auth/login", json={
+            "email": "head@test.local", "password": "a-long-enough-test-password"})
+
+        assert auth_deps.COOKIE_NAME in login.cookies, (
+            "sign-in must set the session cookie, or the camera streams cannot "
+            "authenticate at all"
+        )
+        # The TestClient keeps the cookie; this request carries nothing else.
+        response = anon.get("/site")
+
+        assert response.status_code == 200
+
+    def test_the_cookie_is_not_readable_by_page_scripts(self, app, anon, user_store):
+        """HttpOnly. A token a script can read is a token a script can steal."""
+        user_store.create_user("head@test.local", "Head Teacher", "admin",
+                               "a-long-enough-test-password")
+        login = anon.post("/auth/login", json={
+            "email": "head@test.local", "password": "a-long-enough-test-password"})
+
+        header = login.headers.get("set-cookie", "").lower()
+        assert "httponly" in header, header
+        assert "samesite=strict" in header, header
+
+    def test_the_web_app_talks_to_one_origin_by_default(self):
+        """Same-origin is what makes SameSite=Strict workable.
+
+        A default pointing at another origin makes JSON work and live views
+        black — the most confusing possible half-failure, because everything
+        looks fine except the pictures.
+        """
+        http_ts = (Path(__file__).resolve().parents[2] / "web" / "src"
+                   / "services" / "http.ts").read_text(encoding="utf-8")
+
+        assert "import.meta.env.VITE_API_BASE ?? ''" in http_ts, (
+            "the API base must default to same-origin; pointing it at the "
+            "engine directly stops the camera streams authenticating"
+        )
+
+    def test_the_dev_server_proxies_the_camera_paths(self):
+        config = (Path(__file__).resolve().parents[2] / "web"
+                  / "vite.config.ts").read_text(encoding="utf-8")
+
+        for path in ("'/cameras'", "'/auth'", "'/site'"):
+            assert path in config, f"vite proxy is missing {path}"

@@ -9,7 +9,23 @@
  *
  *  and start the engine with `python engine/tools/serve.py`. */
 
-const BASE = (import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8000').replace(/\/$/, '');
+/** Where the engine is, from the browser's point of view.
+ *
+ *  **Empty by default, and that is deliberate.** An empty base means every
+ *  request is same-origin and goes through the dev server's proxy (see
+ *  `vite.config.ts`), which forwards it to the engine.
+ *
+ *  Pointing this straight at `http://127.0.0.1:8000` works for JSON — those
+ *  calls carry an Authorization header — but silently breaks the camera
+ *  streams. An `<img src=...>` cannot send a header, so its only credential
+ *  is the session cookie, and that cookie is `SameSite=Strict`: the browser
+ *  will not attach it to a *different site*. Every stream came back 401 and
+ *  drew a black rectangle, while detection carried on working because it
+ *  never touches the browser at all.
+ *
+ *  Set `VITE_API_BASE` only if you deliberately want to talk to an engine on
+ *  another origin, and expect the live views to be blank if you do. */
+const BASE = (import.meta.env.VITE_API_BASE ?? '').replace(/\/$/, '');
 
 /** How long before we give up. Lost-item search runs over stored footage and is
  *  allowed a minute; everything else should be quick or is broken. */
