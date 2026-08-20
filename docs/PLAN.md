@@ -165,17 +165,41 @@ The UI makes these promises. Each is a backend test — carried forward from the
 
 ## 7. Speed targets
 
-Targets, not achievements — nothing is measured yet (P1-06).
+One row is measured. The rest are still targets.
 
-| Path | Target p95 |
+| Path | Target p95 | Measured |
+|---|---|---|
+| Camera → screen (watched) | ≤ 400 ms | not measured |
+| Camera → detection ready | ≤ 250 ms | **18 ms — passes** |
+| Overlay freshness | ≤ 200 ms | not measured (P1-02) |
+| Zone breach → visible | ≤ 5 s | feature not built (P4) |
+| Weapon detection → review queue | ≤ 2 s | feature not built (P6) |
+| Camera drops → NO SIGNAL shown | ≤ 2 s | not measured |
+| Lost-item search | ≤ 60 s | feature not built (P7) |
+
+**Measured 20 Aug 2026**, `python engine/tools/benchmark.py`, on an RTX 2080
+Max-Q (8 GB, laptop) with `yolov8s.pt` on CUDA, timed over 60 frames of the
+labelled walk-through clip: p50 17.3 ms, p95 18.0 ms, 57.5 frames/sec.
+
+Re-run it on the deployment workstation. This is a power-limited laptop GPU
+without TensorRT, so it is the floor, not the ceiling.
+
+### What that means for 208 cameras
+
+Detection throughput, not per-frame latency, is what sets the hardware. At
+57.5 frames/sec measured:
+
+| Every camera detecting at | Needs |
 |---|---|
-| Camera → screen (watched) | ≤ 400 ms |
-| Camera → detection ready | ≤ 250 ms |
-| Overlay freshness | ≤ 200 ms |
-| Zone breach → visible | ≤ 5 s |
-| Weapon detection → review queue | ≤ 2 s |
-| Camera drops → NO SIGNAL shown | ≤ 2 s |
-| Lost-item search | ≤ 60 s |
+| 1 Hz | 3.6× this machine |
+| 2 Hz | 7.2× this machine |
+| 5 Hz | 18.1× this machine |
+
+An upper bound, and deliberately pessimistic: it assumes every camera runs
+person detection at that rate. The real deployment runs fewer models on fewer
+cameras, and P1-01 removed the duplicate pass that made cameras with both
+counting and track cost twice this. Size the workstation from a re-run on the
+real hardware with the real feature mix, not from this table.
 
 ---
 
