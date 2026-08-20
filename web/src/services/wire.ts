@@ -616,3 +616,23 @@ export interface EnrolmentSession {
   ready: boolean;
   advice: string;
 }
+
+/* ---------- auth ---------- */
+
+/** The signed-in user as the engine sees them.
+ *
+ *  No permissions list and no password hash. The console asks the server what
+ *  it may do rather than deciding from a role it holds locally. */
+export interface Account {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  initials: string;
+}
+
+export interface LoginResult {
+  token: string;
+  expiresAt: Instant;
+  user: Account;
+}

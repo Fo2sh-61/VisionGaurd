@@ -48,7 +48,9 @@ import * as W from './wire';
 
 /** Which overlay a page wants on a camera. One camera, different questions. */
 export type CameraFeature = 'attendance' | 'track' | 'counting' | 'intrusion' | 'weapons';
-import { ApiError, SEARCH_TIMEOUT_MS, apiBase, del, get, patch, post, postFile, request } from './http';
+import { ApiError, SEARCH_TIMEOUT_MS, apiBase, del, get, patch, post, postFile, request, setSessionToken } from './http';
+import type { Account } from '@/app/AuthContext';
+import type { Role } from '@/types';
 import {
   attendanceLabel,
   attendanceStatusLine,
@@ -859,3 +861,42 @@ export async function acknowledgeAttention(id: string, actor: string): Promise<v
 export const getSchoolProfile = () => get<W.SchoolProfile>('/settings/school');
 export const getAlertRules = () => get<W.AlertRule[]>('/settings/alerts');
 export const getDeliveryTargets = () => get<W.DeliveryTarget[]>('/settings/delivery');
+
+/* ---------- auth ---------- */
+
+/** Sign in. Returns the account the server says you are.
+ *
+ *  The token is handed to the http layer for the Authorization header; the
+ *  engine also sets an HttpOnly cookie, which is what the MJPEG streams and a
+ *  page refresh rely on. Nothing is written to localStorage: the old build
+ *  kept the role there and believed it. */
+export async function signIn(email: string, password: string): Promise<Account> {
+  const result = await post<W.LoginResult>('/auth/login', { email, password });
+  setSessionToken(result.token);
+  return toAccount(result.user);
+}
+
+export async function signOut(): Promise<void> {
+  try {
+    await post<{ ok: boolean }>('/auth/logout');
+  } finally {
+    // Drop the local token even if the call failed. The server row is what
+    // truly ends the session, but this browser must not keep presenting it.
+    setSessionToken(null);
+  }
+}
+
+/** Who the server says we are. Throws 401 when nobody is signed in. */
+export async function getMe(): Promise<Account> {
+  return toAccount(await get<W.Account>('/auth/me'));
+}
+
+function toAccount(wire: W.Account): Account {
+  return {
+    id: wire.id,
+    name: wire.name,
+    email: wire.email,
+    role: wire.role as Role,
+    initials: wire.initials,
+  };
+}

@@ -397,3 +397,64 @@ class TestAdminPathRule:
     def test_a_trailing_slash_does_not_escape_the_rule(self):
         assert auth_deps.requires_admin("GET", "/enrolment/")
         assert auth_deps.requires_admin("POST", "/sources/")
+
+
+# ---------------------------------------------------------------------------
+# "editing localStorage achieves nothing"
+# ---------------------------------------------------------------------------
+
+WEB = Path(__file__).resolve().parents[2] / "web" / "src"
+
+
+class TestTheConsoleStoresNoRole:
+    """The second half of P2's done criterion, checked in the source.
+
+    The console used to keep the role in localStorage and believe it on the
+    next load. The engine now decides, but the front end could quietly
+    reintroduce the habit — a cached role "to avoid a flash of the login
+    form" would look like a performance fix and would restore the hole.
+
+    A source check, because there is no runtime state that reveals it: a
+    console reading a cached role behaves identically to one asking the
+    server, right up until somebody edits the cache.
+    """
+
+    def test_no_role_is_written_to_browser_storage(self):
+        offenders = []
+        for path in sorted(WEB.rglob("*.ts")) + sorted(WEB.rglob("*.tsx")):
+            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                stripped = line.strip()
+                if stripped.startswith("*") or stripped.startswith("//"):
+                    continue  # a comment describing the old bug is fine
+                if "localStorage" not in line and "sessionStorage" not in line:
+                    continue
+                if any(word in line for word in ("role", "Role", "account", "Account",
+                                                 "token", "Token", "auth", "Auth")):
+                    offenders.append(f"{path.name}:{number} {stripped}")
+
+        assert not offenders, (
+            "the console is storing identity in the browser again: " + "; ".join(offenders)
+        )
+
+    def test_sign_in_takes_credentials_not_a_role(self):
+        """`signIn('admin')` was the bug. It must take an email and password."""
+        source = (WEB / "app" / "AuthContext.tsx").read_text(encoding="utf-8")
+
+        assert "signIn: (email: string, password: string)" in source, (
+            "AuthContext.signIn must take credentials, not a role"
+        )
+
+    def test_the_login_form_has_no_credentials_in_it(self):
+        """A real address and password were typed into this file."""
+        source = (WEB / "pages" / "Login.tsx").read_text(encoding="utf-8")
+
+        assert "demo1234" not in source
+        assert "@gmail.com" not in source
+        assert "any password is accepted" not in source
+
+    def test_the_console_requires_a_session_before_rendering(self):
+        source = (WEB / "app" / "routes.tsx").read_text(encoding="utf-8")
+
+        assert "RequireSignIn" in source, (
+            "the app shell must be behind a sign-in guard"
+        )

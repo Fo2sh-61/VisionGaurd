@@ -16,6 +16,33 @@ const BASE = (import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8000').replace(
 const DEFAULT_TIMEOUT_MS = 15_000;
 export const SEARCH_TIMEOUT_MS = 90_000;
 
+/** The session token, held in memory for the life of the page.
+ *
+ *  Deliberately **not** in localStorage. Anything in localStorage is readable
+ *  by any script that ends up on the page, and this token is a working
+ *  session for a system holding face data for children. The engine also sets
+ *  an HttpOnly cookie, which is what survives a refresh and what the MJPEG
+ *  `<img src=...>` streams travel on — a script cannot read that one.
+ *
+ *  So: the variable below is a convenience for the Authorization header, and
+ *  losing it on refresh costs nothing, because `/auth/me` re-establishes the
+ *  session from the cookie. */
+let sessionToken: string | null = null;
+
+export function setSessionToken(token: string | null): void {
+  sessionToken = token;
+}
+
+/** Called when the engine says 401 on a request we thought was authenticated.
+ *  The app subscribes so it can drop straight back to the sign-in screen
+ *  rather than rendering a page full of "could not load". */
+type Unauthorised = () => void;
+let onUnauthorised: Unauthorised | null = null;
+
+export function setUnauthorisedHandler(handler: Unauthorised | null): void {
+  onUnauthorised = handler;
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -67,11 +94,19 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     // rejects the body, so let the browser write it.
     const isForm = typeof FormData !== 'undefined' && body instanceof FormData;
 
+    const headers: Record<string, string> = {};
+    if (body && !isForm) headers['Content-Type'] = 'application/json';
+    if (sessionToken) headers.Authorization = `Bearer ${sessionToken}`;
+
     const response = await fetch(buildUrl(path, query), {
       method,
-      headers: body && !isForm ? { 'Content-Type': 'application/json' } : undefined,
+      headers: Object.keys(headers).length ? headers : undefined,
       body: isForm ? (body as FormData) : body ? JSON.stringify(body) : undefined,
       signal: controller.signal,
+      // Send the session cookie. The engine is on another origin in
+      // development, so without this the cookie never leaves the browser and
+      // a page refresh would look like being signed out.
+      credentials: 'include',
     });
 
     if (!response.ok) {
@@ -84,6 +119,14 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
       } catch {
         /* a non-JSON error body is not worth failing over */
       }
+      // The session went away - expired, signed out elsewhere, or the
+      // account was disabled. Handled in one place so every page does not
+      // need its own "am I still signed in" branch.
+      if (response.status === 401 && !path.startsWith('/auth/login')) {
+        sessionToken = null;
+        onUnauthorised?.();
+      }
+
       // 5xx and 429 are worth retrying; a 404 or a validation error is not.
       const retryable = response.status >= 500 || response.status === 429;
       throw new ApiError(message, response.status, retryable, detail);
