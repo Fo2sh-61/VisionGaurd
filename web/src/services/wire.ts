@@ -146,6 +146,13 @@ export interface Breach {
   dwellSeconds: number;
   clip?: Clip | null;
   modelVersion?: string | null;
+  /** Peak people seen during the scene. Optional so an older engine still
+   *  parses; it defaults to 1 there, which is what "somebody was seen" means. */
+  people?: number;
+  /** none | recording | saved | replaced | failed. Only `saved` has a file. */
+  clipState?: string;
+  /** Why there is no playable clip. Null when there is one. */
+  clipReason?: string | null;
 }
 
 /* ---------- weapons ---------- */

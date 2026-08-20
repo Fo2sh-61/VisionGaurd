@@ -168,13 +168,20 @@ export interface CountResult {
 
 /* ---------- intrusion ---------- */
 
+/** A camera that can be marked a restricted area.
+ *
+ *  A zone IS a camera: switching one on makes its whole frame restricted, so
+ *  there is no polygon here and nothing is drawn inside the view. There is no
+ *  `hours` either — a restricted camera is restricted around the clock. */
 export interface Zone {
   id: string;
   name: string;
-  hours: string;
   enabled: boolean;
+  /** Scenes recorded on this camera today. A real count, not a guess. */
+  detectionsToday: number;
 }
 
+/** One scene: somebody was on a restricted camera, from when to when. */
 export interface Breach {
   id: string;
   zone: string;
@@ -182,6 +189,15 @@ export interface Breach {
   who: string;
   status: string;
   tone: Tone;
+  /** Most people seen at once during the scene — not the last count, which is
+   *  zero for every scene that has ended. */
+  people: number;
+  /** How long they were there, e.g. "12 seconds". */
+  duration: string;
+  /** Playable clip, present only when one was actually saved. */
+  clipUrl?: string;
+  /** Why there is no clip. Shown beside the disabled button, never on its own. */
+  clipReason?: string;
 }
 
 export type IntrusionWindow = 'Today' | 'Last 7 days' | 'Last 30 days';

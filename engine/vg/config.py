@@ -420,6 +420,19 @@ class StorageConfig:
     clip_post_roll_seconds: float = 10.0
     clip_retention_days: int = 30
 
+    @property
+    def zone_clips_dir(self) -> Path:
+        """Where restricted-zone clips land, under the configured clips folder.
+
+        A subfolder rather than a config key, because it is not a choice: the
+        retention rule here is "one clip per camera", and applying that to a
+        folder an operator also records into by hand would delete their file.
+        Keeping them apart is what makes the rule safe to run at all, and it
+        is also the boundary the clip endpoint checks a path against before
+        serving it.
+        """
+        return self.clips_dir / "zones"
+
 
 @dataclass(frozen=True)
 class EngineConfig:

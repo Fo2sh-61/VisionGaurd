@@ -66,6 +66,8 @@ class LiveStore(MockStore):
         counts=None,
         recorder=None,
         users=None,
+        scenes=None,
+        zones=None,
     ) -> None:
         super().__init__()
         # Accounts. Real since P2, so the Users page stops saying the feature
@@ -97,6 +99,12 @@ class LiveStore(MockStore):
         # On-demand video recording. Absent means the console says so rather
         # than offering a button that quietly does nothing.
         self.recorder = recorder
+        # Restricted zones. `scenes` is the log; `zones_worker` is what watches.
+        # Either can be absent — the camera list and its toggle work with no
+        # worker running at all, and the page says so rather than implying the
+        # areas are being watched.
+        self.scenes = scenes
+        self.zones_worker = zones
         # The site's clock, asked per timestamp. Holding one number from
         # startup left every time an hour out after the October change until
         # somebody restarted the engine, and nothing said so.
@@ -107,6 +115,7 @@ class LiveStore(MockStore):
         self.recognition_error: str | None = None
         self.people_error: str | None = None
         self.tracking_error: str | None = None
+        self.zones_error: str | None = None
 
     @property
     def recognition_live(self) -> bool:
@@ -185,9 +194,13 @@ class LiveStore(MockStore):
         """
         if feature == "track":
             return self._tracked_boxes(camera_id)
-        if feature == "counting":
+        if feature in ("counting", "intrusion"):
+            # Restricted zones ask "is there a body here", never "who is it".
+            # Face boxes on that page would put a name beside a detection this
+            # feature never made — rule 1 — and would make it need attendance
+            # switched on to draw anything at all — rule 9.
             return self._person_boxes(camera_id)
-        # attendance, intrusion, weapons and the default grid all want faces.
+        # attendance, weapons and the default grid all want faces.
         return self._face_boxes(camera_id)
 
     def _tracked_boxes(self, camera_id: str) -> list[S.Box]:
@@ -411,44 +424,89 @@ class LiveStore(MockStore):
             areas=areas,
         )
 
-    def zones(self) -> list[S.Zone]:
-        """Zones from engine.yaml, not fixtures.
+    # -- restricted zones ---------------------------------------------------
+    #
+    # A zone IS a camera. Switching one on makes its **whole frame** the
+    # restricted area, so there is no polygon to draw and nothing to get
+    # wrong about where the line is. The wire still carries a polygon because
+    # `Zone.polygon` requires at least three points; it carries the four frame
+    # corners, which is literally true and keeps every existing client valid.
 
-        Disabled zones are included — a paused zone stays visible.
+    #: The zone, as a polygon: the entire frame.
+    FRAME_CORNERS = ((0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0))
+
+    def _restricted_ids(self) -> set[str]:
+        """Which cameras are switched on, from the database."""
+        if self.cameras is None:
+            return set()
+        return self.cameras.restricted_ids()
+
+    def _start_of_today(self) -> datetime:
+        """Midnight at the *site*, as an instant.
+
+        Not the server's midnight. A school in Cairo at 00:30 local is still on
+        the previous UTC day, and counting today's scenes against the wrong
+        boundary puts last night's entries on this morning's total.
         """
+        now = datetime.now(timezone.utc)
+        local = self.clock.local(now)
+        midnight_local = local.replace(hour=0, minute=0, second=0, microsecond=0)
+        return midnight_local.astimezone(timezone.utc)
+
+    def zones(self) -> list[S.Zone]:
+        """The real camera roster, each with its toggle. Never fixtures.
+
+        Every camera appears whether or not it is restricted — the toggle is
+        how you tell, and a camera that vanished when switched off would take
+        its history with it (P4-FR-010).
+        """
+        restricted = self._restricted_ids()
+        since = self._start_of_today()
         return [
             S.Zone(
-                id=z.id,
-                name=z.name,
-                camera_id=z.camera_id,
-                schedule=S.Schedule(
-                    mode=S.ScheduleMode(z.schedule.mode),
-                    days=list(z.schedule.days),
-                    start=z.schedule.start.strftime("%H:%M") if z.schedule.start else None,
-                    end=z.schedule.end.strftime("%H:%M") if z.schedule.end else None,
+                id=camera.id,
+                name=camera.name,
+                camera_id=camera.id,
+                schedule=S.Schedule(mode=S.ScheduleMode.ALWAYS, days=[]),
+                enabled=camera.id in restricted,
+                polygon=[S.Point(x=x, y=y) for x, y in self.FRAME_CORNERS],
+                breaches_today=(
+                    self.scenes.count_since(since, camera.id)
+                    if self.scenes is not None else 0
                 ),
-                enabled=z.enabled,
-                polygon=[S.Point(x=x, y=y) for x, y in z.polygon],
-                breaches_today=0,
             )
-            for z in self.config.zones
+            for camera in self.registry.configs()
         ]
 
     def set_zone_enabled(self, zone_id: str, enabled: bool) -> S.Zone | None:
-        # Config is frozen at load; the override lives in memory until the
-        # events database lands in Stage C.
-        self._zone_overrides = getattr(self, "_zone_overrides", {})
-        self._zone_overrides[zone_id] = enabled
-        for zone in self.zones():
-            if zone.id == zone_id:
-                return zone.model_copy(update={"enabled": enabled})
-        return None
+        """Flip the toggle, and make it true on the next frame.
+
+        Written to the database first, so it survives a restart, then pushed
+        into the running worker. Only writing one of the two is how a setting
+        ends up meaning different things to the page and to the engine.
+        """
+        if self.cameras is None or not self.cameras.set_restricted(zone_id, enabled):
+            # No camera store, or no such camera. Either way there is nothing
+            # to report changed, and the endpoint 404s rather than claiming it.
+            return None
+
+        if self.zones_worker is not None:
+            self.zones_worker.set_restricted(self._restricted_ids())
+
+        return next((z for z in self.zones() if z.id == zone_id), None)
 
     def intrusion_cameras(self) -> list[S.CameraView]:
-        # The one place the zone outline IS the subject, so it is drawn here.
-        with_zones = {z.camera_id for z in self.config.zones}
-        views = [self.camera_view(cid, include_zone=True) for cid in with_zones]
-        # No `or super()`: a site with no zones drawn yet has no intrusion
+        """Tiles for the cameras that are actually restricted.
+
+        `include_zone` stays off: the zone is the frame, so drawing a rectangle
+        inside it would claim a boundary that does not exist (P4-FR-002).
+        """
+        restricted = self._restricted_ids()
+        # Roster order, not set order, so the grid does not reshuffle itself
+        # between two polls of the same unchanged data.
+        views = [self.camera_view(camera.id, feature="intrusion")
+                 for camera in self.registry.configs() if camera.id in restricted]
+        # No `or super()`: a site with nothing switched on has no restricted
         # cameras, and saying so is the truth. Demo cameras appearing here
         # once looked exactly like a working zone.
         return [v for v in views if v is not None]

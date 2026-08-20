@@ -24,11 +24,13 @@ export function Intrusion() {
   } = useAsync(() => getBreaches(when), [when], NO_BREACHES);
   const { data: cameras } = useAsync(() => getIntrusionCameras(), [], NO_CAMERAS);
 
-  // Pending toggles, laid over what the engine last told us. A zone is only
-  // drawn as paused once the engine has agreed it is paused.
+  // Pending toggles, laid over what the engine last told us. A camera is only
+  // drawn as restricted once the engine has agreed it is.
   const [pending, setPending] = useState<Record<string, boolean>>({});
   const [toggleError, setToggleError] = useState<string | null>(null);
+  const [playing, setPlaying] = useState<string | null>(null);
   const zones = loadedZones.map((z) => (z.id in pending ? { ...z, enabled: pending[z.id] } : z));
+  const anyRestricted = zones.some((z) => z.enabled);
 
   async function toggleZone(zone: Zone) {
     const next = !zone.enabled;
@@ -39,8 +41,8 @@ export function Intrusion() {
       await setZoneEnabled(zone.id, next);
       // ...and confirmed from the engine, not assumed. This used to be a
       // fire-and-forget `void setZoneEnabled(...)`: a failed call left the
-      // switch showing "Paused" while the zone was still armed, or worse,
-      // "Protected" while it was not. A zone's state is a safety claim.
+      // switch showing "Paused" while the camera was still armed, or worse,
+      // "Protected" while it was not. This state is a safety claim.
       reloadZones();
       setPending((p) => {
         const { [zone.id]: _dropped, ...rest } = p;
@@ -58,26 +60,28 @@ export function Intrusion() {
   }
 
   const counted = !breachLoading && !breachError;
-  const open = breaches.filter((b) => b.status === 'Open').length;
+  const running = breaches.filter((b) => b.status === 'Still there').length;
 
   return (
     <>
       <DataNotice capability={capability} />
       <PageHeader
         title="Restricted zones"
-        lead="Restricted areas that alert when someone enters outside allowed hours."
+        lead="Mark a camera as a restricted area. Anyone who appears there is logged and recorded."
       />
 
       <Card tight>
-        <div style={{ fontWeight: 700, fontSize: 15 }}>Protected areas</div>
+        <div style={{ fontWeight: 700, fontSize: 15 }}>Restricted cameras</div>
         <div style={{ fontSize: 13, color: 'var(--tx2)', margin: '2px 0 6px' }}>
-          Switch an area off during maintenance, then back on. Pauses are visible to everyone.
+          A camera switched on here is restricted around the clock. Switch one off during
+          maintenance, then back on — pauses are visible to everyone.
         </div>
-        <LoadError error={zonesError} onRetry={reloadZones} what="the zone list" />
+        <LoadError error={zonesError} onRetry={reloadZones} what="the camera list" />
         <LoadError error={toggleError} what="that change" />
-        {zonesLoading && <Empty>Loading zones…</Empty>}
+        {zonesLoading && <Empty>Loading cameras…</Empty>}
         {!zonesLoading && !zonesError && zones.length === 0 && (
-          <Empty>No restricted zones have been set up yet.</Empty>
+          // Never demo cameras. An empty roster is an empty list.
+          <Empty>No cameras are configured yet. Add one on the Cameras page.</Empty>
         )}
         {zones.map((zone) => (
           <div
@@ -93,7 +97,11 @@ export function Intrusion() {
           >
             <div>
               <div style={{ fontWeight: 600, fontSize: 14 }}>{zone.name}</div>
-              <div style={{ fontSize: 12.5, color: 'var(--tx2)' }}>{zone.hours}</div>
+              <div style={{ fontSize: 12.5, color: 'var(--tx2)' }}>
+                {zone.enabled
+                  ? `The whole camera view is restricted · ${zone.detectionsToday} today`
+                  : 'Not restricted'}
+              </div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <Badge tone={zone.enabled ? 'good' : 'warn'} glyph={zone.enabled ? '✓' : '⏸'}>
@@ -123,12 +131,14 @@ export function Intrusion() {
           <div>
             <div style={{ fontWeight: 700, fontSize: 19, letterSpacing: '-.01em' }}>
               {counted
-                ? `${breaches.length} ${breaches.length === 1 ? 'breach' : 'breaches'} · ${when.toLowerCase()}`
-                : `Breaches · ${when.toLowerCase()}`}
+                ? `${breaches.length} ${breaches.length === 1 ? 'detection' : 'detections'} · ${when.toLowerCase()}`
+                : `Detections · ${when.toLowerCase()}`}
             </div>
             <div style={{ fontSize: 13.5, color: 'var(--tx2)', marginTop: 2 }}>
               {counted
-                ? `${open} still needs review`
+                ? running === 0
+                  ? 'Nobody is in a restricted area right now'
+                  : `${running} still in view`
                 : breachError
                   ? 'Not counted — the list could not be loaded.'
                   : 'Counting…'}
@@ -143,36 +153,67 @@ export function Intrusion() {
           </Field>
         </div>
 
-        <LoadError error={breachError} onRetry={reloadBreaches} what="the breach list" />
-        {breachLoading && <Empty>Loading breaches…</Empty>}
-        {counted && breaches.length === 0 && (
-          <Empty>No breaches {when.toLowerCase()}. Nobody entered a restricted area outside its hours.</Empty>
+        <LoadError error={breachError} onRetry={reloadBreaches} what="the detection log" />
+        {breachLoading && <Empty>Loading detections…</Empty>}
+        {/* Two different empty states, because they mean different things. An
+            empty log with nothing switched on is not the same claim as an
+            empty log on a camera that has been watching all day. */}
+        {counted && breaches.length === 0 && !anyRestricted && (
+          <Empty>No cameras are set as restricted areas. Switch one on above.</Empty>
+        )}
+        {counted && breaches.length === 0 && anyRestricted && (
+          <Empty>Nothing has been detected since the engine started.</Empty>
         )}
 
         {breaches.map((breach) => (
           <div
             key={breach.id}
             className="row"
-            style={{ gridTemplateColumns: '1.2fr 1fr 1.2fr 1fr .7fr' }}
+            style={{ gridTemplateColumns: '1.2fr 1fr .8fr .9fr .8fr 1.1fr' }}
           >
             <span className="row__name">{breach.zone}</span>
             <span className="row__muted">{breach.time}</span>
-            <span className="row__muted">{breach.who}</span>
+            <span className="row__muted">
+              {breach.people === 1 ? '1 person' : `${breach.people} people`}
+            </span>
+            <span className="row__muted">{breach.duration}</span>
             <span>
               <Badge tone={breach.tone} glyph={toneGlyph[breach.tone]}>
                 {breach.status}
               </Badge>
             </span>
-            <button type="button" className="linkbtn">
-              Watch clip
-            </button>
+            {/* No dead buttons. A clip either plays or the control is disabled
+                and says why beside it. */}
+            {breach.clipUrl ? (
+              <button
+                type="button"
+                className="linkbtn"
+                onClick={() => setPlaying(playing === breach.id ? null : breach.id)}
+              >
+                {playing === breach.id ? 'Hide clip' : 'Watch clip'}
+              </button>
+            ) : (
+              <span style={{ fontSize: 12.5, color: 'var(--tx2)' }}>
+                {breach.clipReason ?? 'No clip was saved for this detection.'}
+              </span>
+            )}
           </div>
         ))}
+
+        {playing && breaches.find((b) => b.id === playing)?.clipUrl && (
+          <video
+            key={playing}
+            src={breaches.find((b) => b.id === playing)!.clipUrl}
+            controls
+            autoPlay
+            style={{ width: '100%', maxHeight: 420, marginTop: 12, borderRadius: 8 }}
+          />
+        )}
       </Card>
 
       <CamGrid
         title="Cameras watching restricted areas"
-        note="The orange outline is the protected zone drawn on that camera. A paused zone stays visible so nothing is hidden."
+        note="The whole camera view is the restricted area — there is no outline, because there is no line. Boxes mark the people detected."
         cameras={cameras}
       />
     </>

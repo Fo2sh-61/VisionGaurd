@@ -48,7 +48,7 @@ import * as W from './wire';
 
 /** Which overlay a page wants on a camera. One camera, different questions. */
 export type CameraFeature = 'attendance' | 'track' | 'counting' | 'intrusion' | 'weapons';
-import { ApiError, SEARCH_TIMEOUT_MS, apiBase, del, get, patch, post, postFile, request, setSessionToken } from './http';
+import { ApiError, SEARCH_TIMEOUT_MS, apiBase, assetUrl, del, get, patch, post, postFile, request, setSessionToken } from './http';
 import type { Account } from '@/app/AuthContext';
 import type { Role } from '@/types';
 import {
@@ -59,7 +59,7 @@ import {
   formatEventTime,
   formatLongDate,
   formatMetrics,
-  formatSchedule,
+  formatDuration,
   formatShortDate,
   formatTime,
   matchLabel,
@@ -285,14 +285,17 @@ export async function getCount(query: CountQuery): Promise<CountResult> {
 
 /* ---------- intrusion ---------- */
 
+/** Every camera, each with its restricted-area toggle.
+ *
+ *  Switched-off cameras are returned too — the toggle is how you tell, and a
+ *  camera that vanished when switched off would take its history with it. */
 export async function getZones(): Promise<Zone[]> {
-  // Disabled zones are returned too — a paused zone stays visible.
   const zones = await get<W.Zone[]>('/zones');
   return zones.map((z) => ({
     id: z.id,
     name: z.name,
-    hours: formatSchedule(z.schedule),
     enabled: z.enabled,
+    detectionsToday: z.breachesToday,
   }));
 }
 
@@ -309,8 +312,15 @@ export async function getBreaches(window: IntrusionWindow): Promise<Breach[]> {
     who: b.subject.name
       ? `Matched: ${b.subject.name}${b.subject.type ? ` (${b.subject.type})` : ''}`
       : 'Unidentified person',
-    status: b.status === 'open' ? 'Open' : b.status === 'authorised' ? 'Authorised' : 'Resolved',
+    status: b.status === 'open' ? 'Still there' : b.status === 'authorised' ? 'Authorised' : 'Left',
     tone: severityToNeutralTone(b.severity),
+    people: b.people ?? 1,
+    duration: formatDuration(b.dwellSeconds),
+    // Same-origin, through the same helper the camera streams use. A <video>
+    // cannot send an Authorization header, so an absolute engine URL would
+    // play for nobody — that is the trap that once blacked out every stream.
+    clipUrl: assetUrl(b.clip?.url),
+    clipReason: b.clipReason ?? undefined,
   }));
 }
 
