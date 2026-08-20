@@ -1,6 +1,6 @@
 # VisionGuard — Status
 
-**Updated:** 20 Aug 2026 · **Commit:** `d12b0f7` · Plan: `docs/PLAN.md` · Rules: `.specify/memory/constitution.md`
+**Updated:** 20 Aug 2026 · **Commit:** `a4a5ea8` · Plan: `docs/PLAN.md` · Rules: `.specify/memory/constitution.md`
 
 ## Feature state
 
@@ -10,7 +10,7 @@
 | Attendance | **Real** — register, late cutoff, CSV export. Owner considers it done |
 | Enrolment Studio | **Real** — `/people/enrol`, quality scoring, 3-photo floor. *Unauthenticated* |
 | Live overlays | **Real** — each feature draws its own (faces / bodies / appearance IDs) |
-| Tracking engine | **Real** — ByteTrack + appearance IDs, stable across frames and cameras |
+| Tracking engine | **Real** — ByteTrack + appearance IDs, stable across frames and cameras. Shares one detection pass with counting (P1-01) |
 | People counting | **Real for "Main entrance"** only (the laptop webcam). Over-counts — reads 4–6 for one person. Other areas are demo and labelled |
 | System health | **Real** — honest per-subsystem, including startup failure reasons |
 | Track a person | **Engine real, page part fake** — badge bug, clip save writes nothing |
@@ -37,13 +37,22 @@
 | P0-09 | person history + groups wired | done |
 | P0-10 | CI: the four gates | done |
 
+## P1 progress
+
+| | | |
+|---|---|---|
+| P1-01 | one detection pass per frame, one thread in the model | done |
+| P1-02 | overlay freshness (`age_ms`) in API and UI | not started |
+| P1-03 | private `_tracked_boxes` reach-in removed | done |
+| P1-04 | latency / queue / drop metrics on System Health | not started |
+| P1-05 | isolation test: kill one feature, prove the other survives | not started |
+| P1-06 | measure and publish the latency budgets | done |
+
 ## Next 3 things
 
-P0 is complete. Next is P1.
-
-1. **P1-01** — one detection pass per camera per tick (F2: the detector runs twice per frame today)
-2. **P1-03** — remove the private `_tracked_boxes` reach-in from `app.py:1085`
-3. **P1-04** — latency, queue and drop metrics on System Health
+1. **P1-02** — overlay freshness, so a stale box degrades honestly
+2. **P1-04** — latency and drop metrics on System Health (the benchmark tool already measures the hard part)
+3. **P2** — login and roles. Still nothing stops anyone opening the console
 
 ## Blocked on the owner
 
@@ -68,7 +77,7 @@ Tests: `.\dev.ps1 test` runs all four gates — pyflakes, pytest, smoke start, t
 
 No `.venv` yet — deliberately blocked on the re-ID handover. System Python 3.14 works: torch 2.11.0+cu128, CUDA true on an RTX 2080.
 
-**Gates verified 20 Aug 2026, all four green:** 421 passed, 6 skipped (43s) · pyflakes clean over `vg`, `tools` and `tests` · smoke start exit 0 · tsc clean.
+**Gates verified 20 Aug 2026, all four green:** 436 passed, 6 skipped (44s) · pyflakes clean over `vg`, `tools` and `tests` · smoke start exit 0 · tsc clean.
 
 Also verified on a **fresh clone with no `engine/data/` and no model weights** — the condition CI runs in: 374 passed, 7 skipped. The extra skip is the model-weights check, which has nothing to check on a machine that has no weights.
 
@@ -77,3 +86,11 @@ Also verified on a **fresh clone with no `engine/data/` and no model weights** �
 ## Housekeeping
 
 `_to_delete/` at the repo root holds an install zip and git lock litter — safe to delete manually.
+
+## Measured, not assumed
+
+Person detection on the RTX 2080 Max-Q, `python engine/tools/benchmark.py`:
+**p95 18 ms**, 57.5 frames/sec, against a 250 ms budget. Re-run it on the
+deployment machine — this is a power-limited laptop GPU without TensorRT.
+
+Throughput, not latency, is what sizes the hardware. See `docs/PLAN.md` §7.
