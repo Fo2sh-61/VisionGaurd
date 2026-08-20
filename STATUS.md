@@ -1,6 +1,6 @@
 # VisionGuard — Status
 
-**Updated:** 20 Aug 2026 · **Commit:** `a4a5ea8` · Plan: `docs/PLAN.md` · Rules: `.specify/memory/constitution.md`
+**Updated:** 20 Aug 2026 · **Commit:** `6b0479c` · Plan: `docs/PLAN.md` · Rules: `.specify/memory/constitution.md`
 
 ## Feature state
 
@@ -8,7 +8,7 @@
 |---|---|
 | Camera ingest, stream, snapshot | **Real** — reconnect, NO SIGNAL, stale flagging all work |
 | Attendance | **Real** — register, late cutoff, CSV export. Owner considers it done |
-| Enrolment Studio | **Real** — `/people/enrol`, quality scoring, 3-photo floor. *Unauthenticated* |
+| Enrolment Studio | **Real** — `/people/enrol`, quality scoring, 3-photo floor. Admin-only (P2) |
 | Live overlays | **Real** — each feature draws its own (faces / bodies / appearance IDs) |
 | Tracking engine | **Real** — ByteTrack + appearance IDs, stable across frames and cameras. Shares one detection pass with counting (P1-01) |
 | People counting | **Real for "Main entrance"** only (the laptop webcam). Over-counts — reads 4–6 for one person. Other areas are demo and labelled |
@@ -16,7 +16,7 @@
 | Track a person | **Engine real, page part fake** — badge bug, clip save writes nothing |
 | Restricted zones | **Fake** — occupancy computed every frame, then thrown away |
 | Weapons, lost items | **Fake** — models present, no worker, no tables. The pages now say so instead of showing an all-clear (P0-08) |
-| Users, audit, notifications | **Fake** — no auth of any kind; audit lives in RAM |
+| Users, audit, notifications | **Auth is real** (P2) — argon2 accounts, server-enforced roles, sessions revocable. Audit still lives in RAM |
 | Mobile app | **Fake** — entirely fixtures, including random numbers |
 | Fights | **Removed from scope** — no model. Page, endpoints and mock methods all gone (P0-05) |
 
@@ -48,11 +48,25 @@
 | P1-05 | isolation test: kill one feature, prove the other survives | not started |
 | P1-06 | measure and publish the latency budgets | done |
 
+## P2 — security · **done**
+
+Every endpoint except `/healthz` and `/auth/login` refuses an anonymous caller.
+Roles are enforced server-side from the path, so a new endpoint under
+`/enrolment`, `/sources` or `/users` is admin-only the day it is written.
+Editing the browser achieves nothing — a test asserts the console stores no
+role, account or token.
+
+**Create the first account before starting the engine, or nobody can sign in:**
+
+```powershell
+python engine/tools/create_user.py
+```
+
 ## Next 3 things
 
 1. **P1-02** — overlay freshness, so a stale box degrades honestly
-2. **P1-04** — latency and drop metrics on System Health (the benchmark tool already measures the hard part)
-3. **P2** — login and roles. Still nothing stops anyone opening the console
+2. **P1-04** — latency and drop metrics on System Health
+3. **P3** — durable events: alerts and audit still vanish on restart
 
 ## Blocked on the owner
 
@@ -77,7 +91,7 @@ Tests: `.\dev.ps1 test` runs all four gates — pyflakes, pytest, smoke start, t
 
 No `.venv` yet — deliberately blocked on the re-ID handover. System Python 3.14 works: torch 2.11.0+cu128, CUDA true on an RTX 2080.
 
-**Gates verified 20 Aug 2026, all four green:** 436 passed, 6 skipped (44s) · pyflakes clean over `vg`, `tools` and `tests` · smoke start exit 0 · tsc clean.
+**Gates verified 20 Aug 2026, all four green:** 484 passed, 6 skipped (55s) · pyflakes clean over `vg`, `tools` and `tests` · smoke start exit 0 · tsc clean.
 
 Also verified on a **fresh clone with no `engine/data/` and no model weights** — the condition CI runs in: 374 passed, 7 skipped. The extra skip is the model-weights check, which has nothing to check on a machine that has no weights.
 
