@@ -511,6 +511,78 @@ class LiveStore(MockStore):
         # once looked exactly like a working zone.
         return [v for v in views if v is not None]
 
+    def breaches(self, since_days: int) -> list[S.Breach]:
+        """The detection log: one entry per scene, newest first.
+
+        **Nobody is named here.** This feature detects bodies; it never runs a
+        face against them, so `subject` is always an unidentified match. A name
+        on one of these rows would be a claim nothing in this pipeline made —
+        rule 1, and the bug that once had every person read as one person.
+        """
+        if self.scenes is None:
+            return []
+
+        # From the roster, not from engine.yaml: a camera added through the
+        # console is not in the config file, and `_camera_name` falls back to
+        # the raw id for it — which would put "cam-3" on the screen where the
+        # operator typed "Back stairwell".
+        names = {c.id: c.name for c in self.registry.configs()}
+
+        out: list[S.Breach] = []
+        for scene in self.scenes.recent(since_days):
+            name = names.get(scene.camera_id) or scene.camera_id
+            out.append(S.Breach(
+                id=scene.id,
+                zone_id=scene.camera_id,
+                zone_name=name,
+                camera_id=scene.camera_id,
+                camera_name=name,
+                at=_instant(scene.started_at, self.clock),
+                subject=S.PersonRef(name="Unidentified", match=S.MatchKind.NONE),
+                # Open means somebody is still standing there, not that a human
+                # owes it a review — this feature has no review workflow.
+                status=(S.BreachStatus.OPEN if scene.running
+                        else S.BreachStatus.RESOLVED),
+                severity=S.Severity.WARN,
+                # Person detection has a confidence per box; a scene does not.
+                # Inventing one would be a number nothing measured.
+                confidence=0.0,
+                dwell_seconds=round(scene.seconds, 1),
+                people=scene.peak_people,
+                clip_state=scene.clip_state,
+                clip_reason=scene.clip_reason or self._no_clip_reason(scene),
+                clip=self._scene_clip(scene),
+            ))
+        return out
+
+    @staticmethod
+    def _no_clip_reason(scene) -> str | None:
+        """A sentence for every state that has no file, so no control is bare."""
+        if scene.clip_state == "saved":
+            return None
+        if scene.clip_state == "recording":
+            return "Still recording — the clip is saved when they leave."
+        if scene.clip_state == "none":
+            return "No clip was recorded for this detection."
+        return None
+
+    def _scene_clip(self, scene) -> S.Clip | None:
+        """The playable clip, and only when there genuinely is one.
+
+        The URL is **same-origin and relative**, built like the stream URLs
+        above. A `<video src>` cannot send an Authorization header, so an
+        absolute engine URL would play for nobody — that is exactly what made
+        the camera streams go black last cycle.
+        """
+        if not scene.playable:
+            return None
+        return S.Clip(
+            id=scene.id,
+            url=f"/breaches/{scene.id}/clip",
+            duration_seconds=round(scene.seconds, 1),
+            starts_at=_instant(scene.started_at, self.clock),
+        )
+
     def sources(self) -> list[S.CameraSource]:
         """The configured cameras, with their true status."""
         out: list[S.CameraSource] = []
@@ -761,9 +833,6 @@ class LiveStore(MockStore):
     # When one of these is built, delete its stub here and flip its entry in
     # `capabilities()`. Until then this list IS the to-do list.
 
-    def breaches(self, since_days: int) -> list[S.Breach]:
-        return []
-
     def weapons(self, since_days: int) -> list[S.WeaponDetection]:
         return []
 
@@ -871,12 +940,13 @@ class LiveStore(MockStore):
                           "is being counted.", self.people_error),
             "track": live(tracking, "Tracking is not running, so no path can be "
                           "built.", self.tracking_error),
+            # An empty log on a dead watcher must never read as "all clear".
+            # LIVE carries no reason at all: an excuse attached to a working
+            # feature reads as a fault, which is the P0-08 lesson in reverse.
+            "breaches": self._breaches_state(),
             # Not built yet. Saying "not built" is the truth and is different
             # from "broken" — an operator should not be waiting for these to
             # come back.
-            "breaches": (S.DataState.UNAVAILABLE,
-                         "Restricted zones are not built yet. Occupancy is "
-                         "measured but nothing is recorded."),
             "weapons": (S.DataState.UNAVAILABLE,
                         "Weapon detection is not built yet. No camera is being "
                         "checked for weapons."),
@@ -900,6 +970,32 @@ class LiveStore(MockStore):
                 key, (S.DataState.UNAVAILABLE, "Not built yet."))
             out.append(S.Capability(key=key, name=name, state=state, reason=reason))
         return out
+
+    def _breaches_state(self) -> tuple[S.DataState, str | None]:
+        """Whether anything is actually watching the restricted areas.
+
+        Three different failures, three different sentences. "Unavailable" on
+        its own leaves an operator unable to tell a model that would not load
+        from a feature nobody switched on, and only one of those is theirs to
+        fix.
+        """
+        if self.zones_worker is None:
+            if self.zones_error:
+                return (S.DataState.UNAVAILABLE,
+                        f"Restricted zones failed to start ({self.zones_error})")
+            if self.people_worker is None:
+                return (S.DataState.UNAVAILABLE,
+                        "Person detection is not running, so nothing is "
+                        "watching the restricted areas."
+                        + (f" ({self.people_error})" if self.people_error else ""))
+            return (S.DataState.UNAVAILABLE,
+                    "Restricted zones are not running, so nothing is being "
+                    "recorded.")
+        if self.scenes is None:
+            return (S.DataState.UNAVAILABLE,
+                    "The detection log is not available, so nothing can be "
+                    "shown even though the cameras are being watched.")
+        return S.DataState.LIVE, None
 
     def _clock_stage(self) -> S.PipelineStage:
         """Rule 8: a subsystem that failed to start says so in the UI.

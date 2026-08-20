@@ -442,3 +442,333 @@ class TestToggleAuthorisation:
     def test_an_unknown_camera_404s(self, app, authed):
         admin = authed(app, role="admin")
         assert admin.patch("/zones/nope", json={"enabled": True}).status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# US2 — the scene state machine
+#
+# Every test here drives `analyse(frame)` directly with fake detections and a
+# clock the test controls through `frame.captured_at`. No camera, no model, no
+# server, no wall clock — so a two-minute limit takes microseconds and a 0.9
+# second flicker is exactly 0.9 seconds on every machine.
+# ---------------------------------------------------------------------------
+
+def walk(zones_worker, detector, script, camera_id="cam-a"):
+    """Feed a scripted walk: `(seconds, people)` pairs, in order."""
+    for i, (at, people) in enumerate(script):
+        detector.people = people
+        zones_worker.analyse(frame(camera_id, at=at, sequence=i))
+
+
+class TestSceneMachine:
+    def test_person_opens_a_scene(self, scenes):
+        # P4-FR-005. The first frame with a body in it is a scene.
+        detector = FakeDetector()
+        zw = worker(scenes, detector=detector)
+        walk(zw, detector, [(0.0, 1)])
+
+        logged = scenes.recent(since_days=1)
+        assert len(logged) == 1
+        assert logged[0].camera_id == "cam-a"
+        assert logged[0].started_at == START
+        assert logged[0].running is True, "still there until they leave"
+
+    def test_flicker_under_one_second_does_not_split_the_scene(self, scenes):
+        # P4-FR-006 and SC-003 — the single most important test in the feature.
+        # A detector losing somebody for nine tenths of a second is a detector
+        # blinking, not a person leaving and coming back.
+        detector = FakeDetector()
+        zw = worker(scenes, detector=detector)
+        walk(zw, detector, [
+            (0.0, 1),
+            (0.5, 0),
+            (0.9, 0),   # 0.9 s since the last sighting — still one scene
+            (1.2, 1),   # found again
+            (1.6, 1),
+        ])
+
+        logged = scenes.recent(since_days=1)
+        assert len(logged) == 1, "a blink must not become a second entry"
+        assert logged[0].running is True
+
+    def test_one_full_second_of_nobody_closes_the_scene(self, scenes):
+        detector = FakeDetector()
+        zw = worker(scenes, detector=detector)
+        walk(zw, detector, [(0.0, 1), (0.5, 0), (1.6, 0)])
+
+        logged = scenes.recent(since_days=1)
+        assert len(logged) == 1
+        assert logged[0].running is False
+        assert logged[0].end_reason == "nobody"
+
+    def test_the_gap_is_measured_from_the_last_person_not_the_frame_count(
+            self, scenes):
+        # The rule is wall-clock, so a 2 Hz camera and a 12 Hz boosted one
+        # behave identically. Four empty frames close nothing if they are close
+        # together; one closes the scene if it is far enough away.
+        detector = FakeDetector()
+        zw = worker(scenes, detector=detector)
+        walk(zw, detector, [(0.0, 1), (0.1, 0), (0.2, 0), (0.3, 0), (0.4, 0)])
+        assert scenes.recent(since_days=1)[0].running is True
+
+        walk(zw, detector, [(1.5, 0)])
+        assert scenes.recent(since_days=1)[0].running is False
+
+    def test_a_new_person_after_the_gap_starts_a_second_scene(self, scenes):
+        detector = FakeDetector()
+        zw = worker(scenes, detector=detector)
+        walk(zw, detector, [(0.0, 1), (2.0, 0), (5.0, 1)])
+
+        logged = scenes.recent(since_days=1)
+        assert len(logged) == 2
+        assert logged[0].started_at == START + timedelta(seconds=5)
+        assert logged[1].end_reason == "nobody"
+
+    def test_scene_is_cut_at_the_two_minute_limit(self, scenes):
+        # P4-FR-009. Somebody standing in a doorway all afternoon is not a
+        # two-hour clip, and the entry has to say it was cut rather than look
+        # like they left.
+        from vg.features.zones import MAX_SCENE_SECONDS
+
+        detector = FakeDetector()
+        zw = worker(scenes, detector=detector)
+        walk(zw, detector, [(0.0, 1), (60.0, 1), (MAX_SCENE_SECONDS + 0.5, 1)])
+
+        cut = [s for s in scenes.recent(since_days=1) if s.end_reason == "limit"]
+        assert len(cut) == 1, "the scene must end at the limit, with that reason"
+        assert cut[0].seconds <= MAX_SCENE_SECONDS + 1.0
+
+    def test_a_person_still_there_after_the_limit_starts_a_fresh_scene(self, scenes):
+        # Cutting must not blind the camera: they are still standing there.
+        from vg.features.zones import MAX_SCENE_SECONDS
+
+        detector = FakeDetector()
+        zw = worker(scenes, detector=detector)
+        walk(zw, detector, [(0.0, 1), (MAX_SCENE_SECONDS + 0.5, 1)])
+
+        logged = scenes.recent(since_days=1)
+        assert len(logged) == 2
+        assert logged[0].running is True
+
+    def test_camera_not_restricted_never_opens_a_scene(self, scenes):
+        # SC-005, and the second half matters more than the first: a camera
+        # nobody switched on must never reach the model at all, or switching
+        # the feature on would cost every site a detection pass per camera.
+        detector = FakeDetector()
+        zw = worker(scenes, detector=detector, restricted=("cam-a",))
+        walk(zw, detector, [(0.0, 1), (1.0, 1)], camera_id="cam-b")
+
+        assert scenes.recent(since_days=1) == []
+        assert "cam-b" not in detector.asked, (
+            "a camera nobody restricted must not be sent to the detector"
+        )
+
+    def test_scene_records_peak_people_not_last_count(self, scenes):
+        # P4-FR-012. The last frame of every scene has nobody in it, so the
+        # last count would report 0 for every entry.
+        detector = FakeDetector()
+        zw = worker(scenes, detector=detector)
+        walk(zw, detector, [(0.0, 1), (0.4, 3), (0.8, 1), (2.0, 0)])
+
+        assert scenes.recent(since_days=1)[0].peak_people == 3
+
+    def test_toggling_off_mid_scene_closes_the_scene(self, scenes):
+        detector = FakeDetector()
+        zw = worker(scenes, detector=detector)
+        walk(zw, detector, [(0.0, 1)])
+        assert scenes.recent(since_days=1)[0].running is True
+
+        zw.set_restricted(set())
+
+        logged = scenes.recent(since_days=1)[0]
+        assert logged.running is False
+        assert logged.end_reason == "switched_off"
+
+    def test_toggling_a_camera_on_starts_watching_it(self, scenes):
+        detector = FakeDetector()
+        zw = worker(scenes, detector=detector, restricted=())
+        walk(zw, detector, [(0.0, 1)])
+        assert scenes.recent(since_days=1) == []
+
+        zw.set_restricted({"cam-a"})
+        walk(zw, detector, [(1.0, 1)])
+        assert len(scenes.recent(since_days=1)) == 1
+
+    def test_shutdown_closes_the_open_scene(self, scenes):
+        detector = FakeDetector()
+        zw = worker(scenes, detector=detector)
+        walk(zw, detector, [(0.0, 1)])
+        zw.close_all("shutdown")
+
+        logged = scenes.recent(since_days=1)[0]
+        assert logged.running is False
+        assert logged.end_reason == "shutdown"
+
+
+class TestFeatureIndependence:
+    def test_restricted_zones_do_not_change_counting(self, scenes):
+        # Rule 9 and P4-FR-011. The zones worker consumes the shared detection
+        # results; it must not touch the people worker's own answers.
+        from vg.features.people import PeopleWorker
+
+        detector = FakeDetector(people=2)
+
+        class NoBus:
+            def subscribe(self, *a, **kw):
+                raise AssertionError("not started")
+
+        people = PeopleWorker(NoBus(), detector, ["cam-a"])
+        before = people.analyse(frame("cam-a", at=0.0))
+
+        zw = worker(scenes, detector=detector)
+        zw.analyse(frame("cam-a", at=0.5, sequence=1))
+
+        after = people.analyse(frame("cam-a", at=1.0, sequence=2))
+        assert before.count == after.count == 2
+        assert before.zones == after.zones
+
+    def test_the_worker_writes_no_concurrency_code(self):
+        # `FeatureWorker` owns threading. A feature file that starts a thread
+        # is a feature file that will deadlock something at 3am.
+        import inspect
+
+        from vg.features import zones
+
+        source = inspect.getsource(zones)
+        assert "threading.Thread" not in source
+        assert "import threading" not in source
+
+    def test_zones_is_a_feature_worker(self):
+        from vg.features.base import FeatureWorker
+        from vg.features.zones import ZonesWorker
+
+        assert issubclass(ZonesWorker, FeatureWorker)
+
+
+# ---------------------------------------------------------------------------
+# US2 — the log on the wire
+# ---------------------------------------------------------------------------
+
+def capability(store, key: str):
+    return next(c for c in store.capabilities() if c.key == key)
+
+
+class TestBreachLog:
+    def test_a_scene_becomes_a_log_entry(self, store_and_cameras, scenes):
+        store, _ = store_and_cameras
+        started = datetime.now(timezone.utc) - timedelta(seconds=12)
+        scene_id = scenes.open("cam-a", started)
+        scenes.note_people(scene_id, 3)
+        scenes.close(scene_id, started + timedelta(seconds=12), "nobody")
+
+        entry = store.breaches(1)[0]
+        assert entry.id == scene_id
+        assert entry.camera_name == "Main entrance"
+        assert entry.zone_name == "Main entrance"
+        assert entry.people == 3
+        assert entry.dwell_seconds == pytest.approx(12.0, abs=0.2)
+        assert entry.status is S.BreachStatus.RESOLVED
+
+    def test_nobody_is_ever_named_on_a_breach(self, store_and_cameras, scenes):
+        # Rule 1. This feature detects bodies; it never runs a face against
+        # them, so a name here would be a claim nothing in the pipeline made.
+        store, _ = store_and_cameras
+        scenes.open("cam-a", datetime.now(timezone.utc))
+
+        entry = store.breaches(1)[0]
+        assert entry.subject.match is S.MatchKind.NONE
+        assert entry.subject.name == "Unidentified"
+        assert entry.subject.id is None
+
+    def test_a_running_scene_is_open_with_no_clip(self, store_and_cameras, scenes):
+        store, _ = store_and_cameras
+        scenes.open("cam-a", datetime.now(timezone.utc))
+
+        entry = store.breaches(1)[0]
+        assert entry.status is S.BreachStatus.OPEN
+        assert entry.clip is None
+
+    def test_an_absent_log_is_empty_not_fixtures(self, tmp_path):
+        store = live_store(tmp_path)
+        store.scenes = None
+        assert store.breaches(30) == []
+
+    def test_a_replaced_entry_has_no_clip_and_says_why(
+            self, store_and_cameras, scenes, tmp_path):
+        store, _ = store_and_cameras
+        old, new = tmp_path / "old.mp4", tmp_path / "new.mp4"
+        old.write_bytes(b"clip")
+        new.write_bytes(b"clip")
+
+        first = scenes.open("cam-a", datetime.now(timezone.utc))
+        scenes.attach_clip(first, old)
+        second = scenes.open("cam-a", datetime.now(timezone.utc))
+        scenes.attach_clip(second, new)
+
+        entries = {b.id: b for b in store.breaches(1)}
+        assert entries[first].clip is None
+        assert entries[first].clip_state == "replaced"
+        assert "no longer kept" in entries[first].clip_reason
+        assert entries[second].clip is not None
+
+    def test_every_entry_without_a_clip_carries_a_reason(
+            self, store_and_cameras, scenes):
+        # No bare disabled controls. Every state that has no file explains
+        # itself, because the UI renders `clipReason` next to the button.
+        store, _ = store_and_cameras
+        running = scenes.open("cam-a", datetime.now(timezone.utc))
+        scenes.start_clip(running)
+        failed = scenes.open("cam-b", datetime.now(timezone.utc))
+        scenes.fail_clip(failed, "No clip: the camera sent no frames.")
+
+        for entry in store.breaches(1):
+            if entry.clip is None:
+                assert entry.clip_reason, f"{entry.clip_state} has no reason"
+
+    def test_the_clip_url_is_same_origin_and_relative(
+            self, store_and_cameras, scenes, tmp_path):
+        # A <video src> cannot send an Authorization header, so an absolute
+        # engine URL plays for nobody. This is the trap that blacked out every
+        # camera stream last cycle.
+        store, _ = store_and_cameras
+        clip = tmp_path / "a.mp4"
+        clip.write_bytes(b"clip")
+        scene_id = scenes.open("cam-a", datetime.now(timezone.utc))
+        scenes.attach_clip(scene_id, clip)
+
+        url = store.breaches(1)[0].clip.url
+        assert url == f"/breaches/{scene_id}/clip"
+        assert not url.startswith("http"), "must be same-origin"
+
+
+class TestCapabilities:
+    def test_capabilities_says_why_when_the_worker_is_not_running(
+            self, store_and_cameras):
+        # Rules 4, 7, 8. An empty log on a dead watcher must never read as
+        # "all clear", and "unavailable" alone does not tell anybody what to fix.
+        store, _ = store_and_cameras
+        store.zones_worker = None
+        store.people_worker = None
+
+        state = capability(store, "breaches")
+        assert state.state is S.DataState.UNAVAILABLE
+        assert "Person detection is not running" in state.reason
+
+    def test_a_startup_failure_is_reported_in_its_own_words(
+            self, store_and_cameras):
+        store, _ = store_and_cameras
+        store.zones_worker = None
+        store.zones_error = "weights not found: yolov8s.pt"
+
+        state = capability(store, "breaches")
+        assert state.state is S.DataState.UNAVAILABLE
+        assert "yolov8s.pt" in state.reason
+
+    def test_a_live_capability_offers_no_excuse(self, store_and_cameras):
+        # A reason attached to a working feature reads as a fault.
+        store, cameras = store_and_cameras
+        store.zones_worker = worker(store.scenes)
+
+        state = capability(store, "breaches")
+        assert state.state is S.DataState.LIVE
+        assert state.reason is None

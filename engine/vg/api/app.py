@@ -143,6 +143,9 @@ async def lifespan(app: FastAPI):
     app.state.counts_error: str | None = None
     app.state.counts = None
     app.state.counts_stop = None
+    app.state.zones_error: str | None = None
+    app.state.zones = None
+    app.state.scenes = None
 
     if cfg is not None and os.getenv("VG_MOCK") != "1":
         from pathlib import Path
@@ -197,6 +200,15 @@ async def lifespan(app: FastAPI):
             app.state.counts_error,
         ) = _start_counts(cfg, registry, roster, people)
         app.state.counts = counts_store
+        # Restricted zones. Shares the person detector; needs no other feature
+        # switched on, and a camera nobody restricted costs it nothing.
+        (
+            app.state.zones,
+            app.state.scenes,
+            app.state.zones_error,
+        ) = _start_zones(
+            cfg, registry, roster, getattr(people, "detector", None), cameras,
+        )
         (
             gallery,
             sightings,
@@ -224,9 +236,12 @@ async def lifespan(app: FastAPI):
             counts=counts_store,
             recorder=app.state.recorder,
             users=app.state.users,
+            scenes=app.state.scenes,
+            zones=app.state.zones,
         )
         store.recognition_error = app.state.recognition_error
         store.people_error = app.state.people_error
+        store.zones_error = app.state.zones_error
         set_store(store)
 
         # The banner. A console showing invented attendance next to real camera
@@ -262,6 +277,10 @@ async def lifespan(app: FastAPI):
             recorder.stop_all()
 
         for worker in (
+            # Zones first: stopping it closes any running scene and releases
+            # its clip, so the log has no row saying somebody is still standing
+            # there and no half-written mp4 nobody can play.
+            getattr(app.state, "zones", None),
             getattr(app.state, "people", None),
             getattr(app.state, "recogniser", None),
             getattr(app.state, "tracking", None),
@@ -515,6 +534,85 @@ def _start_tracking(cfg, registry, roster, detector):
         log.exception("tracking failed to start")
         _reraise_if_strict(exc, "person tracking")
         return None, _reason(exc)
+
+
+def _start_zones(cfg, registry, roster, detector, cameras_store):
+    """Restricted zones: log and record anyone on a camera marked restricted.
+
+    Serves **every enabled camera**, not only the ones with `intrusion` in
+    their features. The console's toggle is the switch now, and a toggle that
+    silently did nothing on a camera somebody forgot to list in engine.yaml
+    would be a dead control on a safety feature — which is worse than the cost
+    of an idle thread. A camera nobody restricted returns from `analyse` before
+    the detector is touched, so watching all of them is genuinely free.
+
+    Takes the person detector `_start_people` already built. Never a second
+    one: `SharedDetection` caches per frame, so counting and zones landing on
+    the same frame cost one model pass, not two (P1-01).
+
+    Returns `(worker, scenes, error)`.
+    """
+    watched = [c.id for c in roster if c.enabled]
+    if not watched:
+        log.info("no enabled camera; restricted zones are off")
+        return None, None, None
+
+    if detector is None:
+        # The exact sentence the page shows. Not "unavailable" on its own: an
+        # operator cannot fix what they cannot name.
+        return None, None, (
+            "person detection is not running, so nothing can watch the "
+            "restricted areas"
+        )
+
+    try:
+        from pathlib import Path
+
+        from vg.events.zones import SceneStore
+        from vg.features.zones import ZonesWorker
+        from vg.ingest.recorder import Recorder
+
+        database = Path(str(cfg.storage.database_url).replace("sqlite:///", ""))
+        if not database.is_absolute():
+            database = vgconfig.REPO_DIR / database
+
+        scenes = SceneStore(database)
+        # A scene left open by a killed process would otherwise show somebody
+        # still standing in a restricted area, forever.
+        scenes.close_orphans()
+
+        restricted = cameras_store.restricted_ids() if cameras_store else set()
+        rate = min((c.fps for c in roster if c.id in watched), default=2.0)
+
+        worker = ZonesWorker(
+            registry.bus,
+            detector,
+            watched,
+            scenes,
+            # Its OWN recorder, into `clips_dir/zones/`, deliberately not the
+            # one behind the operator's record button. Sharing that one would
+            # make the two features fight for the same camera: an automatic
+            # scene in progress would refuse an operator pressing Record, and
+            # the retention rule here (one clip per camera) would be running
+            # over a folder somebody else's files are in. Separate recorders
+            # each get their own frame subscription, so both can run at once
+            # and neither can stop the other's file.
+            recorder=Recorder(
+                registry.bus, cfg.storage.zone_clips_dir, clock=cfg.timezone),
+            restricted=restricted,
+            rate_hz=rate,
+            boost_hz=12.0,
+        )
+        worker.start()
+        log.info(
+            "restricted zones on %d camera(s), %d switched on - %.0f Hz idle",
+            len(watched), len(restricted), rate,
+        )
+        return worker, scenes, None
+    except Exception as exc:
+        log.exception("restricted zones failed to start")
+        _reraise_if_strict(exc, "restricted zones")
+        return None, None, _reason(exc)
 
 
 def _start_enrolment(cfg):

@@ -355,6 +355,19 @@ class Breach(Wire):
     dwell_seconds: float
     clip: Clip | None = None
     model_version: str | None = None
+    # The three below are additive with defaults, so an older client keeps
+    # parsing this payload unchanged.
+    #
+    # Peak, not last: the final frame of every scene has nobody in it, so the
+    # last count would report 0 people for every entry that has ended.
+    people: int = 1
+    #: none | recording | saved | replaced | failed. Only `saved` has a file,
+    #: and `clip` is populated only then.
+    clip_state: str = "none"
+    #: Why there is no playable clip, in the operator's words. The UI shows it
+    #: beside a disabled control — a button that does nothing is worse than no
+    #: button, and a missing reason is how it becomes one.
+    clip_reason: str | None = None
 
 
 # ---------------------------------------------------------------------------

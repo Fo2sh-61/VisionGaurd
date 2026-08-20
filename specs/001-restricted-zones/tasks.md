@@ -104,28 +104,28 @@ acceptance scenarios 2, 3, 4, and P4-FR-005, 006, 009, 012.
 All of these drive the state machine with fake frames and a controlled clock —
 no camera, no model, no server.
 
-- [ ] T019 [P] [US2] `test_person_opens_a_scene` in `engine/tests/test_zones_live.py` — first frame with a person creates a row (P4-FR-005)
-- [ ] T020 [P] [US2] `test_flicker_under_one_second_does_not_split_the_scene` in `engine/tests/test_zones_live.py` — a 0.9 s gap yields **one** scene. This is SC-003 and the single most important test in the feature
-- [ ] T021 [P] [US2] `test_one_full_second_of_nobody_closes_the_scene` in `engine/tests/test_zones_live.py` — a 1.1 s gap closes it with `end_reason = "nobody"`
-- [ ] T022 [P] [US2] `test_scene_is_cut_at_the_two_minute_limit` in `engine/tests/test_zones_live.py` — `end_reason = "limit"` (P4-FR-009)
-- [ ] T023 [P] [US2] `test_camera_not_restricted_never_opens_a_scene` in `engine/tests/test_zones_live.py` — and assert the detector was **not** called for it (SC-005)
-- [ ] T024 [P] [US2] `test_scene_records_peak_people_not_last_count` in `engine/tests/test_zones_live.py` — 1 → 3 → 1 people stores 3 (P4-FR-012)
-- [ ] T025 [P] [US2] `test_toggling_off_mid_scene_closes_the_scene` in `engine/tests/test_zones_live.py` — `end_reason = "switched_off"`
-- [ ] T026 [P] [US2] `test_restricted_zones_do_not_change_counting` in `engine/tests/test_zones_live.py` — counting and tracking results are identical with the zones worker on and off (rule 9, P4-FR-011)
-- [ ] T027 [P] [US2] `test_capabilities_says_why_when_the_worker_is_not_running` in `engine/tests/test_zones_live.py` — UNAVAILABLE carries a specific reason, and LIVE carries none (rules 4, 7, 8)
+- [X] T019 [P] [US2] `test_person_opens_a_scene` in `engine/tests/test_zones_live.py` — first frame with a person creates a row (P4-FR-005)
+- [X] T020 [P] [US2] `test_flicker_under_one_second_does_not_split_the_scene` in `engine/tests/test_zones_live.py` — a 0.9 s gap yields **one** scene. This is SC-003 and the single most important test in the feature
+- [X] T021 [P] [US2] `test_one_full_second_of_nobody_closes_the_scene` in `engine/tests/test_zones_live.py` — a 1.1 s gap closes it with `end_reason = "nobody"`
+- [X] T022 [P] [US2] `test_scene_is_cut_at_the_two_minute_limit` in `engine/tests/test_zones_live.py` — `end_reason = "limit"` (P4-FR-009)
+- [X] T023 [P] [US2] `test_camera_not_restricted_never_opens_a_scene` in `engine/tests/test_zones_live.py` — and assert the detector was **not** called for it (SC-005)
+- [X] T024 [P] [US2] `test_scene_records_peak_people_not_last_count` in `engine/tests/test_zones_live.py` — 1 → 3 → 1 people stores 3 (P4-FR-012)
+- [X] T025 [P] [US2] `test_toggling_off_mid_scene_closes_the_scene` in `engine/tests/test_zones_live.py` — `end_reason = "switched_off"`
+- [X] T026 [P] [US2] `test_restricted_zones_do_not_change_counting` in `engine/tests/test_zones_live.py` — counting and tracking results are identical with the zones worker on and off (rule 9, P4-FR-011)
+- [X] T027 [P] [US2] `test_capabilities_says_why_when_the_worker_is_not_running` in `engine/tests/test_zones_live.py` — UNAVAILABLE carries a specific reason, and LIVE carries none (rules 4, 7, 8)
 
 ### Implementation for User Story 2
 
-- [ ] T028 [US2] Create `engine/vg/features/zones.py` — `ZonesWorker(FeatureWorker)` holding `SharedDetection`, the restricted-id set and a per-camera scene state. Write **no** threading code; the base class owns it
-- [ ] T029 [US2] Implement the scene state machine in `analyse(frame)` in `engine/vg/features/zones.py` — return early for a camera that is not restricted (before any detection call); otherwise open / extend / close per [research.md](./research.md) D3. Time comes from `frame.captured_at`, never `time.monotonic()`, so tests control the clock and the gap matches the video
-- [ ] T030 [US2] Add `set_restricted(ids)` to `engine/vg/features/zones.py` so a toggle takes effect on the next frame — and closes any live scene on a camera just switched off
-- [ ] T031 [US2] Wire the worker into startup in `engine/vg/api/app.py` — same `SharedDetection` instance the people worker gets (never a second detector), call `SceneStore.close_orphans()` on start, and record a startup failure in a `zones_error` attribute the way `recognition_error` already works
-- [ ] T032 [US2] Override `breaches(since_days)` in `engine/vg/api/live.py` — map `zone_scene` rows to `S.Breach` per [contracts/api.md](./contracts/api.md): `subject` is always `MatchKind.NONE` named "Unidentified" (**rule 1** — this feature sees bodies, never names), `status` OPEN while running and RESOLVED once ended, `dwell_seconds` = scene length
-- [ ] T033 [US2] Add the three optional fields to `Breach` in `engine/vg/api/schemas.py` — `people: int = 1`, `clip_state: str = "none"`, `clip_reason: str | None = None`. Additive only, so no client breaks
-- [ ] T034 [US2] Flip the `breaches` entry in `capabilities()` in `engine/vg/api/live.py` — LIVE when the worker runs with no reason attached, UNAVAILABLE with the specific reason otherwise (worker failed to start, or person detection is not running)
-- [ ] T035 [P] [US2] Mirror the three new `Breach` fields in `web/src/services/wire.ts` and widen `Breach` in `web/src/types.ts` with `people`, `clipState`, `clipReason`
-- [ ] T036 [US2] Map the new fields in `getBreaches()` in `web/src/services/api.ts`
-- [ ] T037 [US2] Show the real log in `web/src/pages/Intrusion.tsx` — camera, site-local time, peak people, duration; and the two distinct empty states from [research.md](./research.md) D9 ("no cameras restricted" vs "nothing detected since the engine started")
+- [X] T028 [US2] Create `engine/vg/features/zones.py` — `ZonesWorker(FeatureWorker)` holding `SharedDetection`, the restricted-id set and a per-camera scene state. Write **no** threading code; the base class owns it
+- [X] T029 [US2] Implement the scene state machine in `analyse(frame)` in `engine/vg/features/zones.py` — return early for a camera that is not restricted (before any detection call); otherwise open / extend / close per [research.md](./research.md) D3. Time comes from `frame.captured_at`, never `time.monotonic()`, so tests control the clock and the gap matches the video
+- [X] T030 [US2] Add `set_restricted(ids)` to `engine/vg/features/zones.py` so a toggle takes effect on the next frame — and closes any live scene on a camera just switched off
+- [X] T031 [US2] Wire the worker into startup in `engine/vg/api/app.py` — same `SharedDetection` instance the people worker gets (never a second detector), call `SceneStore.close_orphans()` on start, and record a startup failure in a `zones_error` attribute the way `recognition_error` already works
+- [X] T032 [US2] Override `breaches(since_days)` in `engine/vg/api/live.py` — map `zone_scene` rows to `S.Breach` per [contracts/api.md](./contracts/api.md): `subject` is always `MatchKind.NONE` named "Unidentified" (**rule 1** — this feature sees bodies, never names), `status` OPEN while running and RESOLVED once ended, `dwell_seconds` = scene length
+- [X] T033 [US2] Add the three optional fields to `Breach` in `engine/vg/api/schemas.py` — `people: int = 1`, `clip_state: str = "none"`, `clip_reason: str | None = None`. Additive only, so no client breaks
+- [X] T034 [US2] Flip the `breaches` entry in `capabilities()` in `engine/vg/api/live.py` — LIVE when the worker runs with no reason attached, UNAVAILABLE with the specific reason otherwise (worker failed to start, or person detection is not running)
+- [X] T035 [P] [US2] Mirror the three new `Breach` fields in `web/src/services/wire.ts` and widen `Breach` in `web/src/types.ts` with `people`, `clipState`, `clipReason`
+- [X] T036 [US2] Map the new fields in `getBreaches()` in `web/src/services/api.ts`
+- [X] T037 [US2] Show the real log in `web/src/pages/Intrusion.tsx` — camera, site-local time, peak people, duration; and the two distinct empty states from [research.md](./research.md) D9 ("no cameras restricted" vs "nothing detected since the engine started")
 
 **Checkpoint**: detections are logged and visible. **Watch clip is still
 disabled**, honestly, because no clip exists yet. **Shippable.**
