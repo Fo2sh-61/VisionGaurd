@@ -265,14 +265,19 @@ def _start_people(cfg, registry, roster):
     try:
         from vg.features.people import PeopleWorker
         from vg.infer.persons import PersonDetector
+        from vg.infer.shared import SharedDetection
 
         spec = cfg.models.get("person")
-        detector = PersonDetector(
+        # Wrapped immediately and never unwrapped. Every body feature is handed
+        # the SharedDetection, so counting and tracking on one camera cost one
+        # detection pass rather than two, and no two threads can be inside the
+        # model at the same time. See vg/infer/shared.py - this is finding F2.
+        detector = SharedDetection(PersonDetector(
             weights=spec.weights if spec else None,
             device=spec.device if spec else "auto",
             imgsz=spec.imgsz if spec else 640,
             conf=spec.conf if spec else 0.35,
-        )
+        ))
 
         zones = {cid: cfg.zones_for(cid) for cid in cameras}
         rate = min((c.fps for c in roster if c.id in cameras), default=2.0)

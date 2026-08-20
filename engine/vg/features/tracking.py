@@ -52,7 +52,7 @@ class TrackingWorker(FeatureWorker[TrackingResult]):
         self.rows_written = 0
 
     def analyse(self, frame: Frame) -> TrackingResult:
-        boxes = self.detector.raw_boxes(frame.image)
+        boxes = self.detector.raw_boxes(frame)
 
         # The tracker is called on EVERY analysed frame, including empty ones.
         # That is how lost tracks age out; skipping empties would let a track

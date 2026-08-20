@@ -142,10 +142,25 @@ class PersonDetector:
         a wide view where distant blobs are noise rather than countable people.
         """
         boxes = self.raw_boxes(image)
+        height, width = image.shape[:2]
+        return self.people_from(boxes, width, height, min_area)
+
+    @staticmethod
+    def people_from(boxes, width: int, height: int,
+                    min_area: float = 0.0) -> list[DetectedPerson]:
+        """Turn ultralytics boxes into fractions of the frame.
+
+        Split out of `detect` so a detection pass can be run once and consumed
+        twice. `SharedDetection` hands the same `boxes` to counting and to
+        tracking; without this the second consumer would have to re-run the
+        model purely to get the same numbers in a different shape.
+
+        Pure and static on purpose: no model, no device, no lock. It is the
+        half of detection that is safe to call from any thread.
+        """
         if boxes is None:
             return []
 
-        height, width = image.shape[:2]
         people: list[DetectedPerson] = []
         for box in boxes:
             x1, y1, x2, y2 = (float(v) for v in box.xyxy[0].tolist())

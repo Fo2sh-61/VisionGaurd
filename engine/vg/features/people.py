@@ -24,7 +24,8 @@ from dataclasses import dataclass
 
 from vg.config import ZoneConfig
 from vg.features.base import FeatureWorker
-from vg.infer.persons import DetectedPerson, PersonDetector
+from vg.infer.persons import DetectedPerson
+from vg.infer.shared import SharedDetection
 from vg.ingest.source import Frame
 
 
@@ -95,7 +96,7 @@ class PeopleWorker(FeatureWorker[PeopleResult]):
     def __init__(
         self,
         bus,
-        detector: PersonDetector,
+        detector: SharedDetection,
         cameras: list[str],
         zones: dict[str, tuple[ZoneConfig, ...]] | None = None,
         rate_hz: float = 2.0,
@@ -111,7 +112,7 @@ class PeopleWorker(FeatureWorker[PeopleResult]):
         self.zones[camera_id] = zones
 
     def analyse(self, frame: Frame) -> PeopleResult:
-        people = tuple(self.detector.detect(frame.image))
+        people = tuple(self.detector.detect(frame))
         zones = self.zones.get(frame.camera_id, ())
 
         occupancy = []
