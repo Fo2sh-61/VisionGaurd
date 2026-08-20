@@ -1,0 +1,113 @@
+# The four gates from AGENTS.md, run on every push.
+#
+# These are the same four a developer runs locally with `.\dev.ps1 test`. If
+# you change one here, change it there — a CI that checks something different
+# from the local command is a CI people learn to ignore.
+#
+#   pyflakes   a name used but never bound. ~1s, and it is the exact bug that
+#              once silently killed face recognition: the NameError was
+#              swallowed by a broad except and the console served invented
+#              attendance for days.
+#   pytest     the suite, including the labelled-clip regressions.
+#   smoke      boot the real process with VG_STRICT=1 and ask it one question.
+#              Catches what unit tests structurally cannot: a startup that
+#              fails after the app object is built.
+#   tsc        `-b --force`, never `--noEmit`. web/ uses project references,
+#              against which `--noEmit` checks nothing and exits 0.
+#
+# Runs on windows-latest because that is the deployment target. Path handling,
+# process shutdown and the tzdata gap are all Windows-specific here, and a
+# green Linux run would not tell us they work.
+
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # A new push supersedes the run in flight for the same branch.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  engine:
+    name: engine (pyflakes, pytest, smoke)
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: engine/requirements.txt
+
+      - name: Install PyTorch (CPU)
+        # requirements.txt deliberately does not pin torch — it is matched to
+        # the CUDA version of whatever machine installs it. CI has no GPU, so
+        # it takes the CPU build explicitly. Without this, pip resolves the
+        # default CUDA wheel: gigabytes, downloaded to run on a box with no
+        # CUDA device.
+        run: |
+          python -m pip install --upgrade pip
+          pip install --index-url https://download.pytorch.org/whl/cpu torch
+
+      - name: Install engine requirements
+        run: pip install -r engine/requirements.txt
+
+      - name: pyflakes
+        # First because it is the fastest and the most specific. It also
+        # covers tests/, which `dev.ps1` historically did not — a broken test
+        # helper is just as capable of hiding a failure as broken source.
+        run: python -m pyflakes engine/vg engine/tools engine/tests
+
+      - name: pytest
+        if: '!cancelled()'
+        run: python -m pytest engine
+
+      - name: strict-mode smoke start
+        # VG_MOCK=1 + VG_STRICT=1, set by the script itself. No camera, no
+        # model weights, no GPU — none of which CI has.
+        if: '!cancelled()'
+        run: python engine/tools/smoke.py
+
+  web:
+    name: web (tsc)
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install
+        working-directory: web
+        # `npm ci` not `npm install`: it installs the lockfile exactly and
+        # fails if package.json and the lock have drifted apart, which is
+        # information worth having.
+        run: npm ci
+
+      - name: tsc -b --force
+        working-directory: web
+        # NOT `tsc --noEmit`. web/ uses project references; `--noEmit` against
+        # the solution tsconfig checks nothing and exits 0, which looks exactly
+        # like a passing type check while real errors sit in the source.
+        # `--force` stops a cached .tsbuildinfo from skipping the work.
+        #
+        # Through node rather than npx, matching dev.ps1: npx has failed to
+        # resolve the local binary on Windows, and a gate that fails for its
+        # own reasons is worse than no gate.
+        run: node node_modules/typescript/bin/tsc -b --force

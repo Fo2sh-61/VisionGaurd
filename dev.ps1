@@ -10,7 +10,7 @@
     .\dev.ps1 web           front end only
     .\dev.ps1 down          free ports 8000/5173 and release the webcam. Panic button
     .\dev.ps1 doctor        pre-flight checks. Run this each morning
-    .\dev.ps1 test          pytest + pyflakes + tsc
+    .\dev.ps1 test          pyflakes + pytest + smoke start + tsc (same as CI)
 
 .NOTES
     Never opens a second terminal. Never needs a PC restart.
@@ -392,8 +392,19 @@ function Invoke-Test {
 
     # pyflakes catches the exact bug class that broke face recognition - a name
     # used but never bound, swallowed at runtime by a broad except. One second.
+    #
+    # engine/tests is included: a broken test helper hides a failure just as
+    # effectively as broken source, and it is the same one-second check.
     Write-Head 'pyflakes'
-    & $py -m pyflakes engine/vg engine/tools
+    & $py -m pyflakes engine/vg engine/tools engine/tests
+    if ($LASTEXITCODE -ne 0) { $failed++ }
+
+    # Boot the real process, ask it one question, stop it. Unit tests start the
+    # app object; this starts the program, which is where a startup that fails
+    # after the app is built shows up. VG_MOCK, so it opens no camera and needs
+    # no weights - safe to run with an engine already up on 8000.
+    Write-Head 'smoke'
+    & $py engine/tools/smoke.py
     if ($LASTEXITCODE -ne 0) { $failed++ }
 
     Write-Head 'tsc'
@@ -407,7 +418,18 @@ function Invoke-Test {
             # type check while real errors sat in the source. `-b` builds the
             # referenced projects; `--force` stops a stale .tsbuildinfo from
             # skipping the work.
-            & npx tsc -b --force
+            #
+            # Invoked through node, not npx. `& npx tsc` failed here with
+            # "could not determine executable to run" while the very same
+            # check passed from a shell, so the gate reported a type error
+            # that did not exist - the worst way for a gate to fail. This
+            # runs the TypeScript the lockfile pinned, with no shim in the way.
+            $tsc = Join-Path $WebDir 'node_modules\typescript\bin\tsc'
+            if (Test-Path $tsc) {
+                & node $tsc -b --force
+            } else {
+                & npx tsc -b --force
+            }
             if ($LASTEXITCODE -ne 0) { $failed++ }
         } finally { Pop-Location }
     } else {
@@ -432,7 +454,7 @@ function Show-Help {
   .\dev.ps1 web           front end only
   .\dev.ps1 down          free the ports, release the webcam. Panic button
   .\dev.ps1 doctor        pre-flight checks. Run this each morning
-  .\dev.ps1 test          pytest + pyflakes + tsc
+  .\dev.ps1 test          pyflakes + pytest + smoke + tsc (the four CI gates)
 
   -AllowSystemPython      run without the project venv (not yet built)
 '@
