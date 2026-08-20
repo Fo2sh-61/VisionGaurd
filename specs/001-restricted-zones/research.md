@@ -36,19 +36,37 @@ an orange outline.
 
 ## D2 — Where the toggle is stored
 
-**Decision**: a `restricted INTEGER NOT NULL DEFAULT 0` column on the existing
-`camera` table in `ingest/store.py`.
+**Decision, as shipped**: a `camera_restricted` table in `ingest/store.py`,
+keyed by camera id.
 
-**Rationale**: the camera roster is already persisted there, already the source
-of truth over `engine.yaml`, and already opened through `vg.db.connect`. One
-column, added with `ALTER TABLE` guarded by a `PRAGMA table_info` check — the
-same pattern the file's `CREATE TABLE IF NOT EXISTS` already implies. This
-satisfies P4-FR-003 with no migration tooling, which P3 will bring later.
+**This section originally chose a `restricted` column on the `camera` table
+and rejected a separate table as "a join for one boolean". That was wrong, and
+the recorded-clip run is what caught it**: the `camera` table holds only what
+the console has added since — the baseline roster comes from `engine.yaml` and
+has **no row there at all**. A column on it could therefore never be written
+for the cameras a site starts with, and the toggle 404'd on every one of them,
+including the walk-through clip. There is also no join: the roster is already
+in memory, and the worker wants a set of ids.
+
+**Rationale for the table**: it is opened through `vg.db.connect` like every
+other store, `CREATE TABLE IF NOT EXISTS` upgrades an existing database in
+place, and it keeps the flag independent of whether a camera happens to be
+stored or configured. `CameraStore.remove` deletes the row, so removing a
+camera stops it being watched.
 
 **Alternatives rejected**:
 - `engine.yaml` — the constitution says the database is the source of truth and
   the seed file is bootstrap only. It also could not be written at runtime.
-- A separate `restricted_camera` table — a join for one boolean.
+- **Inserting a stub `camera` row on first toggle.** `merge_cameras` lets a
+  stored row win a clash, so one toggle would quietly freeze that camera's
+  name, fps and features, and later `engine.yaml` edits would stop taking
+  effect with nothing on screen to say why. A toggle must not change what a
+  camera *is*.
+
+**Where existence is checked**: the roster, not this table.
+`LiveStore.set_zone_enabled` refuses an id that is not in
+`registry.configs()`; the table itself accepts any id, because it cannot see
+which cameras exist.
 
 **Default is off.** A camera that appears in the roster is not watched until
 somebody says so. Defaulting on would start recording the day a camera is
