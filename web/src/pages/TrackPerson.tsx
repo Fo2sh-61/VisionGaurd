@@ -28,6 +28,7 @@ import { useCameras } from '@/app/CameraContext';
 import { useToday } from '@/app/SiteContext';
 import { usePersonNames } from '@/app/useOptions';
 import { CameraFrame } from '@/components/CameraFrame';
+import { RecordButton } from '@/components/RecordButton';
 import { Card, DataNotice, PageHeader } from '@/components/ui';
 import { correctIdentity, getLiveTracking, trackPerson } from '@/services/api';
 import { identifiedByFace } from '@/services/format';
@@ -45,7 +46,7 @@ const UNKNOWN = '#dfa23f';
 
 /** How long a stop has to be before returning to a camera counts as a new visit. */
 type Mode = 'live' | 'past';
-type Stage = null | 'ambig' | 'live' | 'stop' | 'done' | 'mancam' | 'manper';
+type Stage = null | 'ambig' | 'live' | 'stop' | 'mancam' | 'manper';
 
 interface Subject {
   id: string;
@@ -115,7 +116,6 @@ export function TrackPerson() {
   const [elapsed, setElapsed] = useState(0);
   const [trail, setTrail] = useState<TrailStop[]>([]);
   const [note, setNote] = useState('');
-  const [savedOk, setSavedOk] = useState(true);
   const [startedAt, setStartedAt] = useState<Date>(() => new Date());
 
   /* ---------- what the tracker can actually see ----------
@@ -731,7 +731,7 @@ export function TrackPerson() {
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 18, whiteSpace: 'nowrap' }}>
-                <Stat label="Recording" value={clock(elapsed)} mono />
+                <Stat label="Following for" value={clock(elapsed)} mono />
                 <Stat label="Cameras so far" value={String(camerasSoFar)} />
               </div>
               <div style={{ display: 'flex', gap: 9 }}>
@@ -750,14 +750,19 @@ export function TrackPerson() {
                   Stop tracking
                 </button>
               </div>
+              <RecordButton
+                cameraId={cam.id}
+                note="Records this camera from the moment you press it, and keeps going if the person moves elsewhere."
+              />
             </div>
           </Card>
 
           <Card>
             <div style={{ position: 'relative' }}>
-              {/* Recording, not LIVE — on this screen the badge means one
-                  thing, and two badges would claim two different things. */}
-              <CameraFrame camera={cam} size="lg" live badge="RECORDING" feature="track" />
+              {/* FOLLOWING, not RECORDING. The badge used to say RECORDING
+                  while nothing was written to disk — the record button below
+                  is the only thing on this page that records anything. */}
+              <CameraFrame camera={cam} size="lg" live badge="FOLLOWING" feature="track" />
               {/* ID big, name underneath — the design's rule. */}
               {/* No box overlay here on purpose. CameraFrame already draws the
                   tracked bodies from /cameras/{id}/detections, ids and all, and
@@ -832,60 +837,33 @@ export function TrackPerson() {
         </>
       )}
 
-      {/* ---------- save the clip ---------- */}
+      {/* ---------- what actually happened ----------
+           This used to ask "Save this clip?" and then report "Clip saved".
+           No clip existed and nothing was written: the answer only set a flag
+           that chose which sentence to print. A false confirmation is worse
+           than a dead button, because somebody goes looking for the file. */}
       {stage === 'stop' && (
         <Card>
-          <div style={{ fontWeight: 700, fontSize: 19, letterSpacing: '-.01em' }}>Save this clip?</div>
+          <div style={{ fontWeight: 700, fontSize: 19, letterSpacing: '-.01em' }}>
+            Tracking ended
+          </div>
           <div style={{ fontSize: 13.5, color: 'var(--tx2)', margin: '3px 0 16px' }}>
-            Tracking has ended. The clip exists only until you decide — discarding removes the video,
-            the search itself stays in the audit log.
+            The search is in the audit log with your name. Any recording you started while
+            following was written to disk as it was made — there is no clip waiting to be saved
+            or discarded here.
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: 12, marginBottom: 18 }}>
-            <Tile label="Length" value={`${Math.floor(elapsed / 60)}m ${elapsed % 60}s`} />
+            <Tile label="Followed for" value={`${Math.floor(elapsed / 60)}m ${elapsed % 60}s`} />
             <Tile label="Cameras" value={String(camerasSoFar)} />
             <Tile label="Started" value={wallClock(startedAt, 0)} />
           </div>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            <button
-              type="button"
-              onClick={() => { setSavedOk(true); setStage('done'); }}
-              style={{ height: 44, padding: '0 24px', border: 'none', borderRadius: 10, background: 'var(--ac)', color: '#fff', fontWeight: 600, fontSize: 14.5, cursor: 'pointer' }}
-            >
-              Save clip
+            <button type="button" className="chip-btn chip-btn--on" style={{ height: 44 }} onClick={() => { setNote(''); setStage('ambig'); }}>
+              Follow again
             </button>
-            <button type="button" className="chip-btn chip-btn--off" style={{ height: 44 }} onClick={() => { setSavedOk(false); setStage('done'); }}>
-              Discard
+            <button type="button" className="chip-btn chip-btn--off" style={{ height: 44 }} onClick={close}>
+              Close
             </button>
-          </div>
-        </Card>
-      )}
-
-      {/* ---------- done ---------- */}
-      {stage === 'done' && (
-        <Card>
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
-            <div style={{
-              width: 36, height: 36, borderRadius: '50%', flexShrink: 0,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              background: savedOk ? 'var(--chip)' : 'var(--panel)',
-              color: savedOk ? 'var(--ac2)' : 'var(--tx2)',
-            }}>
-              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                <path d={savedOk ? 'M4 9.5 L7.5 13 L14 5' : 'M5 5 L13 13 M13 5 L5 13'} />
-              </svg>
-            </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 700, fontSize: 16.5 }}>{savedOk ? 'Clip saved' : 'Clip discarded'}</div>
-              <div style={{ fontSize: 13.5, color: 'var(--tx2)', marginTop: 2 }}>
-                {savedOk
-                  ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s across ${camerasSoFar} ${camerasSoFar === 1 ? 'camera' : 'cameras'}, saved to the investigation record with your name.`
-                  : 'The video has been deleted. The search itself remains in the audit log.'}
-              </div>
-              <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
-                <button type="button" className="chip-btn chip-btn--on" onClick={() => { setNote(''); setStage('ambig'); }}>Follow again</button>
-                <button type="button" className="chip-btn chip-btn--off" onClick={close}>Close</button>
-              </div>
-            </div>
           </div>
         </Card>
       )}

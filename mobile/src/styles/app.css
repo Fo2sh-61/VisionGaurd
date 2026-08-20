@@ -246,6 +246,13 @@ textarea {
   cursor: pointer;
 }
 
+/* A disabled control has to look disabled. */
+.btn:disabled,
+.btn:disabled:active {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .btn--ghost {
   background: var(--card);
   color: var(--tx);

@@ -163,8 +163,18 @@ export function Attendance() {
                       </Badge>
                     </span>
                     <span className="row__muted">{row.time}</span>
+                    {/* Disabled on purpose, and it says why. Nothing holds a
+                        parent's phone number and there is no way to send a
+                        message, so this button did nothing when pressed -
+                        which on an absence row reads as a message that went
+                        out and did not. */}
                     {account.role === 'admin' ? (
-                      <button type="button" className="linkbtn">
+                      <button
+                        type="button"
+                        className="linkbtn"
+                        disabled
+                        title="Parent contacts and message sending are not set up yet, so nothing can be sent."
+                      >
                         Notify parent
                       </button>
                     ) : (

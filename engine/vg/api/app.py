@@ -180,10 +180,18 @@ async def lifespan(app: FastAPI):
         app.state.gallery = gallery
         app.state.recogniser = recogniser
 
+        # No model, no thread until somebody presses record. It exists as soon
+        # as the cameras do, which is the only thing recording depends on.
+        from vg.ingest.recorder import Recorder
+
+        app.state.recorder = Recorder(
+            registry.bus, cfg.storage.clips_dir, clock=cfg.timezone)
+
         store = LiveStore(
             cfg, registry, gallery, sightings, recogniser, cameras, people,
             tracking=tracking,
             counts=counts_store,
+            recorder=app.state.recorder,
         )
         store.recognition_error = app.state.recognition_error
         store.people_error = app.state.people_error
@@ -214,6 +222,12 @@ async def lifespan(app: FastAPI):
         stop_counts = getattr(app.state, "counts_stop", None)
         if stop_counts is not None:
             stop_counts.set()
+
+        # Before the cameras go: an mp4 whose writer was never released is an
+        # unplayable one, and it would be the file somebody went looking for.
+        recorder = getattr(app.state, "recorder", None)
+        if recorder is not None:
+            recorder.stop_all()
 
         for worker in (
             getattr(app.state, "people", None),
@@ -750,6 +764,43 @@ def _mount(app: FastAPI) -> None:
     async def list_cameras(store: StoreDep) -> list[S.CameraView]:
         live = getattr(store, "live_cameras", None)
         return live() if callable(live) else store.intrusion_cameras()
+
+    # ------------------------------------------------------------- recording
+    #
+    # Recording is started and stopped by a person, and records from the moment
+    # it is asked to - nothing is buffered, so the seconds before the button
+    # was pressed do not exist. A refusal comes back 200 with `ok: false` and a
+    # reason, because the operator needs to read it next to the button they
+    # just pressed, which an HTTP error status cannot deliver.
+
+    @app.get("/cameras/{camera_id}/recording", response_model=S.RecordingResult,
+             tags=["cameras"])
+    async def get_recording(camera_id: str, store: StoreDep) -> S.RecordingResult:
+        """What this camera is doing, or where its last recording went."""
+        return store.recording(camera_id)
+
+    @app.post("/cameras/{camera_id}/recording", response_model=S.RecordingResult,
+              tags=["cameras"])
+    async def start_recording(
+        camera_id: str,
+        store: StoreDep,
+        actor: Annotated[str, Query(description="who pressed record")] = "unknown",
+    ) -> S.RecordingResult:
+        return store.start_recording(camera_id, actor)
+
+    @app.delete("/cameras/{camera_id}/recording", response_model=S.RecordingResult,
+                tags=["cameras"])
+    async def stop_recording(
+        camera_id: str,
+        store: StoreDep,
+        actor: Annotated[str, Query(description="who pressed stop")] = "unknown",
+    ) -> S.RecordingResult:
+        """Waits for the file to be closed before answering.
+
+        Returning early would hand back a path that cannot be opened yet and
+        send the operator looking for a file that is still being written.
+        """
+        return store.stop_recording(camera_id, actor)
 
     # ------------------------------------------------------------- intrusion
     @app.get("/zones", response_model=list[S.Zone], tags=["intrusion"])

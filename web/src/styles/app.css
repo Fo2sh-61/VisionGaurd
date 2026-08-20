@@ -354,6 +354,31 @@ select.input {
   background: var(--bg);
 }
 
+/* Recording in progress. Red because stopping it is the action on offer. */
+.btn--danger {
+  background: var(--rd);
+  color: #fff;
+}
+
+.btn--danger:hover {
+  filter: brightness(1.08);
+}
+
+/* A disabled control has to look disabled. One that looks pressable and does
+   nothing is the bug this button was built to remove. */
+.btn:disabled,
+.btn:disabled:hover {
+  opacity: 0.5;
+  cursor: not-allowed;
+  filter: none;
+}
+
+.linkbtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  text-decoration: none;
+}
+
 /* ---------- stats ---------- */
 
 .stats {

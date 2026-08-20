@@ -80,6 +80,10 @@ class Store(Protocol):
     def search_lost(self, query: S.LostQuery) -> S.LostResult: ...
     def track(self, query: S.TrackQuery, actor: str) -> S.TrackResult: ...
 
+    def recording(self, camera_id: str) -> S.RecordingResult: ...
+    def start_recording(self, camera_id: str, actor: str) -> S.RecordingResult: ...
+    def stop_recording(self, camera_id: str, actor: str) -> S.RecordingResult: ...
+
     def health(self) -> S.SystemHealth: ...
     def sources(self) -> list[S.CameraSource]: ...
     def areas(self) -> list[str]: ...
@@ -542,6 +546,7 @@ class MockStore:
     #: forgotten in the other.
     CAPABILITIES: tuple[tuple[str, str], ...] = (
         ("cameras", "Camera streams"),
+        ("recording", "Video recording"),
         ("attendance", "Attendance register"),
         ("people", "People directory"),
         ("groups", "Groups"),
@@ -640,6 +645,23 @@ class MockStore:
                                    enabled=True, resolution="704x576")
                       for i in range(1, count + 1)],
         )
+
+    # -- recording ----------------------------------------------------------
+    #
+    # Demo mode has no cameras, so there is nothing to record. Returning a
+    # plausible-looking recording here would be a fake save: the operator
+    # presses stop, is told a file was written, and goes looking for it.
+
+    NO_CAMERAS = "There are no real cameras in demo mode, so nothing can be recorded."
+
+    def recording(self, camera_id: str) -> S.RecordingResult:
+        return S.RecordingResult(ok=False, reason=self.NO_CAMERAS)
+
+    def start_recording(self, camera_id: str, actor: str) -> S.RecordingResult:
+        return S.RecordingResult(ok=False, reason=self.NO_CAMERAS)
+
+    def stop_recording(self, camera_id: str, actor: str) -> S.RecordingResult:
+        return S.RecordingResult(ok=False, reason=self.NO_CAMERAS)
 
     def test_connection(self, req: S.TestConnectionRequest) -> S.TestConnectionResult:
         return S.TestConnectionResult(

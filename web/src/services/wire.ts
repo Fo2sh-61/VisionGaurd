@@ -327,6 +327,29 @@ export interface PipelineStage {
  *  reason. 'demo' is invented on purpose and only reachable with VG_MOCK=1. */
 export type DataState = 'live' | 'unavailable' | 'demo';
 
+export interface Recording {
+  id: string;
+  cameraId: string;
+  cameraName?: string | null;
+  state: 'recording' | 'saved' | 'failed';
+  startedAt: Instant;
+  stoppedAt?: Instant | null;
+  seconds: number;
+  frames: number;
+  /** Where it landed. null while running, and null when it failed — a path to
+   *  a file that was never written is exactly the fake save rule 4 forbids. */
+  file?: string | null;
+  /** Why it stopped by itself, or why it failed. null after a plain stop. */
+  reason?: string | null;
+  maxSeconds: number;
+}
+
+export interface RecordingResult {
+  ok: boolean;
+  recording?: Recording | null;
+  reason?: string | null;
+}
+
 export interface Capability {
   key: string;
   name: string;

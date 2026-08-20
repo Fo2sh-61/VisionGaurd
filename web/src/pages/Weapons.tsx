@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { CamGrid } from '@/components/CamGrid';
+import { RecordButton } from '@/components/RecordButton';
 import { Badge, Card, DataNotice, Field, PageHeader, Select } from '@/components/ui';
 import { getWeaponCameras, getWeaponDetections } from '@/services/api';
 import { WEAPON_STEPS } from '@/services/content';
@@ -204,13 +205,26 @@ export function Weapons() {
             </div>
           ))}
 
-          <div style={{ display: 'flex', gap: 9, marginTop: 16, flexWrap: 'wrap' }}>
-            <button type="button" className="btn">
-              Save clip to the incident
-            </button>
+          <div
+            style={{
+              display: 'flex',
+              gap: 9,
+              marginTop: 16,
+              flexWrap: 'wrap',
+              alignItems: 'flex-start',
+            }}
+          >
             <button type="button" className="btn btn--ghost" onClick={() => setState('clear')}>
               Close incident
             </button>
+            {/* The detection has already happened and nothing is buffered, so
+                it is not in the video. Said here rather than left to be
+                discovered by whoever opens the file afterwards. */}
+            <RecordButton
+              cameraId={cameras[0]?.id ?? ''}
+              disabled={cameras.length === 0}
+              note="Records from now on. The detection above already happened and will not be in the video."
+            />
           </div>
         </Card>
       )}

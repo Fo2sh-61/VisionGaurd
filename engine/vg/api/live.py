@@ -19,6 +19,7 @@ import logging
 from datetime import date, datetime, timezone
 
 from vg.clock import Clock, clock_for
+from vg.ingest.recorder import AlreadyRecording
 from vg.config import EngineConfig
 from vg.api import schemas as S
 from vg.api.store import MockStore
@@ -63,6 +64,7 @@ class LiveStore(MockStore):
         people=None,
         tracking=None,
         counts=None,
+        recorder=None,
     ) -> None:
         super().__init__()
         self.config = config
@@ -88,6 +90,9 @@ class LiveStore(MockStore):
         # than invented numbers. Absent means those windows have nothing real
         # to show and say so instead of falling back to fixtures.
         self.counts = counts
+        # On-demand video recording. Absent means the console says so rather
+        # than offering a button that quietly does nothing.
+        self.recorder = recorder
         # The site's clock, asked per timestamp. Holding one number from
         # startup left every time an hour out after the October change until
         # somebody restarted the engine, and nothing said so.
@@ -765,6 +770,9 @@ class LiveStore(MockStore):
 
         states = {
             "cameras": live(cameras_up, "No cameras are configured."),
+            "recording": live(
+                self.recorder is not None and cameras_up,
+                "Recording is not running, so nothing can be recorded."),
             "attendance": live(
                 recognition,
                 "Face recognition is not running, so no register is being kept.",
@@ -1422,6 +1430,87 @@ class LiveStore(MockStore):
             present_days=len(present), total_days=len(recorded),
             metrics=metrics, trend=trend, flags=flags,
         )
+
+    # -- recording ----------------------------------------------------------
+
+    NO_RECORDER = ("Recording is not running, so nothing can be recorded. "
+                   "It starts with the cameras.")
+
+    def _recording(self, rec) -> S.Recording:
+        return S.Recording(
+            id=rec.id, camera_id=rec.camera_id,
+            camera_name=self._camera_name(rec.camera_id),
+            state=rec.state,
+            started_at=_instant(rec.started_at, self.clock),
+            stopped_at=_instant(rec.stopped_at, self.clock),
+            seconds=round(rec.seconds, 1),
+            frames=rec.frames,
+            file=str(rec.path) if rec.path else None,
+            reason=rec.reason,
+            max_seconds=self.recorder.max_seconds if self.recorder else 0.0,
+        )
+
+    def recording(self, camera_id: str) -> S.RecordingResult:
+        """What this camera is doing, or what it last did.
+
+        A finished recording is still worth returning: the operator pressed
+        stop and wants to know where the file went.
+        """
+        if self.recorder is None:
+            return S.RecordingResult(ok=False, reason=self.NO_RECORDER)
+        current = self.recorder.current(camera_id)
+        return S.RecordingResult(
+            ok=True, recording=self._recording(current) if current else None)
+
+    def start_recording(self, camera_id: str, actor: str) -> S.RecordingResult:
+        if self.recorder is None:
+            return S.RecordingResult(ok=False, reason=self.NO_RECORDER)
+        if self.config.camera(camera_id) is None:
+            return S.RecordingResult(
+                ok=False, reason=f"There is no camera {camera_id!r}.")
+        worker = self.registry.worker(camera_id)
+        if worker is None or worker.status != "ok":
+            # Starting anyway would produce a running indicator and, fifteen
+            # seconds later, an empty failed recording. Saying so now is
+            # kinder and just as true.
+            return S.RecordingResult(
+                ok=False,
+                reason=f"{self._camera_name(camera_id)} is not sending frames, "
+                       f"so there is nothing to record.")
+
+        camera = self.config.camera(camera_id)
+        try:
+            rec = self.recorder.start(camera_id, actor, fps=camera.fps)
+        except AlreadyRecording:
+            current = self.recorder.current(camera_id)
+            return S.RecordingResult(
+                ok=False,
+                recording=self._recording(current) if current else None,
+                reason="This camera is already recording.")
+
+        self._log(actor, "recording.start", camera_id, f"recording {rec.id}")
+        return S.RecordingResult(ok=True, recording=self._recording(rec))
+
+    def stop_recording(self, camera_id: str, actor: str) -> S.RecordingResult:
+        if self.recorder is None:
+            return S.RecordingResult(ok=False, reason=self.NO_RECORDER)
+        rec = self.recorder.stop(camera_id, actor)
+        if rec is None:
+            # It may have ended itself a moment ago - the ten-minute limit, or
+            # the camera going dark. Answering a bare "not recording" would
+            # hide a file that was just written, and the operator pressing
+            # stop is exactly the person who wants to know where it went.
+            last = self.recorder.current(camera_id)
+            if last is None:
+                return S.RecordingResult(
+                    ok=False, reason="This camera is not recording.")
+            return S.RecordingResult(
+                ok=False, recording=self._recording(last),
+                reason=last.reason or "This recording had already been saved.")
+
+        self._log(actor, "recording.stop", camera_id,
+                  f"recording {rec.id} - {rec.frames} frames")
+        return S.RecordingResult(ok=True, recording=self._recording(rec))
 
     def test_connection(self, req: S.TestConnectionRequest) -> S.TestConnectionResult:
         """Actually open the stream and pull a frame.

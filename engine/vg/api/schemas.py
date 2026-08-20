@@ -256,6 +256,47 @@ class Clip(Wire):
     starts_at: Instant
 
 
+class Recording(Wire):
+    """A recording of one camera, running or finished.
+
+    Started and stopped by a person. It records from the moment the button is
+    pressed and no earlier: nothing is buffered, so the seconds before the
+    press do not exist. The UI has to say that where it matters — a weapon
+    detection that has already happened is not in the video.
+    """
+
+    id: str
+    camera_id: str
+    camera_name: str | None = None
+    state: Literal["recording", "saved", "failed"]
+    started_at: Instant
+    stopped_at: Instant | None = None
+    seconds: float = 0.0
+    frames: int = 0
+    #: Where it landed, for an operator to go and open. None while running,
+    #: and None when it failed - a path to a file that was never written is
+    #: exactly the fake save rule 4 forbids.
+    file: str | None = None
+    #: Why it stopped by itself, or why it failed. None after a plain stop.
+    reason: str | None = None
+    #: The safety limit, so the UI can say "stops itself after 10 minutes"
+    #: rather than surprising somebody.
+    max_seconds: float = 600.0
+
+
+class RecordingResult(Wire):
+    """What happened when the console asked to start or stop.
+
+    A refusal travels as `ok: false` with a reason, not as an error status.
+    "Recording is not available because no cameras are running" is something
+    the operator needs to read next to the button they just pressed.
+    """
+
+    ok: bool
+    recording: Recording | None = None
+    reason: str | None = None
+
+
 class PersonRef(Wire):
     """Who someone is, when we know.
 

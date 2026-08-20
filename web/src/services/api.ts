@@ -34,6 +34,8 @@ import type {
   LostResult,
   PersonHistory,
   PersonType,
+  Recording,
+  RecordingResult,
   SystemHealth,
   TrackQuery,
   TrackResult,
@@ -698,6 +700,71 @@ export async function getHistory(name: string): Promise<PersonHistory> {
       tone: severityToTone(f.severity),
     })),
   };
+}
+
+/* ---------- recording ----------
+ *
+ *  Started and stopped by a person, and it records from the moment the button
+ *  is pressed — nothing is buffered, so the seconds before the press do not
+ *  exist. The screens that sit next to an alert have to say so.
+ *
+ *  A refusal arrives as ok:false with a reason rather than an error status,
+ *  because the operator reads it next to the button they just pressed. These
+ *  three never throw for that case; they throw only when the engine cannot be
+ *  reached at all. */
+
+function toRecording(r: W.Recording): Recording {
+  return {
+    id: r.id,
+    cameraId: r.cameraId,
+    cameraName: r.cameraName ?? null,
+    state: r.state,
+    startedAt: formatTime(r.startedAt),
+    seconds: Math.round(r.seconds),
+    frames: r.frames,
+    file: r.file ?? null,
+    reason: r.reason ?? null,
+    maxSeconds: r.maxSeconds,
+  };
+}
+
+function toRecordingResult(result: W.RecordingResult): RecordingResult {
+  return {
+    ok: result.ok,
+    recording: result.recording ? toRecording(result.recording) : null,
+    reason: result.reason ?? null,
+  };
+}
+
+export async function getRecording(cameraId: string): Promise<RecordingResult> {
+  return toRecordingResult(
+    await get<W.RecordingResult>(`/cameras/${encodeURIComponent(cameraId)}/recording`),
+  );
+}
+
+export async function startRecording(
+  cameraId: string,
+  actor: string,
+): Promise<RecordingResult> {
+  return toRecordingResult(
+    await post<W.RecordingResult>(
+      `/cameras/${encodeURIComponent(cameraId)}/recording`,
+      undefined,
+      { actor },
+    ),
+  );
+}
+
+export async function stopRecording(
+  cameraId: string,
+  actor: string,
+): Promise<RecordingResult> {
+  return toRecordingResult(
+    await del<W.RecordingResult>(
+      `/cameras/${encodeURIComponent(cameraId)}/recording`,
+      { actor },
+    ),
+  );
 }
 
 /* ---------- camera sources (onboarding) ---------- */

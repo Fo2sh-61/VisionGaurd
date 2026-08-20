@@ -343,6 +343,27 @@ export interface GroupMember {
   tone: Tone;
 }
 
+export interface Recording {
+  id: string;
+  cameraId: string;
+  cameraName: string | null;
+  state: 'recording' | 'saved' | 'failed';
+  startedAt: string;
+  seconds: number;
+  frames: number;
+  /** Where it landed, for an operator to go and open. */
+  file: string | null;
+  /** Why it stopped by itself, or why it failed. */
+  reason: string | null;
+  maxSeconds: number;
+}
+
+export interface RecordingResult {
+  ok: boolean;
+  recording: Recording | null;
+  reason: string | null;
+}
+
 export interface AttendanceBar {
   /** ISO date. The row key: weekday labels repeat every five rows. */
   date: string;

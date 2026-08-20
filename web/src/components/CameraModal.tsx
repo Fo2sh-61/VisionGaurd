@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { describeCount } from '@/services/format';
 import type { Camera } from '@/types';
 import { CameraFrame } from './CameraFrame';
+import { RecordButton } from './RecordButton';
 
 export function CameraModal({ camera, onClose }: { camera: Camera; onClose: () => void }) {
   const [count, setCount] = useState<number | null>(null);
@@ -42,13 +43,23 @@ export function CameraModal({ camera, onClose }: { camera: Camera; onClose: () =
               ? 'No signal — this is the last frame received, not a live view.'
               : 'Live view. Boxes and the headcount update as the engine runs.'}
           </div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 9, marginTop: 14 }}>
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'flex-end',
+              alignItems: 'flex-start',
+              gap: 9,
+              marginTop: 14,
+            }}
+          >
             <button type="button" className="btn btn--ghost" onClick={onClose}>
               Close
             </button>
-            <button type="button" className="btn">
-              Save clip
-            </button>
+            <RecordButton
+              cameraId={camera.id}
+              disabled={camera.offline}
+              note="Records from the moment you press it. Nothing before that is kept."
+            />
           </div>
         </div>
       </div>

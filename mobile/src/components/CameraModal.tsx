@@ -25,7 +25,16 @@ export function CameraModal({ camera, onClose }: { camera: Camera; onClose: () =
             <button type="button" className="btn btn--ghost" onClick={onClose}>
               Close
             </button>
-            <button type="button" className="btn">
+            {/* Disabled, and it says why. The mobile app runs entirely on
+                fixtures, so there is no engine here to ask for a recording -
+                and a button that quietly does nothing is what the console
+                just finished removing. */}
+            <button
+              type="button"
+              className="btn"
+              disabled
+              title="This prototype is not connected to the engine, so nothing can be recorded."
+            >
               Save clip
             </button>
           </div>
