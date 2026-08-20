@@ -1120,7 +1120,10 @@ def _mount(app: FastAPI) -> None:
         # particular the name comes from a face seen INSIDE this body in this
         # frame — never from a stored binding, which is what previously put one
         # person's name on every body on the camera.
-        boxes_for = getattr(store, "_tracked_boxes", None)
+        # Through the store's public overlay, asking as the `track` feature.
+        # This was `getattr(store, "_tracked_boxes", None)`, which reached into
+        # a private method and quietly produced nothing when the store did not
+        # happen to have one.
 
         out: list[S.TrackedIdentity] = []
         for camera_id in worker.cameras:
@@ -1129,7 +1132,7 @@ def _mount(app: FastAPI) -> None:
             camera_name = camera.config.name if camera else camera_id
             at = camera.last_frame().captured_at if (camera and camera.last_frame()) else None
 
-            for box in (boxes_for(camera_id) if callable(boxes_for) else []):
+            for box in store.overlay(camera_id, "track"):
                 out.append(S.TrackedIdentity(
                     stable_id=box.track_id or "",
                     camera_id=camera_id,

@@ -130,6 +130,24 @@ class MockStore:
         self._sources = self._build_sources()
         self._people = self._build_people()
 
+    # -- overlays -----------------------------------------------------------
+
+    def overlay(self, camera_id: str, feature: str | None = None) -> list[S.Box]:
+        """Boxes to draw on one camera, for the page that asked.
+
+        Empty here: `MockStore`'s fixture cameras carry their boxes inline,
+        and there is no per-feature overlay machinery behind them to query.
+        Returning nothing is the honest answer rather than handing back some
+        other camera's fixtures.
+
+        It exists on the mock at all so that callers have one interface to
+        use. `app.py` previously did `getattr(store, "_tracked_boxes", None)`
+        and called it if it happened to be there - which silently returned no
+        identities whenever the store was a mock, and reached into another
+        object's private method when it was not.
+        """
+        return []
+
     # -- site ---------------------------------------------------------------
 
     def site(self) -> S.SiteInfo:

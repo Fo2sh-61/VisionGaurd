@@ -155,6 +155,17 @@ class LiveStore(MockStore):
             stream_url=f"/cameras/{worker.config.id}/stream",
         )
 
+    def overlay(self, camera_id: str, feature: str | None = None) -> list[S.Box]:
+        """The public name for `_boxes`, for callers outside this class.
+
+        `app.py` needs the tracking overlay to build the identities list, so
+        that the page and the picture cannot disagree about who is who. It
+        used to reach for `_tracked_boxes` by getattr; this is the same data
+        through the front door, and it keeps the per-feature rule - the caller
+        still has to say which feature is asking.
+        """
+        return self._boxes(camera_id, feature)
+
     def _boxes(self, camera_id: str, feature: str | None = None) -> list[S.Box]:
         """What to draw on a camera tile, for the page that asked.
 

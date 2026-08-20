@@ -292,3 +292,49 @@ class TestFeaturesCannotReachTheModel:
         assert "SharedDetection(PersonDetector(" in source, (
             "app.py must wrap the person detector where it is built"
         )
+
+
+# ---------------------------------------------------------------------------
+# P1-03: no reaching into another object's private methods
+# ---------------------------------------------------------------------------
+
+class TestNoPrivateReachIn:
+    """`app.py` must ask the store for an overlay through its front door.
+
+    It used to do `getattr(store, "_tracked_boxes", None)` and call the result
+    if it happened to be callable. Two problems: it reached into a private
+    method of another class, and when the store did not have one - the mock
+    never did - it silently produced no identities at all, which reads on
+    screen as "nobody is being tracked" rather than "this build cannot answer".
+    """
+
+    def test_app_does_not_call_the_private_overlay(self):
+        source = (Path(__file__).resolve().parents[1] / "vg" / "api"
+                  / "app.py").read_text(encoding="utf-8")
+        offenders = [
+            line.strip() for line in source.splitlines()
+            if "_tracked_boxes" in line and not line.strip().startswith("#")
+        ]
+        assert not offenders, f"app.py still reaches for the private method: {offenders}"
+
+    def test_both_stores_offer_the_public_overlay(self):
+        """Mock and live must answer the same call, or callers must branch."""
+        from vg.api.store import MockStore
+
+        assert callable(getattr(MockStore, "overlay", None)), (
+            "MockStore needs `overlay` so callers have one interface"
+        )
+        from vg.api.live import LiveStore
+        assert callable(getattr(LiveStore, "overlay", None))
+
+    def test_the_overlay_still_takes_the_feature(self):
+        """Per-feature overlays are a constitution rule, not a convenience.
+
+        An `overlay(camera_id)` with no feature would be the shared overlay
+        that once put tracking ids on the attendance page.
+        """
+        import inspect
+        from vg.api.live import LiveStore
+
+        params = list(inspect.signature(LiveStore.overlay).parameters)
+        assert "feature" in params, f"overlay must ask which feature: {params}"
