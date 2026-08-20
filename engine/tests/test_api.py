@@ -17,12 +17,13 @@ from vg.api.store import MockStore
 
 
 @pytest.fixture
-def client() -> TestClient:
-    # A fresh store per test so mutations cannot leak between them.
+def client(authed) -> TestClient:
+    # A fresh store per test so mutations cannot leak between them, and a
+    # signed-in admin, because every endpoint now refuses an anonymous caller.
     from vg.api import app as app_module
 
     app_module.set_store(MockStore())
-    return TestClient(create_app())
+    return authed(create_app())
 
 
 # ---------------------------------------------------------------------------

@@ -25,9 +25,11 @@ from vg.api.store import MockStore
 
 
 @pytest.fixture
-def client() -> TestClient:
+def client(authed) -> TestClient:
+    # Signed in, so a 404 here means the endpoint is gone rather than that
+    # the caller was turned away at the door.
     app_module.set_store(MockStore())
-    return TestClient(create_app())
+    return authed(create_app())
 
 
 @pytest.mark.parametrize("method, path", [

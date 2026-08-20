@@ -1033,3 +1033,38 @@ class EnrolmentSessionView(Wire):
     ready: bool = False
     # What to do next, in the operator's words.
     advice: str = ""
+
+# ---------------------------------------------------------------------------
+# auth
+# ---------------------------------------------------------------------------
+
+class LoginRequest(Wire):
+    """What the sign-in form sends.
+
+    The password is here and nowhere else: never logged, never echoed, never
+    stored. It exists between this model and argon2 and then it is gone.
+    """
+
+    email: str
+    password: str
+
+
+class Account(Wire):
+    """The signed-in user, as the server sees them.
+
+    No password hash, and no permissions list. The console asks the server
+    what it may do rather than deciding from a role it holds locally.
+    """
+
+    id: str
+    name: str
+    email: str
+    role: str
+    initials: str
+
+
+class LoginResult(Wire):
+    token: str
+    expires_at: Instant
+    user: Account
+

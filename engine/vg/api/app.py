@@ -25,6 +25,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from vg import config as vgconfig
+from vg.auth import deps as auth_deps
 from vg.api import schemas as S
 from vg.api.store import MockStore, Store
 
@@ -96,6 +97,36 @@ async def lifespan(app: FastAPI):
 
     app.state.recogniser = None
     app.state.gallery = None
+
+    # Auth comes up before anything else and independently of every feature.
+    # A camera that will not open, a model that will not load, a database that
+    # will not migrate - none of them may leave the engine serving requests to
+    # people it cannot identify. If this fails, the middleware refuses every
+    # request rather than guessing.
+    app.state.users = None
+    app.state.users_error = None
+    try:
+        from pathlib import Path
+
+        from vg.auth.store import UserStore
+
+        users_db = vgconfig.REPO_DIR / "engine" / "data" / "visionguard.db"
+        if cfg is not None:
+            raw_url = str(cfg.storage.database_url).replace("sqlite:///", "")
+            candidate = Path(raw_url)
+            users_db = candidate if candidate.is_absolute() else vgconfig.REPO_DIR / candidate
+        app.state.users = UserStore(users_db)
+        if app.state.users.count() == 0:
+            # Not a failure - a fresh install. But it is worth saying loudly,
+            # because nobody can sign in and the console will look broken.
+            log.warning(
+                "no accounts exist yet - nobody can sign in. Create the first "
+                "administrator with: python engine/tools/create_user.py"
+            )
+    except Exception as exc:
+        log.exception("authentication failed to start")
+        app.state.users_error = _reason(exc)
+        _reraise_if_strict(exc, "authentication")
 
     app.state.cameras = None
 
@@ -569,6 +600,57 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    @app.middleware("http")
+    async def authenticate(request: Request, call_next):
+        """Resolve the caller, and refuse everything that is not public.
+
+        Deny by default, in one place. A per-endpoint decorator is the same
+        rule written as a hope: the endpoint somebody forgets to decorate is
+        the one that leaks, and nothing about the code would look wrong.
+
+        Roles are still checked per endpoint, because "signed in" and
+        "allowed to do this" are different questions. This answers the first.
+        """
+        request.state.user = auth_deps.user_from(request)
+
+        # CORS preflight carries no credentials by design; blocking it would
+        # break the browser before it ever gets to send the real request.
+        if request.method == "OPTIONS":
+            return await call_next(request)
+
+        if request.state.user is None and not auth_deps.is_public(request.url.path):
+            store = getattr(request.app.state, "users", None)
+            if store is None:
+                # Auth failed to start. Refusing every request is the only
+                # safe reading: an engine that cannot check who you are must
+                # not guess, and System Health says why.
+                return JSONResponse(
+                    status_code=503,
+                    content={"detail": "Sign-in is unavailable, so nothing can be "
+                                       "served. See System Health."},
+                )
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Sign in to use this."},
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        # Signed in, but is this theirs to do? Enrolment and configuration
+        # changes are admin-only, decided from the path so a new endpoint
+        # under those prefixes is locked the day it is written.
+        user = request.state.user
+        if user is not None and auth_deps.requires_admin(request.method,
+                                                         request.url.path):
+            if not user.is_admin:
+                log.warning("%s (%s) was refused %s %s", user.email, user.role,
+                            request.method, request.url.path)
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "This needs an administrator account."},
+                )
+
+        return await call_next(request)
+
     @app.exception_handler(Exception)
     async def unhandled(request: Request, exc: Exception):
         # Never leak a stack trace to the browser; the UI renders `Problem`.
@@ -588,7 +670,82 @@ def _mount(app: FastAPI) -> None:
     # ---------------------------------------------------------------- health
     @app.get("/healthz", tags=["meta"], summary="Liveness probe")
     async def healthz() -> dict:
+        """The only endpoint reachable without signing in.
+
+        A load balancer cannot authenticate and still has to tell a running
+        engine from a dead one. It says nothing about the site.
+        """
         return {"ok": True, "version": app.version}
+
+    # ----------------------------------------------------------------- auth
+    @app.post("/auth/login", tags=["auth"], summary="Sign in")
+    async def login(request: Request, body: S.LoginRequest, response: Response):
+        """Exchange an email and password for a session.
+
+        One failure message for every way this can fail - unknown account,
+        wrong password, disabled account. Telling them apart hands an attacker
+        a list of real email addresses, and a school's addresses are guessable.
+
+        The token comes back in the body *and* as an HttpOnly cookie. The body
+        is for the API client; the cookie exists because the MJPEG camera
+        streams are loaded by `<img src=...>`, which cannot send an
+        Authorization header.
+        """
+        store = getattr(request.app.state, "users", None)
+        if store is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Sign-in is unavailable. See System Health.",
+            )
+
+        user = store.authenticate(body.email, body.password)
+        if user is None:
+            log.warning("failed sign-in for %r from %s", body.email,
+                        request.client.host if request.client else "?")
+            raise HTTPException(status_code=401, detail="Email or password is wrong.")
+
+        token, expires = store.start_session(user)
+        response.set_cookie(
+            auth_deps.COOKIE_NAME, token,
+            httponly=True,      # page scripts cannot read it
+            samesite="strict",  # another site cannot ride it
+            max_age=int((expires - datetime.now(timezone.utc)).total_seconds()),
+            path="/",
+        )
+        log.info("%s signed in", user.email)
+        return S.LoginResult(
+            token=token,
+            expires_at=S.Instant(
+                utc=expires,
+                tz_offset_minutes=getattr(get_store(), "_offset", 0),
+            ),
+            user=S.Account(id=user.id, name=user.name, email=user.email,
+                           role=user.role, initials=user.initials),
+        )
+
+    @app.post("/auth/logout", tags=["auth"], summary="Sign out")
+    async def logout(request: Request, response: Response) -> dict:
+        """End this session now, server-side.
+
+        Deleting the row is what makes it real. Clearing the cookie alone
+        would leave a token that still works if it was captured.
+        """
+        store = getattr(request.app.state, "users", None)
+        if store is not None:
+            store.end_session(auth_deps.token_from(request))
+        response.delete_cookie(auth_deps.COOKIE_NAME, path="/")
+        return {"ok": True}
+
+    @app.get("/auth/me", tags=["auth"], summary="Who am I")
+    async def me(user: auth_deps.CurrentUser) -> S.Account:
+        """The signed-in account, as the server sees it.
+
+        The console asks this on load instead of trusting its own storage.
+        The old build kept the role in localStorage, where the user could
+        edit it; this is the answer that counts.
+        """
+        return S.Account(id=user.id, name=user.name, email=user.email,
+                         role=user.role, initials=user.initials)
 
     @app.get("/site", response_model=S.SiteInfo, tags=["meta"])
     async def get_site(store: StoreDep) -> S.SiteInfo:

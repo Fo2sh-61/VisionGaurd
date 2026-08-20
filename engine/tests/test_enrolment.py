@@ -400,14 +400,13 @@ class TestCommit:
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
-def client(gallery):
+def client(gallery, authed):
     """A test client with a fake enrolment service already attached.
 
     The lifespan does not run under a bare TestClient, so `app.state.enrolment`
     is injected here. That is also the behaviour being relied on by
     `test_enrolment_is_unavailable_not_broken` below.
     """
-    from fastapi.testclient import TestClient
 
     from vg.api.app import create_app
     from vg.api.store import MockStore
@@ -418,7 +417,9 @@ def client(gallery):
     app.state.enrolment = service(gallery)
     app.state.enrolment_error = None
     app.state.registry = None
-    return TestClient(app)
+    # Enrolment is admin-only, and these tests exercise the feature rather
+    # than the gate. test_authorisation.py covers the gate.
+    return authed(app, "admin")
 
 
 def jpeg() -> bytes:

@@ -74,17 +74,24 @@ class TestSmokeStart:
         assert response.status_code == 200
         assert response.json()["ok"] is True
 
-    def test_system_health_is_reachable_on_a_bare_engine(self, monkeypatch):
+    def test_system_health_is_reachable_on_a_bare_engine(self, monkeypatch, authed):
         """Health must answer when everything it describes is broken.
 
         Constitution rule 7: degradation is payload, never a 5xx. System Health
         is the page an operator opens to find out what is wrong, so it cannot
         be the page that fails because something is wrong.
+
+        It is behind sign-in (P2) - it describes the site's subsystems, which
+        is not something to hand an anonymous caller - so this signs in first.
+        The 401 case is test_authorisation.py's job; what is checked here is
+        that a broken engine answers rather than erroring.
         """
         monkeypatch.setenv("VG_MOCK", "1")
         monkeypatch.setenv("VG_STRICT", "1")
 
-        with TestClient(create_app()) as client:
+        app = create_app()
+        with TestClient(app):          # runs the lifespan
+            client = authed(app)       # a real session against the started app
             response = client.get("/system/health")
 
         assert response.status_code == 200

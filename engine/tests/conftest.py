@@ -70,3 +70,54 @@ def live_ish_store():
     cfg = vgconfig.load()
     registry = CameraRegistry(cfg.cameras)
     return LiveStore(config=cfg, registry=registry)
+
+
+# ---------------------------------------------------------------------------
+# authentication, for tests that need to get past the front door
+#
+# Every endpoint except /healthz and /auth/login now refuses an unauthenticated
+# caller (P2). That is the product working, but it means an API test has to
+# sign in like anything else. These fixtures make that one line.
+#
+# Tests that check the refusal itself deliberately do NOT use them - see
+# test_authorisation.py, which uses a bare client on purpose.
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def user_store(tmp_path):
+    """A real UserStore on a throwaway database."""
+    from vg.auth.store import UserStore
+
+    store = UserStore(tmp_path / "auth.db")
+    yield store
+    store.close()
+
+
+@pytest.fixture
+def sign_in(user_store):
+    """Give an app a working session, and hand back the bearer token.
+
+    Attaches the store to `app.state.users` the way the lifespan would, so a
+    TestClient built without `with` still has authentication available.
+    """
+    def _sign_in(app, role: str = "admin", email: str | None = None) -> str:
+        email = email or f"{role}@test.local"
+        user = user_store.create_user(
+            email=email, name=f"Test {role.title()}", role=role,
+            password="a-long-enough-test-password",
+        )
+        token, _expires = user_store.start_session(user)
+        app.state.users = user_store
+        return token
+    return _sign_in
+
+
+@pytest.fixture
+def authed(sign_in):
+    """`client(app)` -> a TestClient already carrying an admin session."""
+    from fastapi.testclient import TestClient
+
+    def _client(app, role: str = "admin"):
+        token = sign_in(app, role)
+        return TestClient(app, headers={"Authorization": f"Bearer {token}"})
+    return _client

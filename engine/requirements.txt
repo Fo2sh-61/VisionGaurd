@@ -25,6 +25,12 @@ python-multipart>=0.0.12    # form uploads (face enrolment photos)
 SQLAlchemy>=2.0
 alembic>=1.14               # schema migrations once the event tables settle
 
+# --- auth ------------------------------------------------------------------
+argon2-cffi>=23.1           # password hashing. Argon2id is the current OWASP
+                            # first choice and the settled decision for this
+                            # project; bcrypt and PBKDF2 are not alternatives
+                            # to reopen. Never store a password any other way
+
 # --- config / util ---------------------------------------------------------
 PyYAML>=6.0
 python-dotenv>=1.0          # camera credentials stay out of the repo
