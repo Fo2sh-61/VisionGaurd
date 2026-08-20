@@ -221,13 +221,37 @@ real hardware with the real feature mix, not from this table.
 |---|---|---|
 | **M1** | Re-ID model + architecture name + how it loads + Python version built on | `.venv` creation, P7 — **highest leverage** |
 | **M2** | Trained weapons model + class list + eval footage | Honest P6 scoring. The current model is zero-shot and lists scissors and screwdrivers |
-| **D1** | Lawful basis + consent for biometrics of minors | **Gates deployment entirely** — start this now, it's legal not engineering |
-| **D2** | Target hardware (GPUs, RAM, storage, network) | The 208-camera plan |
-| **D3** | Do the site cameras have low-res sub-streams? | Decode budget swings ~4× |
-| **D4** | Retention: how long for clips, footage, sightings? | Storage sizing + privacy |
+| ~~D1~~ | ~~Lawful basis + consent for biometrics of minors~~ | **ANSWERED 20 Aug 2026 — permission granted.** No longer gates deployment |
+| **D2** | Target hardware (GPUs, RAM, storage, network) | The 208-camera plan. Sizing arithmetic now in §7 |
+| ~~D3~~ | ~~Do the site cameras have low-res sub-streams?~~ | **ANSWERED 20 Aug 2026 — yes.** The laptop webcam does not, but it is a development device, not a site camera |
+| ~~D4~~ | ~~Retention: how long for clips, footage, sightings?~~ | **ANSWERED 20 Aug 2026 — 3 days of footage.** See §7.1 |
 | **D5** | Rotate the Kaggle API key — it sat unignored in `models/knife detection/kaggle.json` | Security |
 
-Defaults if unanswered: 30-day clips / 14-day appearance rows / 365-day sightings; assume sub-streams exist; in-app alerts only; no Arabic RTL at launch; counting stays honestly "summed, not de-duplicated".
+Defaults if unanswered: 14-day appearance rows / 365-day sightings; in-app alerts only; no Arabic RTL at launch; counting stays honestly "summed, not de-duplicated".
+
+### 7.1 Storage, now that retention is 3 days
+
+Answered 20 Aug 2026: **3 days of recorded footage**, and the site cameras do
+have low-resolution sub-streams.
+
+At 208 cameras recording a ~512 kbps sub-stream continuously:
+
+| | |
+|---|---|
+| Per camera | ~5.5 GB/day |
+| All 208 | ~1.15 TB/day |
+| **3 days** | **~3.5 TB** |
+
+Call it **6–8 TB usable** with the database, evidence clips and headroom.
+
+That is two drives, not a disk array — the 30-day default would have needed
+~35 TB. It is the single biggest cost reduction available on this project, and
+it also shrinks the privacy exposure: footage of children stops existing after
+three days rather than a month.
+
+**The catch:** a lost item reported on Monday cannot be searched for on
+Thursday. Three days is a real operational limit, not just a storage setting,
+and the Lost Items page must say so plainly rather than returning no hits.
 
 ---
 
