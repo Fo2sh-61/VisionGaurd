@@ -1,6 +1,6 @@
 # VisionGuard — Status
 
-**Updated:** 19 Aug 2026 · **Commit:** `03f1fd7` · Plan: `docs/PLAN.md` · Rules: `.specify/memory/constitution.md`
+**Updated:** 20 Aug 2026 · **Commit:** `d6ce423` · Plan: `docs/PLAN.md` · Rules: `.specify/memory/constitution.md`
 
 ## Feature state
 
@@ -20,11 +20,28 @@
 | Mobile app | **Fake** — entirely fixtures, including random numbers |
 | Fights | **Removed from scope** — no model; remnants still in code (P0-05 removes them) |
 
+## P0 progress
+
+Nine of ten done. Each shipped with its regression test.
+
+| | | |
+|---|---|---|
+| P0-01 | fixture fallback killed | done |
+| P0-02 | track badge reads the name | done |
+| P0-03 | timezone per timestamp | done |
+| P0-04 | person-mode late cutoff | done |
+| P0-05 | fights removed | done |
+| P0-06 | SQLite WAL + busy-timeout | done |
+| P0-07 | dead buttons | done |
+| P0-08 | error / empty / degraded states on every page | **not started** |
+| P0-09 | person history + groups wired | done |
+| P0-10 | CI: the four gates | done |
+
 ## Next 3 things
 
-1. **P0-01** — stop serving fake data when a subsystem is off (the biggest single risk)
-2. **P0-03** — fix the timezone before Egypt's DST change in late October
-3. **P0-06** — SQLite WAL + busy-timeout (one hour of work, prevents lost events)
+1. **P0-08** — the last P0. Error, empty and degraded states on every page
+2. **Add a git remote** — the CI workflow is committed but nothing runs it yet
+3. **P1-01** — one detection pass per camera per tick (F2: the detector runs twice per frame today)
 
 ## Blocked on the owner
 
@@ -44,12 +61,16 @@
 .\dev.ps1 down                       # panic button, frees 8000/5173
 ```
 
-Tests: `python -m pytest engine` · `cd web; npx tsc -b --force`
-(**not** `tsc --noEmit` — project references make it a silent no-op)
+Tests: `.\dev.ps1 test` runs all four gates — pyflakes, pytest, smoke start, tsc.
+(tsc is **not** `--noEmit` — project references make it a silent no-op)
 
 No `.venv` yet — deliberately blocked on the re-ID handover. System Python 3.14 works: torch 2.11.0+cu128, CUDA true on an RTX 2080.
 
-**Tests verified 19 Aug 2026: 270 passed, 6 skipped** (`python -m pytest engine`, 10s). `npx tsc -b --force` is clean. The third gate, `pyflakes`, could not run at all — it is in `engine/requirements.txt` but is not installed in system Python 3.14. P0-10 puts all three in CI.
+**Gates verified 20 Aug 2026, all four green:** 375 passed, 6 skipped (46s) · pyflakes clean over `vg`, `tools` and `tests` · smoke start exit 0 · tsc clean.
+
+Also verified on a **fresh clone with no `engine/data/` and no model weights** — the condition CI runs in: 374 passed, 7 skipped. The extra skip is the model-weights check, which has nothing to check on a machine that has no weights.
+
+`.github/workflows/ci.yml` is committed but **has never run** — the repository has no git remote. Adding one is what turns it on.
 
 ## Housekeeping
 
