@@ -68,3 +68,11 @@ models/knife detection/archive/
 # footage of minors is an open question (docs/PLAN.md D1), and a repo is the
 # one place footage can never be withdrawn from.
 models/knife detection/*.mp4
+
+# local tooling state (ruflo / claude-flow plugins) - machine-specific
+.claude-flow/
+.claude/proven-config.json
+.claude/.proven-config-version
+[INFO] Recording command outcome: cd
+
+[OK] Command outcome recorded
