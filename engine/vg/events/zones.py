@@ -8,10 +8,15 @@ The worker in `features/zones.py` owns that rule; this file only stores it.
 Three decisions worth stating:
 
 **Rows are never deleted.** Only files are. Each camera keeps its newest few
-clips (`CLIPS_KEPT_PER_CAMERA`); a new one pushes the oldest past the cap and
-its file is removed, but the row stays listed with `clip_state = 'replaced'`
-and says so. An operator who saw an entry yesterday
-must never find it gone today — that is how a log stops being evidence.
+clips (`CLIPS_KEPT_PER_CAMERA`); a new one pushes the oldest past the cap, its
+file is removed and its row is marked `replaced`.
+
+A replaced row stops being *listed* — the console's log is a list of what can
+be watched, and an entry with nothing behind it is clutter. It does not stop
+*existing*: the time, the peak count and the duration stay here, because a
+detection that happened is evidence even once the video of it is gone, and
+`recent()` still returns it when asked. Deleting the row would be the thing
+that turns this from a log into a rumour.
 
 **Mark, then unlink.** `attach_clip` writes `replaced` before deleting the file
 it names. A crash between the two leaves a row that honestly says the clip is
@@ -255,13 +260,31 @@ class SceneStore:
             ).fetchone()
         return _to_scene(row) if row else None
 
-    def recent(self, since_days: int, camera_id: str | None = None) -> list[Scene]:
-        """Scenes that started within the window, newest first."""
+    def recent(
+        self,
+        since_days: int,
+        camera_id: str | None = None,
+        include_replaced: bool = True,
+    ) -> list[Scene]:
+        """Scenes that started within the window, newest first.
+
+        `include_replaced=False` leaves out the ones whose clip a newer scene
+        has already pushed out. That is what the console's log asks for — an
+        entry with nothing to watch is clutter on a page whose job is to show
+        what was recorded.
+
+        It is a filter and never a delete: the default returns everything, so
+        the rows are still here to be read, counted and audited. Losing the
+        record that somebody entered a restricted area is a different and much
+        worse thing than not listing it.
+        """
         query = "SELECT * FROM zone_scene WHERE started_at >= ?"
         params: list = [_iso(_days_ago(since_days))]
         if camera_id:
             query += " AND camera_id = ?"
             params.append(camera_id)
+        if not include_replaced:
+            query += " AND clip_state != 'replaced'"
         query += " ORDER BY started_at DESC"
 
         with self._lock:

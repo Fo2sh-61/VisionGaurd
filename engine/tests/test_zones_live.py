@@ -778,8 +778,11 @@ class TestBreachLog:
         store.scenes = None
         assert store.breaches(30) == []
 
-    def test_a_replaced_entry_has_no_clip_and_says_why(
+    def test_a_replaced_entry_drops_off_the_log(
             self, store_and_cameras, scenes, tmp_path):
+        # Owner decision 2026-08-21: an entry whose clip has been replaced
+        # leaves the log rather than sitting there with a disabled button.
+        # The row is NOT deleted — see the test below — it stops being listed.
         store, _ = store_and_cameras
         base = datetime.now(timezone.utc) - timedelta(minutes=10)
         ids = []
@@ -790,12 +793,70 @@ class TestBreachLog:
             scenes.attach_clip(scene_id, path)
             ids.append(scene_id)
 
-        entries = {b.id: b for b in store.breaches(1)}
-        assert entries[ids[0]].clip is None
-        assert entries[ids[0]].clip_state == "replaced"
-        assert "no longer kept" in entries[ids[0]].clip_reason
+        listed = {b.id: b for b in store.breaches(1)}
+        assert ids[0] not in listed, "a replaced entry must not be listed"
         for kept in ids[1:]:
-            assert entries[kept].clip is not None
+            assert listed[kept].clip is not None
+
+    def test_a_replaced_row_is_kept_in_the_database(
+            self, store_and_cameras, scenes, tmp_path):
+        # Dropping off the log is a display rule. The row itself survives with
+        # its time, peak count and duration, because a detection that happened
+        # is evidence — the audit view in P3 reads these rows.
+        store, _ = store_and_cameras
+        base = datetime.now(timezone.utc) - timedelta(minutes=10)
+        first = scenes.open("cam-a", base)
+        scenes.note_people(first, 4)
+        scenes.close(first, base + timedelta(seconds=30), "nobody")
+        path = tmp_path / "first.mp4"
+        path.write_bytes(b"clip")
+        scenes.attach_clip(first, path)
+        for i in range(3):
+            later = tmp_path / f"later-{i}.mp4"
+            later.write_bytes(b"clip")
+            scenes.attach_clip(
+                scenes.open("cam-a", base + timedelta(minutes=i + 1)), later)
+
+        assert first not in {b.id for b in store.breaches(1)}
+        kept = scenes.get(first)
+        assert kept is not None, "the row must never be deleted"
+        assert kept.clip_state == "replaced"
+        assert kept.peak_people == 4
+        assert kept.seconds == pytest.approx(30.0)
+        assert first in {s.id for s in scenes.recent(since_days=1)}, (
+            "the store still reads it; only the log filters it out"
+        )
+
+    def test_the_log_shows_at_most_three_clips_per_camera(
+            self, store_and_cameras, scenes, tmp_path):
+        store, _ = store_and_cameras
+        base = datetime.now(timezone.utc) - timedelta(hours=1)
+        for camera in ("cam-a", "cam-b"):
+            for i in range(6):
+                path = tmp_path / f"{camera}-{i}.mp4"
+                path.write_bytes(b"clip")
+                scenes.attach_clip(
+                    scenes.open(camera, base + timedelta(minutes=i)), path)
+
+        per_camera: dict[str, int] = {}
+        for entry in store.breaches(1):
+            per_camera[entry.camera_id] = per_camera.get(entry.camera_id, 0) + 1
+
+        assert per_camera == {"cam-a": 3, "cam-b": 3}
+        assert all(b.clip is not None for b in store.breaches(1))
+
+    def test_a_detection_whose_clip_failed_is_still_listed(
+            self, store_and_cameras, scenes):
+        # A camera whose recorder is broken must not read as a silent camera.
+        # Only *replaced* entries leave the log; a failure is news.
+        store, _ = store_and_cameras
+        failed = scenes.open("cam-a", datetime.now(timezone.utc))
+        scenes.fail_clip(failed, "No clip: the camera sent no frames.")
+
+        listed = {b.id: b for b in store.breaches(1)}
+        assert failed in listed
+        assert listed[failed].clip is None
+        assert listed[failed].clip_reason
 
     def test_every_entry_without_a_clip_carries_a_reason(
             self, store_and_cameras, scenes):

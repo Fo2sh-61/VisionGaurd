@@ -44,8 +44,10 @@ roster order.
 
 ## `PATCH /zones/{id}` — flip the toggle
 
-**Changes**: `LiveStore.set_zone_enabled()` writes `camera.restricted` instead
-of mutating a fixture list.
+**Changes**: `LiveStore.set_zone_enabled()` writes the `camera_restricted`
+table instead of mutating a fixture list. Existence is checked against the
+roster, not that table — the cameras a site starts with live in
+`engine.yaml` and have no row in `camera` at all.
 
 **Body**: `{"enabled": true}` (existing `ZoneUpdate`)
 
@@ -102,6 +104,15 @@ a test pins it.
   (**rule 1** — this feature sees bodies, not identities).
 - `clip` is present only when `clipState == "saved"`. Otherwise `null`, and
   `clipReason` says why (P4-FR-008).
+- **`clipState == "replaced"` never appears here.** An entry whose clip a
+  newer scene has pushed out is not listed, so a camera returns at most
+  three watchable entries plus anything recording or failed. A failure is
+  news and stays: a camera whose recorder is broken must not read as a
+  camera where nothing happened.
+- The row is **not** deleted — `SceneStore.recent()` still returns it. This
+  endpoint is the console's log, not the audit trail.
+- The console polls this every few seconds, so a clip saved while somebody is
+  reading the page appears on its own (SC-007).
 - A running scene has `status: "open"` and no `clip` yet.
 - Nothing detected yet → `[]`, and the page's wording distinguishes that from
   "unavailable" via `/system/capabilities`.

@@ -73,7 +73,8 @@ Then:
 5. When a person walks through the clip, a log entry appears within 5 s
    (**SC-002**) and the entry shows a peak people count.
 6. When they leave, the entry gets a duration and **Watch clip** becomes
-   pressable.
+   pressable — **without touching the page**. It polls; if you have to
+   navigate away and back, the poll has broken (SC-007).
 7. Press **Watch clip** — the scene plays (**SC-004**).
 8. `.\dev.ps1 down`
 

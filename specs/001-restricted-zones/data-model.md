@@ -81,8 +81,10 @@ file on disk goes away.
 ### Invariants (each gets a test)
 
 1. `clip_state == 'saved'` ⟹ `clip_path` is set and the file exists.
-2. `clip_state != 'saved'` ⟹ the Watch clip control is disabled and
-   `clip_reason` explains why.
+2. `clip_state != 'saved'` ⟹ there is no Watch clip control and
+   `clip_reason` explains why. `replaced` rows are not listed at all;
+   `failed` and `recording` ones are, with their reason in place of the
+   button.
 3. At most `CLIPS_KEPT_PER_CAMERA` (3) rows per `camera_id` have
    `clip_state == 'saved'`.
 4. At most one row per `camera_id` has `ended_at IS NULL`.
@@ -97,7 +99,7 @@ file on disk goes away.
 | `close(scene_id, ended_at, end_reason)` | set the end |
 | `attach_clip(scene_id, path)` | `saved`, and mark that camera's `saved` rows beyond the newest three `replaced` + unlink their files |
 | `fail_clip(scene_id, reason)` | `failed` with the operator-readable reason |
-| `recent(since_days, camera_id=None) -> list[Scene]` | newest first |
+| `recent(since_days, camera_id=None, include_replaced=True) -> list[Scene]` | newest first; `include_replaced=False` is what the console's log asks for |
 | `close_orphans(reason='shutdown')` | on start, close any row left open by a crash — so nothing shows as recording forever |
 
 ---

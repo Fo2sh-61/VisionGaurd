@@ -41,9 +41,11 @@ operator presses **Watch clip** on the log entry and sees what happened.
 5. **Given** a camera toggled off, **When** a person appears in its view,
    **Then** nothing is logged and nothing is recorded.
 6. **Given** an older log entry whose clip has been replaced by a newer scene,
-   **When** the operator looks at it, **Then** its Watch clip control says the
-   clip is no longer kept — it is disabled with that reason, never a dead
-   button and never someone else's clip.
+   **When** the operator looks at the log, **Then** that entry is no longer
+   listed and the newer one has taken its place — never a dead button, and
+   never someone else's clip behind an old entry's control. Anyone holding a
+   direct link to the replaced clip gets a plain "no longer kept", not a
+   different scene's video.
 
 ### Edge cases
 
@@ -83,14 +85,20 @@ operator presses **Watch clip** on the log entry and sees what happened.
   entry via Watch clip.
 - **P4-FR-008**: To bound storage, only the three most recent scenes' clips
   are kept **per camera** — a fourth replaces that camera's oldest, and a
-  busy camera never replaces a quiet camera's clip. Log entries for replaced
-  clips MUST remain listed, with the Watch clip control disabled and stating
-  why. *(Amended by the owner 2026-08-21; originally one clip per camera.)*
+  busy camera never replaces a quiet camera's clip. An entry whose clip has
+  been replaced MUST drop off the log, so a camera shows at most three
+  watchable entries. Its row MUST NOT be deleted: it stays in `zone_scene`
+  with its time, peak count and duration for the audit view P3 brings.
+  *(Amended by the owner 2026-08-21, twice: one clip per camera became
+  three, and replaced entries went from "stay listed, disabled" to "drop
+  off the list".)*
 - **P4-FR-009**: A recording MUST have a maximum length; if a person stays
   past it, the clip ends there and the log entry says it was cut at the limit.
-- **P4-FR-010**: A toggled-off camera MUST remain visible in the list, and
+- **P4-FR-010**: A toggled-off camera MUST remain visible in the list, and its
   existing log entries MUST remain visible. Toggling off changes only whether
-  new detections are treated as restricted-zone scenes.
+  new detections are treated as restricted-zone scenes. (An entry leaves the
+  log only when its own clip is replaced — never because a camera was
+  switched off.)
 - **P4-FR-011**: Marking a camera restricted MUST NOT require any other
   feature to be enabled on that camera, and MUST NOT change the behaviour of
   any other feature.
@@ -106,6 +114,8 @@ operator presses **Watch clip** on the log entry and sees what happened.
 - **SC-003**: A detection gap shorter than one second never produces a second
   clip — one walk-through with flicker yields exactly one entry and one clip.
 - **SC-004**: Watch clip on the newest entry plays the recorded scene.
+- **SC-007**: A clip saved while the operator is on the page appears in the
+  log within a few seconds, without navigating away and back.
 - **SC-005**: With no cameras toggled on, nothing is ever recorded and the
   log gains no entries.
 - **SC-006**: An operator can tell within 2 seconds whether the page is

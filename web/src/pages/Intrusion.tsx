@@ -8,6 +8,16 @@ import { useAsync } from '@/app/useAsync';
 
 const WINDOWS: IntrusionWindow[] = ['Today', 'Last 7 days', 'Last 30 days'];
 
+/** A scene becomes watchable the moment the person leaves frame, which is a
+ *  thing that happens while somebody is looking at this page rather than
+ *  because they did anything. Without a poll the only way to see a new clip
+ *  was to navigate away and come back. */
+const LOG_REFRESH_MS = 3_000;
+
+/** The toggles and their per-camera counts. Slower: these change when a
+ *  person presses something, not on their own. */
+const ZONE_REFRESH_MS = 15_000;
+
 const NO_ZONES: Zone[] = [];
 const NO_BREACHES: Breach[] = [];
 const NO_CAMERAS: Camera[] = [];
@@ -18,17 +28,21 @@ export function Intrusion() {
 
   const {
     data: loadedZones, error: zonesError, loading: zonesLoading, reload: reloadZones,
-  } = useAsync(() => getZones(), [], NO_ZONES);
+  } = useAsync(() => getZones(), [], NO_ZONES, ZONE_REFRESH_MS);
   const {
     data: breaches, error: breachError, loading: breachLoading, reload: reloadBreaches,
-  } = useAsync(() => getBreaches(when), [when], NO_BREACHES);
-  const { data: cameras } = useAsync(() => getIntrusionCameras(), [], NO_CAMERAS);
+  } = useAsync(() => getBreaches(when), [when], NO_BREACHES, LOG_REFRESH_MS);
+  const { data: cameras } = useAsync(
+    () => getIntrusionCameras(), [], NO_CAMERAS, ZONE_REFRESH_MS);
 
   // Pending toggles, laid over what the engine last told us. A camera is only
   // drawn as restricted once the engine has agreed it is.
   const [pending, setPending] = useState<Record<string, boolean>>({});
   const [toggleError, setToggleError] = useState<string | null>(null);
-  const [playing, setPlaying] = useState<string | null>(null);
+  // The whole entry, not just its id: the log refreshes underneath the player,
+  // and an entry whose clip has just been replaced leaves the list. Looking it
+  // up each render would make the video vanish mid-watch.
+  const [playing, setPlaying] = useState<Breach | null>(null);
   const zones = loadedZones.map((z) => (z.id in pending ? { ...z, enabled: pending[z.id] } : z));
   const anyRestricted = zones.some((z) => z.enabled);
 
@@ -61,6 +75,11 @@ export function Intrusion() {
 
   const counted = !breachLoading && !breachError;
   const running = breaches.filter((b) => b.status === 'Still there').length;
+  const clips = breaches.filter((b) => b.clipUrl).length;
+  // The engine lists only what is still watchable, so the number of rows is
+  // not the number of things that happened. This is, for today.
+  const detectionsToday = zones.reduce((n, z) => n + z.detectionsToday, 0);
+  const stillListed = playing !== null && breaches.some((b) => b.id === playing.id);
 
   return (
     <>
@@ -131,8 +150,8 @@ export function Intrusion() {
           <div>
             <div style={{ fontWeight: 700, fontSize: 19, letterSpacing: '-.01em' }}>
               {counted
-                ? `${breaches.length} ${breaches.length === 1 ? 'detection' : 'detections'} · ${when.toLowerCase()}`
-                : `Detections · ${when.toLowerCase()}`}
+                ? `${clips} ${clips === 1 ? 'clip' : 'clips'} · ${when.toLowerCase()}`
+                : `Clips · ${when.toLowerCase()}`}
             </div>
             <div style={{ fontSize: 13.5, color: 'var(--tx2)', marginTop: 2 }}>
               {counted
@@ -152,6 +171,19 @@ export function Intrusion() {
             />
           </Field>
         </div>
+
+        {/* The list is not the whole story and must not read as if it were.
+            Each camera keeps three clips; everything older is still recorded,
+            it just has nothing left to watch. */}
+        {counted && anyRestricted && (
+          <div style={{ fontSize: 12.5, color: 'var(--tx2)', marginBottom: 10 }}>
+            {when === 'Today' && detectionsToday > 0
+              ? `${detectionsToday} ${detectionsToday === 1 ? 'detection' : 'detections'} today. `
+              : ''}
+            Each camera keeps its last 3 clips — older entries drop off this list once
+            their clip is replaced.
+          </div>
+        )}
 
         <LoadError error={breachError} onRetry={reloadBreaches} what="the detection log" />
         {breachLoading && <Empty>Loading detections…</Empty>}
@@ -188,9 +220,11 @@ export function Intrusion() {
               <button
                 type="button"
                 className="linkbtn"
-                onClick={() => setPlaying(playing === breach.id ? null : breach.id)}
+                onClick={() =>
+                  setPlaying((current) => (current?.id === breach.id ? null : breach))
+                }
               >
-                {playing === breach.id ? 'Hide clip' : 'Watch clip'}
+                {playing?.id === breach.id ? 'Hide clip' : 'Watch clip'}
               </button>
             ) : (
               <span style={{ fontSize: 12.5, color: 'var(--tx2)' }}>
@@ -200,14 +234,24 @@ export function Intrusion() {
           </div>
         ))}
 
-        {playing && breaches.find((b) => b.id === playing)?.clipUrl && (
-          <video
-            key={playing}
-            src={breaches.find((b) => b.id === playing)!.clipUrl}
-            controls
-            autoPlay
-            style={{ width: '100%', maxHeight: 420, marginTop: 12, borderRadius: 8 }}
-          />
+        {playing?.clipUrl && (
+          <div style={{ marginTop: 12 }}>
+            <video
+              key={playing.id}
+              src={playing.clipUrl}
+              controls
+              autoPlay
+              style={{ width: '100%', maxHeight: 420, borderRadius: 8 }}
+            />
+            {/* Replaced while it was being watched. Saying so beats the player
+                silently disappearing, or failing halfway with no explanation. */}
+            {!stillListed && (
+              <div style={{ fontSize: 12.5, color: 'var(--tx2)', marginTop: 6 }}>
+                A newer scene on {playing.zone} has replaced this clip, so it has dropped
+                off the list. It may stop playing.
+              </div>
+            )}
+          </div>
         )}
       </Card>
 

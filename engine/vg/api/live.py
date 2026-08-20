@@ -529,6 +529,13 @@ class LiveStore(MockStore):
         face against them, so `subject` is always an unidentified match. A name
         on one of these rows would be a claim nothing in this pipeline made —
         rule 1, and the bug that once had every person read as one person.
+
+        **Entries whose clip has been replaced are not listed** (owner
+        decision, 2026-08-21). Each camera keeps its newest three clips, so
+        this is at most three watchable entries per camera plus anything still
+        recording or whose recording failed — a failure is news and stays.
+        The rows themselves are never deleted; `SceneStore.recent()` still
+        returns them, which is what the audit view in P3 will read.
         """
         if self.scenes is None:
             return []
@@ -540,7 +547,7 @@ class LiveStore(MockStore):
         names = {c.id: c.name for c in self.registry.configs()}
 
         out: list[S.Breach] = []
-        for scene in self.scenes.recent(since_days):
+        for scene in self.scenes.recent(since_days, include_replaced=False):
             name = names.get(scene.camera_id) or scene.camera_id
             out.append(S.Breach(
                 id=scene.id,
