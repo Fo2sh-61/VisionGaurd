@@ -527,3 +527,41 @@ class TestStreamsAreReachableFromAnImgTag:
 
         for path in ("'/cameras'", "'/auth'", "'/site'"):
             assert path in config, f"vite proxy is missing {path}"
+
+
+class TestRequestsAreActuallySent:
+    """A relative API base must still produce a usable URL.
+
+    Making the API base empty (so requests are same-origin and the session
+    cookie reaches the camera streams) turned `BASE + path` into a relative
+    path like "/auth/login". `new URL()` throws a TypeError on a relative URL
+    with no base to resolve it against.
+
+    That throw happened inside the request's try block, was neither an
+    ApiError nor an AbortError, and fell through to the branch that reports
+    "Cannot reach the engine. Is it running?". The engine was running and
+    answering; no request was ever made. Every call in the app failed this
+    way, and the message sent the reader to inspect the one healthy part.
+
+    The lesson worth keeping: an error handler that names a probable cause is
+    only helpful while that cause is the real one. This one was confidently
+    wrong, which is worse than a generic message would have been.
+    """
+
+    def test_the_url_builder_resolves_relative_paths(self):
+        http_ts = (Path(__file__).resolve().parents[2] / "web" / "src"
+                   / "services" / "http.ts").read_text(encoding="utf-8")
+
+        assert "new URL(BASE + path, window.location.origin)" in http_ts, (
+            "buildUrl must pass a base to new URL(). With a same-origin API "
+            "base, `new URL('/auth/login')` throws and every request dies "
+            "before it is sent."
+        )
+
+    def test_a_bare_new_url_is_not_reintroduced(self):
+        http_ts = (Path(__file__).resolve().parents[2] / "web" / "src"
+                   / "services" / "http.ts").read_text(encoding="utf-8")
+
+        assert "new URL(BASE + path)" not in http_ts, (
+            "new URL() without a base throws on a relative path"
+        )

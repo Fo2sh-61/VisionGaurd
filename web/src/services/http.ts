@@ -86,7 +86,22 @@ interface RequestOptions {
 }
 
 function buildUrl(path: string, query?: RequestOptions['query']): string {
-  const url = new URL(BASE + path);
+  // The second argument is not optional here. `BASE` is empty by default so
+  // that requests are same-origin, which makes `BASE + path` a relative path
+  // like "/auth/login" - and `new URL()` throws a TypeError on a relative URL
+  // with no base to resolve it against.
+  //
+  // That throw happened inside the request's try block, was not an ApiError
+  // and not an AbortError, and so fell through to the branch that reports
+  // "Cannot reach the engine. Is it running?". The engine was running, and
+  // answering: no request was ever made. Every call in the app failed this
+  // way, including sign-in.
+  //
+  // `window.location.origin` resolves a relative path against the page, which
+  // is exactly where the dev-server proxy and a same-origin deployment both
+  // want it to go. An absolute `BASE` still wins, because a base argument is
+  // ignored when the first argument is already absolute.
+  const url = new URL(BASE + path, window.location.origin);
   if (query) {
     for (const [key, value] of Object.entries(query)) {
       if (value !== undefined && value !== null) url.searchParams.set(key, String(value));
