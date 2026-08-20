@@ -149,7 +149,27 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     }
 
     if (response.status === 204) return undefined as T;
-    return (await response.json()) as T;
+
+    try {
+      return (await response.json()) as T;
+    } catch {
+      // A 200 that is not JSON almost always means the dev server answered
+      // instead of the engine: with no proxy configured, Vite falls back to
+      // serving index.html for any unknown path, so `/auth/login` returns the
+      // web page with a cheerful 200.
+      //
+      // This used to fall through to the network-error branch below and say
+      // "Cannot reach the engine. Is it running?" - which sent people to look
+      // at an engine that was running perfectly. Say what actually happened.
+      throw new ApiError(
+        'The engine did not answer — the dev server did. Restart it: '
+        + '`.\dev.ps1 down` then `.\dev.ps1 up -Clip`. '
+        + '(Vite reloads source automatically but not its proxy settings.)',
+        response.status,
+        false,
+        `${method} ${path} returned ${response.headers.get('content-type') ?? 'no content-type'}`,
+      );
+    }
   } catch (error) {
     if (error instanceof ApiError) throw error;
     if (error instanceof DOMException && error.name === 'AbortError') {
