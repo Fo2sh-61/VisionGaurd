@@ -30,6 +30,7 @@ tested one look at a time. `AnchorStore` is the storage beside it.
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -140,21 +141,27 @@ class _Run:
 class AnchorAccumulator:
     """Feeds on matches, and says when there is finally enough of them.
 
-    Pure logic: no database, no clock of its own, no threads. Every instant
-    comes in on the match, which is what makes a whole minute of walking past
-    a camera testable in a few lines.
+    Pure logic: no database and no clock of its own. Every instant comes in
+    on the match, which is what makes a whole minute of walking past a camera
+    testable in a few lines.
+
+    It starts no threads, but it is called from several: one worker holds one
+    accumulator and `FeatureWorker` runs a thread per camera. The lock is for
+    that, and it is the only concurrency in this file.
     """
 
     def __init__(self, gates: AnchorGates, run_gap_seconds: float = RUN_GAP_SECONDS) -> None:
         self.gates = gates
         self.run_gap = timedelta(seconds=run_gap_seconds)
+        self._lock = threading.RLock()
         # (camera_id, person_id) -> the run currently building
         self._runs: dict[tuple[str, str], _Run] = {}
 
     @property
     def tracked_runs(self) -> int:
         """How many runs are being held. Housekeeping visibility, not a fact."""
-        return len(self._runs)
+        with self._lock:
+            return len(self._runs)
 
     def offer(self, camera_id: str, match: FaceMatch) -> Anchor | None:
         """Feed one match. Returns an anchor when there is enough to claim one.
@@ -164,32 +171,34 @@ class AnchorAccumulator:
         writes one row and then updates it. A person standing at one camera is
         one stop that gets longer, not a new stop every second.
         """
-        self._forget_stale(match.at)
+        with self._lock:
+            self._forget_stale(match.at)
 
-        if not self._is_evidence(match):
-            # Below the bar is not weak evidence, it is none: it does not
-            # count, and it does not get averaged into what does.
-            return None
+            if not self._is_evidence(match):
+                # Below the bar is not weak evidence, it is none: it does not
+                # count, and it does not get averaged into what does.
+                return None
 
-        key = (camera_id, match.person_id)
-        run = self._runs.get(key)
+            key = (camera_id, match.person_id)
+            run = self._runs.get(key)
 
-        if run is None:
-            self._runs[key] = _Run(match)
-            return None
+            if run is None:
+                self._runs[key] = _Run(match)
+                return None
 
-        if (match.at - run.look_started_at).total_seconds() < self.gates.gap_seconds:
-            run.fold_in(match)
-        else:
-            run.add_look(match)
+            if (match.at - run.look_started_at).total_seconds() < self.gates.gap_seconds:
+                run.fold_in(match)
+            else:
+                run.add_look(match)
 
-        return self._verdict(camera_id, match.person_id, run)
+            return self._verdict(camera_id, match.person_id, run)
 
     def drop(self, camera_id: str, person_id: str | None = None) -> None:
         """Forget a run. Used when a camera stops, so it cannot resume later."""
-        for key in list(self._runs):
-            if key[0] == camera_id and (person_id is None or key[1] == person_id):
-                del self._runs[key]
+        with self._lock:
+            for key in list(self._runs):
+                if key[0] == camera_id and (person_id is None or key[1] == person_id):
+                    del self._runs[key]
 
     # -- the gates ----------------------------------------------------------
 

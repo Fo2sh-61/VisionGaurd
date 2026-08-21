@@ -376,6 +376,7 @@ export function toCamera(view: CameraView, statusOverride?: string): Camera {
   return {
     id: view.id,
     name: view.name,
+    area: view.area || undefined,
     status: cameraStatus(view, statusOverride),
     offline: view.offline || undefined,
     time: formatClock(view.capturedAt),

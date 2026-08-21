@@ -61,6 +61,11 @@ export interface ZoneOverlay {
 export interface CameraView {
   id: string;
   name: string;
+  /** The named place this camera watches. What the live grid partitions by. */
+  area: string;
+  /** True when faces are the point on this camera — the identity tier. False
+   *  is the patrol tier, which recognises far more slowly. */
+  faces: boolean;
   offline: boolean;
   capturedAt?: Instant | null;
   /** True when this is the last good frame of a dropped stream. */
@@ -574,6 +579,52 @@ export interface Problem {
 }
 
 /* ---------- live tracking ---------- */
+
+/* ---------- following one person, live ----------
+ *
+ *  The engine holds the session and advances it on the frames it is already
+ *  processing, so a timer runs out and a track is lost whether or not this
+ *  page is open. Closing the tab cannot leave a camera recording. */
+
+export interface FollowRequest {
+  cameraId: string;
+  /** Fractions of the frame, never pixels. */
+  x: number;
+  y: number;
+}
+
+export interface TrailHop {
+  cameraId: string;
+  cameraName: string;
+  place: string;
+  at: Instant;
+}
+
+export interface FollowRecording {
+  state: 'recording' | 'stopped';
+  /** manual | timer | track lost, once it has stopped. */
+  reason?: string | null;
+  timerSecondsLeft?: number | null;
+  segments: Recording[];
+}
+
+/** `name` appears only after a face has been recognised well enough, several
+ *  times, to claim it — and it goes the moment the track does. It is an
+ *  annotation on this body in these frames, never a binding that outlives
+ *  them. */
+export interface FollowView {
+  stableId: string;
+  cameraId: string;
+  cameraName: string;
+  place: string;
+  since: Instant;
+  personId?: string | null;
+  name?: string | null;
+  match: MatchKind;
+  trail: TrailHop[];
+  recording?: FollowRecording | null;
+  endedReason?: string | null;
+}
 
 export interface TrackedIdentity {
   stableId: string;

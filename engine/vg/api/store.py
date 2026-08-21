@@ -67,6 +67,19 @@ class SubsystemUnavailable(RuntimeError):
     """
 
 
+class NothingThere(LookupError):
+    """What was asked for is not there — 404, and usually retryable.
+
+    Separate from `SubsystemUnavailable` for the same reason that one exists:
+    "nobody is standing where you clicked" and "tracking never started" send
+    an operator to two completely different places.
+    """
+
+
+class AlreadyBusy(RuntimeError):
+    """Something is already doing this — 409. The message names what."""
+
+
 class Store(Protocol):
     """Everything the API needs. Implement this to go live."""
 
@@ -90,6 +103,16 @@ class Store(Protocol):
     def count(self, place: str, window: str) -> S.CountResult: ...
     def search_lost(self, query: S.LostQuery) -> S.LostResult: ...
     def track(self, query: S.TrackQuery, actor: str) -> S.TrackResult: ...
+
+    def follow_start(
+        self, camera_id: str, x: float, y: float, actor: str
+    ) -> S.FollowView: ...
+    def follow_view(self) -> S.FollowView | None: ...
+    def follow_end(self, actor: str) -> S.FollowView | None: ...
+    def follow_record_start(
+        self, timer_seconds: float | None, actor: str
+    ) -> S.FollowView: ...
+    def follow_record_stop(self, actor: str) -> S.FollowView: ...
 
     def recording(self, camera_id: str) -> S.RecordingResult: ...
     def start_recording(self, camera_id: str, actor: str) -> S.RecordingResult: ...
@@ -141,6 +164,8 @@ class MockStore:
         self._audit: list[S.AuditEntry] = []
         self._sources = self._build_sources()
         self._people = self._build_people()
+        self._follow: S.FollowView | None = None
+        self._follow_audit: str | None = None
 
     # -- overlays -----------------------------------------------------------
 
@@ -549,6 +574,60 @@ class MockStore:
                 snapshot_url="/cameras/c-main/snapshot")],
         )
 
+
+    # -- following one person, live -----------------------------------------
+
+    def follow_start(self, camera_id: str, x: float, y: float,
+                     actor: str) -> S.FollowView:
+        """Demo mode follows a fixture body, and audits it like the real one.
+
+        No geometry is consulted, because there are no real bodies here to
+        consult. That is the demo being a demo; the live store picks the body
+        the click actually landed on.
+        """
+        if self._follow is not None and not self._follow.ended_reason:
+            raise AlreadyBusy(
+                f"Already following {self._follow.name or self._follow.stable_id}. "
+                f"Stop that one first."
+            )
+
+        entry = self._log(actor, "track.follow", "Layla Ahmed",
+                          f"{camera_id} at {x:.2f},{y:.2f}")
+        self._follow_audit = entry.id
+        self._follow = S.FollowView(
+            stable_id="p7",
+            camera_id="c-main",
+            camera_name="Main entrance",
+            place="Main entrance",
+            since=now(),
+            person_id="p-layla",
+            name="Layla Ahmed",
+            match=S.MatchKind.FACE,
+            trail=[S.TrailHop(camera_id="c-main", camera_name="Main entrance",
+                              place="Main entrance", at=now())],
+        )
+        return self._follow
+
+    def follow_view(self) -> S.FollowView | None:
+        return self._follow
+
+    def follow_end(self, actor: str) -> S.FollowView | None:
+        if self._follow is None or self._follow.ended_reason:
+            return self._follow
+        self._log(actor, "track.follow.end", self._follow.name, "manual")
+        self._follow = self._follow.model_copy(update={"ended_reason": "manual"})
+        return self._follow
+
+    def follow_record_start(self, timer_seconds: float | None,
+                            actor: str) -> S.FollowView:
+        # The same refusal every other recording call gives in demo mode. A
+        # fabricated segment with no file behind it is the fake save rule 4
+        # forbids, and it would be fabricated exactly where an operator would
+        # go looking for evidence.
+        raise SubsystemUnavailable(self.NO_CAMERAS)
+
+    def follow_record_stop(self, actor: str) -> S.FollowView:
+        raise SubsystemUnavailable(self.NO_CAMERAS)
 
     # -- system -------------------------------------------------------------
 

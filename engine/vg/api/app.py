@@ -27,7 +27,13 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from vg import config as vgconfig
 from vg.auth import deps as auth_deps
 from vg.api import schemas as S
-from vg.api.store import MockStore, Store, SubsystemUnavailable
+from vg.api.store import (
+    AlreadyBusy,
+    MockStore,
+    NothingThere,
+    Store,
+    SubsystemUnavailable,
+)
 
 log = logging.getLogger(__name__)
 
@@ -423,6 +429,10 @@ def _start_recognition(cfg, registry, roster=None, face=None, tracking=None):
             rate_hz=background,
             boost_hz=12.0,
             tracking=tracking,
+            # The identity tier's bar: these are the cameras people look at
+            # from close range. The patrol instance beside this one runs the
+            # same class with the easier `tracking.patrol` numbers.
+            gates=cfg.tracking.identity,
         )
         recogniser.start()
         log.info(
@@ -1424,6 +1434,81 @@ def _mount(app: FastAPI) -> None:
                 ))
 
         return S.LiveTracking(running=True, cameras=list(worker.cameras), identities=out)
+
+    # -- following one person, live ------------------------------------------
+    #
+    # Operator work, not administrator work: an `it` account can follow and
+    # record. Every one of these is audited instead, which is the control that
+    # actually matters here — knowing who watched whom.
+    #
+    # Three refusals, three different meanings, and they must not be collapsed:
+    #   503  tracking is not running at all
+    #   404  nobody is standing where you clicked (try again, they moved)
+    #   409  a follow is already open (the reply says which)
+
+    def _follow_or_http(call):
+        """Run a store call and turn its refusals into the right status."""
+        try:
+            return call()
+        except SubsystemUnavailable as exc:
+            raise HTTPException(503, str(exc)) from exc
+        except AlreadyBusy as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except NothingThere as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+    @app.post("/tracking/follow", response_model=S.FollowView, tags=["track"])
+    async def follow_start(
+        req: S.FollowRequest, store: StoreDep, user: auth_deps.CurrentUser,
+    ) -> S.FollowView:
+        """Follow whichever body is under that point.
+
+        `x` and `y` are fractions of the frame, so the console never needs to
+        know the camera's resolution.
+        """
+        return _follow_or_http(
+            lambda: store.follow_start(req.camera_id, req.x, req.y, user.name)
+        )
+
+    @app.get("/tracking/follow", response_model=S.FollowView, tags=["track"])
+    async def follow_current(store: StoreDep, user: auth_deps.CurrentUser) -> S.FollowView:
+        """The follow as it stands. The page polls this once a second.
+
+        404 when nothing is being followed — that is a state the page handles,
+        not an error, and it is how a follow that ended server-side (the timer
+        ran out, the track was lost) reaches a browser that was not asked.
+        """
+        view = store.follow_view()
+        if view is None:
+            raise HTTPException(404, "Nothing is being followed.")
+        return view
+
+    @app.delete("/tracking/follow", response_model=S.FollowView, tags=["track"])
+    async def follow_stop(store: StoreDep, user: auth_deps.CurrentUser) -> S.FollowView:
+        view = _follow_or_http(lambda: store.follow_end(user.name))
+        if view is None:
+            raise HTTPException(404, "Nothing is being followed.")
+        return view
+
+    @app.post("/tracking/follow/record", response_model=S.FollowView, tags=["track"])
+    async def follow_record_start(
+        req: S.FollowRecordRequest, store: StoreDep, user: auth_deps.CurrentUser,
+    ) -> S.FollowView:
+        """Record the followed person, one segment per camera they cross.
+
+        A timer stops it server-side, as does losing the track. Closing the
+        tab therefore cannot leave a camera recording, which a web-driven stop
+        could not promise.
+        """
+        return _follow_or_http(
+            lambda: store.follow_record_start(req.timer_seconds, user.name)
+        )
+
+    @app.delete("/tracking/follow/record", response_model=S.FollowView, tags=["track"])
+    async def follow_record_stop(
+        store: StoreDep, user: auth_deps.CurrentUser,
+    ) -> S.FollowView:
+        return _follow_or_http(lambda: store.follow_record_stop(user.name))
 
     @app.post("/tracking/{stable_id}/correct", tags=["track"], status_code=204)
     async def tracking_correct(stable_id: str, request: Request) -> Response:

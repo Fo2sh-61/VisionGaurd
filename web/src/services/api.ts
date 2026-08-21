@@ -616,6 +616,42 @@ export async function correctIdentity(stableId: string): Promise<void> {
   await post<void>(`/tracking/${encodeURIComponent(stableId)}/correct`);
 }
 
+/* ---------- following one person, live ----------
+ *
+ *  Three refusals, three meanings, and the page must not collapse them:
+ *    503  tracking is not running at all
+ *    404  nobody is standing where you clicked — retryable, they moved
+ *    409  a follow is already open, and the message names it
+ *
+ *  `ApiError.status` carries them through, so the caller decides what to say. */
+
+/** Follow whichever body is under that point. Fractions of the frame. */
+export const startFollow = (cameraId: string, x: number, y: number) =>
+  post<W.FollowView>('/tracking/follow', { cameraId, x, y });
+
+/** The follow as it stands. Returns null when nothing is being followed —
+ *  including when the engine ended it by itself, which is how a timer running
+ *  out or a lost track reaches a page that never asked. */
+export async function getFollow(): Promise<W.FollowView | null> {
+  try {
+    return await get<W.FollowView>('/tracking/follow');
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return null;
+    throw err;
+  }
+}
+
+export const endFollow = () => del<W.FollowView>('/tracking/follow');
+
+/** Record the followed person, one segment per camera they cross.
+ *
+ *  `timerSeconds` null means "until somebody presses stop". Either way the
+ *  engine stops it on its own if the track is lost, so this cannot leak. */
+export const startFollowRecording = (timerSeconds: number | null) =>
+  post<W.FollowView>('/tracking/follow/record', { timerSeconds });
+
+export const stopFollowRecording = () => del<W.FollowView>('/tracking/follow/record');
+
 /* ---------- enrolment ----------
  *
  *  Nothing here reaches the gallery until `commitEnrolment`. A session that is

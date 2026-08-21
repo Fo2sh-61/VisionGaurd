@@ -1,40 +1,50 @@
-/** Track a person — following one person across cameras.
+/** Track a person — the two questions this page actually answers.
  *
- *  Built from design/15-8 design/VisionGuard.dc.html. Seven states, one flow:
+ *      LIVE   "they are here now, don't lose them"
+ *      PAST   "where did they go earlier"
  *
- *      form ──┬─► ambig ──► live ──► stop ──► done
- *             └─► mancam ──► manper ──┘
+ *  Live is three clicks: pick the area's camera, click the body, and the
+ *  engine follows it from there. Everything after that click is the engine's
+ *  answer, polled — this page holds no opinion about where anybody is.
  *
- *  Three rules the design exists to enforce, all of them about not claiming
- *  more than the system knows:
+ *  Rules this screen exists to keep, all of them about not claiming more than
+ *  the system knows:
  *
  *  1. **A face names a person; clothing only says "same body".** Green means
  *     identified by face, blue means matched by clothing, amber means never
- *     identified at all. They are never merged into one number or one colour,
- *     and the legend spells all three out in words.
+ *     identified at all. Never merged into one colour or one number.
  *
- *  2. **A prediction is not a sighting.** The next-camera pulse is a guess
- *     drawn from where cameras sit on the floor plan, and the label under the
- *     tile says exactly that, in words, rather than relying on the colour.
+ *  2. **A name is not permanent.** A followed body shows amber "not
+ *     identified" until a face has been recognised clearly, several times,
+ *     over seconds — and the name goes the instant the track does. The engine
+ *     enforces this; the page's job is to show the amber state honestly
+ *     instead of hiding the wait.
  *
- *  3. **The operator resolves ambiguity, not the software.** When several
- *     cameras could hold the person, all of them are offered as alternatives
- *     and nothing records until one is chosen.
+ *  3. **The stop conditions are the engine's, not the browser's.** A timer
+ *     runs out and a track is lost whether or not this tab is open, so a
+ *     closed laptop can never leave a camera recording.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useAccount } from '@/app/AuthContext';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useCameras } from '@/app/CameraContext';
+import { useCapability } from '@/app/CapabilityContext';
 import { useToday } from '@/app/SiteContext';
 import { usePersonNames } from '@/app/useOptions';
+import { CamGrid } from '@/components/CamGrid';
 import { CameraFrame } from '@/components/CameraFrame';
-import { RecordButton } from '@/components/RecordButton';
-import { Card, DataNotice, PageHeader } from '@/components/ui';
-import { correctIdentity, getLiveTracking, trackPerson } from '@/services/api';
-import { identifiedByFace } from '@/services/format';
+import { Card, DataNotice, Empty, PageHeader } from '@/components/ui';
+import { ApiError } from '@/services/http';
+import {
+  endFollow,
+  getFollow,
+  startFollow,
+  startFollowRecording,
+  stopFollowRecording,
+  trackPerson,
+} from '@/services/api';
+import { formatLongDate, formatTime } from '@/services/format';
 import type * as W from '@/services/wire';
 import type { Camera, TrackResult } from '@/types';
-import { useCapability } from '@/app/CapabilityContext';
 
 /* ---------- evidence colours ----------
  *
@@ -44,860 +54,583 @@ const FACE = '#3f8f74';
 const CLOTH = '#5b9bd8';
 const UNKNOWN = '#dfa23f';
 
-/** How long a stop has to be before returning to a camera counts as a new visit. */
 type Mode = 'live' | 'past';
-type Stage = null | 'ambig' | 'live' | 'stop' | 'mancam' | 'manper';
 
-interface Subject {
-  id: string;
-  name: string;
-  /** Identified by face. False means we are following a body, not a person. */
-  identified: boolean;
-  source: 'directory' | 'camera';
-}
+/** How often the follow is re-read. The engine is the only thing that knows
+ *  where the person is; this is just how quickly the screen catches up. */
+const FOLLOW_POLL_MS = 1_000;
 
-interface TrailStop {
-  cameraId: string;
-  atSeconds: number;
-  kind: 'start' | 'cloth';
-}
+/** Cameras shown at once in the live grid. Small on purpose: every tile is a
+ *  poll, and `CamGrid` scales its refresh to the number actually on screen, so
+ *  a smaller page is a faster-looking one. */
+const GRID_PAGE = 8;
+
+const TIMERS: { label: string; seconds: number | null }[] = [
+  { label: 'Until I stop it', seconds: null },
+  { label: '1 min', seconds: 60 },
+  { label: '5 min', seconds: 300 },
+  { label: '10 min', seconds: 600 },
+];
 
 const clock = (seconds: number) => {
-  const m = Math.floor(seconds / 60);
-  const s = String(Math.floor(seconds % 60)).padStart(2, '0');
-  return `${m}:${s}`;
+  const s = Math.max(0, Math.round(seconds));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 };
 
-const wallClock = (base: Date, offsetSeconds: number) => {
-  const t = new Date(base.getTime() + offsetSeconds * 1000);
-  return t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-};
-
-const initials = (name: string) =>
-  name.split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase();
-
+/** The parsing trap this page solved once already: compare times as minutes,
+ *  never as strings, and never against the viewer's clock. */
 const minutes = (hhmm: string) => {
   const [h, m] = hhmm.split(':').map(Number);
-  return (h || 0) * 60 + (m || 0);
+  return Number.isFinite(h) && Number.isFinite(m) ? h * 60 + m : NaN;
 };
-
-/** Cameras nearest this one on the floor plan.
- *
- *  Prediction is distance-based (the operator's choice), so proximity on the
- *  plan is the whole model. Until the map editor exists, "nearest" degrades to
- *  "the other cameras in the list" — which is honest rather than clever, and
- *  the tile label never claims more than a guess either way. */
-function neighboursOf(cameras: Camera[], cameraId: string): Camera[] {
-  const others = cameras.filter((c) => c.id !== cameraId);
-  return others.slice(0, 4);
-}
 
 export function TrackPerson() {
   const capability = useCapability('track');
-  const account = useAccount();
   const today = useToday();
   const people = usePersonNames();
   const { cameras } = useCameras();
 
-  const [mode, setMode] = useState<Mode>('past');
-  const [stage, setStage] = useState<Stage>(null);
-  const [subject, setSubject] = useState<Subject | null>(null);
-  const [error, setError] = useState('');
-
-  const [date, setDate] = useState('');
-  const [from, setFrom] = useState('07:00');
-  const [to, setTo] = useState('08:15');
-
-  const [result, setResult] = useState<TrackResult | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  const [currentCam, setCurrentCam] = useState('');
-  const [pickCam, setPickCam] = useState('');
-  const [elapsed, setElapsed] = useState(0);
-  const [trail, setTrail] = useState<TrailStop[]>([]);
-  const [note, setNote] = useState('');
-  const [startedAt, setStartedAt] = useState<Date>(() => new Date());
-
-  /* ---------- what the tracker can actually see ----------
-   *
-   *  Polled, not invented. `following` is the appearance id the operator chose;
-   *  everything on the live view is derived from where the engine currently
-   *  reports that id, so the screen follows the tracker rather than a local
-   *  guess about it. */
-  const [liveState, setLiveState] = useState<W.LiveTracking | null>(null);
-  const [following, setFollowing] = useState<string | null>(null);
-
-  const polling = stage === 'ambig' || stage === 'live';
-  useEffect(() => {
-    if (!polling) return;
-    let alive = true;
-    const tick = () => {
-      void getLiveTracking()
-        .then((next) => { if (alive) setLiveState(next); })
-        .catch(() => { /* a dropped poll is not worth clearing the screen for */ });
-    };
-    tick();
-    const id = window.setInterval(tick, 1000);
-    return () => { alive = false; window.clearInterval(id); };
-  }, [polling]);
-
-  /** Where the followed identity is right now, if the tracker still has it. */
-  const seenNow = useMemo(
-    () => liveState?.identities.find((i) => i.stableId === following) ?? null,
-    [liveState, following],
-  );
-
-  /* The camera follows the identity by itself. That is the entire point: the
-   * operator picked a body, and the body moving to another camera should move
-   * the view, not require them to notice and click. */
-  useEffect(() => {
-    if (stage !== 'live' || !seenNow) return;
-    setCurrentCam((current) => {
-      if (current === seenNow.cameraId) return current;
-      setTrail((t) =>
-        t.some((x) => x.cameraId === seenNow.cameraId && x.kind !== 'start')
-          ? t
-          : [...t, { cameraId: seenNow.cameraId, atSeconds: elapsed, kind: 'cloth' }],
-      );
-      return seenNow.cameraId;
-    });
-  }, [stage, seenNow, elapsed]);
-
-  const timer = useRef<number | null>(null);
-  const stopClock = useCallback(() => {
-    if (timer.current !== null) {
-      window.clearInterval(timer.current);
-      timer.current = null;
-    }
-  }, []);
-  useEffect(() => stopClock, [stopClock]);
-
-  // Two separate things, deliberately. `nowLabel` is for reading — it follows
-  // the operator's locale, so it may well be "08:02 PM". `nowMinutes` is for
-  // comparing, and is taken straight off the Date. Parsing the label back into
-  // a number silently read "08:02 PM" as 8:02am and let a window that includes
-  // right now pass validation.
-  const nowDate = new Date();
-  const nowLabel = nowDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  const nowMinutes = nowDate.getHours() * 60 + nowDate.getMinutes();
-  const selectedDate = date || today;
-
-  const cam = useMemo(
-    () => cameras.find((c) => c.id === currentCam) ?? cameras[0],
-    [cameras, currentCam],
-  );
-  const manCam = useMemo(
-    () => cameras.find((c) => c.id === pickCam) ?? cameras[0],
-    [cameras, pickCam],
-  );
-
-  const visited = useMemo(() => trail.map((t) => t.cameraId), [trail]);
-
-  /** The camera the person is expected to enter next.
-   *
-   *  First neighbour they have not already been seen on — walking back the way
-   *  you came is possible but it is not the thing worth flagging. */
-  const predicted = useMemo(() => {
-    if (!cam) return undefined;
-    const nbs = neighboursOf(cameras, cam.id);
-    return nbs.find((c) => !visited.includes(c.id)) ?? nbs[0];
-  }, [cameras, cam, visited]);
-
-  /* ---------- starting ---------- */
-
-  function chooseByName(name: string) {
-    const unknown = name.startsWith('Unknown') || name === 'DHL courier';
-    // #p1, #p2 … keyed off the directory position. A slug of the name gave
-    // "#layl", which is neither an id nor a name and reads as a glitch. The
-    // real appearance id replaces this once live tracking is wired to the
-    // engine's stable ids.
-    const index = people.indexOf(name);
-    setSubject({
-      id: `#p${index >= 0 ? index + 1 : 1}`,
-      name: unknown ? 'Unknown person' : name,
-      identified: !unknown,
-      source: 'directory',
-    });
-    setError('');
-  }
-
-  /** A past window has to be genuinely past, and start before it ends. */
-  function windowIsBad(): boolean {
-    if (minutes(to) >= nowMinutes || minutes(from) >= nowMinutes) {
-      setError(
-        `That window includes right now (${nowLabel}). A past search must end ` +
-          'before now — to follow someone at this moment, switch to "Live — right now".',
-      );
-      return true;
-    }
-    if (minutes(from) >= minutes(to)) {
-      setError('The start time has to come before the end time.');
-      return true;
-    }
-    setError('');
-    return false;
-  }
-
-  const runPast = useCallback(async () => {
-    if (!subject) return;
-    setLoading(true);
-    try {
-      // The audit row is written server-side before the answer comes back.
-      setResult(await trackPerson({ who: subject.name, date: selectedDate, from, to }, account.name));
-    } finally {
-      setLoading(false);
-    }
-  }, [subject, selectedDate, from, to, account.name]);
-
-  function start() {
-    if (!subject) {
-      setError('Choose who you are following first.');
-      return;
-    }
-    if (mode === 'past') {
-      if (windowIsBad()) return;
-      void runPast();
-      return;
-    }
-    stopClock();
-    setNote('');
-    setStage('ambig');
-  }
-
-  function runClock() {
-    stopClock();
-    setElapsed(0);
-    timer.current = window.setInterval(() => setElapsed((e) => e + 1), 1000);
-  }
-
-  function confirmCandidate(cameraId: string, stableId?: string) {
-    if (stableId) setFollowing(stableId);
-    setCurrentCam(cameraId);
-    setTrail([{ cameraId, atSeconds: 0, kind: 'start' }]);
-    setStartedAt(new Date());
-    setNote('');
-    setStage('live');
-    runClock();
-  }
-
-  function switchCamera(cameraId: string) {
-    setCurrentCam(cameraId);
-    setTrail((t) => [...t, { cameraId, atSeconds: elapsed, kind: 'cloth' }]);
-  }
-
-  function notThisPerson() {
-    stopClock();
-    // Tell the engine, not just the screen. It issues a fresh identity so the
-    // wrong name does not travel forward onto the next camera.
-    if (following) void correctIdentity(following).catch(() => {});
-    setFollowing(null);
-    setNote(
-      'Match rejected. Recording stopped and that clip was discarded — the system has been told it was wrong. Choose the right one, or cancel.',
-    );
-    setStage('ambig');
-  }
-
-  function close() {
-    stopClock();
-    setStage(null);
-    setNote('');
-    setResult(null);
-    setFollowing(null);
-  }
-
-  /* ---------- derived view data ---------- */
-
-  // From the NAME, not the match kind. `/tracking/live` reports APPEARANCE on
-  // every identity by design, so the match kind answered "why are we following
-  // this body", never "do we know who it is" — which is how the badge came to
-  // read "Not identified by face" beside the person's own name.
-  const identified = seenNow ? identifiedByFace(seenNow.name) : (subject?.identified ?? false);
-  // The appearance id the engine issued. This is the number that survives
-  // leaving the frame and changing camera, so it is what the screen shows.
-  const shownId = following ? `#${following}` : (subject?.id ?? '#?');
-  const shownName = seenNow?.name ?? (identified ? subject?.name : null) ?? 'Unknown person';
-
-  /** The bodies the tracker is actually holding, offered as alternatives.
-   *
-   *  Real appearance ids, not a guess from the camera list. When the tracker
-   *  can see nobody the list is empty and the page says so, which is the
-   *  honest answer — inventing candidates would have the operator confirm a
-   *  person who is not there. */
-  const candidates = useMemo(() => {
-    const found = liveState?.identities ?? [];
-    return found.slice(0, 4).map((identity, i) => {
-      const named = identifiedByFace(identity.name);
-      return {
-        identity,
-        camera: cameras.find((c) => c.id === identity.cameraId),
-        letter: ['A', 'B', 'C', 'D'][i],
-        confidence: named ? 'Fairly sure' : 'Not sure',
-        why: named
-          ? `A face match named this body as ${identity.name}.`
-          : 'Following clothing colour and build only — no face has been matched to this body.',
-        neighbours: neighboursOf(cameras, identity.cameraId),
-      };
-    });
-  }, [liveState, cameras]);
-
-  const livePath = useMemo(
-    () =>
-      trail
-        .slice()
-        .reverse()
-        .map((stop) => {
-          const isStart = stop.kind === 'start';
-          const byFace = isStart && identified;
-          const camera = cameras.find((c) => c.id === stop.cameraId);
-          return {
-            key: `${stop.cameraId}-${stop.atSeconds}`,
-            time: wallClock(startedAt, stop.atSeconds),
-            place: camera?.name ?? stop.cameraId,
-            kind: byFace ? 'Face match' : isStart ? 'No face match' : 'Clothing match',
-            detail: isStart
-              ? identified
-                ? 'Where tracking started — identity confirmed'
-                : 'Where tracking started — identity never confirmed'
-              : 'Face not visible — clothing colour and build only',
-            colour: byFace ? FACE : isStart ? UNKNOWN : CLOTH,
-            round: byFace,
-          };
-        }),
-    [trail, identified, cameras, startedAt],
-  );
-
-  const camerasSoFar = new Set(visited).size;
-
-  /* ---------- render ---------- */
-
-  const showForm = stage === null;
+  const [mode, setMode] = useState<Mode>('live');
 
   return (
     <>
-      <DataNotice capability={capability} />
       <PageHeader
         title="Track a person"
-        lead="Rebuild where someone went across campus, for investigations only."
+        lead="Follow somebody across cameras now, or rebuild where they went earlier."
       />
+      <DataNotice capability={capability} />
 
-      <div className="notice notice--amber">
-        <span style={{ fontWeight: 700 }}>⚑</span>
-        Every tracking search is recorded in the audit log with your name, and is visible to all
-        administrators.
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+        {(['live', 'past'] as Mode[]).map((m) => (
+          <button
+            key={m}
+            type="button"
+            className={`chip-btn ${mode === m ? 'chip-btn--on' : 'chip-btn--off'}`}
+            onClick={() => setMode(m)}
+          >
+            {m === 'live' ? 'Catch someone now' : 'Where did they go'}
+          </button>
+        ))}
       </div>
 
-      {showForm && (
+      {mode === 'live' ? (
+        <LiveMode cameras={cameras} />
+      ) : (
+        <PastMode people={people} today={today} />
+      )}
+
+      <Legend />
+    </>
+  );
+}
+
+/* =========================================================================
+ * LIVE — catch someone now
+ * ========================================================================= */
+
+function LiveMode({ cameras }: { cameras: Camera[] }) {
+  const [watching, setWatching] = useState<Camera | null>(null);
+  const [follow, setFollow] = useState<W.FollowView | null>(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  /* The engine holds the session; this only catches up with it. In particular
+   * a follow that ENDED server-side — the timer ran out, the track was lost —
+   * arrives through this poll, which is the only way a browser that never
+   * asked finds out. */
+  const refresh = useCallback(async () => {
+    try {
+      setFollow(await getFollow());
+    } catch {
+      /* one dropped poll leaves the last answer on screen */
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+    const timer = setInterval(() => void refresh(), FOLLOW_POLL_MS);
+    return () => clearInterval(timer);
+  }, [refresh]);
+
+  // Follow the person, not the camera the operator happened to open. When the
+  // engine says they have walked into another camera's view, show that one.
+  useEffect(() => {
+    if (!follow || follow.endedReason) return;
+    if (watching?.id === follow.cameraId) return;
+    const next = cameras.find((c) => c.id === follow.cameraId);
+    if (next) setWatching(next);
+  }, [follow, cameras, watching?.id]);
+
+  const click = async (event: React.MouseEvent<HTMLDivElement>, camera: Camera) => {
+    // Fractions of the tile, which is also how the boxes over it are
+    // positioned. Matching the overlay is what matters: the operator is
+    // clicking a body they can see outlined, so the click has to use the same
+    // frame of reference the outline was drawn in.
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = (event.clientX - rect.left) / rect.width;
+    const y = (event.clientY - rect.top) / rect.height;
+    if (x < 0 || x > 1 || y < 0 || y > 1) return;
+
+    setBusy(true);
+    setError('');
+    try {
+      setFollow(await startFollow(camera.id, x, y));
+    } catch (err) {
+      // Three refusals, three different meanings. Collapsing them would send
+      // an operator to fix the wrong thing.
+      const status = err instanceof ApiError ? err.status : 0;
+      const detail = err instanceof ApiError ? err.message : 'Could not start following.';
+      setError(
+        status === 404
+          ? 'Nobody there to follow — they may have moved. Click the person themselves.'
+          : detail,
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const act = async (run: () => Promise<W.FollowView>) => {
+    setBusy(true);
+    setError('');
+    try {
+      setFollow(await run());
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'That did not work.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const active = follow && !follow.endedReason ? follow : null;
+
+  return (
+    <>
+      {error && (
+        <div
+          role="status"
+          style={{
+            padding: '9px 13px',
+            borderRadius: 9,
+            marginBottom: 12,
+            fontSize: 13,
+            background: 'var(--am-bg)',
+            color: 'var(--am)',
+          }}
+        >
+          {error}
+        </div>
+      )}
+
+      {follow && <FollowBanner follow={follow} />}
+
+      {!watching && !active && (
         <Card>
-          <Step n="1" title="Who are you following?" sub="One person at a time. Choose them by name, or point at them on a camera." />
-          <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap', margin: '0 0 6px 32px' }}>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--tx2)' }}>
-                By name, from the directory
+          <Step
+            n="1"
+            title="Pick the camera they are on"
+            sub="Grouped by area. Search if you know the name."
+          />
+        </Card>
+      )}
+
+      {watching ? (
+        <Card>
+          <Step
+            n={active ? '3' : '2'}
+            title={active ? 'Following' : 'Click the person'}
+            sub={
+              active
+                ? 'The engine keeps hold of them. Nothing here decides where they are.'
+                : 'Click the body itself — the outline you can see, not the space beside it.'
+            }
+          />
+
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 10,
+              margin: '4px 0 8px',
+            }}
+          >
+            <div style={{ fontSize: 13, fontWeight: 600 }}>
+              {watching.name}
+              <span style={{ color: 'var(--tx3)', fontWeight: 400 }}>
+                {watching.area ? ` · ${watching.area}` : ''}
               </span>
-              <select
-                className="input"
-                value={subject?.source === 'directory' ? subject.name : ''}
-                onChange={(e) => chooseByName(e.target.value)}
+            </div>
+            <button
+              type="button"
+              className="linkbtn"
+              onClick={() => {
+                setWatching(null);
+                setError('');
+              }}
+            >
+              Back to the cameras
+            </button>
+          </div>
+
+          <div
+            onClick={(e) => void click(e, watching)}
+            style={{ cursor: busy ? 'progress' : 'crosshair' }}
+            role="presentation"
+          >
+            <CameraFrame
+              camera={watching}
+              size="lg"
+              live
+              feature="track"
+              badge={active?.recording?.state === 'recording' ? 'Recording' : 'LIVE'}
+            />
+          </div>
+
+          {active && <RecordPanel follow={active} busy={busy} act={act} />}
+
+          {active && (
+            <div style={{ marginTop: 12 }}>
+              <button
+                type="button"
+                className="chip-btn chip-btn--off"
+                disabled={busy}
+                onClick={() => void act(endFollow)}
               >
-                <option value="">Choose someone…</option>
-                {people.map((p) => (
-                  <option key={p} value={p}>{p}</option>
-                ))}
-              </select>
-            </label>
-            <div style={{ fontSize: 12.5, color: 'var(--tx3)', fontWeight: 600, paddingBottom: 13 }}>or</div>
+                Stop following
+              </button>
+            </div>
+          )}
+        </Card>
+      ) : (
+        <CamGrid
+          title="Cameras"
+          note="Pick the one they are on. Click a person in the enlarged view to follow them."
+          cameras={[]}
+          byArea
+          searchable
+          pageSize={GRID_PAGE}
+          activeId={active?.cameraId}
+          onPick={(cam) => {
+            setWatching(cam);
+            setError('');
+          }}
+        />
+      )}
+
+      {active && active.trail.length > 1 && <Trail hops={active.trail} />}
+    </>
+  );
+}
+
+/** Who the engine thinks this is, said plainly — including when it does not
+ *  know yet, which is most of the first few seconds. */
+function FollowBanner({ follow }: { follow: W.FollowView }) {
+  const named = !!follow.name;
+  const over = !!follow.endedReason;
+  const tone = over ? 'var(--tx3)' : named ? FACE : UNKNOWN;
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+        padding: '11px 15px',
+        borderRadius: 10,
+        marginBottom: 12,
+        background: 'var(--panel)',
+        borderLeft: `3px solid ${tone}`,
+      }}
+    >
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div style={{ fontSize: 14.5, fontWeight: 700, color: tone }}>
+          {over
+            ? follow.endedReason === 'track lost'
+              ? 'Lost them'
+              : `Stopped — ${follow.endedReason}`
+            : named
+              ? follow.name
+              : 'Following an unidentified person'}
+        </div>
+        <div style={{ fontSize: 12.5, color: 'var(--tx2)', marginTop: 1 }}>
+          {over ? (
+            follow.endedReason === 'track lost' ? (
+              // Said in full, because the alternative reading — that the name
+              // is still valid somewhere — is the exact belief that once put
+              // one person's name on everybody.
+              'The track broke, so any name went with it. Nothing is being followed.'
+            ) : (
+              'Nothing is being followed.'
+            )
+          ) : named ? (
+            <>
+              Identified by face · {follow.cameraName} · {follow.place}
+            </>
+          ) : (
+            <>
+              Not identified yet — following the body. A name appears once a face has
+              been seen clearly, several times. · {follow.cameraName}
+            </>
+          )}
+        </div>
+      </div>
+      <div style={{ fontSize: 11.5, color: 'var(--tx3)', whiteSpace: 'nowrap' }}>
+        {follow.stableId}
+      </div>
+    </div>
+  );
+}
+
+function RecordPanel({
+  follow,
+  busy,
+  act,
+}: {
+  follow: W.FollowView;
+  busy: boolean;
+  act: (run: () => Promise<W.FollowView>) => Promise<void>;
+}) {
+  const [timer, setTimer] = useState<number | null>(300);
+  const recording = follow.recording;
+  const running = recording?.state === 'recording';
+
+  return (
+    <div style={{ marginTop: 12, padding: 13, borderRadius: 10, background: 'var(--bg)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        {running ? (
+          <>
+            <button
+              type="button"
+              className="chip-btn chip-btn--on"
+              disabled={busy}
+              onClick={() => void act(stopFollowRecording)}
+            >
+              Stop recording
+            </button>
+            <span style={{ fontSize: 12.5, color: 'var(--tx2)' }}>
+              {recording?.timerSecondsLeft != null
+                ? `Stops itself in ${clock(recording.timerSecondsLeft)}`
+                : 'Runs until you stop it'}
+            </span>
+          </>
+        ) : (
+          <>
             <button
               type="button"
               className="chip-btn chip-btn--off"
-              style={{ height: 42 }}
-              onClick={() => { stopClock(); setNote(''); setStage('mancam'); }}
+              disabled={busy}
+              onClick={() => void act(() => startFollowRecording(timer))}
             >
-              Point at them on a camera
+              Record
             </button>
-          </div>
-
-          {subject && <SubjectChip subject={subject} where={manCam?.name} />}
-
-          <div style={{ height: 1, background: 'var(--line)', margin: '18px 0' }} />
-          <Step
-            n="2"
-            title="When?"
-            sub={`Right now is ${nowLabel}. Following live and rebuilding a past path are different jobs — pick one.`}
-          />
-
-          <div style={{ marginLeft: 32 }}>
-            <div style={{ display: 'inline-flex', gap: 4, padding: 4, background: 'var(--bg)', borderRadius: 11, marginBottom: 14 }}>
-              {(['live', 'past'] as Mode[]).map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() => { setMode(m); setError(''); setStage(null); setResult(null); }}
-                  style={{
-                    padding: '8px 16px', borderRadius: 8, fontSize: 13.5, fontWeight: 600,
-                    cursor: 'pointer', whiteSpace: 'nowrap', border: 'none',
-                    background: mode === m ? 'var(--card)' : 'transparent',
-                    color: mode === m ? 'var(--tx)' : 'var(--tx3)',
-                    boxShadow: mode === m ? 'var(--sh)' : 'none',
-                  }}
-                >
-                  {m === 'live' ? 'Live — right now' : 'A past time'}
-                </button>
-              ))}
-            </div>
-
-            {mode === 'past' ? (
-              <>
-                <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-                  <Labelled label="Date">
-                    <input className="input" type="date" value={selectedDate} onChange={(e) => setDate(e.target.value)} />
-                  </Labelled>
-                  <Labelled label="From">
-                    <input className="input" type="time" value={from} onChange={(e) => { setFrom(e.target.value); setError(''); }} />
-                  </Labelled>
-                  <Labelled label="To">
-                    <input className="input" type="time" value={to} onChange={(e) => { setTo(e.target.value); setError(''); }} />
-                  </Labelled>
-                </div>
-                <div style={{ fontSize: 12.5, color: 'var(--tx3)', marginTop: 8 }}>
-                  A past search has to end before {nowLabel}. Recorded footage only — nothing is streaming.
-                </div>
-              </>
-            ) : (
-              <div style={{ fontSize: 13, color: 'var(--tx2)', lineHeight: 1.5 }}>
-                Picks them up from this moment and records while you watch. There is no past footage
-                in this mode, and no end time — you stop it yourself.
-              </div>
-            )}
-
-            {error && (
-              <div style={{
-                display: 'flex', gap: 9, background: 'var(--am-bg)', color: 'var(--am)',
-                borderRadius: 10, padding: '11px 14px', fontSize: 13, fontWeight: 600,
-                lineHeight: 1.45, marginTop: 12,
-              }}>
-                {error}
-              </div>
-            )}
-
-            <div style={{ marginTop: 18 }}>
+            {TIMERS.map((t) => (
               <button
+                key={t.label}
                 type="button"
-                onClick={start}
-                disabled={loading}
-                style={{
-                  height: 44, padding: '0 24px', border: 'none', borderRadius: 10,
-                  background: mode === 'past' ? 'var(--ac)' : 'var(--rd)',
-                  color: '#fff', fontWeight: 600, fontSize: 14.5, cursor: 'pointer',
-                }}
+                className={`chip-btn ${timer === t.seconds ? 'chip-btn--on' : 'chip-btn--off'}`}
+                onClick={() => setTimer(t.seconds)}
               >
-                {loading ? 'Building…' : mode === 'past' ? 'Build path' : 'Start following'}
-              </button>
-            </div>
-          </div>
-        </Card>
-      )}
-
-      {!showForm && subject && (
-        <Card tight>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
-            <Avatar subject={subject} />
-            <div style={{ flex: 1, minWidth: 180 }}>
-              <IdLine subject={subject} />
-              <div style={{ fontSize: 12, color: 'var(--tx2)' }}>
-                {mode === 'past'
-                  ? `Recorded footage · ${from} to ${to}`
-                  : `Live, from ${nowLabel} onwards`}
-              </div>
-            </div>
-            <button type="button" className="chip-btn chip-btn--off" onClick={close}>
-              Change who or when
-            </button>
-          </div>
-        </Card>
-      )}
-
-      {/* ---------- pick a camera ---------- */}
-      {stage === 'mancam' && (
-        <>
-          <Card>
-            <div style={{ fontWeight: 700, fontSize: 19, letterSpacing: '-.01em' }}>
-              Choose the camera you want to look at.
-            </div>
-            <div style={{ fontSize: 13.5, color: 'var(--tx2)', marginTop: 3 }}>
-              {mode === 'past'
-                ? `Open a recorded camera at ${to} and point at the person yourself, instead of searching by name.`
-                : 'Open a live camera and point at the person yourself, instead of searching by name.'}
-            </div>
-          </Card>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(196px,1fr))', gap: 11, marginBottom: 14 }}>
-            {cameras.map((c) => (
-              <button
-                key={c.id}
-                type="button"
-                onClick={() => { setPickCam(c.id); setStage('manper'); }}
-                style={{ padding: 0, border: '1px solid var(--line)', borderRadius: 11, overflow: 'hidden', background: 'var(--card)', cursor: 'pointer', textAlign: 'left' }}
-              >
-                <CameraFrame camera={c} size="sm" />
-                <div style={{ padding: '8px 11px' }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--tx)' }}>{c.name}</div>
-                  <div style={{ fontSize: 11, color: 'var(--tx3)', marginTop: 1 }}>{c.status}</div>
-                </div>
+                {t.label}
               </button>
             ))}
-          </div>
-          <Centre><button type="button" className="chip-btn chip-btn--off" onClick={close}>Cancel</button></Centre>
-        </>
-      )}
+          </>
+        )}
+      </div>
 
-      {/* ---------- pick a person in the frame ---------- */}
-      {stage === 'manper' && manCam && (
-        <>
-          <Card>
-            <div style={{ fontWeight: 700, fontSize: 19, letterSpacing: '-.01em' }}>
-              {mode === 'past'
-                ? 'Click the person you want to follow through the recording.'
-                : 'Click the person you want to follow.'}
-            </div>
-            <div style={{ fontSize: 13.5, color: 'var(--tx2)', marginTop: 3 }}>
-              {manCam.name} · {mode === 'past' ? `recorded at ${to} · nothing is streaming` : 'live · nobody is being followed yet, and nothing is recording'}
-            </div>
-          </Card>
-          <Card>
-            <CameraFrame camera={manCam} size="lg" live={mode !== 'past'} feature="track" />
-            <div style={{ fontSize: 12.5, color: 'var(--tx3)', marginTop: 9 }}>
-              Green means identified by face. Amber means not identified — following the body only.
-            </div>
-          </Card>
-          <Card>
-            <div style={{ fontWeight: 700, fontSize: 15.5, marginBottom: 2 }}>People in this frame</div>
-            <div style={{ fontSize: 12.5, color: 'var(--tx3)', marginBottom: 12 }}>
-              Pick the one you want to follow.
-            </div>
-            {(manCam.boxes ?? []).length === 0 && (
-              <div className="empty">Nobody is in view on this camera right now.</div>
-            )}
-            {(manCam.boxes ?? []).map((box, i) => {
-              const known = identifiedByFace(box.label);
-              const name = known ? box.label! : 'Unknown person';
-              return (
-                <div key={`${box.x}-${i}`} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 0', borderTop: '1px solid var(--line)' }}>
-                  <div style={{
-                    width: 34, height: 34, borderRadius: '50%', flexShrink: 0,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontWeight: 700, fontSize: 13,
-                    background: known ? 'var(--chip)' : 'var(--am-bg)',
-                    color: known ? 'var(--ac2)' : 'var(--am)',
-                  }}>
-                    {known ? initials(name) : '?'}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                      <span style={{ fontSize: 15, fontWeight: 700 }}>#{i + 1}</span>
-                      <span style={{ fontSize: 14, fontWeight: 600, color: known ? 'var(--tx2)' : 'var(--am)' }}>{name}</span>
-                    </div>
-                    <div style={{ fontSize: 12.5, color: 'var(--tx2)' }}>
-                      {known
-                        ? 'Identified by face — matched against the school directory'
-                        : 'Not identified by face — the system can only follow the body'}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    className="chip-btn chip-btn--on"
-                    onClick={() => {
-                      setSubject({ id: `#${i + 1}`, name, identified: known, source: 'camera' });
-                      if (mode === 'past') { setStage(null); void runPast(); return; }
-                      confirmCandidate(manCam.id);
-                    }}
-                  >
-                    {mode === 'past' ? 'Build their path' : 'Follow this person'}
-                  </button>
-                </div>
-              );
-            })}
-          </Card>
-          <Centre>
-            <button type="button" className="chip-btn chip-btn--off" onClick={() => setStage('mancam')}>Choose a different camera</button>
-            <button type="button" className="chip-btn chip-btn--off" onClick={close}>Cancel</button>
-          </Centre>
-        </>
-      )}
+      <div style={{ fontSize: 12, color: 'var(--tx3)', marginTop: 8 }}>
+        One file per camera they cross. It stops by itself if the timer runs out or the
+        track is lost, so closing this tab cannot leave a camera recording.
+      </div>
 
-      {/* ---------- which camera is it? ---------- */}
-      {stage === 'ambig' && (
-        <>
-          <Card>
-            <div style={{ fontWeight: 700, fontSize: 19, letterSpacing: '-.01em' }}>
-              The system found more than one possible match. Choose the right one.
-            </div>
-            <div style={{ fontSize: 13.5, color: 'var(--tx2)', marginTop: 3 }}>
-              Nothing is recorded until you choose. These are alternatives — only one of them is the
-              person you asked for.
-            </div>
-            {note && (
-              <div style={{ display: 'flex', gap: 9, background: 'var(--am-bg)', color: 'var(--am)', borderRadius: 10, padding: '10px 14px', fontSize: 13, fontWeight: 600, marginTop: 12 }}>
-                {note}
-              </div>
-            )}
-          </Card>
-
-          {candidates.length === 0 && (
-            <Card>
-              <div className="empty">
-                {liveState && !liveState.running
-                  ? `Tracking is not running: ${liveState.reason ?? 'unknown reason'}`
-                  : 'Nobody is in view on any tracked camera. Walk into shot and this fills in.'}
-              </div>
-            </Card>
-          )}
-          {candidates.map((c, i) => (
-            <div key={c.identity.stableId}>
-              {i > 0 && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '2px 0 10px' }}>
-                  <div style={{ flex: 1, height: 1, background: 'var(--line)' }} />
-                  <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: '.14em', color: 'var(--tx3)' }}>OR</div>
-                  <div style={{ flex: 1, height: 1, background: 'var(--line)' }} />
-                </div>
-              )}
-              <Card>
-                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)', gap: 18, alignItems: 'start' }}>
-                  {c.camera && <CameraFrame camera={c.camera} size="sm" badge={null} />}
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9 }}>
-                      <div style={{ width: 24, height: 24, borderRadius: 7, background: 'var(--panel)', color: 'var(--tx2)', fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        {c.letter}
-                      </div>
-                      <div style={{ fontWeight: 700, fontSize: 15.5 }}>{c.identity.cameraName}</div>
-                    </div>
-                    <div style={{ fontSize: 12.5, color: 'var(--tx2)', marginBottom: 8 }}>Cameras next to this one</div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 7, marginBottom: 12 }}>
-                      {c.neighbours.map((nb) => (
-                        <div key={nb.id} style={{ border: '1px solid var(--line)', borderRadius: 8, padding: '5px 7px', fontSize: 10.5, fontWeight: 600, color: 'var(--tx2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {nb.name}
-                        </div>
-                      ))}
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: 12.5, color: 'var(--tx2)' }}>How sure the system is</span>
-                      <span style={{
-                        fontSize: 12.5, fontWeight: 700, padding: '3px 10px', borderRadius: 8,
-                        background: c.confidence === 'Fairly sure' ? 'var(--chip)' : 'var(--am-bg)',
-                        color: c.confidence === 'Fairly sure' ? 'var(--ac2)' : 'var(--am)',
-                      }}>
-                        {c.confidence}
-                      </span>
-                    </div>
-                    <div style={{ fontSize: 12.5, color: 'var(--tx2)', lineHeight: 1.45, marginBottom: 14 }}>{c.why}</div>
-                    <button
-                      type="button"
-                      onClick={() => confirmCandidate(c.identity.cameraId, c.identity.stableId)}
-                      style={{ width: '100%', height: 42, border: 'none', borderRadius: 10, background: 'var(--ac)', color: '#fff', fontWeight: 600, fontSize: 14, cursor: 'pointer' }}
-                    >
-                      This is them
-                    </button>
-                  </div>
-                </div>
-              </Card>
+      {recording && recording.segments.length > 0 && (
+        <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {recording.segments.map((s) => (
+            <div
+              key={s.id}
+              style={{
+                display: 'flex',
+                alignItems: 'baseline',
+                gap: 8,
+                fontSize: 12.5,
+                color: 'var(--tx2)',
+              }}
+            >
+              <span style={{ fontWeight: 600, color: 'var(--tx)' }}>
+                {s.cameraName ?? s.cameraId}
+              </span>
+              <span>{formatTime(s.startedAt)}</span>
+              <span>· {s.seconds.toFixed(0)}s</span>
+              <span>
+                ·{' '}
+                {s.state === 'recording'
+                  ? 'recording'
+                  : s.state === 'failed'
+                    ? `failed — ${s.reason ?? 'no reason given'}`
+                    : (s.reason ?? 'stopped')}
+              </span>
             </div>
           ))}
-          <Centre><button type="button" className="chip-btn chip-btn--off" onClick={close}>None of these — cancel</button></Centre>
-        </>
+        </div>
       )}
+    </div>
+  );
+}
 
-      {/* ---------- following ---------- */}
-      {stage === 'live' && subject && cam && (
-        <>
-          <Card tight>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 15, flexWrap: 'wrap' }}>
-              <Avatar subject={subject} large />
-              <div style={{ flex: 1, minWidth: 230 }}>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 9, flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 19, fontWeight: 800, letterSpacing: '-.01em' }}>{shownId}</span>
-                  <span style={{ fontSize: 15, fontWeight: 600, color: identified ? 'var(--tx2)' : 'var(--am)' }}>
-                    {shownName}
-                  </span>
-                  <span style={{
-                    fontSize: 12, fontWeight: 700, padding: '3px 10px', borderRadius: 8,
-                    background: identified ? 'var(--chip)' : 'var(--am-bg)',
-                    color: identified ? 'var(--ac2)' : 'var(--am)',
-                  }}>
-                    {identified ? 'Identified by face' : 'Not identified by face'}
-                  </span>
-                </div>
-                <div style={{ fontSize: 12.5, color: 'var(--tx2)', marginTop: 2 }}>
-                  {identified
-                    ? 'Face match confirmed. Clothing is used only to keep hold of the body between cameras.'
-                    : 'Following clothing colour and build only. This is not a confirmed identity and must not be treated as one.'}
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: 18, whiteSpace: 'nowrap' }}>
-                <Stat label="Following for" value={clock(elapsed)} mono />
-                <Stat label="Cameras so far" value={String(camerasSoFar)} />
-              </div>
-              <div style={{ display: 'flex', gap: 9 }}>
-                <button
-                  type="button"
-                  onClick={notThisPerson}
-                  style={{ height: 42, padding: '0 17px', border: '1.5px solid var(--am)', borderRadius: 10, background: 'var(--card)', color: 'var(--am)', fontWeight: 600, fontSize: 13.5, cursor: 'pointer' }}
+function Trail({ hops }: { hops: W.TrailHop[] }) {
+  return (
+    <Card>
+      <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 8 }}>Where they have been</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {hops.map((hop, i) => (
+          <div
+            key={`${hop.cameraId}-${hop.at.utc}-${i}`}
+            style={{ display: 'flex', alignItems: 'baseline', gap: 10, fontSize: 13 }}
+          >
+            <span
+              style={{
+                width: 9,
+                height: 9,
+                borderRadius: '50%',
+                background: CLOTH,
+                flexShrink: 0,
+              }}
+            />
+            <span style={{ fontWeight: 600 }}>{formatTime(hop.at)}</span>
+            <span>{hop.cameraName}</span>
+            <span style={{ color: 'var(--tx3)' }}>{hop.place}</span>
+          </div>
+        ))}
+      </div>
+      <div style={{ fontSize: 12, color: 'var(--tx3)', marginTop: 8 }}>
+        Same body, camera to camera. That is a claim about continuity, not about who
+        anybody is.
+      </div>
+    </Card>
+  );
+}
+
+/* =========================================================================
+ * PAST — where did they go
+ * ========================================================================= */
+
+function PastMode({ people, today }: { people: string[]; today: string }) {
+  const [who, setWho] = useState('');
+  const [date, setDate] = useState(today);
+  const [from, setFrom] = useState('07:00');
+  const [to, setTo] = useState('08:15');
+  const [result, setResult] = useState<TrackResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!date) setDate(today);
+  }, [today, date]);
+
+  const windowOk = useMemo(() => {
+    const a = minutes(from);
+    const b = minutes(to);
+    return Number.isFinite(a) && Number.isFinite(b) && a < b;
+  }, [from, to]);
+
+  const run = async () => {
+    if (!who || !windowOk) return;
+    setLoading(true);
+    setError('');
+    try {
+      setResult(await trackPerson({ who, date, from, to }));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not build that path.');
+      setResult(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <>
+      <Card>
+        <Step n="1" title="Who, and when" sub="Every search here is written to the audit trail." />
+        <div className="row" style={{ gridTemplateColumns: '2fr 1fr 1fr 1fr auto', gap: 10 }}>
+          <Labelled label="Person">
+            <input
+              list="track-people"
+              value={who}
+              onChange={(e) => setWho(e.target.value)}
+              placeholder="Name"
+            />
+            <datalist id="track-people">
+              {people.map((n) => (
+                <option key={n} value={n} />
+              ))}
+            </datalist>
+          </Labelled>
+          <Labelled label="Date">
+            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          </Labelled>
+          <Labelled label="From">
+            <input type="time" value={from} onChange={(e) => setFrom(e.target.value)} />
+          </Labelled>
+          <Labelled label="To">
+            <input type="time" value={to} onChange={(e) => setTo(e.target.value)} />
+          </Labelled>
+          <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+            <button
+              type="button"
+              className="chip-btn chip-btn--on"
+              disabled={!who || !windowOk || loading}
+              onClick={() => void run()}
+            >
+              {loading ? 'Building…' : 'Build path'}
+            </button>
+          </div>
+        </div>
+        {!windowOk && (
+          <div style={{ fontSize: 12.5, color: 'var(--am)', marginTop: 8 }}>
+            The end of the window has to come after the start.
+          </div>
+        )}
+        {error && (
+          <div style={{ fontSize: 12.5, color: 'var(--am)', marginTop: 8 }}>{error}</div>
+        )}
+      </Card>
+
+      {result && (
+        <Card>
+          <div style={{ fontWeight: 700, fontSize: 15.5 }}>{result.heading}</div>
+          <div style={{ fontSize: 12.5, color: 'var(--tx3)', marginBottom: 10 }}>
+            {formatLongDate(date)} · {from} to {to}
+          </div>
+
+          {result.path.length === 0 ? (
+            <Empty>
+              Nothing was recorded for {result.who} in that window. Widen it, or check
+              another day.
+            </Empty>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+              {result.path.map((stop, i) => (
+                <div
+                  key={`${stop.time}-${stop.place}-${i}`}
+                  style={{ display: 'flex', alignItems: 'baseline', gap: 10, fontSize: 13 }}
                 >
-                  Not this person
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { stopClock(); setStage('stop'); }}
-                  style={{ height: 42, padding: '0 19px', border: 'none', borderRadius: 10, background: 'var(--rd)', color: '#fff', fontWeight: 600, fontSize: 13.5, cursor: 'pointer' }}
-                >
-                  Stop tracking
-                </button>
-              </div>
-              <RecordButton
-                cameraId={cam.id}
-                note="Records this camera from the moment you press it, and keeps going if the person moves elsewhere."
-              />
-            </div>
-          </Card>
-
-          <Card>
-            <div style={{ position: 'relative' }}>
-              {/* FOLLOWING, not RECORDING. The badge used to say RECORDING
-                  while nothing was written to disk — the record button below
-                  is the only thing on this page that records anything. */}
-              <CameraFrame camera={cam} size="lg" live badge="FOLLOWING" feature="track" />
-              {/* ID big, name underneath — the design's rule. */}
-              {/* No box overlay here on purpose. CameraFrame already draws the
-                  tracked bodies from /cameras/{id}/detections, ids and all, and
-                  drawing a second one from /tracking/live put two boxes on the
-                  same person that drifted apart between polls. */}
-            </div>
-            <div style={{ fontSize: 12.5, color: 'var(--tx3)', marginTop: 9 }}>
-              {!seenNow
-                ? 'Out of view — the tracker is holding this identity, waiting for them to reappear.'
-                : identified
-                  ? 'Green box: identity confirmed by face.'
-                  : 'Amber box: nobody has been identified — following a body, not a person.'}
-            </div>
-          </Card>
-
-          <Card>
-            <div style={{ fontWeight: 700, fontSize: 15.5 }}>Cameras next to {cam.name}</div>
-            <div style={{ fontSize: 12.5, color: 'var(--tx3)', marginTop: 2 }}>
-              Click any camera to make it the main view. A slow green pulse marks where the system
-              expects them to walk next — a guess, not a sighting, and the label underneath says so
-              in words.
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 11, marginTop: 14, alignItems: 'start' }}>
-              {neighboursOf(cameras, cam.id).map((nb) => {
-                const isNext = predicted?.id === nb.id;
-                const seen = visited.includes(nb.id);
-                return (
-                  <button
-                    key={nb.id}
-                    type="button"
-                    onClick={() => switchCamera(nb.id)}
+                  <span
                     style={{
-                      padding: 0, textAlign: 'left', cursor: 'pointer', borderRadius: 11,
-                      overflow: 'hidden', background: 'var(--card)',
-                      border: `2px solid ${isNext ? '#5cae91' : 'var(--line)'}`,
-                      animation: isNext ? 'vg-nextcam 2s ease-in-out infinite' : 'none',
+                      width: 10,
+                      height: 10,
+                      borderRadius: stop.match === 'face' ? '50%' : 2,
+                      background: stop.match === 'face' ? FACE : CLOTH,
+                      flexShrink: 0,
                     }}
-                  >
-                    <CameraFrame camera={nb} size="sm" badge={null} />
-                    <div style={{ padding: '8px 11px' }}>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--tx)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {nb.name}
-                      </div>
-                      <div style={{ fontSize: 11, fontWeight: 600, marginTop: 1, minHeight: 26, color: isNext ? 'var(--ac)' : 'var(--tx3)' }}>
-                        {isNext ? 'Predicted next — not a sighting' : seen ? 'Seen earlier' : 'No sighting'}
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </Card>
-
-          <Card>
-            <div style={{ fontWeight: 700, fontSize: 15.5, marginBottom: 3 }}>Path so far</div>
-            <Legend />
-            <div style={{ position: 'relative', paddingLeft: 26 }}>
-              <div style={{ position: 'absolute', left: 7, top: 6, bottom: 6, width: 2, background: 'var(--line)' }} />
-              {livePath.map((p) => (
-                <div key={p.key} style={{ position: 'relative', paddingBottom: 18 }}>
-                  <span style={{
-                    position: 'absolute', left: -24, top: 4, width: 12, height: 12,
-                    borderRadius: p.round ? '50%' : 2, background: p.colour,
-                    border: '2.5px solid var(--card)', boxSizing: 'content-box',
-                  }} />
-                  <div style={{ fontWeight: 600, fontSize: 14 }}>{p.time} — {p.place}</div>
-                  <div style={{ fontSize: 12.5, color: 'var(--tx2)', marginTop: 1 }}>{p.kind} · {p.detail}</div>
+                  />
+                  <span style={{ fontWeight: 600, minWidth: 62 }}>{stop.time}</span>
+                  <span style={{ fontWeight: 600 }}>{stop.place}</span>
+                  <span style={{ color: 'var(--tx3)' }}>{stop.detail}</span>
                 </div>
               ))}
             </div>
-          </Card>
-        </>
-      )}
-
-      {/* ---------- what actually happened ----------
-           This used to ask "Save this clip?" and then report "Clip saved".
-           No clip existed and nothing was written: the answer only set a flag
-           that chose which sentence to print. A false confirmation is worse
-           than a dead button, because somebody goes looking for the file. */}
-      {stage === 'stop' && (
-        <Card>
-          <div style={{ fontWeight: 700, fontSize: 19, letterSpacing: '-.01em' }}>
-            Tracking ended
-          </div>
-          <div style={{ fontSize: 13.5, color: 'var(--tx2)', margin: '3px 0 16px' }}>
-            The search is in the audit log with your name. Any recording you started while
-            following was written to disk as it was made — there is no clip waiting to be saved
-            or discarded here.
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: 12, marginBottom: 18 }}>
-            <Tile label="Followed for" value={`${Math.floor(elapsed / 60)}m ${elapsed % 60}s`} />
-            <Tile label="Cameras" value={String(camerasSoFar)} />
-            <Tile label="Started" value={wallClock(startedAt, 0)} />
-          </div>
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            <button type="button" className="chip-btn chip-btn--on" style={{ height: 44 }} onClick={() => { setNote(''); setStage('ambig'); }}>
-              Follow again
-            </button>
-            <button type="button" className="chip-btn chip-btn--off" style={{ height: 44 }} onClick={close}>
-              Close
-            </button>
-          </div>
+          )}
         </Card>
-      )}
-
-      {/* ---------- a past path ---------- */}
-      {showForm && result && (
-        <Card>
-          <div style={{ fontWeight: 700, fontSize: 21, letterSpacing: '-.01em' }}>{result.heading}</div>
-          <div style={{ fontSize: 13.5, color: 'var(--tx2)', margin: '2px 0 14px' }}>{result.sub}</div>
-          <Legend />
-          <div style={{ position: 'relative', paddingLeft: 26 }}>
-            <div style={{ position: 'absolute', left: 7, top: 6, bottom: 6, width: 2, background: 'var(--line)' }} />
-            {result.path.map((stop, i) => (
-              <div key={`${stop.time}-${stop.place}-${i}`} style={{ position: 'relative', paddingBottom: 18 }}>
-                <span style={{
-                  position: 'absolute', left: -24, top: 4, width: 12, height: 12,
-                  borderRadius: stop.match === 'face' ? '50%' : 2,
-                  background: stop.match === 'face' ? FACE : CLOTH,
-                  border: '2.5px solid var(--card)', boxSizing: 'content-box',
-                }} />
-                <div style={{ fontWeight: 600, fontSize: 14 }}>
-                  {stop.time}{stop.until && stop.until !== stop.time ? ` – ${stop.until}` : ''} — {stop.place}
-                </div>
-                <div style={{ fontSize: 12.5, color: 'var(--tx2)', marginTop: 1 }}>{stop.detail}</div>
-              </div>
-            ))}
-          </div>
-        </Card>
-      )}
-
-      {showForm && !result && !loading && (
-        <div style={{ textAlign: 'center', padding: '52px 20px', color: 'var(--tx3)', fontSize: 14.5 }}>
-          Choose a person and a time window.
-        </div>
       )}
     </>
   );
@@ -908,7 +641,21 @@ export function TrackPerson() {
 function Step({ n, title, sub }: { n: string; title: string; sub: string }) {
   return (
     <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 10 }}>
-      <div style={{ width: 22, height: 22, borderRadius: 7, background: 'var(--panel)', color: 'var(--tx2)', fontSize: 11.5, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+      <div
+        style={{
+          width: 22,
+          height: 22,
+          borderRadius: 7,
+          background: 'var(--panel)',
+          color: 'var(--tx2)',
+          fontSize: 11.5,
+          fontWeight: 700,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0,
+        }}
+      >
         {n}
       </div>
       <div>
@@ -928,74 +675,6 @@ function Labelled({ label, children }: { label: string; children: React.ReactNod
   );
 }
 
-function Avatar({ subject, large = false }: { subject: Subject; large?: boolean }) {
-  const size = large ? 42 : 30;
-  return (
-    <div style={{
-      width: size, height: size, borderRadius: '50%', flexShrink: 0,
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontWeight: 700, fontSize: large ? 15 : 12.5,
-      background: subject.identified ? 'var(--chip)' : 'var(--am-bg)',
-      color: subject.identified ? 'var(--ac2)' : 'var(--am)',
-    }}>
-      {subject.identified ? initials(subject.name) : '?'}
-    </div>
-  );
-}
-
-function IdLine({ subject }: { subject: Subject }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-      <span style={{ fontSize: 14, fontWeight: 700 }}>{subject.id}</span>
-      <span style={{ fontSize: 14, fontWeight: 600, color: subject.identified ? 'var(--ac2)' : 'var(--am)' }}>
-        {subject.identified ? subject.name : 'Unknown person'}
-      </span>
-    </div>
-  );
-}
-
-function SubjectChip({ subject, where }: { subject: Subject; where?: string }) {
-  return (
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: 10, margin: '12px 0 0 32px',
-      padding: '10px 14px', borderRadius: 10,
-      background: subject.identified ? 'var(--chip)' : 'var(--am-bg)',
-    }}>
-      <Avatar subject={subject} />
-      <div style={{ minWidth: 0 }}>
-        <IdLine subject={subject} />
-        <div style={{ fontSize: 12, color: 'var(--tx2)' }}>
-          {subject.identified
-            ? subject.source === 'camera'
-              ? `Identified by face, picked on ${where ?? 'a camera'}`
-              : 'Identified by face, from the directory'
-            : 'Never identified by face — only clothing colour and build can be followed'}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function Stat({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div>
-      <div style={{ fontSize: 11.5, color: 'var(--tx3)' }}>{label}</div>
-      <div style={{ fontSize: 16, fontWeight: 700, fontFamily: mono ? 'ui-monospace,Menlo,monospace' : undefined }}>
-        {value}
-      </div>
-    </div>
-  );
-}
-
-function Tile({ label, value }: { label: string; value: string }) {
-  return (
-    <div style={{ background: 'var(--bg)', borderRadius: 10, padding: '13px 15px' }}>
-      <div style={{ fontSize: 12.5, color: 'var(--tx2)' }}>{label}</div>
-      <div style={{ fontSize: 20, fontWeight: 700 }}>{value}</div>
-    </div>
-  );
-}
-
 /** Three kinds of evidence, named in words. Colour alone would not survive a
  *  colour-blind operator or a printed report. */
 function Legend() {
@@ -1005,21 +684,18 @@ function Legend() {
     { t: 'Not identified', c: UNKNOWN, round: false },
   ];
   return (
-    <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', margin: '8px 0 14px' }}>
+    <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', margin: '14px 0' }}>
       {items.map((g) => (
-        <div key={g.t} style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: 'var(--tx2)' }}>
-          <span style={{ width: 11, height: 11, borderRadius: g.round ? '50%' : 2, background: g.c }} />
+        <div
+          key={g.t}
+          style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: 'var(--tx2)' }}
+        >
+          <span
+            style={{ width: 11, height: 11, borderRadius: g.round ? '50%' : 2, background: g.c }}
+          />
           {g.t}
         </div>
       ))}
-    </div>
-  );
-}
-
-function Centre({ children }: { children: React.ReactNode }) {
-  return (
-    <div style={{ display: 'flex', justifyContent: 'center', gap: 10, marginBottom: 14 }}>
-      {children}
     </div>
   );
 }

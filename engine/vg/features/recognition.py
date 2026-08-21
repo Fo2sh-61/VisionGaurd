@@ -19,6 +19,8 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
+from vg.config import AnchorGates
+from vg.events.anchors import AnchorAccumulator, FaceMatch
 from vg.events.sightings import Sighting, SightingStore
 from vg.features.base import FeatureWorker
 from vg.identity.gallery import FaceGallery, Person
@@ -82,8 +84,11 @@ class RecognitionWorker(FeatureWorker[FacesResult]):
         rate_hz: float = 2.0,
         boost_hz: float = 12.0,
         tracking=None,
+        gates: AnchorGates | None = None,
+        anchors=None,
+        name: str = "recognition",
     ) -> None:
-        super().__init__("recognition", bus, cameras or [], rate_hz, boost_hz)
+        super().__init__(name, bus, cameras or [], rate_hz, boost_hz)
         self.gallery = gallery
         self.sightings = sightings
         self.pipeline = pipeline or FacePipeline()
@@ -93,8 +98,22 @@ class RecognitionWorker(FeatureWorker[FacesResult]):
         # on tracking being switched on.
         self.tracking = tracking
 
+        # The bar this tier's recognitions have to clear before anybody is
+        # named or a stop is written. One accumulator per worker, because one
+        # worker serves one tier.
+        self.gates = gates or AnchorGates()
+        self.accumulator = AnchorAccumulator(self.gates)
+        # Optional, like tracking. Absent means names are still gated the same
+        # way; only the path stops being written down.
+        self.anchors = anchors
+
         self.faces_seen = 0
         self.identifications = 0
+        self.anchors_written = 0
+        # How many matches were good enough to draw a box for and not good
+        # enough to claim. Worth watching: if this is everything, the gate is
+        # too tight for these cameras and the numbers need moving.
+        self.names_withheld = 0
 
     def analyse(self, frame: Frame) -> FacesResult:
         faces: list[RecognisedFace] = []
@@ -113,11 +132,51 @@ class RecognitionWorker(FeatureWorker[FacesResult]):
 
             if match.person is not None:
                 self._record(match.person, frame, match.score, match.runner_up)
-                self._name_the_body(frame, (fx, fy, fw, fh), match)
+                self._weigh(frame, observation, match, (fx, fy, fw, fh))
 
         self.faces_seen += len(faces)
         self.identifications += sum(1 for f in faces if f.identified)
         return FacesResult(faces=tuple(faces))
+
+    def _weigh(self, frame: Frame, observation, match, face_box) -> None:
+        """Add this match to the evidence, and act only if it is now enough.
+
+        This is the gate. It used to be absent: one frame matching a face was
+        enough to write that name onto the body wearing it, and one bad frame
+        is how every person on a camera came to read as a single name.
+
+        Nothing about the drawn box changes — a match still shows as a face
+        box with its own score, because that is an observation about a frame.
+        What waits for the bar is the *claim*: naming a body, and writing down
+        where somebody was.
+        """
+        anchor = self.accumulator.offer(frame.camera_id, FaceMatch(
+            person_id=match.person.id,
+            score=match.score,
+            runner_up=match.runner_up,
+            # The smaller side. A wide box on a half-turned head is not a
+            # bigger face, and the floor is about how much detail there is.
+            face_px=int(min(observation.face.w, observation.face.h)),
+            at=frame.captured_at,
+            model=observation.model,
+        ))
+
+        if anchor is None:
+            self.names_withheld += 1
+            return
+
+        self._name_the_body(frame, face_box, match)
+        self._write_anchor(anchor)
+
+    def _write_anchor(self, anchor) -> None:
+        """Record the stop. Optional storage, never a reason to fail a frame."""
+        if self.anchors is None:
+            return
+        try:
+            self.anchors.record(anchor)
+            self.anchors_written += 1
+        except Exception:
+            log.debug("could not record an anchor", exc_info=True)
 
     def _name_the_body(self, frame: Frame, face_box, match) -> None:
         """Tell tracking whose body this face belongs to.
@@ -129,6 +188,10 @@ class RecognitionWorker(FeatureWorker[FacesResult]):
         Failure is deliberately silent at debug level: tracking is an optional
         feature, and recognition must not degrade because it is off, missing
         the body, or unsure which of two overlapping people the face belongs to.
+
+        Only ever called through `_weigh`, and that is the whole of the rule:
+        a name is put on a body when the evidence is sustained, and at no
+        other time.
         """
         if self.tracking is None:
             return

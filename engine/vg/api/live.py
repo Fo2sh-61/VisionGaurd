@@ -22,7 +22,20 @@ from vg.clock import Clock, clock_for
 from vg.ingest.recorder import AlreadyRecording
 from vg.config import EngineConfig
 from vg.api import schemas as S
-from vg.api.store import MockStore, SubsystemUnavailable
+from vg.api.store import (
+    AlreadyBusy,
+    MockStore,
+    NothingThere,
+    SubsystemUnavailable,
+)
+from vg.features.tracking import (
+    AlreadyFollowing as FollowExists,
+    AlreadyRecordingFollow,
+    NobodyThere,
+    NoRecorder,
+    NotFollowing,
+    NotRecordingFollow,
+)
 from vg.ingest.registry import CameraRegistry
 
 log = logging.getLogger(__name__)
@@ -148,7 +161,8 @@ class LiveStore(MockStore):
             if disabled is None:
                 return None
             return S.CameraView(
-                id=disabled.id, name=disabled.name, offline=True, stale=True
+                id=disabled.id, name=disabled.name,
+                area=self._area_of(disabled.id), offline=True, stale=True,
             )
 
         frame = worker.last_frame()
@@ -156,6 +170,8 @@ class LiveStore(MockStore):
         return S.CameraView(
             id=worker.config.id,
             name=worker.config.name,
+            area=worker.config.area,
+            faces=worker.config.faces,
             offline=not online,
             captured_at=_instant(frame.captured_at if frame else None, self.clock),
             # Stale means "this pixel data is not current", which is true
@@ -1605,6 +1621,141 @@ class LiveStore(MockStore):
             return None
         camera = self.config.camera(camera_id)
         return camera.name if camera else camera_id
+
+    # -- following one person, live -----------------------------------------
+    #
+    # Every method here is a thin translation. The session itself lives in the
+    # tracking worker, advanced by the frames it is already processing, which
+    # is what makes the timer and the track-loss stop work with nobody
+    # watching the page.
+
+    NO_TRACKING = ("Tracking is not running, so there is nobody to follow. "
+                   "Give a camera the 'track' feature and restart the engine.")
+
+    def _tracking_worker(self):
+        if self.tracking is None:
+            raise SubsystemUnavailable(self.NO_TRACKING)
+        return self.tracking
+
+    def follow_start(self, camera_id: str, x: float, y: float,
+                     actor: str) -> S.FollowView:
+        worker = self._tracking_worker()
+        try:
+            session = worker.follow(camera_id, x, y, actor)
+        except FollowExists as exc:
+            raise AlreadyBusy(
+                f"Already following {self._who(exc.session) or exc.session.stable_id} "
+                f"on {self._camera_name(exc.session.camera_id)}. Stop that one first."
+            ) from exc
+        except NobodyThere as exc:
+            raise NothingThere(str(exc)) from exc
+
+        # Written before the answer goes out, and only for a follow that
+        # actually started — a log of clicks that hit nothing is noise in the
+        # one place that has to stay readable.
+        self._log(actor, "track.follow", self._who(session) or session.stable_id,
+                  f"{self._camera_name(camera_id)} at {x:.2f},{y:.2f}")
+        return self._follow_view(session)
+
+    def follow_view(self) -> S.FollowView | None:
+        if self.tracking is None:
+            return None
+        session = self.tracking.follow_view()
+        if session is None:
+            return None
+        # Keep the camera warm for as long as somebody is watching. Expires by
+        # itself, so a closed tab releases it without telling us.
+        self.tracking.note_interest(session.camera_id)
+        return self._follow_view(session)
+
+    def follow_end(self, actor: str) -> S.FollowView | None:
+        worker = self._tracking_worker()
+        session = worker.end_follow("manual")
+        if session is None:
+            return None
+        self._log(actor, "track.follow.end",
+                  self._who(session) or session.stable_id, "manual")
+        return self._follow_view(session)
+
+    def follow_record_start(self, timer_seconds: float | None,
+                            actor: str) -> S.FollowView:
+        worker = self._tracking_worker()
+        try:
+            session = worker.record(timer_seconds, actor)
+        except NotFollowing as exc:
+            raise NothingThere(str(exc)) from exc
+        except NoRecorder as exc:
+            raise SubsystemUnavailable(str(exc)) from exc
+        except AlreadyRecordingFollow as exc:
+            raise AlreadyBusy(str(exc)) from exc
+
+        self._log(actor, "track.record.start",
+                  self._who(session) or session.stable_id,
+                  f"timer {int(timer_seconds)}s" if timer_seconds else "no timer")
+        return self._follow_view(session)
+
+    def follow_record_stop(self, actor: str) -> S.FollowView:
+        worker = self._tracking_worker()
+        try:
+            session = worker.stop_record("manual", actor)
+        except NotFollowing as exc:
+            raise NothingThere(str(exc)) from exc
+        except NotRecordingFollow as exc:
+            raise NothingThere(str(exc)) from exc
+
+        segments = session.recording.segments if session.recording else []
+        self._log(actor, "track.record.stop",
+                  self._who(session) or session.stable_id,
+                  f"{len(segments)} segment(s)")
+        return self._follow_view(session)
+
+    def _who(self, session) -> str | None:
+        """The followed person's name, if a face has earned one yet."""
+        if not session.person_id or self.gallery is None:
+            return None
+        person = self.gallery.person(session.person_id)
+        return person.name if person else session.person_id
+
+    def _follow_view(self, session) -> S.FollowView:
+        name = self._who(session)
+        recording = None
+        if session.recording is not None:
+            left = None
+            if session.recording.running and session.recording.timer_deadline:
+                left = max(0.0, (session.recording.timer_deadline
+                                 - session.last_seen_at).total_seconds())
+            recording = S.FollowRecording(
+                state=session.recording.state,
+                reason=session.recording.reason,
+                timer_seconds_left=round(left, 1) if left is not None else None,
+                segments=[self._recording(r) for r in session.recording.segments],
+            )
+
+        return S.FollowView(
+            stable_id=session.stable_id,
+            camera_id=session.camera_id,
+            camera_name=self._camera_name(session.camera_id) or session.camera_id,
+            place=self._area_of(session.camera_id),
+            since=_instant(session.started_at, self.clock),
+            person_id=session.person_id,
+            name=name,
+            # FACE only once the sustained gate has been cleared: `person_id`
+            # is only ever set from a binding that gate made. APPEARANCE means
+            # we are holding a body, which is a claim about continuity and not
+            # about who anybody is.
+            match=S.MatchKind.FACE if session.person_id else S.MatchKind.APPEARANCE,
+            trail=[
+                S.TrailHop(
+                    camera_id=hop.camera_id,
+                    camera_name=self._camera_name(hop.camera_id) or hop.camera_id,
+                    place=self._area_of(hop.camera_id),
+                    at=_instant(hop.at, self.clock),
+                )
+                for hop in session.trail
+            ],
+            recording=recording,
+            ended_reason=session.ended_reason,
+        )
 
     def groups(self) -> list[S.GroupSummary]:
         if self.gallery is None:

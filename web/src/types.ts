@@ -51,6 +51,8 @@ export interface CameraZone {
 export interface Camera {
   id: string;
   name: string;
+  /** The named place this camera watches. The live grid groups by it. */
+  area?: string;
   /** short status line under the tile, e.g. "Recognising · 2 people" */
   status: string;
   offline?: boolean;

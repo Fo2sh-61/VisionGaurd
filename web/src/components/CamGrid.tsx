@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useCameraGrid, useCameras } from '@/app/CameraContext';
 import { getCameraCounts } from '@/services/api';
 import { describeCount } from '@/services/format';
@@ -18,7 +18,12 @@ import { CameraModal } from './CameraModal';
  *  a few would exhaust the browser's connection pool and stall everything
  *  else. Polling releases the connection between frames, and the engine caches
  *  the encoded JPEG per frame, so a repeat poll of an unchanged frame is
- *  almost free. MJPEG stays where it belongs: the enlarged view, one at a time. */
+ *  almost free. MJPEG stays where it belongs: the enlarged view, one at a time.
+ *
+ *  Paging feeds this the number of tiles ACTUALLY rendered, not the roster
+ *  size. That is the whole reason the two belong in one component: a page of
+ *  eight tiles out of two hundred should refresh like eight, and it only can
+ *  if whatever does the paging is also what computes this. */
 function tileRefreshMs(count: number): number {
   if (count <= 4) return 200; // 5 fps — reads as live
   if (count <= 12) return 500;
@@ -28,11 +33,18 @@ function tileRefreshMs(count: number): number {
 /** How often the grid refreshes headcounts. One request for all tiles. */
 const COUNT_REFRESH_MS = 1_000;
 
+const UNPLACED = 'Unassigned';
+
 export function CamGrid({
   title,
   note,
   cameras: fromQuery,
   only = false,
+  byArea = false,
+  searchable = false,
+  pageSize,
+  onPick,
+  activeId,
 }: {
   title: string;
   note?: string;
@@ -43,8 +55,24 @@ export function CamGrid({
    *  (a connection test, a single weapon frame) where the full roster would
    *  be wrong rather than merely unnecessary. */
   only?: boolean;
+  /** Group the tiles under their area headings. Off by default, because most
+   *  pages are asking about one thing and a heading per camera is noise. */
+  byArea?: boolean;
+  /** Offer a search box over camera and area names. */
+  searchable?: boolean;
+  /** Show at most this many tiles at a time, with pager buttons. Unset shows
+   *  everything, which is right for a handful of cameras and wrong for two
+   *  hundred. */
+  pageSize?: number;
+  /** What clicking a tile does. Default opens the enlarged modal; the Track
+   *  page takes it over so a click starts a follow instead. */
+  onPick?: (camera: Camera) => void;
+  /** Draw this camera as the chosen one. */
+  activeId?: string;
 }) {
   const [open, setOpen] = useState<Camera | null>(null);
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(0);
   const { degraded } = useCameras();
 
   // The grid always shows every configured camera. A page whose query failed,
@@ -52,8 +80,31 @@ export function CamGrid({
   // engine is unreachable. Cameras disappearing is never the right answer:
   // an empty page looks like the console is broken rather than the cameras.
   const merged = useCameraGrid(fromQuery);
-  const cameras = only ? fromQuery : merged;
-  const refreshMs = tileRefreshMs(cameras.length);
+  const all = only ? fromQuery : merged;
+
+  const needle = search.trim().toLowerCase();
+  const matching = useMemo(
+    () =>
+      needle
+        ? all.filter(
+            (c) =>
+              c.name.toLowerCase().includes(needle) ||
+              (c.area ?? '').toLowerCase().includes(needle),
+          )
+        : all,
+    [all, needle],
+  );
+
+  const pages = pageSize ? Math.max(1, Math.ceil(matching.length / pageSize)) : 1;
+  // A narrowed search can leave the current page past the end. Clamping on
+  // render rather than resetting on change keeps the pager honest without
+  // yanking the operator back to page one every keystroke.
+  const current = Math.min(page, pages - 1);
+  const shown = pageSize
+    ? matching.slice(current * pageSize, current * pageSize + pageSize)
+    : matching;
+
+  const refreshMs = tileRefreshMs(shown.length);
   const [counts, setCounts] = useState<Record<string, number | null>>({});
 
   // The camera payload is fetched once when the page runs its query, so the
@@ -79,10 +130,78 @@ export function CamGrid({
     };
   }, []);
 
+  const pick = (cam: Camera) => (onPick ? onPick(cam) : setOpen(cam));
+
+  const tile = (cam: Camera) => (
+    <button
+      type="button"
+      key={cam.id}
+      className="camcard"
+      onClick={() => pick(cam)}
+      style={
+        cam.id === activeId
+          ? { outline: '2px solid var(--ac)', outlineOffset: 1 }
+          : undefined
+      }
+    >
+      <CameraFrame camera={cam} refreshMs={refreshMs} />
+      <div className="camcard__meta">
+        <div
+          style={{
+            fontSize: 12.5,
+            fontWeight: 600,
+            color: 'var(--tx)',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {cam.name}
+        </div>
+        <div style={{ fontSize: 11.5, color: 'var(--tx2)', marginTop: 1 }}>
+          {cam.offline ? cam.status : describeCount(counts[cam.id], cam.status)}
+        </div>
+      </div>
+    </button>
+  );
+
+  // Areas in the order their first camera appears, so the grid does not
+  // reshuffle itself between polls.
+  const areas: string[] = [];
+  for (const cam of shown) {
+    const area = cam.area || UNPLACED;
+    if (!areas.includes(area)) areas.push(area);
+  }
+
   return (
     <div className="card" style={{ padding: 20, marginTop: 14 }}>
-      <div style={{ fontWeight: 700, fontSize: 15.5 }}>{title}</div>
-      {note && <div style={{ fontSize: 13, color: 'var(--tx3)', marginTop: 2 }}>{note}</div>}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'flex-start',
+          justifyContent: 'space-between',
+          gap: 12,
+        }}
+      >
+        <div>
+          {title && <div style={{ fontWeight: 700, fontSize: 15.5 }}>{title}</div>}
+          {note && <div style={{ fontSize: 13, color: 'var(--tx3)', marginTop: 2 }}>{note}</div>}
+        </div>
+
+        {searchable && (
+          <input
+            type="search"
+            value={search}
+            placeholder="Find a camera or area"
+            aria-label="Find a camera or area"
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(0);
+            }}
+            style={{ minWidth: 200, maxWidth: 280 }}
+          />
+        )}
+      </div>
 
       {degraded && (
         <div
@@ -100,30 +219,69 @@ export function CamGrid({
         </div>
       )}
 
-      <div className="camgrid">
-        {cameras.map((cam) => (
-          <button type="button" key={cam.id} className="camcard" onClick={() => setOpen(cam)}>
-            <CameraFrame camera={cam} refreshMs={refreshMs} />
-            <div className="camcard__meta">
+      {matching.length === 0 && (
+        <div style={{ marginTop: 14, fontSize: 13, color: 'var(--tx3)' }}>
+          {needle
+            ? `No camera or area matches “${search.trim()}”.`
+            : 'No cameras are configured.'}
+        </div>
+      )}
+
+      {byArea
+        ? areas.map((area) => (
+            <div key={area} style={{ marginTop: 14 }}>
               <div
                 style={{
-                  fontSize: 12.5,
-                  fontWeight: 600,
-                  color: 'var(--tx)',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  letterSpacing: 0.3,
+                  textTransform: 'uppercase',
+                  color: 'var(--tx3)',
+                  marginBottom: 6,
                 }}
               >
-                {cam.name}
+                {area}
               </div>
-              <div style={{ fontSize: 11.5, color: 'var(--tx2)', marginTop: 1 }}>
-                {cam.offline ? cam.status : describeCount(counts[cam.id], cam.status)}
+              <div className="camgrid">
+                {shown.filter((c) => (c.area || UNPLACED) === area).map(tile)}
               </div>
             </div>
+          ))
+        : shown.length > 0 && <div className="camgrid">{shown.map(tile)}</div>}
+
+      {pageSize && pages > 1 && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            marginTop: 12,
+            fontSize: 12.5,
+            color: 'var(--tx2)',
+          }}
+        >
+          <button
+            type="button"
+            className="linkbtn"
+            disabled={current === 0}
+            onClick={() => setPage(current - 1)}
+          >
+            Previous
           </button>
-        ))}
-      </div>
+          <span>
+            {current * pageSize + 1}–{Math.min(matching.length, (current + 1) * pageSize)} of{' '}
+            {matching.length}
+          </span>
+          <button
+            type="button"
+            className="linkbtn"
+            disabled={current >= pages - 1}
+            onClick={() => setPage(current + 1)}
+          >
+            Next
+          </button>
+        </div>
+      )}
 
       {open && <CameraModal camera={open} onClose={() => setOpen(null)} />}
     </div>

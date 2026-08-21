@@ -201,6 +201,9 @@ class CameraView(Wire):
 
     id: str
     name: str
+    #: The named place this camera watches. What the live grid partitions by,
+    #: and the same string the counting page groups on.
+    area: str = ""
     offline: bool = False
     captured_at: Instant | None = None
     # Set when serving the last good frame of a dropped stream. The UI shows
@@ -213,6 +216,10 @@ class CameraView(Wire):
     count_line: Fraction | None = None
     snapshot_url: str | None = None
     stream_url: str | None = None
+    #: Which recognition tier this camera is in. True means faces are the
+    #: point here and it runs the recogniser at full rate; false is the patrol
+    #: tier. Shown on Settings and System Health, not on the Track page.
+    faces: bool = False
 
 
 class CameraDetections(Wire):
@@ -1005,6 +1012,83 @@ class LiveTracking(Wire):
     reason: str | None = None
     cameras: list[str] = Field(default_factory=list)
     identities: list[TrackedIdentity] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# following one person, live
+# ---------------------------------------------------------------------------
+
+class FollowRequest(Wire):
+    """Where the operator clicked, in fractions of the frame.
+
+    Fractions and never pixels: the console does not know the camera's
+    resolution and must not have to guess it.
+    """
+
+    camera_id: str
+    x: Fraction
+    y: Fraction
+
+
+class FollowRecordRequest(Wire):
+    #: None means "until somebody presses stop". A number means the engine
+    #: stops it itself, so a closed tab cannot leave a camera recording.
+    timer_seconds: float | None = Field(default=None, ge=1.0, le=3600.0)
+
+
+class TrailHop(Wire):
+    """A camera the followed person crossed, and when."""
+
+    camera_id: str
+    camera_name: str
+    place: str
+    at: Instant
+
+
+class FollowRecording(Wire):
+    """The recording riding along with a follow.
+
+    One segment per camera. Segments carry their own stop reason, because
+    "the timer ran out" and "we lost them" are different things to an operator
+    holding the file afterwards.
+    """
+
+    state: Literal["recording", "stopped"]
+    reason: str | None = None
+    #: Counts down while a timer is set. None when there is no timer, or once
+    #: it has stopped.
+    timer_seconds_left: float | None = None
+    segments: list[Recording] = Field(default_factory=list)
+
+
+class FollowView(Wire):
+    """The followed body as it stands right now.
+
+    `name` is present only after a face has been recognised well enough,
+    several times, to claim it — and it is gone the moment the track is. It is
+    an annotation on this body in these frames, never a binding that outlives
+    them.
+    """
+
+    stable_id: str
+    camera_id: str
+    camera_name: str
+    place: str
+    since: Instant
+    person_id: str | None = None
+    name: str | None = None
+    #: FACE once a name has been earned, APPEARANCE while the system is only
+    #: holding on to the clothing. Never merged — the difference is the whole
+    #: basis on which an operator decides how much to believe this.
+    match: MatchKind = MatchKind.APPEARANCE
+    trail: list[TrailHop] = Field(default_factory=list)
+    recording: FollowRecording | None = None
+    #: manual | timer | track lost. Set once, and the follow is over.
+    ended_reason: str | None = None
+
+    @property
+    def ended(self) -> bool:
+        return self.ended_reason is not None
 
 
 class StartEnrolmentRequest(Wire):
