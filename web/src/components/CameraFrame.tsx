@@ -71,6 +71,7 @@ export function CameraFrame({
   onCount,
   badge = 'LIVE',
   feature,
+  detections = true,
 }: {
   camera: Camera;
   size?: Size;
@@ -88,6 +89,11 @@ export function CameraFrame({
   /** Which overlay to draw. Tracking ids on an attendance tile answer a
    *  question that page never asked, so the page says what it wants. */
   feature?: CameraFeature;
+  /** Draw the engine's recognition boxes over the stream. The enrolment page
+   *  turns this off: those boxes carry names, and a page that is deciding who
+   *  someone IS must not display the system's guess at who they are. It draws
+   *  its own nameless outline instead. */
+  detections?: boolean;
 }) {
   const s = SCALE[size];
   const tzOffsetMinutes = useSite().site?.tzOffsetMinutes ?? 0;
@@ -115,7 +121,7 @@ export function CameraFrame({
   // camera on the page to the high rate — for boxes nobody can read at 128px.
   // Recognition still runs in the background at the idle rate, so attendance is
   // unaffected; the tiles simply stop paying for frame-accurate overlays.
-  const wantLiveBoxes = useStream;
+  const wantLiveBoxes = useStream && detections;
 
   useEffect(() => {
     if (!wantLiveBoxes) {

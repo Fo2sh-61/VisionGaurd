@@ -337,6 +337,48 @@ class TestCommit:
         assert person.photo_count == REQUIRED_PHOTOS
         assert person.photo_on_file
 
+    def test_the_floor_is_five(self, gallery):
+        """Owner decision, 2026-08-21 — raised from three.
+
+        Pinned as a number, not as `REQUIRED_PHOTOS`, because every other test
+        here derives from the constant and would happily follow it anywhere.
+        A floor that moves silently is not a floor.
+        """
+        assert REQUIRED_PHOTOS == 5
+
+    def test_nobody_is_enrolled_without_photos(self, gallery):
+        """A refused enrolment creates no person at all.
+
+        Not a directory row waiting for photos: somebody with no face on file
+        cannot be recognised, so every register they appear in can only ever
+        mark them absent, and nothing on the page would explain why.
+        """
+        svc = service(gallery)
+        session = svc.start("Ahmed Hassan")
+
+        with pytest.raises(ValueError):
+            svc.commit(session.id)
+
+        assert gallery.people() == []
+        assert gallery.person("p-ahmed-hassan") is None
+
+    def test_a_short_enrolment_creates_nobody_either(self, gallery):
+        """One short of the floor is still refused, and still creates nothing.
+
+        The check runs before `add_person`, so there is no half-written person
+        to roll back — which is the property that makes staging worth having.
+        """
+        svc = service(gallery)
+        session = svc.start("Ahmed Hassan")
+        for _ in range(REQUIRED_PHOTOS - 1):
+            svc.add_photo(session.id, IMAGE)
+
+        with pytest.raises(ValueError, match="required"):
+            svc.commit(session.id)
+
+        assert gallery.people() == []
+        assert gallery.embedding_count == 0
+
     def test_commit_refuses_a_thin_enrolment(self, gallery):
         svc = service(gallery)
         session = svc.start("Ahmed Hassan")
@@ -347,7 +389,7 @@ class TestCommit:
         assert gallery.people() == []
 
     def test_unusable_photos_do_not_count_toward_the_floor(self, gallery):
-        """Three uploads, one of which failed, is not three photos."""
+        """Uploads that failed do not count towards the floor."""
         svc = service(gallery, faces=[])
         session = svc.start("Ahmed Hassan")
         for _ in range(REQUIRED_PHOTOS + 2):
@@ -379,7 +421,10 @@ class TestCommit:
         """End to end: what was enrolled must match against the gallery
         afterwards. Storing vectors that cannot be matched is the failure this
         whole flow exists to prevent."""
-        vectors = [unit(1), unit(2), unit(3)]
+        # One distinct vector per required photo. A fixed three stopped
+        # covering the floor the moment it moved, and every repeat is
+        # rejected as too similar, so the enrolment never reached commit.
+        vectors = [unit(i + 1) for i in range(REQUIRED_PHOTOS)]
         svc = service(gallery, vectors=vectors)
         session = svc.start("Ahmed Hassan")
         for _ in range(REQUIRED_PHOTOS):

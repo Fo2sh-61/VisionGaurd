@@ -6,7 +6,7 @@
  *  Two rules the page exists to enforce, both of which come from how
  *  recognition actually fails:
  *
- *  1. **Three varied photos minimum.** One photo is one angle under one light.
+ *  1. **Five varied photos minimum.** One photo is one angle under one light.
  *     Recognition then fails the moment someone turns their head — and it does
  *     not fail cleanly, it produces an unreliable match, which on a register
  *     looks exactly like a working system. Save stays disabled until the engine
@@ -22,6 +22,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { CameraFrame } from '@/components/CameraFrame';
 import { Badge, Card, CardHeader, Field, PageHeader, Select, toneColors } from '@/components/ui';
 import {
   addEnrolmentPhoto,
@@ -29,6 +30,7 @@ import {
   captureEnrolmentPhoto,
   commitEnrolment,
   getCameras,
+  getEnrolmentPreview,
   removeEnrolmentPhoto,
   startEnrolment,
 } from '@/services/api';
@@ -37,6 +39,21 @@ import type * as W from '@/services/wire';
 import type { Camera, PersonType, Tone } from '@/types';
 
 const TYPES: PersonType[] = ['Student', 'Staff', 'Visitor'];
+
+/** How often the live view re-asks where the face is.
+ *
+ *  Fast enough that the outline follows somebody moving rather than stepping
+ *  after them, and it only runs while a session is open — nothing is detected
+ *  on the engine when nobody is on this page. */
+const PREVIEW_REFRESH_MS = 300;
+
+/** Amber: a face the system can see but cannot name.
+ *
+ *  Green is reserved for a person recognised by face, and this outline is the
+ *  opposite of that — it is drawn precisely because the system does not know
+ *  who this is yet. Colouring it green would have the enrolment page claiming
+ *  the very thing it exists to establish. */
+const FACE_OUTLINE = 'var(--det-amber)';
 
 /** Thumbnails the browser holds for display, keyed by the engine's photo id.
  *  Deliberately not part of the session state on the server. */
@@ -91,6 +108,10 @@ export function Enrol() {
   // -- capturing from a live camera --------------------------------------
   const [cameras, setCameras] = useState<Camera[]>([]);
   const [cameraId, setCameraId] = useState<string>('');
+  const [preview, setPreview] = useState<W.EnrolmentPreview | null>(null);
+
+  // -- leaving mid-enrolment ---------------------------------------------
+  const [confirmLeave, setConfirmLeave] = useState(false);
 
   const fileInput = useRef<HTMLInputElement>(null);
   // Object URLs have to be revoked or the tab leaks a blob per photo.
@@ -116,6 +137,58 @@ export function Enrol() {
     () => cameras.find((c) => c.id === cameraId) ?? null,
     [cameras, cameraId],
   );
+
+  // Keyed on the id, not the session object: the engine returns a fresh
+  // session after every staged photo, and depending on the object would tear
+  // the poll down and build it again each time somebody pressed Capture.
+  const sessionId = session?.id ?? null;
+
+  useEffect(() => {
+    if (!sessionId || !cameraId) {
+      setPreview(null);
+      return;
+    }
+
+    let cancelled = false;
+    const poll = () => {
+      void getEnrolmentPreview(cameraId)
+        .then((result) => {
+          if (!cancelled) setPreview(result);
+        })
+        .catch(() => {
+          // A dropped poll is not worth a message on screen; the next one
+          // lands in 300ms and the outline stays where it was meanwhile.
+        });
+    };
+
+    poll();
+    const timer = setInterval(poll, PREVIEW_REFRESH_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [sessionId, cameraId]);
+
+  /** What the operator needs to hear right now, in plain words.
+   *
+   *  The engine's own advice is about the SET of photos — how many are usable,
+   *  what angle is missing. It is the right thing to say only once the person
+   *  is actually in shot, so what the camera can see comes first. */
+  const guidance = (() => {
+    if (!session) return '';
+    if (!live) return session.advice;
+    if (preview === null) return 'Looking…';
+    if (preview.offline) {
+      return 'That camera is not sending a picture. Choose another camera, or upload photos instead.';
+    }
+    if (preview.faces.length === 0) {
+      return 'Nobody detected — step in front of the camera.';
+    }
+    if (preview.faces.length > 1) {
+      return `${preview.faces.length} faces in shot. One person at a time, please.`;
+    }
+    return session.advice;
+  })();
 
   const say = useCallback((err: unknown) => {
     setError(
@@ -237,13 +310,62 @@ export function Enrol() {
     setSession(null);
     setThumbs({});
     setError(null);
+    setPreview(null);
+  }
+
+  /** Back to People, from any step.
+   *
+   *  With photos staged it asks once and then discards them — the session is
+   *  cancelled server-side, so nothing half-saved is left behind. With no
+   *  session there is nothing to lose and it simply navigates. */
+  async function leave() {
+    if (!session) {
+      navigate('/people');
+      return;
+    }
+    if (!confirmLeave) {
+      setConfirmLeave(true);
+      return;
+    }
+    await discard();
+    navigate('/people');
   }
 
   return (
     <>
+      {/* Visible at every step, including before a session exists. The page
+          had no way out at all, which on a flow this long is a trap. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
+        <button
+          type="button"
+          className="linkbtn"
+          onClick={() => void leave()}
+        >
+          ← People
+        </button>
+        {confirmLeave && session && (
+          <>
+            <span style={{ fontSize: 13, color: 'var(--tx2)' }}>
+              Leave now and the {session.photos.length === 1 ? 'photo' : 'photos'} you
+              have taken are discarded. Nothing has been saved yet.
+            </span>
+            <button type="button" className="chip-btn chip-btn--on" onClick={() => void leave()}>
+              Discard and leave
+            </button>
+            <button
+              type="button"
+              className="chip-btn chip-btn--off"
+              onClick={() => setConfirmLeave(false)}
+            >
+              Stay
+            </button>
+          </>
+        )}
+      </div>
+
       <PageHeader
         title="Enrol a face"
-        lead="Add someone the cameras should recognise. Three photos from different angles — one photo is one angle under one light, and recognition fails the moment they turn their head."
+        lead="Add someone the cameras should recognise. Five photos from different angles — one photo is one angle under one light, and recognition fails the moment they turn their head. Nobody is added without them."
       />
 
       {saved && (
@@ -331,19 +453,61 @@ export function Enrol() {
             />
 
             {live && (
-              <div style={{ marginBottom: 12 }}>
-                <img
-                  src={live.snapshotUrl}
-                  alt={`Live view from ${live.name}`}
-                  style={{
-                    width: '100%',
-                    maxWidth: 520,
-                    borderRadius: 12,
-                    display: 'block',
-                    background: 'var(--bg3, #111)',
-                  }}
-                />
-                <div style={{ fontSize: 12.5, color: 'var(--tx2)', marginTop: 6 }}>
+              <div style={{ marginBottom: 12, maxWidth: 520 }}>
+                {/* The real stream, and our own outline over it.
+                    `detections={false}` because the engine's recognition boxes
+                    carry names, and the page deciding who somebody IS must not
+                    show the system's guess at who they are. */}
+                <div style={{ position: 'relative' }}>
+                  <CameraFrame camera={live} size="lg" live detections={false} />
+                  <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+                    {(preview?.offline ? [] : preview?.faces ?? []).map((face, i) => (
+                      <div key={`box-${i}`}>
+                        <div
+                          style={{
+                            position: 'absolute',
+                            left: `${face.x * 100}%`,
+                            top: `${face.y * 100}%`,
+                            width: `${face.w * 100}%`,
+                            height: `${face.h * 100}%`,
+                            border: `2.5px solid ${FACE_OUTLINE}`,
+                            borderRadius: 8,
+                          }}
+                        />
+                        {face.points.map((point, j) => (
+                          <span
+                            key={`pt-${i}-${j}`}
+                            style={{
+                              position: 'absolute',
+                              left: `${point.x * 100}%`,
+                              top: `${point.y * 100}%`,
+                              width: 7,
+                              height: 7,
+                              marginLeft: -3.5,
+                              marginTop: -3.5,
+                              borderRadius: '50%',
+                              background: FACE_OUTLINE,
+                              boxShadow: '0 0 0 1.5px rgba(0,0,0,.45)',
+                            }}
+                          />
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                {guidance && (
+                  <div
+                    style={{
+                      fontSize: 14,
+                      fontWeight: 600,
+                      color: 'var(--tx)',
+                      marginTop: 8,
+                    }}
+                  >
+                    {guidance}
+                  </div>
+                )}
+                <div style={{ fontSize: 12.5, color: 'var(--tx2)', marginTop: 4 }}>
                   Enrolling from the camera people will actually walk past — at its real
                   angle and lighting — recognises them far more reliably than a laptop webcam.
                 </div>

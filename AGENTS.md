@@ -60,6 +60,62 @@ Then add a `models:` entry in `engine.yaml` and the feature name to the camera's
 | `models/README.md` | What each model actually is. **Read before touching weapons** |
 | `engine/data/footage/` | Recorded clips + 21 labelled ground-truth marks — the regression suite |
 
+## Idioms — copy these, do not re-derive them
+
+Every feature needs these and none of them change per feature. If something
+here disagrees with the code, the code wins and this section gets fixed.
+
+**Tests** (`engine/tests/conftest.py`)
+
+| Fixture | Gives you |
+|---|---|
+| `authed(app, role="admin")` | `TestClient` already carrying a session |
+| `sign_in(app, role)` | a bearer token, and attaches `app.state.users` |
+| `bare_live_store` | `LiveStore` with every subsystem absent |
+| `live_ish_store` | `LiveStore` with cameras configured |
+
+A store with real data is built by hand, not by fixture — copy the `store`
+fixture in `test_groups.py`: throwaway `FaceGallery` + `SightingStore` in a
+`TemporaryDirectory`, `LiveStore(config=vgconfig.load(), registry=...)`.
+**Close the gallery before the tempdir**, or Windows fails the teardown.
+`@pytest.mark.camera` is skipped unless `--camera`.
+
+**Engine helpers**
+
+- `_instant(when, clock)` in `api/live.py` — datetime → wire `Instant`. Never
+  build one by hand; the offset is per-instant, not per-startup.
+- `self._log(actor, action, subject, detail)` — the audit entry. Written
+  **before** the thing it records, always.
+- Permissions are decided by **path**, in `auth/deps.py` (`ADMIN_PREFIXES`,
+  `ADMIN_WRITE_PREFIXES`). Never a decorator — the one endpoint somebody
+  forgets to decorate is the one that leaks.
+- `SubsystemUnavailable` (`api/store.py`) → 503. "Nothing is running" is not
+  the same answer as "not found".
+- Wire types subclass `Wire`: snake_case in Python, camelCase out,
+  `extra="forbid"`. `Fraction`/`Confidence` are validated 0..1 — clamp before
+  sending or the response 500s.
+
+**Console**
+
+- `ui.tsx`: `Card`, `CardHeader`, `PageHeader`, `Badge tone=`, `Empty`,
+  `LoadError`, `DataNotice`, `Field`, `Select`, `Toggle`, `Stats`.
+- `useAsync(load, deps, initial, refreshMs?)` → `{data, error, loading, reload}`.
+- `useAccount().role === 'admin'` is an interface hint only; the server decides.
+- CSS: `.row` is a grid — set `gridTemplateColumns` inline. `.list-row` is a
+  full-width button. Buttons are `chip-btn chip-btn--on|--off` or `linkbtn`.
+- `format.ts` owns every rendered string: `formatEventTime`, `formatTime`,
+  `attendanceLabel`, `attendanceTone`, `toCamera`, `boxColor`. The engine
+  sends numbers and enums; sentences are built here.
+- `CameraFrame` with `live` **also polls recognition boxes, which carry
+  names**. Pass `detections={false}` on any page that must not show an
+  identity.
+
+**The repo has mixed line endings and no `.gitattributes`.** `api/*.py`,
+`services/*.ts`, `types.ts` and `STATUS.md` are CRLF; most other files are LF.
+Editing with a script that reads and writes text rewrites every ending and
+turns a six-line change into a whole-file diff. Read/write bytes, or check
+`b"\r\n" in path.read_bytes()` first. `git diff --stat` catches it.
+
 ## How to work
 
 ```powershell

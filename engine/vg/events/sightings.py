@@ -199,6 +199,32 @@ class SightingStore:
             rows = self._conn.execute(query, params).fetchall()
         return [_to_sighting(r) for r in rows]
 
+    def last_seen(self) -> dict[str, tuple[datetime, str]]:
+        """Everyone's most recent sighting: person_id -> (seen_at, camera_id).
+
+        One query for the whole directory, deliberately. The People page shows
+        "last seen" on every row, and asking per row turns a single indexed
+        pass into two thousand of them — the difference between a page that
+        opens and a page that people stop opening.
+
+        People with no sighting are simply absent from the mapping. A default
+        here would be a value the caller could not tell from a real one, and
+        the row has to say "Not seen yet" rather than invent a time.
+        """
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT s.person_id, s.seen_at, s.camera_id FROM sighting s "
+                "JOIN (SELECT person_id, MAX(seen_at) AS latest FROM sighting "
+                "      GROUP BY person_id) newest "
+                "  ON newest.person_id = s.person_id "
+                " AND newest.latest = s.seen_at"
+            ).fetchall()
+
+        return {
+            row["person_id"]: (_parse(row["seen_at"]), row["camera_id"])
+            for row in rows
+        }
+
     def recent(self, limit: int = 50) -> list[Sighting]:
         with self._lock:
             rows = self._conn.execute(

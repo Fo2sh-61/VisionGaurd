@@ -775,6 +775,18 @@ class DirectoryPerson(Wire):
     # Drives the UI's honest "cannot be recognised without a photo" line.
     photo_on_file: bool = False
     attendance_today: AttendanceStatus | None = None
+    #: How many faces are on file. `photo_on_file` says whether the system can
+    #: recognise this person at all; this says how well, and the console turns
+    #: it into a sentence rather than a badge nobody could interpret.
+    photos: int = 0
+    #: When they were added to the directory.
+    enrolled_at: Instant | None = None
+    #: Their most recent sighting anywhere, and the camera's display NAME.
+    #: Null means never sighted — the console says "Not seen yet" in words. A
+    #: placeholder here would travel as data and be indistinguishable from a
+    #: real answer once it left this boundary.
+    last_seen: Instant | None = None
+    last_camera: str | None = None
 
 
 class GroupSummary(Wire):
@@ -1027,6 +1039,40 @@ class EnrolmentPhoto(Wire):
     yaw: float
     note: str
     source: str = "upload"
+
+
+class PreviewFace(Wire):
+    """One face in the enrolment camera's latest frame.
+
+    Geometry only. There is deliberately no name, no person id and no match
+    here: an enrolment preview must never claim to know who it is looking at,
+    so there is nowhere for an identity to travel even if something sent one.
+    """
+
+    x: Fraction
+    y: Fraction
+    w: Fraction
+    h: Fraction
+    #: Right eye, left eye, nose, mouth corners — the order YuNet emits.
+    points: list[Point] = Field(default_factory=list)
+    confidence: Confidence = 0.0
+
+
+class EnrolmentPreview(Wire):
+    """What the enrolment page draws over the live view.
+
+    `faces: []` with `offline: false` means the engine looked and nobody was
+    there. `offline: true` means it could not look, and the page shows NO
+    SIGNAL rather than an empty overlay pretending to have checked — those are
+    different claims and only one of them is about the room.
+    """
+
+    camera_id: str
+    #: When the analysed frame was captured. Null when there is no frame: the
+    #: overlay is only ever as current as the picture it came from.
+    at: Instant | None = None
+    offline: bool = False
+    faces: list[PreviewFace] = Field(default_factory=list)
 
 
 class EnrolmentSessionView(Wire):

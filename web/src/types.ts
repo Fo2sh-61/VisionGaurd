@@ -348,11 +348,21 @@ export interface WeaponStep {
 export type PersonType = 'Student' | 'Staff' | 'Visitor';
 
 export interface DirectoryPerson {
+  id: string;
   name: string;
   type: PersonType;
   sub: string;
-  guardian: string;
   photoOnFile: boolean;
+  /** "Recognised · 3 photos" / "Cannot be recognised — no face on file". */
+  recognition: string;
+  /** "Enrolled Aug 15" — or "" when the engine has no date for them. */
+  enrolled: string;
+  /** "Main entrance · Today, 7:42am" or "Not seen yet". Never a dash: a
+   *  missing value is stated in words so a reader knows it was looked for. */
+  lastSeen: string;
+  /** Today's attendance in words, or "" when nothing is recording it. */
+  today: string;
+  todayTone: Tone;
 }
 
 export interface GroupSummary {

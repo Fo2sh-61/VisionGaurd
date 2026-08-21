@@ -21,7 +21,7 @@ import onnxruntime as ort
 MODEL_PATH = "knife-finetuned-v3.onnx"  # your custom-trained model (keep this script next to the .onnx file)
 CAMERA_INDEX = 0                 # live webcam (0 = default camera; try 1 if wrong camera opens)
 INPUT_SIZE = 640                # model was trained/exported at 640x640
-CONF_THRESHOLD = 0.15
+CONF_THRESHOLD = 0.45
 IOU_THRESHOLD = 0.45
 
 DETECT_GUNS_TOO = False         # set True to also draw/alert on guns

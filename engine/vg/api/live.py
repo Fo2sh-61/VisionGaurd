@@ -22,7 +22,7 @@ from vg.clock import Clock, clock_for
 from vg.ingest.recorder import AlreadyRecording
 from vg.config import EngineConfig
 from vg.api import schemas as S
-from vg.api.store import MockStore
+from vg.api.store import MockStore, SubsystemUnavailable
 from vg.ingest.registry import CameraRegistry
 
 log = logging.getLogger(__name__)
@@ -1210,20 +1210,76 @@ class LiveStore(MockStore):
         today = self.sightings.local_date(datetime.now(timezone.utc)) if self.sightings else None
         register = self._register(today) if today else None
 
+        # One query for the whole directory, not one per row. At the target
+        # roll of a couple of thousand people the difference is a page that
+        # opens and a page nobody opens twice.
+        latest = self.sightings.last_seen() if self.sightings else {}
+
+        # Names from the runtime roster, like the breach log builds them: a
+        # camera added or renamed through the console is not in engine.yaml,
+        # and putting "cam-3" where the operator typed "Back stairwell" is the
+        # same mistake as showing a database key.
+        names = {c.id: c.name for c in self.registry.configs()}
+
         out = []
         for person in self.gallery.people():
             status = None
             if register is not None:
                 entry = register.entry(person.id)
                 status = S.AttendanceStatus(entry.status) if entry else None
+
+            seen_at, camera_id = latest.get(person.id, (None, None))
             out.append(S.DirectoryPerson(
                 id=person.id, name=person.name,
                 type=S.PersonType(person.type),
                 group=person.group, detail=person.detail,
                 photo_on_file=person.photo_on_file,
                 attendance_today=status,
+                photos=person.photo_count,
+                enrolled_at=_instant(person.created_at, self.clock),
+                last_seen=_instant(seen_at, self.clock),
+                # Falls back to the id for a camera that has since been
+                # removed. Ugly, but "cam-retired" is true and blank would
+                # read as "no camera", which is a different claim.
+                last_camera=(names.get(camera_id) or camera_id) if camera_id else None,
             ))
         return out
+
+    def remove_person(self, person_id: str, actor: str) -> bool:
+        """Take a person out of the system. Audited first, then deleted.
+
+        What goes: the directory row and every face vector behind it — the
+        `face_embedding` rows cascade, because every connection this process
+        opens sets `foreign_keys=ON`. Deleting the name while quietly keeping
+        the biometrics would be the worst outcome available.
+
+        What stays: their sightings, and every audit entry. The sightings are
+        unreachable from any page after this and wait for P3's erasure (owner
+        decision, 2026-08-21); the audit trail is never deleted by anything.
+
+        The order matters. The entry is written BEFORE the delete runs, the
+        same rule track searches follow, so a crash in between leaves an
+        audited intent rather than a person who vanished with nothing saying
+        why. It also means a failed delete is a logged attempt, which is the
+        safe direction to be wrong in.
+
+        `gallery.remove_person` ends by reloading the in-memory index that the
+        recognition worker shares, so the removed person stops being named
+        from the next frame — no restart (PPL-FR-006).
+        """
+        if self.gallery is None:
+            raise SubsystemUnavailable(
+                "face recognition is not running, so there is no gallery to "
+                "remove anybody from"
+            )
+
+        person = self.gallery.person(person_id)
+        if person is None:
+            return False
+
+        self._log(actor, "person.remove", person.name,
+                  "removed from the directory and the face gallery")
+        return self.gallery.remove_person(person_id)
 
     def school_profile(self) -> S.SchoolProfile:
         hours = self.config.hours
@@ -1237,13 +1293,36 @@ class LiveStore(MockStore):
             timezone=self.config.timezone,
         )
 
-    #: What `groups()` calls the bucket for people with no group set. Kept in
-    #: one place because the register filters on the same string the dropdown
-    #: was populated from, and the two drifting apart would empty a group.
-    UNGROUPED = "Everyone"
+    #: The group that holds the whole school. Every enrolled person is in it,
+    #: always, and a specific group is something extra on top rather than
+    #: instead of.
+    #:
+    #: This used to be the name of the bucket for people with **no** group,
+    #: which made it the leftovers: it shrank as people were sorted into
+    #: grades and disappeared entirely once everybody had one, under a word
+    #: that says the opposite. Worse, `attendance()` already used the same
+    #: word for the whole school, so the Attendance dropdown offered
+    #: "Everyone", sent it as a filter, and got the leftovers back under a
+    #: heading claiming to be the school.
+    #:
+    #: Kept in one place because the register filters on the same string the
+    #: dropdown was populated from, and the two drifting apart would empty a
+    #: group.
+    EVERYONE = "Everyone"
 
-    def _group_of(self, person) -> str:
-        return person.group or self.UNGROUPED
+    def _specific_group_of(self, person) -> str | None:
+        """The optional group somebody was filed into, if any.
+
+        None for a person nobody has assigned. That is not a group and gets no
+        bucket of its own — they are in Everyone, which is where an unassigned
+        person belongs. Somebody who typed "Everyone" into the optional box is
+        treated the same way: they are in it regardless, and a second row with
+        that name and a different count would be a page arguing with itself.
+        """
+        group = (person.group or "").strip()
+        if not group or group == self.EVERYONE:
+            return None
+        return group
 
     def _register(self, on: str, group: str | None = None):
         """The day's register. Absence is derived from missing sightings.
@@ -1254,11 +1333,18 @@ class LiveStore(MockStore):
         `group` narrows who is expected. Without it the page headed "Grade 8"
         listed every enrolled person in the school, which is not a Grade 8
         register and would have been read as one.
+
+        `Everyone` is not a narrowing. It is the whole school, and asking for
+        it has to give the same answer as asking for no group at all — they
+        are the same question, and they used to be two different registers
+        under one heading.
         """
         hours = self.config.hours
+        wanted = None if group in (None, self.EVERYONE) else group
         expected = [
             p.id for p in self.gallery.people()
-            if p.photo_on_file and (group is None or self._group_of(p) == group)
+            if p.photo_on_file
+            and (wanted is None or self._specific_group_of(p) == wanted)
         ]
         return self.sightings.register(
             on,
@@ -1536,9 +1622,15 @@ class LiveStore(MockStore):
             register = self._register(
                 self.sightings.local_date(datetime.now(timezone.utc)))
 
+        # Everyone holds all of them; the specific groups hold whoever was
+        # filed into them. The two overlap deliberately — being in Grade 8
+        # does not take somebody out of the school — so these counts do not
+        # sum to the roll and nothing may add them up as though they did.
         by_group: dict[str, list] = {}
         for person in people:
-            by_group.setdefault(self._group_of(person), []).append(person)
+            group = self._specific_group_of(person)
+            if group is not None:
+                by_group.setdefault(group, []).append(person)
 
         def here(members) -> int | None:
             if register is None:
@@ -1546,10 +1638,14 @@ class LiveStore(MockStore):
             return sum(1 for m in members
                        if (e := register.entry(m.id)) and e.status != "absent")
 
-        return [
-            S.GroupSummary(name=name, people=len(members), classes=None,
-                           here=here(members))
-            for name, members in sorted(by_group.items())
+        def summary(name, members) -> S.GroupSummary:
+            return S.GroupSummary(name=name, people=len(members), classes=None,
+                                  here=here(members))
+
+        # Everyone first: it is the whole school, so it reads as the parent of
+        # the rest rather than as one more grade sorted in among them.
+        return [summary(self.EVERYONE, people)] + [
+            summary(name, members) for name, members in sorted(by_group.items())
         ]
 
     def group(self, name: str) -> S.GroupDetail | None:

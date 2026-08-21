@@ -64,6 +64,21 @@ CREATE INDEX IF NOT EXISTS idx_embedding_model  ON face_embedding(model);
 """
 
 
+def _parse(value: str | None) -> datetime | None:
+    """An ISO string from SQLite back to an aware datetime.
+
+    Rows written before the column carried an offset are read as UTC, which is
+    what they were: everything in this file stamps `datetime.now(timezone.utc)`.
+    """
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
 @dataclass(frozen=True)
 class Person:
     id: str
@@ -72,6 +87,10 @@ class Person:
     group: str | None = None
     detail: str | None = None
     photo_count: int = 0
+    #: When this person was enrolled. Written on every enrolment since the
+    #: table existed; it simply never travelled outward until the People page
+    #: needed to say when somebody was added.
+    created_at: datetime | None = None
 
     @property
     def photo_on_file(self) -> bool:
@@ -282,6 +301,7 @@ class FaceGallery:
                     id=row["id"], name=row["name"], type=row["type"],
                     group=row["grp"], detail=row["detail"],
                     photo_count=counts.get(row["id"], 0),
+                    created_at=_parse(row["created_at"]),
                 )
                 for row in self._conn.execute("SELECT * FROM person")
             }

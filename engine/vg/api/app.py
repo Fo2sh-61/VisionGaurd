@@ -27,7 +27,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from vg import config as vgconfig
 from vg.auth import deps as auth_deps
 from vg.api import schemas as S
-from vg.api.store import MockStore, Store
+from vg.api.store import MockStore, Store, SubsystemUnavailable
 
 log = logging.getLogger(__name__)
 
@@ -1495,6 +1495,56 @@ def _mount(app: FastAPI) -> None:
             raise HTTPException(422, "could not read that image - JPEG or PNG only")
         return image
 
+    def _stamp(when):
+        """An instant carrying the SITE's offset for that moment.
+
+        Asked per instant rather than held from startup: an offset cached at
+        boot is an hour wrong from the last Friday in October until somebody
+        restarts the engine, and nothing says so.
+        """
+        if when is None:
+            return None
+        clock = getattr(get_store(), "clock", None)
+        offset = clock.offset_minutes(when) if clock is not None else 0
+        return S.Instant(utc=when, tz_offset_minutes=offset)
+
+    @app.get("/enrolment/preview/{camera_id}", response_model=S.EnrolmentPreview,
+             tags=["enrolment"])
+    async def enrolment_preview(camera_id: str, request: Request) -> S.EnrolmentPreview:
+        """The faces in the camera's latest frame, for the live overlay.
+
+        Detection runs here, in the request, on the frame the camera already
+        has — no worker, no thread, and nothing running at all when nobody is
+        on the enrolment page. The console polls this a few times a second
+        while a session is open and stops when the page is left.
+
+        No name and no match cross this boundary. The recognition worker's
+        boxes were the tempting alternative and are the wrong answer twice
+        over: they only exist on cameras with the `attendance` feature, and
+        enrolment must work from any camera (a feature may never require
+        another one); and they carry names, which an enrolment preview must
+        never display.
+        """
+        service = _enrolment(request)
+
+        registry = getattr(request.app.state, "registry", None)
+        worker = registry.worker(camera_id) if registry else None
+        if worker is None:
+            raise HTTPException(404, f"no camera {camera_id!r}")
+
+        frame = worker.last_frame()
+        if frame is None or worker.status != "ok":
+            # Could not look, which is a different answer from having looked
+            # and found nobody. The page draws NO SIGNAL for this one.
+            return S.EnrolmentPreview(camera_id=camera_id, at=None, offline=True)
+
+        return S.EnrolmentPreview(
+            camera_id=camera_id,
+            at=_stamp(frame.captured_at),
+            offline=False,
+            faces=[S.PreviewFace(**face) for face in service.preview(frame)],
+        )
+
     @app.post("/enrolment/sessions", response_model=S.EnrolmentSessionView,
               tags=["enrolment"], status_code=201)
     async def start_enrolment(
@@ -1617,6 +1667,36 @@ def _mount(app: FastAPI) -> None:
     @app.get("/people", response_model=list[S.DirectoryPerson], tags=["people"])
     async def get_people(store: StoreDep) -> list[S.DirectoryPerson]:
         return store.people()
+
+    @app.delete("/people/{person_id}", tags=["people"], status_code=204)
+    async def remove_person(
+        person_id: str, store: StoreDep, user: auth_deps.AdminUser,
+    ) -> Response:
+        """Remove somebody from the system.
+
+        Administrator-only, enforced by path in `auth/deps.py` whatever this
+        console believes, and audited before anything is deleted. Their face
+        vectors go with them, so the cameras stop naming them from the next
+        frame without a restart.
+
+        Sightings are deliberately kept — stored, unreachable from any page,
+        awaiting P3's erasure. Audit entries are never deleted at all.
+        """
+        try:
+            removed = store.remove_person(person_id, user.name)
+        except SubsystemUnavailable as exc:
+            # Nothing to remove from is not the same answer as no such person.
+            # A 404 would send an administrator hunting for somebody who is
+            # perfectly present on a system where recognition is not running.
+            #
+            # Only this exception. Catching RuntimeError at large would dress
+            # a genuinely broken delete up as a missing subsystem, and the
+            # operator would go looking at the wrong thing.
+            raise HTTPException(503, str(exc)) from exc
+
+        if not removed:
+            raise HTTPException(404, f"no person {person_id!r}")
+        return Response(status_code=204)
 
     @app.get("/groups", response_model=list[S.GroupSummary], tags=["people"])
     async def get_groups(store: StoreDep) -> list[S.GroupSummary]:

@@ -544,22 +544,62 @@ function personSub(p: W.DirectoryPerson): string {
   return p.detail ?? p.group ?? '';
 }
 
-function guardianLine(p: W.DirectoryPerson): string {
-  if (!p.guardianName) return '—';
-  const relation = p.guardianRelation ? ` (${p.guardianRelation})` : '';
-  const phone = p.guardianPhone ? ` · ${p.guardianPhone}` : '';
-  return `${p.guardianName}${relation}${phone}`;
+/** "Recognised · 3 photos", or why not.
+ *
+ *  "Photo on file" was always a statement about capability wearing the words
+ *  of paperwork — nobody reading it could tell it meant "the cameras can find
+ *  this person". This says the thing itself, and how well. */
+function recognitionLine(p: W.DirectoryPerson): string {
+  if (!p.photoOnFile) return 'Cannot be recognised — no face on file';
+  const photos = p.photos ?? 0;
+  if (photos <= 0) return 'Recognised';
+  return `Recognised · ${photos} ${photos === 1 ? 'photo' : 'photos'}`;
+}
+
+/** "Main entrance · Today, 7:42am", or "Not seen yet".
+ *
+ *  Never a dash. A value the system does not have is stated in words, so the
+ *  reader knows it was looked for and genuinely is not there — which is a
+ *  different fact from a column nobody ever filled in. */
+function lastSeenLine(p: W.DirectoryPerson): string {
+  if (!p.lastSeen) return 'Not seen yet';
+  const when = formatEventTime(p.lastSeen);
+  return p.lastCamera ? `${p.lastCamera} · ${when}` : when;
+}
+
+function toDirectoryPerson(p: W.DirectoryPerson): DirectoryPerson {
+  const status = p.attendanceToday ?? null;
+  return {
+    id: p.id,
+    name: p.name,
+    type: p.type,
+    sub: personSub(p),
+    photoOnFile: p.photoOnFile,
+    recognition: recognitionLine(p),
+    // Empty, not a placeholder: the row simply drops the line rather than
+    // printing a shrug where a date belongs.
+    enrolled: p.enrolledAt ? `Enrolled ${formatEventTime(p.enrolledAt)}` : '',
+    lastSeen: lastSeenLine(p),
+    // Nothing recording attendance is not the same as being absent, so the
+    // row says nothing at all rather than guessing.
+    today: status ? attendanceLabel(status) : '',
+    todayTone: status ? attendanceTone(status) : 'neutral',
+  };
 }
 
 export async function getPeople(): Promise<DirectoryPerson[]> {
   const people = await get<W.DirectoryPerson[]>('/people');
-  return people.map((p) => ({
-    name: p.name,
-    type: p.type,
-    sub: personSub(p),
-    guardian: guardianLine(p),
-    photoOnFile: p.photoOnFile,
-  }));
+  return people.map(toDirectoryPerson);
+}
+
+/** Remove someone from the system.
+ *
+ *  Deletes their directory entry and every face vector behind it, so the
+ *  cameras stop naming them from the next frame. Admin-only, enforced on the
+ *  server whatever this console believes, and written to the audit trail
+ *  before anything is deleted. */
+export async function removePerson(personId: string): Promise<void> {
+  await del<void>(`/people/${encodeURIComponent(personId)}`);
 }
 
 /* ---------- live tracking ----------
@@ -637,6 +677,17 @@ export async function captureEnrolmentPhoto(
   );
 }
 
+/** The faces in the enrolment camera's current frame, for the live overlay.
+ *
+ *  Polled a few times a second while a session is open, and only then —
+ *  nothing runs on the engine when nobody is on the page. Carries geometry
+ *  and nothing else: an enrolment preview never names who it can see. */
+export async function getEnrolmentPreview(
+  cameraId: string,
+): Promise<W.EnrolmentPreview> {
+  return get<W.EnrolmentPreview>(`/enrolment/preview/${encodeURIComponent(cameraId)}`);
+}
+
 export async function removeEnrolmentPhoto(
   sessionId: string,
   photoId: string,
@@ -646,13 +697,7 @@ export async function removeEnrolmentPhoto(
 
 export async function commitEnrolment(sessionId: string): Promise<DirectoryPerson> {
   const p = await post<W.DirectoryPerson>(`/enrolment/sessions/${sessionId}/commit`);
-  return {
-    name: p.name,
-    type: p.type,
-    sub: personSub(p),
-    guardian: guardianLine(p),
-    photoOnFile: p.photoOnFile,
-  };
+  return toDirectoryPerson(p);
 }
 
 export async function cancelEnrolment(sessionId: string): Promise<void> {

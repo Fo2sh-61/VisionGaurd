@@ -431,6 +431,25 @@ select.input {
   color: var(--tx2);
 }
 
+/* A directory row that opens the person behind it.
+ *
+ * The row IS the link — one click to a history, which is what the People page
+ * was missing. Buttons inside it stop the click, so pressing "Track today"
+ * does not also navigate away underneath the operator. */
+.row--click {
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+
+.row--click:hover {
+  background: var(--panel);
+}
+
+.row--click:focus-visible {
+  outline: 2px solid var(--ac);
+  outline-offset: -2px;
+}
+
 .badge {
   display: inline-block;
   padding: 3px 10px;

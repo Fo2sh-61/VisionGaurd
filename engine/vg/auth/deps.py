@@ -80,8 +80,14 @@ ADMIN_PREFIXES: tuple[str, ...] = (
 #: Prefixes where reading is fine but changing anything is administrator-only.
 #: An operator may look at the cameras and the zones; rearranging them is a
 #: configuration change.
+#:
+#: `/people` is here rather than in ADMIN_PREFIXES because the directory is
+#: data — an operator who cannot see who is enrolled cannot do their job.
+#: Removing somebody is the opposite: their face data leaves the system, which
+#: is precisely the kind of act the constitution wants gated and audited.
 ADMIN_WRITE_PREFIXES: tuple[str, ...] = (
     "/cameras",
+    "/people",
     "/zones",
 )
 

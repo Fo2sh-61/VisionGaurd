@@ -8,7 +8,8 @@
 |---|---|
 | Camera ingest, stream, snapshot | **Real** — reconnect, NO SIGNAL, stale flagging all work |
 | Attendance | **Real** — register, late cutoff, CSV export. Owner considers it done |
-| Enrolment Studio | **Real** — `/people/enrol`, quality scoring, 3-photo floor. Admin-only (P2) |
+| Enrolment Studio | **Real** — `/people/enrol`, quality scoring, 5-photo floor (nobody is enrolled without them). Admin-only (P2). Live moving view with the detected face outlined and its five feature points tracking it, plain-language guidance, and a way back at every step |
+| People page | **Real** — every column explains itself: recognition state with photo count, enrolled date, last seen (camera and time) or "Not seen yet", today's attendance. Any row opens that person's history. Administrators can remove somebody: face data and directory entry go and they stop being recognised without a restart, audited first. Their past sightings are kept, unreachable from any page, until P3's erasure |
 | Live overlays | **Real** — each feature draws its own (faces / bodies / appearance IDs) |
 | Tracking engine | **Real** — ByteTrack + appearance IDs, stable across frames and cameras. Shares one detection pass with counting (P1-01) |
 | People counting | **Real for "Main entrance"** only (the laptop webcam). Over-counts — reads 4–6 for one person. Other areas are demo and labelled |

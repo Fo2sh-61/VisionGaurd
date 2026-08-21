@@ -57,6 +57,16 @@ def poly(x, y, w, h) -> list[S.Point]:
     ]
 
 
+class SubsystemUnavailable(RuntimeError):
+    """The subsystem this call needs is not running.
+
+    Deliberately not the same answer as "not found". A 404 for a person who is
+    perfectly present, on an engine where recognition never started, sends an
+    administrator hunting for a problem that is not theirs. The reason travels
+    in the message and reaches the screen.
+    """
+
+
 class Store(Protocol):
     """Everything the API needs. Implement this to go live."""
 
@@ -93,6 +103,7 @@ class Store(Protocol):
     def test_connection(self, req: S.TestConnectionRequest) -> S.TestConnectionResult: ...
 
     def people(self) -> list[S.DirectoryPerson]: ...
+    def remove_person(self, person_id: str, actor: str) -> bool: ...
     def groups(self) -> list[S.GroupSummary]: ...
     def group(self, name: str) -> S.GroupDetail | None: ...
     def history(self, person: str) -> S.PersonHistory | None: ...
@@ -538,6 +549,7 @@ class MockStore:
                 snapshot_url="/cameras/c-main/snapshot")],
         )
 
+
     # -- system -------------------------------------------------------------
 
     def _build_sources(self) -> list[S.CameraSource]:
@@ -725,13 +737,37 @@ class MockStore:
     def people(self) -> list[S.DirectoryPerson]:
         return list(self._people)
 
+    def remove_person(self, person_id: str, actor: str) -> bool:
+        """Take somebody out of the demo directory, and mean it.
+
+        The demo is a working demo: a Remove button that visibly did nothing
+        here would teach an evaluator that the feature does not work. The row
+        goes for the life of the process, and the audit entry is written first
+        exactly as the live store writes it.
+        """
+        person = next((p for p in self._people if p.id == person_id), None)
+        if person is None:
+            return False
+
+        self._log(actor, "person.remove", person.name,
+                  "removed from the directory and the face gallery")
+        self._people = [p for p in self._people if p.id != person_id]
+        return True
+
     def groups(self) -> list[S.GroupSummary]:
+        # Everyone first and holding all of them, exactly as the live store
+        # builds it — a demo that groups people differently from the product
+        # teaches an evaluator the wrong thing about the product.
+        #
+        # 507 is Grades 7-9 plus staff. Bus riders overlaps those, which is
+        # the point: the specific groups are not slices of a pie.
         return [
+            S.GroupSummary(name="Everyone", people=507, classes=None, here=480),
+            S.GroupSummary(name="All staff", people=96, classes=None, here=91),
+            S.GroupSummary(name="Bus riders", people=214, classes=None, here=203),
             S.GroupSummary(name="Grade 7", people=138, classes=5, here=130),
             S.GroupSummary(name="Grade 8", people=142, classes=5, here=133),
             S.GroupSummary(name="Grade 9", people=131, classes=5, here=126),
-            S.GroupSummary(name="All staff", people=96, classes=None, here=91),
-            S.GroupSummary(name="Bus riders", people=214, classes=None, here=203),
         ]
 
     def group(self, name: str) -> S.GroupDetail | None:

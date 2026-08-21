@@ -435,6 +435,14 @@ export interface DirectoryPerson {
   guardianPhone?: string | null;
   photoOnFile: boolean;
   attendanceToday?: AttendanceStatus | null;
+  /** How many faces are on file. `photoOnFile` says whether they can be
+   *  recognised at all; this says from how many photos. */
+  photos?: number;
+  enrolledAt?: Instant | null;
+  /** Null means never sighted. The page says so in words, never a dash. */
+  lastSeen?: Instant | null;
+  /** The camera's display name, already resolved by the engine. */
+  lastCamera?: string | null;
 }
 
 export interface GroupSummary {
@@ -607,6 +615,32 @@ export interface EnrolmentPhoto {
   yaw: number;
   note: string;
   source: string;
+}
+
+/** One face in the enrolment camera's latest frame.
+ *
+ *  Geometry only — no name, no match, nothing about identity. An enrolment
+ *  preview must never claim to know who it is looking at. */
+export interface PreviewFace {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** Right eye, left eye, nose, mouth corners. Fractions of the frame. */
+  points: Point[];
+  confidence: number;
+}
+
+/** What the enrolment page draws over the live view.
+ *
+ *  `faces: []` with `offline: false` means the engine looked and nobody was
+ *  there. `offline: true` means it could not look — the page shows NO SIGNAL
+ *  rather than an empty overlay pretending to have checked. */
+export interface EnrolmentPreview {
+  cameraId: string;
+  at?: Instant | null;
+  offline: boolean;
+  faces: PreviewFace[];
 }
 
 export interface EnrolmentSession {
