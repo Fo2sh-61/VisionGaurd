@@ -1,13 +1,21 @@
 """Start the API server.
 
-    python engine/tools/serve.py                 # mock data, reload on save
+    python engine/tools/serve.py                 # real cameras, no reload
     python engine/tools/serve.py --port 9000
-    python engine/tools/serve.py --no-reload
+    python engine/tools/serve.py --reload        # opt-in; orphans on Windows
 
-Then point the front end at it:
+It reads engine.yaml and brings up whatever is configured there. It does NOT
+serve fixtures — the startup log says what actually loaded, and that is the
+line to trust.
 
-    web/.env.local     VITE_API_BASE=http://127.0.0.1:8000
+Then, in another terminal:
+
+    cd web
     npm run dev
+
+Leave `VITE_API_BASE` unset. The dev server proxies the engine, so the browser
+talks to one origin and the session cookie reaches the camera streams; setting
+it makes the browser call the engine directly and every live view goes black.
 
 http://127.0.0.1:8000/docs is the generated OpenAPI page. That page is the
 frozen contract — if the front end and the engine ever disagree, it decides.
