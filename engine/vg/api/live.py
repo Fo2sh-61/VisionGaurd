@@ -16,7 +16,7 @@ The methods still inherited from MockStore are the honest to-do list.
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from vg.clock import Clock, clock_for
 from vg.ingest.recorder import AlreadyRecording
@@ -53,6 +53,27 @@ def _instant(when: datetime | None, clock: Clock) -> S.Instant | None:
     return S.Instant(utc=when, tz_offset_minutes=clock.offset_minutes(when))
 
 
+def _at_on(on: str, hhmm: str | None, clock: Clock) -> datetime | None:
+    """"2026-08-21" + "07:30" -> the instant the SITE calls 07:30 that day.
+
+    The site's clock and never the viewer's: a window typed by somebody in
+    Cairo means Cairo's 07:30, and reading it as the server's would quietly
+    shift every path by the offset between them.
+    """
+    if not hhmm:
+        return None
+    try:
+        hour, minute = (int(part) for part in hhmm.split(":")[:2])
+        day = date.fromisoformat(on)
+    except (ValueError, TypeError):
+        return None
+    naive = datetime(day.year, day.month, day.day, hour, minute)
+    # The offset in force on that day, asked per instant.
+    guess = naive.replace(tzinfo=timezone.utc)
+    return naive.replace(tzinfo=timezone.utc) - timedelta(
+        minutes=clock.offset_minutes(guess)
+    )
+
 def _day_label(iso_date: str) -> str:
     """"2026-08-19" -> "Wed 19". The date is already site-local.
 
@@ -76,6 +97,7 @@ class LiveStore(MockStore):
         cameras=None,
         people=None,
         tracking=None,
+        anchors=None,
         counts=None,
         recorder=None,
         users=None,
@@ -102,6 +124,10 @@ class LiveStore(MockStore):
         # with the worker object, so every call to /people raised
         # "'NoneType' object is not callable" and the People page 500'd.
         self.people_worker = people
+        # Where somebody has been, written by recognition when the evidence
+        # clears the bar. Absent means the past-path question has no answer
+        # rather than a made-up one.
+        self.anchors = anchors
         # Track-a-person. Absent unless a camera has the `track` feature;
         # /track then falls back to fixtures rather than 500ing.
         self.tracking = tracking
@@ -1621,6 +1647,108 @@ class LiveStore(MockStore):
             return None
         camera = self.config.camera(camera_id)
         return camera.name if camera else camera_id
+
+    # -- the path behind somebody -------------------------------------------
+
+    NO_ANCHORS = ("The path store is not running, so there is no record of "
+                  "where anybody has been. Face recognition writes it.")
+
+    def path_skeleton(
+        self, person: str, on: str, actor: str,
+        start: str | None = None, end: str | None = None,
+    ) -> S.PathSkeleton:
+        """Where somebody was that day, read straight out of the anchor table.
+
+        No scan, no video, no model — which is the whole point: the answer is
+        one indexed read, and nothing below the evidence bar was ever written,
+        so it cannot contain a stop the system does not actually believe.
+        """
+        if self.anchors is None:
+            raise SubsystemUnavailable(self.NO_ANCHORS)
+
+        person_id, name = self._resolve_path_subject(person)
+        if person_id is None:
+            raise NothingThere(
+                f"Nobody here is called {person!r}. Check the spelling, or "
+                f"pick them from the directory."
+            )
+
+        # Audit BEFORE the answer. The promise is that every search for a
+        # person is recorded, and the promise only means anything in this
+        # order — a search that returned before the write could return after
+        # a crash with nothing in the log.
+        entry = self._log(actor, "path.skeleton", name or person_id,
+                          f"{on} {start or ''}-{end or ''}")
+
+        window_from = _at_on(on, start, self.clock)
+        window_to = _at_on(on, end, self.clock)
+        anchors = self.anchors.skeleton(person_id, on, window_from, window_to)
+
+        stops: list[S.TrackStop] = []
+        if self.tracking is not None:
+            # The blue layer: the same body seen again, collapsed into visits
+            # by the appearance store's own gap rule. Never named, never
+            # merged with the green one.
+            for stop in self.tracking.store.path_for(person_id, on):
+                if window_from and stop.last_seen < window_from:
+                    continue
+                if window_to and stop.first_seen > window_to:
+                    continue
+                stops.append(S.TrackStop(
+                    at=_instant(stop.first_seen, self.clock),
+                    until=(_instant(stop.last_seen, self.clock)
+                           if stop.seconds > 0 else None),
+                    camera_id=stop.camera_id,
+                    camera_name=self._camera_name(stop.camera_id) or stop.camera_id,
+                    place=self._area_of(stop.camera_id),
+                    match=S.MatchKind.APPEARANCE,
+                    confidence=min(1.0, max(0.0, stop.confidence)),
+                ))
+
+        cameras = {a.camera_id for a in anchors} | {s.camera_id for s in stops}
+        return S.PathSkeleton(
+            subject=S.PersonRef(
+                id=person_id, name=name or person_id,
+                type=S.PersonType.STUDENT,
+                match=S.MatchKind.FACE if anchors else S.MatchKind.NONE,
+            ),
+            date=on,
+            audit_id=entry.id,
+            anchors=[self._path_anchor(a) for a in anchors],
+            appearance=stops,
+            cameras=[v for v in (self.camera_view(c) for c in sorted(cameras)) if v],
+        )
+
+    def _path_anchor(self, anchor) -> S.PathAnchor:
+        return S.PathAnchor(
+            camera_id=anchor.camera_id,
+            camera_name=self._camera_name(anchor.camera_id) or anchor.camera_id,
+            place=self._area_of(anchor.camera_id),
+            at=_instant(anchor.started_at, self.clock),
+            until=_instant(anchor.ended_at, self.clock),
+            matches=anchor.matches,
+            # Clamped, not trusted: `Confidence` is validated 0..1 and a score
+            # that slipped outside it would 500 the whole response.
+            score=min(1.0, max(0.0, anchor.best)),
+            face_px=anchor.face_px,
+        )
+
+    def _resolve_path_subject(self, person: str) -> tuple[str | None, str | None]:
+        """An id or a display name -> (id, name), or (None, None) if neither.
+
+        Not `_resolve_person`: that one hands back whatever id it was given
+        even when nobody has it, which is right for `/track` (it answers with
+        an empty day) and wrong here. Asking about somebody who does not exist
+        is a different thing from somebody who exists and went nowhere, and
+        only one of them is worth an operator re-checking the spelling.
+        """
+        if self.gallery is None:
+            # Nothing to check against. Take the id at face value rather than
+            # refuse a question this engine simply cannot verify.
+            return person, None
+
+        found = self.gallery.person(person) or self.gallery.find_by_name(person)
+        return (found.id, found.name) if found else (None, None)
 
     # -- following one person, live -----------------------------------------
     #

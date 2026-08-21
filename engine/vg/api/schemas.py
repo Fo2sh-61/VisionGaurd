@@ -1015,6 +1015,59 @@ class LiveTracking(Wire):
 
 
 # ---------------------------------------------------------------------------
+# the path behind somebody — anchors
+# ---------------------------------------------------------------------------
+
+class PathAnchor(Wire):
+    """A stop on a path, with the evidence that earned it.
+
+    The evidence travels because the operator is entitled to ask "why do you
+    believe this?" and get an answer in their own terms — "6 matches over 4
+    seconds, best 0.71" — rather than being asked to trust a coloured dot.
+
+    Deliberately no box geometry. An anchor is a place on a path, not
+    something to draw over a frame.
+    """
+
+    camera_id: str
+    camera_name: str
+    place: str
+    at: Instant
+    until: Instant
+    #: separate looks, not frames.
+    matches: int
+    score: Confidence
+    face_px: int
+
+
+class PathSkeleton(Wire):
+    """Where somebody was, from the anchor table alone.
+
+    Two layers, never merged, because they are answers to different questions:
+
+      anchors     a face was recognised, well enough and often enough to
+                  claim it. Evidence about IDENTITY.
+      appearance  the same body was seen again. Evidence about CONTINUITY
+                  only — clothing cannot tell you which person somebody is,
+                  so nothing here is ever named.
+
+    An empty `anchors` list is an answer, not a failure: it means nobody was
+    identified in that window, which is different from the system being
+    unable to look.
+    """
+
+    subject: PersonRef
+    date: str
+    # Written BEFORE this result is returned. If the write fails the search
+    # fails — the promise that every search is recorded is only worth
+    # anything if it is ordered this way.
+    audit_id: str
+    anchors: list[PathAnchor] = Field(default_factory=list)
+    appearance: list[TrackStop] = Field(default_factory=list)
+    #: Which cameras appear, for the tiles the page draws beside the path.
+    cameras: list[CameraView] = Field(default_factory=list)
+
+# ---------------------------------------------------------------------------
 # following one person, live
 # ---------------------------------------------------------------------------
 

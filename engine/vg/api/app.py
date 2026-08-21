@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+from pathlib import Path
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
@@ -215,6 +216,14 @@ async def lifespan(app: FastAPI):
         ) = _start_zones(
             cfg, registry, roster, getattr(people, "detector", None), cameras,
         )
+        # Where somebody has been. Written by whichever recognition tier saw
+        # them, read by the Track page as one indexed query — which is the
+        # whole reason the past-path question is instant.
+        from vg.events.anchors import AnchorStore
+
+        anchors = AnchorStore(_database(cfg), cfg.timezone)
+        app.state.anchors = anchors
+
         (
             gallery,
             sightings,
@@ -222,8 +231,18 @@ async def lifespan(app: FastAPI):
             app.state.recognition_error,
         ) = _start_recognition(
             cfg, registry, roster, face=(face_pipeline, face_gallery),
-            tracking=tracking,
+            tracking=tracking, anchors=anchors,
         )
+
+        # The second tier. Same class, same gallery, same pipeline — a lower
+        # rate and an easier bar, on every camera the first one did not take.
+        patrol, app.state.patrol_error = _start_patrol(
+            cfg, registry, roster,
+            identity_cameras=recogniser.cameras if recogniser else [],
+            shared=(face_pipeline, gallery, sightings),
+            anchors=anchors,
+        )
+        app.state.patrol = patrol
 
         app.state.people = people
         app.state.gallery = gallery
@@ -239,6 +258,7 @@ async def lifespan(app: FastAPI):
         store = LiveStore(
             cfg, registry, gallery, sightings, recogniser, cameras, people,
             tracking=tracking,
+            anchors=anchors,
             counts=counts_store,
             recorder=app.state.recorder,
             users=app.state.users,
@@ -289,12 +309,18 @@ async def lifespan(app: FastAPI):
             getattr(app.state, "zones", None),
             getattr(app.state, "people", None),
             getattr(app.state, "recogniser", None),
+            getattr(app.state, "patrol", None),
             getattr(app.state, "tracking", None),
         ):
             if worker is not None:
                 worker.stop()
         if app.state.registry is not None:
             app.state.registry.stop()
+        # After the workers, never before: a store closed under a running
+        # writer is the one way this loses a row it already decided to keep.
+        anchor_store = getattr(app.state, "anchors", None)
+        if anchor_store is not None:
+            anchor_store.close()
 
 
 # Features that need to know where bodies are. Face recognition is
@@ -355,7 +381,8 @@ def _start_people(cfg, registry, roster):
         return None, _reason(exc)
 
 
-def _start_recognition(cfg, registry, roster=None, face=None, tracking=None):
+def _start_recognition(cfg, registry, roster=None, face=None, tracking=None,
+                       anchors=None):
     """Bring up face recognition on the cameras that ask for it.
 
     Returns `(gallery, sightings, recogniser, error)`; the first three may be
@@ -369,9 +396,16 @@ def _start_recognition(cfg, registry, roster=None, face=None, tracking=None):
     than one that refuses to start.
     """
     all_cameras = roster if roster is not None else list(cfg.cameras)
-    cameras = [c.id for c in all_cameras if c.enabled and "attendance" in c.features]
+    # The identity tier: cameras somebody marked `faces: true`, plus the ones
+    # asking for attendance. Attendance is included whatever the flag says,
+    # because a register built at the patrol rate would miss arrivals.
+    cameras = [
+        c.id for c in all_cameras
+        if c.enabled and (c.faces or "attendance" in c.features)
+    ]
     if not cameras:
-        log.info("no camera has the 'attendance' feature; recognition is off")
+        log.info("no camera has the 'attendance' feature or `faces: true`; "
+                 "identity recognition is off")
         return None, None, None, None
 
     try:
@@ -433,6 +467,7 @@ def _start_recognition(cfg, registry, roster=None, face=None, tracking=None):
             # from close range. The patrol instance beside this one runs the
             # same class with the easier `tracking.patrol` numbers.
             gates=cfg.tracking.identity,
+            anchors=anchors,
         )
         recogniser.start()
         log.info(
@@ -497,6 +532,84 @@ def _start_counts(cfg, registry, roster, people):
         _reraise_if_strict(exc, "headcount history")
         return None, None, _reason(exc)
 
+
+
+def _database(cfg) -> Path:
+    """Where the SQLite file actually is.
+
+    The same three lines were written out at seven call sites; this is them,
+    once. A relative `database_url` is relative to the repository, not to
+    whatever directory the engine happened to be started from.
+    """
+    raw = Path(str(cfg.storage.database_url).replace("sqlite:///", ""))
+    return raw if raw.is_absolute() else vgconfig.REPO_DIR / raw
+
+def _start_patrol(cfg, registry, roster, identity_cameras, shared, anchors):
+    """The patrol tier: the same recogniser, slowly, on every other camera.
+
+    Not a new class and not a new kind of worker — a second `RecognitionWorker`
+    instance with a lower rate and the easier `tracking.patrol` gates. Per-
+    camera rates inside one worker would have meant changing `FeatureWorker`,
+    which every feature inherits, for the benefit of one consumer.
+
+    It exists so that "where did they go" has an answer at all. The identity
+    tier only watches the doorways somebody thought to mark `faces: true`; a
+    person crossing a corridor between two of them would otherwise leave no
+    trace to read back later.
+
+    Shares the pipeline, gallery and sighting store with the identity tier.
+    That is allowed and deliberate: the pipeline is already used concurrently
+    by one thread per camera inside a single worker, so a second instance adds
+    no new kind of sharing — only more of it.
+
+    `tracking.patrol_hz: 0` switches the whole tier off.
+    """
+    pipeline, gallery, sightings = shared
+    if pipeline is None or gallery is None or sightings is None:
+        return None, None
+
+    rate = cfg.tracking.patrol_hz
+    if rate <= 0:
+        log.info("patrol recognition is switched off (tracking.patrol_hz: 0)")
+        return None, None
+
+    all_cameras = roster if roster is not None else list(cfg.cameras)
+    cameras = [
+        c.id for c in all_cameras
+        if c.enabled and c.id not in set(identity_cameras)
+    ]
+    if not cameras:
+        log.info("every enabled camera is in the identity tier; no patrol needed")
+        return None, None
+
+    try:
+        from vg.features.recognition import RecognitionWorker
+
+        patrol = RecognitionWorker(
+            registry.bus,
+            gallery,
+            sightings,
+            pipeline=pipeline,
+            cameras=cameras,
+            rate_hz=rate,
+            # No boost. Nobody watches a patrol camera *through* this tier —
+            # if they open one it is the identity work that speeds up, and a
+            # boost here would only spend the CPU twice.
+            boost_hz=rate,
+            gates=cfg.tracking.patrol,
+            anchors=anchors,
+            name="patrol",
+        )
+        patrol.start()
+        log.info("patrol recognition on %s - %.2f Hz", cameras, rate)
+        return patrol, None
+
+    except Exception as exc:
+        # Degrades to "no path anchors on those cameras", which the Track page
+        # says out loud. It never takes the identity tier down with it.
+        log.exception("patrol recognition failed to start")
+        _reraise_if_strict(exc, "patrol recognition")
+        return None, _reason(exc)
 
 def _start_tracking(cfg, registry, roster, detector):
     """Track-a-person: ByteTrack plus appearance identity, on `track` cameras.
@@ -1434,6 +1547,39 @@ def _mount(app: FastAPI) -> None:
                 ))
 
         return S.LiveTracking(running=True, cameras=list(worker.cameras), identities=out)
+
+    # ------------------------------------------------------------------ path
+    #
+    # Operator work like the rest of /tracking, and audited for the same
+    # reason: knowing who looked somebody up is the control that matters.
+
+    @app.get("/path/{person}", response_model=S.PathSkeleton, tags=["track"])
+    async def path_skeleton(
+        person: str,
+        store: StoreDep,
+        user: auth_deps.CurrentUser,
+        date: str | None = None,
+        start: str | None = None,
+        end: str | None = None,
+    ) -> S.PathSkeleton:
+        """Where somebody was, answered from the anchor table alone.
+
+        `person` takes an id or a display name, the same rule
+        `/people/{person}/history` follows, because names still travel in URLs.
+
+        An empty `anchors` list comes back with a 200. Nobody being identified
+        in that window is an answer — a different one from the system being
+        unable to look, which is the 503.
+        """
+        # The SITE's today, never the browser's: a device in another
+        # timezone must not decide which day a path is asked about.
+        on = date or store.site().today
+        try:
+            return store.path_skeleton(person, on, user.name, start, end)
+        except SubsystemUnavailable as exc:
+            raise HTTPException(503, str(exc)) from exc
+        except NothingThere as exc:
+            raise HTTPException(404, str(exc)) from exc
 
     # -- following one person, live ------------------------------------------
     #

@@ -37,14 +37,14 @@ import { ApiError } from '@/services/http';
 import {
   endFollow,
   getFollow,
+  getPathSkeleton,
   startFollow,
   startFollowRecording,
   stopFollowRecording,
-  trackPerson,
 } from '@/services/api';
 import { formatLongDate, formatTime } from '@/services/format';
 import type * as W from '@/services/wire';
-import type { Camera, TrackResult } from '@/types';
+import type { Camera } from '@/types';
 
 /* ---------- evidence colours ----------
  *
@@ -519,7 +519,7 @@ function PastMode({ people, today }: { people: string[]; today: string }) {
   const [date, setDate] = useState(today);
   const [from, setFrom] = useState('07:00');
   const [to, setTo] = useState('08:15');
-  const [result, setResult] = useState<TrackResult | null>(null);
+  const [path, setPath] = useState<W.PathSkeleton | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -527,6 +527,9 @@ function PastMode({ people, today }: { people: string[]; today: string }) {
     if (!date) setDate(today);
   }, [today, date]);
 
+  // Minutes, never strings, and never against the viewer's clock. Comparing
+  // "09:00" with "10:00" as text happens to work and comparing "9:00" with
+  // "10:00" does not, which is the kind of bug that only shows up at 9am.
   const windowOk = useMemo(() => {
     const a = minutes(from);
     const b = minutes(to);
@@ -538,10 +541,17 @@ function PastMode({ people, today }: { people: string[]; today: string }) {
     setLoading(true);
     setError('');
     try {
-      setResult(await trackPerson({ who, date, from, to }));
+      setPath(await getPathSkeleton(who, date, from, to));
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not build that path.');
-      setResult(null);
+      const status = err instanceof ApiError ? err.status : 0;
+      setError(
+        status === 404
+          ? `Nobody here is called “${who}”. Check the spelling, or pick them from the list.`
+          : err instanceof ApiError
+            ? err.message
+            : 'Could not build that path.',
+      );
+      setPath(null);
     } finally {
       setLoading(false);
     }
@@ -550,7 +560,11 @@ function PastMode({ people, today }: { people: string[]; today: string }) {
   return (
     <>
       <Card>
-        <Step n="1" title="Who, and when" sub="Every search here is written to the audit trail." />
+        <Step
+          n="1"
+          title="Who, and when"
+          sub="Answers straight away — it is read from what was already recognised, not searched for now. Every search is written to the audit trail."
+        />
         <div className="row" style={{ gridTemplateColumns: '2fr 1fr 1fr 1fr auto', gap: 10 }}>
           <Labelled label="Person">
             <input
@@ -581,7 +595,7 @@ function PastMode({ people, today }: { people: string[]; today: string }) {
               disabled={!who || !windowOk || loading}
               onClick={() => void run()}
             >
-              {loading ? 'Building…' : 'Build path'}
+              {loading ? 'Looking…' : 'Show their path'}
             </button>
           </div>
         </div>
@@ -590,49 +604,134 @@ function PastMode({ people, today }: { people: string[]; today: string }) {
             The end of the window has to come after the start.
           </div>
         )}
-        {error && (
-          <div style={{ fontSize: 12.5, color: 'var(--am)', marginTop: 8 }}>{error}</div>
-        )}
+        {error && <div style={{ fontSize: 12.5, color: 'var(--am)', marginTop: 8 }}>{error}</div>}
       </Card>
 
-      {result && (
-        <Card>
-          <div style={{ fontWeight: 700, fontSize: 15.5 }}>{result.heading}</div>
-          <div style={{ fontSize: 12.5, color: 'var(--tx3)', marginBottom: 10 }}>
-            {formatLongDate(date)} · {from} to {to}
-          </div>
+      {path && <Skeleton path={path} from={from} to={to} />}
+    </>
+  );
+}
 
-          {result.path.length === 0 ? (
-            <Empty>
-              Nothing was recorded for {result.who} in that window. Widen it, or check
-              another day.
-            </Empty>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-              {result.path.map((stop, i) => (
+/** The stop chain. Green stops are the skeleton; blue ones are the same body,
+ *  and are never named because clothing cannot say who anybody is. */
+function Skeleton({
+  path,
+  from,
+  to,
+}: {
+  path: W.PathSkeleton;
+  from: string;
+  to: string;
+}) {
+  const name = path.subject.name ?? path.subject.id ?? 'this person';
+  const nothing = path.anchors.length === 0 && path.appearance.length === 0;
+
+  return (
+    <Card>
+      <div style={{ fontWeight: 700, fontSize: 15.5 }}>{name}</div>
+      <div style={{ fontSize: 12.5, color: 'var(--tx3)', marginBottom: 12 }}>
+        {formatLongDate(path.date)} · {from} to {to} ·{' '}
+        {path.anchors.length === 0
+          ? 'not identified anywhere'
+          : `${path.anchors.length} ${path.anchors.length === 1 ? 'stop' : 'stops'}`}
+      </div>
+
+      {nothing ? (
+        <Empty>
+          Nobody recognised {name} anywhere in that window. That is not the same as
+          them not being there — widen the window, try another day, or look at a
+          camera's footage directly.
+        </Empty>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {path.anchors.map((a) => (
+            <AnchorRow key={`${a.cameraId}-${a.at.utc}`} anchor={a} />
+          ))}
+
+          {path.appearance.length > 0 && (
+            <>
+              <div
+                style={{
+                  fontSize: 12,
+                  fontWeight: 700,
+                  letterSpacing: 0.3,
+                  textTransform: 'uppercase',
+                  color: 'var(--tx3)',
+                  marginTop: 6,
+                }}
+              >
+                Same body, not identified
+              </div>
+              {path.appearance.map((s, i) => (
                 <div
-                  key={`${stop.time}-${stop.place}-${i}`}
+                  key={`${s.cameraId}-${s.at.utc}-${i}`}
                   style={{ display: 'flex', alignItems: 'baseline', gap: 10, fontSize: 13 }}
                 >
                   <span
                     style={{
                       width: 10,
                       height: 10,
-                      borderRadius: stop.match === 'face' ? '50%' : 2,
-                      background: stop.match === 'face' ? FACE : CLOTH,
+                      borderRadius: 2,
+                      background: CLOTH,
                       flexShrink: 0,
                     }}
                   />
-                  <span style={{ fontWeight: 600, minWidth: 62 }}>{stop.time}</span>
-                  <span style={{ fontWeight: 600 }}>{stop.place}</span>
-                  <span style={{ color: 'var(--tx3)' }}>{stop.detail}</span>
+                  <span style={{ fontWeight: 600, minWidth: 62 }}>{formatTime(s.at)}</span>
+                  <span style={{ fontWeight: 600 }}>{s.place}</span>
+                  <span style={{ color: 'var(--tx3)' }}>{s.cameraName}</span>
                 </div>
               ))}
-            </div>
+              <div style={{ fontSize: 12, color: 'var(--tx3)' }}>
+                Clothing matched, no face was read. That says the same body moved
+                through, not who it was.
+              </div>
+            </>
           )}
-        </Card>
+        </div>
       )}
-    </>
+
+      <div
+        style={{
+          marginTop: 14,
+          paddingTop: 12,
+          borderTop: '1px solid var(--line)',
+          fontSize: 12,
+          color: 'var(--tx3)',
+        }}
+      >
+        Video for each stop arrives in the next release. Until then this is the record
+        of where they were, not footage of it.
+      </div>
+    </Card>
+  );
+}
+
+/** One green stop, with the evidence that earned it on hover.
+ *
+ *  Rule 5: the number shown is the one the engine measured. "6 matches over 4
+ *  seconds, best 0.71" is checkable; "high confidence" is not. */
+function AnchorRow({ anchor }: { anchor: W.PathAnchor }) {
+  const seconds = Math.max(
+    0,
+    (new Date(anchor.until.utc).getTime() - new Date(anchor.at.utc).getTime()) / 1000,
+  );
+  const why = `${anchor.matches} ${anchor.matches === 1 ? 'match' : 'matches'} over ${seconds.toFixed(
+    seconds < 10 ? 1 : 0,
+  )}s · best ${anchor.score.toFixed(2)} · face ${anchor.facePx}px`;
+
+  return (
+    <div
+      title={why}
+      style={{ display: 'flex', alignItems: 'baseline', gap: 10, fontSize: 13 }}
+    >
+      <span
+        style={{ width: 10, height: 10, borderRadius: '50%', background: FACE, flexShrink: 0 }}
+      />
+      <span style={{ fontWeight: 600, minWidth: 62 }}>{formatTime(anchor.at)}</span>
+      <span style={{ fontWeight: 600 }}>{anchor.place}</span>
+      <span style={{ color: 'var(--tx3)' }}>{anchor.cameraName}</span>
+      <span style={{ color: 'var(--tx3)', fontSize: 11.5, marginLeft: 'auto' }}>{why}</span>
+    </div>
   );
 }
 

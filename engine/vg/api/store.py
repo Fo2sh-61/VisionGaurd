@@ -104,6 +104,11 @@ class Store(Protocol):
     def search_lost(self, query: S.LostQuery) -> S.LostResult: ...
     def track(self, query: S.TrackQuery, actor: str) -> S.TrackResult: ...
 
+    def path_skeleton(
+        self, person: str, on: str, actor: str,
+        start: str | None = None, end: str | None = None,
+    ) -> S.PathSkeleton: ...
+
     def follow_start(
         self, camera_id: str, x: float, y: float, actor: str
     ) -> S.FollowView: ...
@@ -574,6 +579,32 @@ class MockStore:
                 snapshot_url="/cameras/c-main/snapshot")],
         )
 
+
+    def path_skeleton(
+        self, person: str, on: str, actor: str,
+        start: str | None = None, end: str | None = None,
+    ) -> S.PathSkeleton:
+        # Audit FIRST, exactly as the live store does — demo mode teaches the
+        # same habit rather than a different one.
+        entry = self._log(actor, "path.skeleton", person, f"{on} {start or ''}-{end or ''}")
+        anchors = [
+            S.PathAnchor(camera_id="c-main", camera_name="Main entrance",
+                         place="Main entrance", at=at(7, 42), until=at(7, 43),
+                         matches=6, score=0.71, face_px=112),
+            S.PathAnchor(camera_id="cnt-caf", camera_name="Cafeteria",
+                         place="Cafeteria", at=at(11, 20), until=at(11, 22),
+                         matches=4, score=0.66, face_px=94),
+        ]
+        return S.PathSkeleton(
+            subject=S.PersonRef(id="p-layla", name=person or "Layla Ahmed",
+                                type=S.PersonType.STUDENT, match=S.MatchKind.FACE),
+            date=on, audit_id=entry.id, anchors=anchors,
+            appearance=[
+                S.TrackStop(at=at(8, 3), camera_id="t-corr-a",
+                            camera_name="Building A corridor", place="Building A",
+                            match=S.MatchKind.APPEARANCE, confidence=0.89),
+            ],
+        )
 
     # -- following one person, live -----------------------------------------
 

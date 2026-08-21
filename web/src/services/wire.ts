@@ -580,6 +580,38 @@ export interface Problem {
 
 /* ---------- live tracking ---------- */
 
+/* ---------- the path behind somebody ----------
+ *
+ *  Two layers, never merged, because they answer different questions:
+ *
+ *    anchors     a face was recognised well enough, and often enough, to
+ *                claim it. Evidence about IDENTITY.
+ *    appearance  the same body was seen again. Evidence about CONTINUITY
+ *                only — clothing cannot say which person somebody is, so
+ *                nothing in that layer is ever named. */
+
+export interface PathAnchor {
+  cameraId: string;
+  cameraName: string;
+  place: string;
+  at: Instant;
+  until: Instant;
+  /** Separate looks, not frames. */
+  matches: number;
+  score: number;
+  facePx: number;
+}
+
+export interface PathSkeleton {
+  subject: PersonRef;
+  date: string;
+  /** Written before this answer was returned, never after. */
+  auditId: string;
+  anchors: PathAnchor[];
+  appearance: TrackStop[];
+  cameras: CameraView[];
+}
+
 /* ---------- following one person, live ----------
  *
  *  The engine holds the session and advances it on the frames it is already

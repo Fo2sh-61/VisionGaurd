@@ -13,6 +13,7 @@ Everything here exists to stop those from quietly breaking again.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 
@@ -1031,3 +1032,331 @@ class TestTheGateIsActuallyWired:
         assert len(written) == 1
         assert written[0].person_id == "p-layla"
         assert written[0].matches == 3
+
+
+# ===========================================================================
+# US2 — the instant past path
+#
+# The claim being tested is narrow and important: the skeleton is a database
+# read of rows that could only have been written by evidence clearing the bar.
+# There is no scan, no model, and nothing below the bar to filter out later.
+# ===========================================================================
+
+import tempfile
+
+from vg import config as vgconfig
+from vg.api.live import LiveStore
+from vg.events.anchors import AnchorStore
+from vg.events.sightings import Sighting, SightingStore
+from vg.identity.gallery import FaceGallery
+from vg.ingest.registry import CameraRegistry
+
+CAIRO = 180
+
+
+def unit(seed: str):
+    rng = np.random.default_rng(abs(hash(seed)) % (2**32))
+    v = rng.standard_normal(128).astype("float32")
+    return v / float(np.linalg.norm(v))
+
+
+@pytest.fixture
+def anchor_store():
+    """A throwaway AnchorStore. Closed before the tempdir, or Windows fails."""
+    tmp = tempfile.TemporaryDirectory()
+    store = AnchorStore(Path(tmp.name) / "a.db", clock=CAIRO)
+    yield store
+    store.close()
+    tmp.cleanup()
+
+
+@pytest.fixture
+def path_world(user_store):
+    """A LiveStore with a real gallery, sighting store and anchor store."""
+    from vg.api import app as app_module
+    from vg.api.app import create_app
+
+    tmp = tempfile.TemporaryDirectory()
+    root = Path(tmp.name)
+    gallery = FaceGallery(root / "g.db", model=MODEL, threshold=0.363)
+    sightings = SightingStore(root / "s.db", clock=CAIRO)
+    anchors = AnchorStore(root / "a.db", clock=CAIRO)
+
+    gallery.add_person("p-layla", "Layla Ahmed", group="Grade 8")
+    gallery.add_embedding("p-layla", unit("p-layla"), MODEL)
+
+    store = LiveStore(
+        config=vgconfig.load(), registry=CameraRegistry([]),
+        gallery=gallery, sightings=sightings, anchors=anchors,
+    )
+    app_module.set_store(store)
+    application = create_app()
+    application.state.users = user_store
+    try:
+        yield application, anchors, sightings
+    finally:
+        app_module.set_store(MockStore())
+        anchors.close()
+        sightings.close()
+        gallery.close()
+        tmp.cleanup()
+
+
+def anchor(
+    *, person="p-layla", camera="cam-a", start=0.0, end=4.0,
+    matches=5, best=0.71, mean=0.66, face_px=96,
+):
+    from vg.events.anchors import Anchor
+
+    return Anchor(
+        person_id=person, camera_id=camera,
+        started_at=at(start), ended_at=at(end),
+        matches=matches, best=best, mean=mean, face_px=face_px, model=MODEL,
+    )
+
+
+class TestTheDebounceCannotSeeThis:
+    def test_anchor_rows_come_from_frames_the_stored_ones_hide(self, anchor_store):
+        """The reason the verdict is made in the worker and not from a query.
+
+        `SightingStore` thins repeats to one row a minute. So five clear looks
+        in three seconds — exactly what makes an identification trustworthy —
+        leaves ONE row behind, and the evidence that mattered is gone. The
+        anchor is written where the evidence still exists.
+        """
+        tmp = tempfile.TemporaryDirectory()
+        sightings = SightingStore(Path(tmp.name) / "s.db", clock=CAIRO)
+        try:
+            written = 0
+            for i in range(5):
+                ok = sightings.record(Sighting(
+                    person_id="p-layla", camera_id="cam-a",
+                    seen_at=at(i * 0.75), confidence=0.7, model=MODEL,
+                ), force=(i == 0))
+                written += 1 if ok else 0
+
+            assert written == 1, "the debounce keeps one row for five looks"
+        finally:
+            sightings.close()
+            tmp.cleanup()
+
+        # The same five looks, through the accumulator, keep their evidence.
+        acc = AnchorAccumulator(AnchorGates())
+        emitted = feed(acc, [0.0, 0.75, 1.5, 2.25, 3.0])
+        assert emitted, "the worker sees what the table cannot keep"
+        anchor_store.record(emitted[-1])
+
+        stored = anchor_store.skeleton("p-sara", anchor_store.local_date(at(0)))
+        assert len(stored) == 1
+        assert stored[0].matches >= 3
+
+
+class TestTheAnchorTable:
+    def test_an_anchor_carries_its_evidence(self, anchor_store):
+        anchor_store.record(anchor())
+        on = anchor_store.local_date(at(0))
+
+        [stored] = anchor_store.skeleton("p-layla", on)
+        assert stored.matches == 5
+        assert stored.best == pytest.approx(0.71)
+        assert stored.mean == pytest.approx(0.66)
+        assert stored.face_px == 96
+        assert stored.model == MODEL
+        assert stored.started_at == at(0.0)
+        assert stored.ended_at == at(4.0)
+
+    def test_a_growing_stop_updates_rather_than_doubling(self, anchor_store):
+        # Somebody standing still re-states the same run. Two rows would draw
+        # two stops where the operator saw one person not moving.
+        anchor_store.record(anchor(end=4.0, matches=5))
+        anchor_store.record(anchor(end=9.0, matches=9))
+
+        on = anchor_store.local_date(at(0))
+        [stored] = anchor_store.skeleton("p-layla", on)
+        assert stored.ended_at == at(9.0)
+        assert stored.matches == 9
+
+    def test_a_second_camera_is_a_second_stop(self, anchor_store):
+        anchor_store.record(anchor(camera="cam-a"))
+        anchor_store.record(anchor(camera="cam-b", start=20.0, end=24.0))
+
+        on = anchor_store.local_date(at(0))
+        stops = anchor_store.skeleton("p-layla", on)
+        assert [s.camera_id for s in stops] == ["cam-a", "cam-b"]
+
+    def test_stops_come_back_in_order(self, anchor_store):
+        anchor_store.record(anchor(camera="cam-c", start=60.0, end=64.0))
+        anchor_store.record(anchor(camera="cam-a", start=0.0, end=4.0))
+        anchor_store.record(anchor(camera="cam-b", start=30.0, end=34.0))
+
+        on = anchor_store.local_date(at(0))
+        assert [s.camera_id for s in anchor_store.skeleton("p-layla", on)] == [
+            "cam-a", "cam-b", "cam-c",
+        ]
+
+    def test_the_window_narrows_the_answer(self, anchor_store):
+        anchor_store.record(anchor(camera="cam-a", start=0.0, end=4.0))
+        anchor_store.record(anchor(camera="cam-b", start=600.0, end=604.0))
+        on = anchor_store.local_date(at(0))
+
+        narrowed = anchor_store.skeleton(
+            "p-layla", on, start=at(300.0), end=at(900.0))
+        assert [s.camera_id for s in narrowed] == ["cam-b"]
+
+    def test_somebody_elses_stops_are_not_yours(self, anchor_store):
+        anchor_store.record(anchor(person="p-layla"))
+        anchor_store.record(anchor(person="p-omar", camera="cam-b"))
+        on = anchor_store.local_date(at(0))
+
+        assert len(anchor_store.skeleton("p-layla", on)) == 1
+
+
+class TestMeasuredRates:
+    def test_absent_until_somebody_measures(self, anchor_store):
+        assert anchor_store.rates() is None, "no row means no promise"
+
+    def test_a_measurement_sticks_and_replaces(self, anchor_store):
+        anchor_store.set_rates(4.0, 22.0, backend="footage")
+        first = anchor_store.rates()
+        assert first.fetch_x == pytest.approx(4.0)
+        assert first.backend == "footage"
+
+        anchor_store.set_rates(1.5, 9.0, backend="dvr")
+        second = anchor_store.rates()
+        assert second.fetch_x == pytest.approx(1.5)
+        assert second.backend == "dvr", "one row, not a history"
+
+
+class TestTheSkeletonEndpoint:
+    def test_it_is_anchors_only_and_audited_before_the_answer(self, path_world, authed):
+        app, anchors, _ = path_world
+        anchors.record(anchor())
+        on = anchors.local_date(at(0))
+
+        client = authed(app)
+        reply = client.get(f"/path/p-layla?date={on}")
+        assert reply.status_code == 200, reply.text
+
+        body = reply.json()
+        assert body["subject"]["name"] == "Layla Ahmed"
+        assert len(body["anchors"]) == 1
+        assert body["auditId"]
+
+        stop = body["anchors"][0]
+        assert stop["matches"] == 5
+        assert stop["facePx"] == 96
+        assert stop["score"] == pytest.approx(0.71)
+        # "why do you believe this?" answered on the wire, not by a colour.
+        assert stop["at"] and stop["until"]
+
+        entries = client.get("/audit").json()
+        assert any(e["action"] == "path.skeleton" for e in entries)
+        assert any(e["id"] == body["auditId"] for e in entries)
+
+    def test_a_name_works_as_well_as_an_id(self, path_world, authed):
+        app, anchors, _ = path_world
+        anchors.record(anchor())
+        on = anchors.local_date(at(0))
+
+        reply = authed(app).get(f"/path/Layla%20Ahmed?date={on}")
+        assert reply.status_code == 200
+        assert reply.json()["subject"]["id"] == "p-layla"
+
+    def test_an_empty_window_is_an_answer_not_an_error(self, path_world, authed):
+        app, anchors, _ = path_world
+        on = anchors.local_date(at(0))
+
+        reply = authed(app).get(f"/path/p-layla?date={on}")
+        assert reply.status_code == 200
+        assert reply.json()["anchors"] == []
+        # Nobody identified is a different fact from being unable to look, and
+        # the page offers a next move rather than an error.
+        assert reply.json()["subject"]["match"] == "none"
+
+    def test_an_unknown_person_404s(self, path_world, authed):
+        app, anchors, _ = path_world
+        on = anchors.local_date(at(0))
+        assert authed(app).get(f"/path/p-nobody?date={on}").status_code == 404
+
+    def test_no_anchor_store_503s_with_a_reason(self, bare_live_store, user_store, authed):
+        from vg.api import app as app_module
+        from vg.api.app import create_app
+
+        app_module.set_store(bare_live_store)
+        try:
+            app = create_app()
+            app.state.users = user_store
+            reply = authed(app).get("/path/p-layla")
+
+            assert reply.status_code == 503
+            assert "not running" in reply.json()["detail"].lower()
+        finally:
+            app_module.set_store(MockStore())
+
+    def test_it_is_open_to_the_it_role(self, path_world, authed):
+        # /path joins no admin prefix: looking somebody up is operator work,
+        # and the control is the audit entry, not the role.
+        app, anchors, _ = path_world
+        anchors.record(anchor())
+        on = anchors.local_date(at(0))
+        assert authed(app, role="it").get(f"/path/p-layla?date={on}").status_code == 200
+
+    def test_a_stranger_is_refused(self, path_world):
+        from fastapi.testclient import TestClient
+
+        app, _, _ = path_world
+        assert TestClient(app).get("/path/p-layla").status_code == 401
+
+    def test_the_demo_store_answers_too(self, authed, user_store):
+        from vg.api import app as app_module
+        from vg.api.app import create_app
+
+        app_module.set_store(MockStore())
+        app = create_app()
+        app.state.users = user_store
+
+        reply = authed(app).get("/path/Layla%20Ahmed?date=2026-08-21")
+        assert reply.status_code == 200
+        assert reply.json()["anchors"], "demo mode still demos"
+        assert reply.json()["auditId"]
+
+
+class TestTheTwoTiers:
+    def test_a_camera_lands_in_exactly_one_tier(self):
+        from vg.config import CameraConfig
+
+        roster = [
+            CameraConfig(id="cam-door", name="Door", source="webcam:0",
+                         faces=True, features=("attendance",)),
+            CameraConfig(id="cam-hall", name="Hall", source="rtsp://x",
+                         features=("counting",)),
+            CameraConfig(id="cam-off", name="Off", source="rtsp://y", enabled=False),
+        ]
+        identity = [c.id for c in roster if c.enabled and (c.faces or "attendance" in c.features)]
+        patrol = [c.id for c in roster if c.enabled and c.id not in set(identity)]
+
+        assert identity == ["cam-door"]
+        assert patrol == ["cam-hall"]
+        assert "cam-off" not in identity + patrol, "a disabled camera runs nothing"
+
+    def test_the_two_tiers_answer_to_different_bars(self):
+        tracking = TrackingConfig()
+        assert tracking.patrol.score < tracking.identity.score
+        assert tracking.patrol.margin < tracking.identity.margin
+        # Both still above a bare gallery match: an anchor always means more
+        # than "this frame looked like them".
+        from vg.infer.faces import SFACE_COSINE_THRESHOLD
+
+        assert tracking.patrol.score > SFACE_COSINE_THRESHOLD
+
+    def test_patrol_at_zero_hz_is_off(self):
+        from vg.config import TrackingConfig as TC
+
+        off = TC.parse({"patrol_hz": 0}, "tracking")
+        assert off.patrol_hz == 0
+
+    def test_the_tiers_report_themselves_separately(self):
+        # Each instance carries its own name, so System Health can show what
+        # each tier is doing instead of one merged number.
+        worker, _ = TestTheGateIsActuallyWired().build()
+        assert worker.stats["name"] == "recognition"

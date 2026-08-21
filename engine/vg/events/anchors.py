@@ -32,8 +32,11 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
+from vg import db
+from vg.clock import Clock, clock_for
 from vg.config import AnchorGates
 
 #: How long a run may go quiet before the next look starts a new stop rather
@@ -240,3 +243,227 @@ class AnchorAccumulator:
         stale = [key for key, run in self._runs.items() if now - run.last_at > self.run_gap]
         for key in stale:
             del self._runs[key]
+
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS anchor (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    person_id     TEXT NOT NULL,
+    camera_id     TEXT NOT NULL,
+    started_at    TEXT NOT NULL,          -- ISO-8601 UTC
+    ended_at      TEXT NOT NULL,
+    local_date    TEXT NOT NULL,          -- the SITE's date, as sightings uses
+    matches       INTEGER NOT NULL,       -- separate looks, not frames
+    best          REAL NOT NULL,
+    mean          REAL NOT NULL,
+    face_px       INTEGER NOT NULL,       -- the smallest face that contributed
+    model         TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_anchor_person_date
+    ON anchor(person_id, local_date);
+CREATE INDEX IF NOT EXISTS idx_anchor_date ON anchor(local_date);
+
+-- One row per run, not per verdict. The accumulator re-states a stop as it
+-- grows, always with the same start, so this turns "they are still there"
+-- into an update instead of a second stop in the same doorway.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_anchor_run
+    ON anchor(person_id, camera_id, started_at);
+
+-- Exactly one row, written by tools/measure_track.py. Estimates read it and
+-- refuse to guess when it is absent.
+CREATE TABLE IF NOT EXISTS measured_rates (
+    id            INTEGER PRIMARY KEY CHECK (id = 1),
+    fetch_x       REAL NOT NULL,          -- archive fetch speed, x real-time
+    process_fps   REAL NOT NULL,          -- detect + track + encode, frames/sec
+    measured_at   TEXT NOT NULL,
+    backend       TEXT NOT NULL DEFAULT ''
+);
+"""
+
+
+@dataclass(frozen=True)
+class MeasuredRates:
+    """How fast this machine actually did the work, when somebody measured it.
+
+    Never a default and never a guess. Every wait this feature quotes comes
+    from here, and when there is no row the page says the wait is unknown —
+    which is a worse answer to read and a much better one to trust.
+    """
+
+    fetch_x: float
+    process_fps: float
+    measured_at: datetime
+    backend: str = ""
+
+
+class AnchorStore:
+    """The anchor table, and the one row of measured rates beside it.
+
+    Same idioms as `SightingStore`, deliberately: one connection through
+    `db.connect`, one re-entrant lock, ISO-8601 UTC on the way in, the site's
+    own date for anything a person will ask a question about.
+    """
+
+    def __init__(self, database: Path | str, clock: Clock | int | str = 0) -> None:
+        self.path = Path(database)
+        # Asked per instant, never cached. An offset held from startup is an
+        # hour wrong from the last Friday in October until someone restarts.
+        self.clock = clock_for(clock)
+
+        self._lock = threading.RLock()
+        self._conn = db.connect(self.path)
+        self._conn.executescript(SCHEMA)
+        self._conn.commit()
+
+    def local_date(self, when: datetime) -> str:
+        return self.clock.local_date(when)
+
+    # -- writing ------------------------------------------------------------
+
+    def record(self, anchor: Anchor) -> None:
+        """Write a stop, or extend the one already there.
+
+        An upsert rather than an insert, because a person standing at a camera
+        is one stop that grows: the accumulator re-states it with the same
+        start and a later end, and two rows for one visit would draw two stops
+        on the path where the operator saw one person standing still.
+        """
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO anchor (person_id, camera_id, started_at, ended_at, "
+                "local_date, matches, best, mean, face_px, model) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(person_id, camera_id, started_at) DO UPDATE SET "
+                "ended_at = excluded.ended_at, matches = excluded.matches, "
+                "best = excluded.best, mean = excluded.mean, "
+                "face_px = excluded.face_px",
+                (
+                    anchor.person_id,
+                    anchor.camera_id,
+                    _iso(anchor.started_at),
+                    _iso(anchor.ended_at),
+                    self.local_date(anchor.started_at),
+                    anchor.matches,
+                    anchor.best,
+                    anchor.mean,
+                    anchor.face_px,
+                    anchor.model,
+                ),
+            )
+            self._conn.commit()
+
+    # -- reading ------------------------------------------------------------
+
+    def skeleton(
+        self,
+        person_id: str,
+        on: str,
+        start: datetime | None = None,
+        end: datetime | None = None,
+    ) -> list[Anchor]:
+        """One person's stops on one day, in order. One indexed read.
+
+        This is the whole of the "instant path": there is no scan, no video
+        and no model. Nothing below the gates was ever written, so the query
+        cannot return a stop the system does not actually believe.
+        """
+        query = ("SELECT * FROM anchor WHERE person_id = ? AND local_date = ?")
+        params: list = [person_id, on]
+        if start is not None:
+            query += " AND ended_at >= ?"
+            params.append(_iso(start))
+        if end is not None:
+            query += " AND started_at <= ?"
+            params.append(_iso(end))
+        query += " ORDER BY started_at"
+
+        with self._lock:
+            rows = list(self._conn.execute(query, params))
+        return [_to_anchor(r) for r in rows]
+
+    def dates_for(self, person_id: str) -> list[str]:
+        """Which days this person has any stops on. Newest first."""
+        with self._lock:
+            rows = list(self._conn.execute(
+                "SELECT DISTINCT local_date FROM anchor WHERE person_id = ? "
+                "ORDER BY local_date DESC",
+                (person_id,),
+            ))
+        return [r["local_date"] for r in rows]
+
+    # -- measured rates -----------------------------------------------------
+
+    def rates(self) -> MeasuredRates | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM measured_rates WHERE id = 1"
+            ).fetchone()
+        if row is None:
+            return None
+        return MeasuredRates(
+            fetch_x=float(row["fetch_x"]),
+            process_fps=float(row["process_fps"]),
+            measured_at=_parse(row["measured_at"]),
+            backend=row["backend"] or "",
+        )
+
+    def set_rates(
+        self, fetch_x: float, process_fps: float, backend: str = "",
+        at: datetime | None = None,
+    ) -> MeasuredRates:
+        at = at or datetime.now(timezone.utc)
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO measured_rates (id, fetch_x, process_fps, "
+                "measured_at, backend) VALUES (1, ?, ?, ?, ?) "
+                "ON CONFLICT(id) DO UPDATE SET fetch_x = excluded.fetch_x, "
+                "process_fps = excluded.process_fps, "
+                "measured_at = excluded.measured_at, backend = excluded.backend",
+                (float(fetch_x), float(process_fps), _iso(at), backend),
+            )
+            self._conn.commit()
+        return MeasuredRates(fetch_x, process_fps, at, backend)
+
+    # -- housekeeping -------------------------------------------------------
+
+    def clear(self) -> None:
+        """Wipe every anchor. Test and demo use only."""
+        with self._lock:
+            self._conn.execute("DELETE FROM anchor")
+            self._conn.commit()
+
+    def close(self) -> None:
+        with self._lock:
+            self._conn.close()
+
+    def __enter__(self) -> "AnchorStore":
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
+
+
+def _iso(when: datetime) -> str:
+    return when.astimezone(timezone.utc).isoformat()
+
+
+def _parse(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    parsed = datetime.fromisoformat(value)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def _to_anchor(row) -> Anchor:
+    return Anchor(
+        person_id=row["person_id"],
+        camera_id=row["camera_id"],
+        started_at=_parse(row["started_at"]),
+        ended_at=_parse(row["ended_at"]),
+        matches=int(row["matches"]),
+        best=float(row["best"]),
+        mean=float(row["mean"]),
+        face_px=int(row["face_px"]),
+        model=row["model"],
+    )

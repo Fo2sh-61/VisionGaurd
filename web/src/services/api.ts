@@ -616,6 +616,24 @@ export async function correctIdentity(stableId: string): Promise<void> {
   await post<void>(`/tracking/${encodeURIComponent(stableId)}/correct`);
 }
 
+/* ---------- the path behind somebody ----------
+ *
+ *  One indexed read on the engine, so this answers immediately. Empty anchors
+ *  is an ANSWER — nobody was identified in that window — and is not the same
+ *  as the 503 that means the engine cannot look at all. */
+
+export const getPathSkeleton = (
+  person: string,
+  date: string,
+  from?: string,
+  to?: string,
+) =>
+  get<W.PathSkeleton>(`/path/${encodeURIComponent(person)}`, {
+    date,
+    start: from,
+    end: to,
+  });
+
 /* ---------- following one person, live ----------
  *
  *  Three refusals, three meanings, and the page must not collapse them:

@@ -112,21 +112,21 @@ nothing says so. No DVR needed.
 
 ### Tests for User Story 2 ⚠️ write first, watch them fail
 
-- [ ] T022 [P] [US2] `test_anchor_rows_come_from_frames_the_debounce_hides` in `engine/tests/test_track_page.py` — five matches in three seconds produce ONE sighting row (debounce) but a full-evidence anchor row; deriving from stored sightings is impossible by construction (research D6)
-- [ ] T023 [P] [US2] `test_anchor_carries_its_evidence` in `engine/tests/test_track_page.py` — matches, span, best/mean, face_px, model all stored and returned on the wire
-- [ ] T024 [P] [US2] `test_skeleton_is_anchors_only_audited_and_instant` in `engine/tests/test_track_page.py` — GET /path/{person} returns only anchor-grade stops, `auditId` present, audit written before return; sub-anchor recognitions never appear (SC-003: zero wrong legs by construction)
-- [ ] T025 [P] [US2] `test_skeleton_empty_window_is_an_answer_and_unknown_person_404s` in `engine/tests/test_track_page.py` — empty `anchors` with 200; unknown person 404; anchor store absent 503 with reason
-- [ ] T026 [P] [US2] `test_patrol_and_identity_tiers_run_as_two_instances` in `engine/tests/test_track_page.py` — cameras split by `faces` flag; each worker reports its own cameras and rate; both share one gallery and pipeline
+- [X] T022 [P] [US2] `test_anchor_rows_come_from_frames_the_debounce_hides` in `engine/tests/test_track_page.py` — five matches in three seconds produce ONE sighting row (debounce) but a full-evidence anchor row; deriving from stored sightings is impossible by construction (research D6)
+- [X] T023 [P] [US2] `test_anchor_carries_its_evidence` in `engine/tests/test_track_page.py` — matches, span, best/mean, face_px, model all stored and returned on the wire
+- [X] T024 [P] [US2] `test_skeleton_is_anchors_only_audited_and_instant` in `engine/tests/test_track_page.py` — GET /path/{person} returns only anchor-grade stops, `auditId` present, audit written before return; sub-anchor recognitions never appear (SC-003: zero wrong legs by construction)
+- [X] T025 [P] [US2] `test_skeleton_empty_window_is_an_answer_and_unknown_person_404s` in `engine/tests/test_track_page.py` — empty `anchors` with 200; unknown person 404; anchor store absent 503 with reason
+- [X] T026 [P] [US2] `test_patrol_and_identity_tiers_run_as_two_instances` in `engine/tests/test_track_page.py` — cameras split by `faces` flag; each worker reports its own cameras and rate; both share one gallery and pipeline
 
 ### Implementation for User Story 2
 
-- [ ] T027 [US2] Add `AnchorStore` to `engine/vg/events/anchors.py` — `anchor` table per [data-model.md](./data-model.md) §1 (SightingStore idioms: `db.connect`, RLock, `_parse`, `local_date`), `record(anchor)`, `skeleton(person_id, date, from, to)` one indexed read, and the `measured_rates` row helpers
-- [ ] T028 [US2] Feed the accumulator and write anchors in `engine/vg/features/recognition.py` — every match flows through the per-camera accumulator; a `sustained` verdict writes one anchor row with its evidence; tier gate numbers come from config
-- [ ] T029 [US2] Start the patrol instance in `engine/vg/api/app.py`'s lifespan — second `RecognitionWorker` on `faces: false` cameras at `patrol_hz`, sharing gallery/sightings/pipeline; both registered so System Health sees each tier's stats
-- [ ] T030 [P] [US2] Add `PathAnchor` and `PathSkeleton` to `engine/vg/api/schemas.py` per [data-model.md](./data-model.md) §4 — evidence travels; no box geometry
-- [ ] T031 [US2] Add `path_skeleton` to `Store`/`MockStore` in `engine/vg/api/store.py` and implement in `engine/vg/api/live.py` — audit-first (`path.skeleton`), anchors from `AnchorStore`, blue appearance layer via existing `path_for` (read `_collapse` first — context.md §5), camera names from the roster
-- [ ] T032 [US2] Add `GET /path/{person}` to `engine/vg/api/app.py` per [contracts/api.md](./contracts/api.md) — id-or-name resolution like `/people/{person}/history`
-- [ ] T033 [US2] Build the past-mode skeleton view in `web/src/pages/TrackPerson.tsx` — person + date + window → instant stop chain, evidence on hover ("6 matches over 4 s · score 0.71"), green anchors / blue appearance rendered distinctly, empty state offering the next moves; calls in `web/src/services/api.ts` + `wire.ts` + `types.ts`
+- [X] T027 [US2] Add `AnchorStore` to `engine/vg/events/anchors.py` — `anchor` table per [data-model.md](./data-model.md) §1 (SightingStore idioms: `db.connect`, RLock, `_parse`, `local_date`), `record(anchor)`, `skeleton(person_id, date, from, to)` one indexed read, and the `measured_rates` row helpers
+- [X] T028 [US2] Feed the accumulator and write anchors in `engine/vg/features/recognition.py` — every match flows through the per-camera accumulator; a `sustained` verdict writes one anchor row with its evidence; tier gate numbers come from config
+- [X] T029 [US2] Start the patrol instance in `engine/vg/api/app.py`'s lifespan — second `RecognitionWorker` on `faces: false` cameras at `patrol_hz`, sharing gallery/sightings/pipeline; both registered so System Health sees each tier's stats
+- [X] T030 [P] [US2] Add `PathAnchor` and `PathSkeleton` to `engine/vg/api/schemas.py` per [data-model.md](./data-model.md) §4 — evidence travels; no box geometry
+- [X] T031 [US2] Add `path_skeleton` to `Store`/`MockStore` in `engine/vg/api/store.py` and implement in `engine/vg/api/live.py` — audit-first (`path.skeleton`), anchors from `AnchorStore`, blue appearance layer via existing `path_for` (read `_collapse` first — context.md §5), camera names from the roster
+- [X] T032 [US2] Add `GET /path/{person}` to `engine/vg/api/app.py` per [contracts/api.md](./contracts/api.md) — id-or-name resolution like `/people/{person}/history`
+- [X] T033 [US2] Build the past-mode skeleton view in `web/src/pages/TrackPerson.tsx` — person + date + window → instant stop chain, evidence on hover ("6 matches over 4 s · score 0.71"), green anchors / blue appearance rendered distinctly, empty state offering the next moves; calls in `web/src/services/api.ts` + `wire.ts` + `types.ts`
 
 **Checkpoint**: the skeleton answers instantly and honestly. Legs still say
 "video arrives in the next increment" — plainly, not as a dead control.
