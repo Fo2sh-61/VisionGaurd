@@ -190,6 +190,11 @@ class SweepJob:
     hits: list = field(default_factory=list)
     segments_done: int = 0
     segments_total: int = 0
+    #: Pieces of the window with no recorded video behind them at all.
+    #: Counted separately and reported, because "we looked and found nobody"
+    #: and "there was nothing to look at" are completely different answers and
+    #: only one of them is evidence about where somebody was.
+    segments_missing: int = 0
     error: str | None = None
     submitted_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     cancelled: bool = False
@@ -204,6 +209,11 @@ class SweepJob:
     def camera_hours(self) -> float:
         span = (self.end - self.start).total_seconds()
         return len(self.cameras) * span / 3600.0
+
+    @property
+    def searched_nothing(self) -> bool:
+        """True when not one second of video was actually examined."""
+        return self.segments_done > 0 and self.segments_missing >= self.segments_done
 
 
 def segments_of(
@@ -239,8 +249,12 @@ class FootageBackend:
 
     name = "footage"
 
-    def __init__(self, footage_dir: Path) -> None:
+    def __init__(self, footage_dir: Path, clock=None) -> None:
         self.directory = Path(footage_dir)
+        # Only for writing times a person will read. An operator who typed
+        # "12:06 AM" should not be answered with a UTC timestamp three hours
+        # away from what they asked for.
+        self.clock = clock
 
     def coverage(self, camera_id: str) -> list[tuple[datetime, datetime, Path]]:
         found: list[tuple[datetime, datetime, Path]] = []
@@ -291,10 +305,44 @@ class FootageBackend:
                 _slice(clip, into, offset, wanted)
                 return into
 
-        raise ArchiveUnavailable(
-            f"No recorded footage covers {camera_id} at "
-            f"{start.isoformat(timespec='seconds')}."
+        raise ArchiveUnavailable(self._nothing_covers(camera_id, start))
+
+    def _nothing_covers(self, camera_id: str, start: datetime) -> str:
+        """Say what is missing, and then say what there is instead.
+
+        A bare "no footage covers that" leaves the operator guessing at which
+        of the date, the time and the camera was wrong. Listing what the
+        archive actually holds turns a dead end into the next thing to try.
+        """
+        asked = self._when(start)
+        held = self.coverage(camera_id)
+        if not held:
+            return (
+                f"There is no recorded video for this camera at all, so "
+                f"nothing can be played back from {asked}. Footage goes in "
+                f"{self.directory}."
+            )
+
+        spans = ", ".join(
+            f"{self._when(s)} to {self._when(e)}" for s, e, _p in held[:4]
         )
+        more = f", and {len(held) - 4} more" if len(held) > 4 else ""
+        return (
+            f"There is no recorded video from {asked}. What this camera has: "
+            f"{spans}{more}."
+        )
+
+    def _when(self, when: datetime) -> str:
+        """An instant as the site experienced it, written for a person.
+
+        Built by hand rather than with strftime: `%-d` and `%-I` drop the
+        leading zero on Unix and are a ValueError on Windows, which is where
+        this runs.
+        """
+        shown = self.clock.local(when) if self.clock is not None else when
+        hour = shown.hour % 12 or 12
+        suffix = "am" if shown.hour < 12 else "pm"
+        return f"{shown.day} {shown:%b}, {hour}:{shown:%M}{suffix}"
 
 
 class DvrBackend:
@@ -358,10 +406,10 @@ class DvrBackend:
         return into
 
 
-def backend_for(config, footage_dir: Path):
+def backend_for(config, footage_dir: Path, clock=None):
     """The archive seam, chosen by config. Never guessed at."""
     if config.backend == "footage":
-        return FootageBackend(footage_dir)
+        return FootageBackend(footage_dir, clock)
     if not config.playback_url:
         raise ArchiveUnavailable(
             "The dvr backend has no `archive.playback_url`, so there is "
@@ -674,8 +722,11 @@ class ArchiveRunner:
                     self.source.fetch(camera_id, at, until, raw)
                 except ArchiveUnavailable:
                     # A camera with no footage for that stretch is a fact
-                    # about the archive, not a failed sweep. The other
-                    # cameras still get looked at.
+                    # about the archive, not a failed sweep — the other
+                    # cameras still get looked at. But it is counted, because
+                    # a sweep that examined nothing must never report that as
+                    # having found nobody.
+                    job.segments_missing += 1
                     job.segments_done += 1
                     continue
 

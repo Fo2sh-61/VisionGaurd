@@ -1281,8 +1281,9 @@ function SweepPanel({
               {running ? 'Searching…' : job.job.error === 'stopped' ? 'Stopped' : 'Finished'}
             </span>
             <span style={{ color: 'var(--tx2)' }}>
-              {job.segmentsDone} of {job.segmentsTotal} pieces · {job.hits.length}{' '}
-              {job.hits.length === 1 ? 'hit' : 'hits'}
+              {job.segmentsDone} of {job.segmentsTotal} pieces
+              {job.segmentsMissing > 0 && ` (${job.segmentsMissing} with no video)`} ·{' '}
+              {job.hits.length} {job.hits.length === 1 ? 'hit' : 'hits'}
             </span>
             {running && (
               <button
@@ -1322,8 +1323,21 @@ function SweepPanel({
 
           {job.hits.length === 0 && !running ? (
             <Empty>
-              Nobody matching was found on those cameras in that window. That is an
-              answer about what was recorded, not proof they were not there.
+              {job.segmentsMissing >= job.segmentsTotal
+                ? // Nothing was examined. Saying "nobody was found" here would
+                  // be the single most misleading sentence on the page: it
+                  // reads as evidence they were not there, when in fact not
+                  // one second of video was looked at.
+                  'None of that window is in the archive, so nothing was searched. ' +
+                  'This says nothing about where they were — there is simply no ' +
+                  'recorded video from then.'
+                : job.segmentsMissing > 0
+                  ? `Nobody matching was found. Note that ${job.segmentsMissing} of ` +
+                    `${job.segmentsTotal} pieces had no recorded video behind them, ` +
+                    'so that part of the window was never searched.'
+                  : 'Nobody matching was found on those cameras in that window. ' +
+                    'That is an answer about what was recorded, not proof they were ' +
+                    'not there.'}
             </Empty>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>

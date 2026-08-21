@@ -1466,8 +1466,11 @@ class TestTheFootageBackend:
                          tmp_path / "x.mp4")
 
         # An honest "there is no video from then", not an empty file that
-        # plays as a black screen and looks like a broken camera.
-        assert "no recorded footage" in str(raised.value).lower()
+        # plays as a black screen and looks like a broken camera — and it
+        # names what the camera does hold, so the answer is a next step.
+        message = str(raised.value)
+        assert "no recorded video from" in message.lower()
+        assert "What this camera has" in message
 
     def test_an_unknown_camera_has_no_coverage(self):
         assert FootageBackend(FOOTAGE).coverage("cam-nowhere") == []
@@ -2295,3 +2298,144 @@ class TestARunningRecorderReachesTheFollow:
 
         with pytest.raises(NoRecorder):
             worker.record(None, "tester")
+
+
+class TestASweepThatLookedAtNothingSaysSo:
+    """The most misleading sentence this feature could produce.
+
+    A sweep over a window with no recorded video fetched 38 segments, failed
+    every one, and reported "38 of 38 pieces · 0 hits — nobody matching was
+    found". That reads as evidence somebody was not somewhere, when not one
+    second of video was ever examined. Those are different answers and the
+    system must never collapse them.
+    """
+
+    def runner(self, tmp_path, covers):
+        return ArchiveRunner(
+            FakeSource(covers=covers), tmp_path, chunk_seconds=30.0,
+            workers=1, finder=lambda *a: [],
+        )
+
+    def test_missing_footage_is_counted_not_swallowed(self, tmp_path):
+        runner = self.runner(tmp_path, covers=False)
+        try:
+            job = runner.submit_sweep(["cam-a"], at(0), at(120))
+            drain(runner, job)
+
+            assert job.state == "done"
+            assert job.segments_total == 4
+            assert job.segments_missing == 4, "every piece had nothing behind it"
+            assert job.searched_nothing is True
+        finally:
+            runner.stop()
+
+    def test_a_sweep_with_footage_reports_nothing_missing(self, tmp_path):
+        runner = self.runner(tmp_path, covers=True)
+        try:
+            job = drain(runner, runner.submit_sweep(["cam-a"], at(0), at(120)))
+            assert job.segments_missing == 0
+            assert job.searched_nothing is False
+        finally:
+            runner.stop()
+
+    def test_the_count_reaches_the_wire(self, user_store, tmp_path, authed):
+        from vg import config as vgconfig
+        from vg.api import app as app_module
+        from vg.api.app import create_app
+        from vg.api.live import LiveStore
+        from vg.ingest.registry import CameraRegistry
+
+        tmp = tempfile.TemporaryDirectory()
+        anchors = AnchorStore(Path(tmp.name) / "a.db", clock=CAIRO)
+        anchors.set_rates(fetch_x=8.0, process_fps=60.0)
+        gallery = FaceGallery(Path(tmp.name) / "g.db", model=MODEL, threshold=0.363)
+        gallery.add_person("p-layla", "Layla Ahmed")
+        gallery.add_embedding("p-layla", unit("p-layla"), MODEL)
+        runner = self.runner(tmp_path, covers=False)
+        store = LiveStore(
+            config=vgconfig.load(), registry=CameraRegistry([]),
+            gallery=gallery, anchors=anchors, archive=runner,
+        )
+        app_module.set_store(store)
+        app = create_app()
+        app.state.users = user_store
+        try:
+            client = authed(app)
+            started = client.post("/path/sweep", json={
+                "person": "Layla Ahmed",
+                "start": at(0).isoformat(),
+                "end": at(120).isoformat(),
+                "cameraIds": ["cam-laptop"],
+            }).json()
+            drain(runner, runner.sweep(started["job"]["id"]))
+
+            body = client.get(f"/path/sweep/{started['job']['id']}").json()
+            assert body["segmentsMissing"] == body["segmentsTotal"] > 0
+            assert body["hits"] == []
+        finally:
+            app_module.set_store(MockStore())
+            runner.stop()
+            anchors.close()
+            gallery.close()
+            tmp.cleanup()
+
+
+class TestTheNoFootageMessageIsUseful:
+    """"No recorded footage covers cam-laptop at 2026-08-21T21:06:43+00:00."
+
+    Three problems in one sentence: a machine timestamp, in a timezone three
+    hours from the one the operator typed, and no hint of what there IS.
+    """
+
+    def backend(self):
+        from vg.clock import clock_for
+        from vg.ingest.archive import FootageBackend
+
+        return FootageBackend(FOOTAGE, clock_for("Africa/Cairo"))
+
+    @needs_clip
+    def test_it_answers_in_the_time_the_operator_typed(self, tmp_path):
+        from vg.ingest.archive import ArchiveUnavailable
+
+        # 21:06 UTC is 00:06 the NEXT day in Cairo, which is what was typed.
+        asked = datetime(2026, 8, 21, 21, 6, 43, tzinfo=timezone.utc)
+        with pytest.raises(ArchiveUnavailable) as raised:
+            self.backend().fetch(
+                "cam-laptop", asked, asked + timedelta(seconds=30),
+                tmp_path / "x.mp4")
+
+        message = str(raised.value)
+        assert "22 Aug" in message and "12:06am" in message
+        assert "21T21:06" not in message, "no raw UTC timestamps at an operator"
+
+    @needs_clip
+    def test_it_says_what_the_camera_does_have(self, tmp_path):
+        from vg.ingest.archive import ArchiveUnavailable
+
+        asked = datetime(2026, 8, 21, 21, 6, 43, tzinfo=timezone.utc)
+        with pytest.raises(ArchiveUnavailable) as raised:
+            self.backend().fetch(
+                "cam-laptop", asked, asked + timedelta(seconds=30),
+                tmp_path / "x.mp4")
+
+        # A dead end becomes the next thing to try.
+        assert "What this camera has" in str(raised.value)
+        assert "5 Aug" in str(raised.value)
+
+    def test_a_camera_with_nothing_says_that_instead(self, tmp_path):
+        from vg.clock import clock_for
+        from vg.ingest.archive import ArchiveUnavailable, FootageBackend
+
+        empty = FootageBackend(tmp_path / "none", clock_for("Africa/Cairo"))
+        with pytest.raises(ArchiveUnavailable) as raised:
+            empty.fetch("cam-a", at(0), at(30), tmp_path / "x.mp4")
+
+        assert "no recorded video for this camera at all" in str(raised.value)
+
+    def test_it_works_without_a_clock(self, tmp_path):
+        # The clock is optional, and its absence must not crash the message.
+        from vg.ingest.archive import ArchiveUnavailable, FootageBackend
+
+        with pytest.raises(ArchiveUnavailable):
+            FootageBackend(tmp_path / "none").fetch(
+                "cam-a", at(0), at(30), tmp_path / "x.mp4")

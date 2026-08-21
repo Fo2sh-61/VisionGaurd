@@ -28,6 +28,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from vg import config as vgconfig
 from vg.auth import deps as auth_deps
 from vg.api import schemas as S
+from vg.clock import clock_for
 from vg.api.store import (
     AlreadyBusy,
     MockStore,
@@ -642,7 +643,10 @@ def _start_archive(cfg, people, face=None):
     try:
         from vg.ingest.archive import ArchiveRunner, backend_for
 
-        source = backend_for(cfg.archive, cfg.storage.footage_dir)
+        # The clock so that "there is no video from then" can name the
+        # time the operator actually typed, not its UTC equivalent.
+        source = backend_for(
+            cfg.archive, cfg.storage.footage_dir, clock_for(cfg.timezone))
         runner = ArchiveRunner(
             source,
             clips_dir=cfg.storage.clips_dir,

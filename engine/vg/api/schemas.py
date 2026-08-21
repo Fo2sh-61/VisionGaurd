@@ -1185,6 +1185,10 @@ class SweepJob(Wire):
     hits: list[SweepHit] = Field(default_factory=list)
     segments_done: int = 0
     segments_total: int = 0
+    #: How many of those pieces had no recorded video behind them. A sweep
+    #: that examined nothing must never be read as having found nobody, so
+    #: this travels and the page says it out loud.
+    segments_missing: int = 0
     estimate_seconds: float | None = None
 
 # ---------------------------------------------------------------------------

@@ -39,6 +39,7 @@ ENGINE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ENGINE_DIR))
 
 from vg import config as vgconfig  # noqa: E402
+from vg.clock import clock_for  # noqa: E402
 from vg.events.anchors import AnchorStore  # noqa: E402
 from vg.ingest.archive import (  # noqa: E402
     SOURCE_FPS,
@@ -104,7 +105,8 @@ def main() -> int:
             return 0
 
         try:
-            source = backend_for(cfg.archive, cfg.storage.footage_dir)
+            source = backend_for(
+                cfg.archive, cfg.storage.footage_dir, clock_for(cfg.timezone))
         except ArchiveUnavailable as exc:
             print(f"No archive to measure: {exc}")
             return 2

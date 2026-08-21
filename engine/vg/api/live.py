@@ -2036,6 +2036,7 @@ class LiveStore(MockStore):
             hits=[self._sweep_hit(h) for h in job.hits],
             segments_done=job.segments_done,
             segments_total=job.segments_total,
+            segments_missing=getattr(job, "segments_missing", 0),
             estimate_seconds=round(estimate, 1) if estimate is not None else None,
         )
 

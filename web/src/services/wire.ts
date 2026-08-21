@@ -624,6 +624,9 @@ export interface SweepJob {
   hits: SweepHit[];
   segmentsDone: number;
   segmentsTotal: number;
+  /** How many pieces had no recorded video behind them. A sweep that examined
+   *  nothing must never be read as having found nobody. */
+  segmentsMissing: number;
   estimateSeconds?: number | null;
 }
 
