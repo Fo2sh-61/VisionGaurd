@@ -1360,3 +1360,459 @@ class TestTheTwoTiers:
         # each tier is doing instead of one merged number.
         worker, _ = TestTheGateIsActuallyWired().build()
         assert worker.stats["name"] == "recognition"
+
+
+# ===========================================================================
+# US3 — the video behind a stop
+#
+# The archive is the only part of this feature with an unknown in it, so it
+# lands behind a backend that needs no hardware: `footage` slices the recorded
+# walk-through clip, which is identical every run. A DVR is then one config
+# change and one run of measure_track.py away, and if that recorder turns out
+# to be slow the estimates say so instead of the page over-promising.
+# ===========================================================================
+
+from vg.ingest.archive import (
+    ArchiveRunner,
+    ArchiveUnavailable,
+    FootageBackend,
+    QueueFull,
+    estimate_for,
+    next_to_warm,
+)
+
+FOOTAGE = Path("engine/data/footage")
+CLIP_CAMERA = "cam-laptop"
+#: The walk-through clip's own start, out of its sidecar. Read rather than
+#: typed, so moving the clip does not silently break these.
+CLIP_START = datetime.fromisoformat("2026-08-05T09:17:05+00:00")
+
+
+def has_clip() -> bool:
+    return (FOOTAGE / "walk-through_cam-laptop_20260805-121705.mp4").is_file()
+
+
+needs_clip = pytest.mark.skipif(
+    not has_clip(), reason="the recorded walk-through clip is not present")
+
+
+class FakeSource:
+    """An archive that writes a tiny file instantly. No codecs, no waiting."""
+
+    name = "fake"
+
+    def __init__(self, covers=True) -> None:
+        self.covers = covers
+        self.asked: list = []
+
+    def coverage(self, camera_id):
+        return []
+
+    def fetch(self, camera_id, start, end, into):
+        self.asked.append((camera_id, start, end))
+        if not self.covers:
+            raise ArchiveUnavailable(f"No footage covers {camera_id}.")
+        into.write_bytes(b"\x00" * 32)
+        return into
+
+
+def drain(runner, job, timeout=10.0):
+    """Wait for a job to finish. The runner is threads; the test is not."""
+    import time as _time
+
+    deadline = _time.monotonic() + timeout
+    while _time.monotonic() < deadline:
+        if job.state in ("done", "failed"):
+            return job
+        _time.sleep(0.02)
+    raise AssertionError(f"job {job.id} stayed {job.state}")
+
+
+class TestTheFootageBackend:
+    @needs_clip
+    def test_it_finds_the_clip_that_covers_a_moment(self):
+        source = FootageBackend(FOOTAGE)
+        covered = source.coverage(CLIP_CAMERA)
+
+        assert covered, "the walk-through clip should be indexed"
+        starts = [s for s, _e, _p in covered]
+        assert CLIP_START in starts
+
+    @needs_clip
+    def test_it_slices_the_span_it_was_asked_for(self, tmp_path):
+        source = FootageBackend(FOOTAGE)
+        out = tmp_path / "slice.mp4"
+        source.fetch(CLIP_CAMERA, CLIP_START + timedelta(seconds=10),
+                     CLIP_START + timedelta(seconds=13), out)
+
+        assert out.is_file() and out.stat().st_size > 0
+
+        import cv2
+
+        capture = cv2.VideoCapture(str(out))
+        try:
+            fps = capture.get(cv2.CAP_PROP_FPS) or 15.0
+            frames = capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0
+        finally:
+            capture.release()
+        assert 2.0 <= frames / fps <= 4.5, "roughly the three seconds asked for"
+
+    @needs_clip
+    def test_a_span_nothing_covers_says_so(self, tmp_path):
+        source = FootageBackend(FOOTAGE)
+        with pytest.raises(ArchiveUnavailable) as raised:
+            source.fetch(CLIP_CAMERA, CLIP_START - timedelta(days=30),
+                         CLIP_START - timedelta(days=30) + timedelta(seconds=5),
+                         tmp_path / "x.mp4")
+
+        # An honest "there is no video from then", not an empty file that
+        # plays as a black screen and looks like a broken camera.
+        assert "no recorded footage" in str(raised.value).lower()
+
+    def test_an_unknown_camera_has_no_coverage(self):
+        assert FootageBackend(FOOTAGE).coverage("cam-nowhere") == []
+
+    def test_a_missing_folder_is_empty_not_a_crash(self, tmp_path):
+        assert FootageBackend(tmp_path / "nope").coverage(CLIP_CAMERA) == []
+
+
+class TestTheRunner:
+    def test_a_leg_grows_chunks_and_serves_them(self, tmp_path):
+        source = FakeSource()
+        runner = ArchiveRunner(source, tmp_path, chunk_seconds=10.0, workers=1)
+        try:
+            job = runner.submit(
+                "cam-a", at(0), at(30))
+            assert job.chunks_total == 3
+
+            drain(runner, job)
+            assert job.state == "done"
+            assert len(job.chunks) == 3
+            assert job.progress == pytest.approx(1.0)
+
+            path, reason = runner.chunk(job.id, 0)
+            assert path is not None and path.is_file(), reason
+        finally:
+            runner.stop()
+
+    def test_the_pieces_cover_the_span_in_order(self, tmp_path):
+        source = FakeSource()
+        runner = ArchiveRunner(source, tmp_path, chunk_seconds=10.0, workers=1)
+        try:
+            job = drain(runner, runner.submit("cam-a", at(0), at(30)))
+            assert [c.index for c in job.chunks] == [0, 1, 2]
+            assert [c.start for c in job.chunks] == [at(0), at(10), at(20)]
+            assert source.asked[0][1] == at(0)
+        finally:
+            runner.stop()
+
+    def test_a_chunk_not_built_yet_says_so_rather_than_404ing_blankly(self, tmp_path):
+        runner = ArchiveRunner(FakeSource(), tmp_path, chunk_seconds=10.0, workers=1)
+        try:
+            job = drain(runner, runner.submit("cam-a", at(0), at(10)))
+            path, reason = runner.chunk(job.id, 9)
+            assert path is None
+            assert "not been built" in reason
+        finally:
+            runner.stop()
+
+    def test_an_archive_that_cannot_serve_the_first_chunk_fails_the_leg(self, tmp_path):
+        runner = ArchiveRunner(FakeSource(covers=False), tmp_path, workers=1)
+        try:
+            job = drain(runner, runner.submit("cam-a", at(0), at(30)))
+            assert job.state == "failed"
+            assert "no footage covers" in (job.error or "").lower()
+        finally:
+            runner.stop()
+
+    def test_a_full_queue_refuses_instead_of_promising(self, tmp_path):
+        # An unbounded queue accepts work it has no intention of getting to,
+        # and then the page shows a spinner that means nothing.
+        runner = ArchiveRunner(
+            FakeSource(), tmp_path, chunk_seconds=10.0, workers=1, queue_size=1)
+        try:
+            refused = False
+            for _ in range(40):
+                try:
+                    runner.submit("cam-a", at(0), at(600))
+                except QueueFull as exc:
+                    refused = True
+                    assert "try again" in str(exc).lower()
+                    break
+            assert refused, "a bounded queue has to say no at some point"
+        finally:
+            runner.stop()
+
+    def test_retention_keeps_the_last_n_and_says_why_the_rest_are_gone(self, tmp_path):
+        runner = ArchiveRunner(
+            FakeSource(), tmp_path, chunk_seconds=10.0, keep_legs=2, workers=1)
+        try:
+            first = drain(runner, runner.submit("cam-a", at(0), at(10)))
+            drain(runner, runner.submit("cam-a", at(20), at(30)))
+            drain(runner, runner.submit("cam-a", at(40), at(50)))
+
+            assert runner.job(first.id) is None, "oldest leg dropped"
+            path, reason = runner.chunk(first.id, 0)
+            assert path is None
+            # Offers the way back, because a leg is always re-derivable.
+            assert "replaced" in reason and "again" in reason
+            assert not (runner.root / first.id).exists(), "its files went too"
+        finally:
+            runner.stop()
+
+    def test_another_camera_has_its_own_retention(self, tmp_path):
+        runner = ArchiveRunner(
+            FakeSource(), tmp_path, chunk_seconds=10.0, keep_legs=1, workers=1)
+        try:
+            a = drain(runner, runner.submit("cam-a", at(0), at(10)))
+            b = drain(runner, runner.submit("cam-b", at(0), at(10)))
+            assert runner.job(a.id) is not None
+            assert runner.job(b.id) is not None
+        finally:
+            runner.stop()
+
+
+class TestPrefetchOrder:
+    """TRK-FR-005's three-step fallback, pinned as a pure function."""
+
+    def cameras(self):
+        from vg.config import CameraConfig
+
+        return [
+            CameraConfig(id="cam-a", name="A", source="x", area="Hall",
+                         neighbours=("cam-b",)),
+            CameraConfig(id="cam-b", name="B", source="x", area="Hall"),
+            CameraConfig(id="cam-c", name="C", source="x", area="Hall"),
+            CameraConfig(id="cam-far", name="Far", source="x", area="Yard"),
+            CameraConfig(id="cam-off", name="Off", source="x", area="Hall",
+                         enabled=False),
+        ]
+
+    def test_the_next_anchor_wins(self):
+        # They were actually seen there. That beats any guess about the
+        # building, which is why it is first.
+        stops = [anchor(camera="cam-a"), anchor(camera="cam-far")]
+        assert next_to_warm(stops, 0, self.cameras(), "cam-a") == "cam-far"
+
+    def test_then_a_neighbour(self):
+        stops = [anchor(camera="cam-a")]
+        assert next_to_warm(stops, 0, self.cameras(), "cam-a") == "cam-b"
+
+    def test_then_the_same_area(self):
+        cameras = [c for c in self.cameras() if c.id != "cam-b"]
+        stops = [anchor(camera="cam-a")]
+        assert next_to_warm(stops, 0, cameras, "cam-a") == "cam-c"
+
+    def test_a_disabled_camera_is_never_warmed(self):
+        from vg.config import CameraConfig
+
+        cameras = [
+            CameraConfig(id="cam-a", name="A", source="x", area="Hall"),
+            CameraConfig(id="cam-off", name="Off", source="x", area="Hall",
+                         enabled=False),
+        ]
+        assert next_to_warm([anchor(camera="cam-a")], 0, cameras, "cam-a") is None
+
+    def test_nothing_to_warm_is_an_answer(self):
+        # Warming the wrong camera costs a fetch nobody wanted, so None beats
+        # a guess.
+        from vg.config import CameraConfig
+
+        alone = [CameraConfig(id="cam-a", name="A", source="x", area="Hall")]
+        assert next_to_warm([], 0, alone, "cam-a") is None
+
+
+class TestEstimatesAreMeasuredNeverGuessed:
+    def test_no_measurement_means_no_number(self):
+        result = estimate_for(1.0, None, budget_seconds=900)
+        assert result.allowed is False
+        assert "measured" in (result.reason or "").lower()
+        assert "measure_track" in (result.reason or "")
+
+    def test_a_measurement_produces_arithmetic(self, anchor_store):
+        rates = anchor_store.set_rates(fetch_x=4.0, process_fps=30.0)
+        # One camera-hour: 3600s of video. Fetch at 4x = 900s. Process at
+        # 30fps over 15fps footage = 1800s. 2700s in total.
+        result = estimate_for(1.0, rates, budget_seconds=1e9)
+        assert result.seconds == pytest.approx(2700.0, rel=0.01)
+        assert result.allowed is True
+
+    def test_over_budget_is_refused_with_the_sum_in_words(self, anchor_store):
+        rates = anchor_store.set_rates(fetch_x=1.0, process_fps=5.0)
+        result = estimate_for(2.0, rates, budget_seconds=15 * 60)
+
+        assert result.allowed is False
+        assert "minutes" in (result.reason or "")
+        assert "narrow the window" in (result.reason or "").lower()
+
+    def test_a_faster_machine_allows_more(self, anchor_store):
+        slow = estimate_for(1.0, anchor_store.set_rates(1.0, 5.0), budget_seconds=900)
+        fast = estimate_for(1.0, anchor_store.set_rates(20.0, 200.0), budget_seconds=900)
+        assert slow.allowed is False and fast.allowed is True
+
+
+class TestTheLegEndpoints:
+    @pytest.fixture
+    def leg_app(self, user_store, tmp_path):
+        from vg import config as vgconfig
+        from vg.api import app as app_module
+        from vg.api.app import create_app
+        from vg.api.live import LiveStore
+        from vg.ingest.registry import CameraRegistry
+
+        tmp = tempfile.TemporaryDirectory()
+        anchors = AnchorStore(Path(tmp.name) / "a.db", clock=CAIRO)
+        runner = ArchiveRunner(
+            FakeSource(), tmp_path, chunk_seconds=10.0, workers=1)
+        store = LiveStore(
+            config=vgconfig.load(), registry=CameraRegistry([]),
+            anchors=anchors, archive=runner,
+        )
+        app_module.set_store(store)
+        application = create_app()
+        application.state.users = user_store
+        try:
+            yield application, runner, anchors
+        finally:
+            app_module.set_store(MockStore())
+            runner.stop()
+            anchors.close()
+            tmp.cleanup()
+
+    def body(self, camera="cam-laptop", seconds=20.0):
+        return {
+            "cameraId": camera,
+            "start": at(0).isoformat(),
+            "end": at(seconds).isoformat(),
+            "personId": "p-layla",
+        }
+
+    def test_a_leg_is_audited_then_queued(self, leg_app, authed):
+        app, runner, _ = leg_app
+        client = authed(app)
+
+        reply = client.post("/path/legs", json=self.body())
+        assert reply.status_code == 200, reply.text
+        job = reply.json()
+        assert job["job"]["state"] in ("queued", "running", "done")
+        assert job["chunksTotal"] == 2
+
+        assert any(e["action"] == "path.leg" for e in client.get("/audit").json())
+
+    def test_chunk_urls_grow_and_serve_bytes(self, leg_app, authed):
+        app, runner, _ = leg_app
+        client = authed(app)
+        started = client.post("/path/legs", json=self.body()).json()
+        drain(runner, runner.job(started["job"]["id"]))
+
+        job = client.get(f"/path/legs/{started['job']['id']}").json()
+        assert job["chunksReady"] == 2
+        assert job["chunkUrls"] == [
+            f"/path/legs/{started['job']['id']}/chunks/0",
+            f"/path/legs/{started['job']['id']}/chunks/1",
+        ], "same-origin paths — <video> cannot send an Authorization header"
+
+        chunk = client.get(job["chunkUrls"][0])
+        assert chunk.status_code == 200
+        assert chunk.headers["content-type"] == "video/mp4"
+        assert chunk.content
+
+    def test_an_unknown_camera_404s(self, leg_app, authed):
+        app, _, _ = leg_app
+        reply = authed(app).post("/path/legs", json=self.body(camera="cam-nope"))
+        assert reply.status_code == 404
+
+    def test_a_backwards_span_404s(self, leg_app, authed):
+        app, _, _ = leg_app
+        reply = authed(app).post("/path/legs", json=self.body(seconds=-10))
+        assert reply.status_code == 404
+
+    def test_an_unknown_leg_404s_with_the_way_back(self, leg_app, authed):
+        app, _, _ = leg_app
+        reply = authed(app).get("/path/legs/nosuchjob")
+        assert reply.status_code == 404
+        assert "again" in reply.json()["detail"]
+
+    def test_no_estimate_until_somebody_measures(self, leg_app, authed):
+        app, runner, _ = leg_app
+        job = authed(app).post("/path/legs", json=self.body()).json()
+        assert job["estimateSeconds"] is None, "never a guess"
+
+    def test_an_estimate_appears_once_measured(self, leg_app, authed):
+        app, runner, anchors = leg_app
+        anchors.set_rates(fetch_x=4.0, process_fps=30.0)
+
+        job = authed(app).post("/path/legs", json=self.body()).json()
+        assert job["estimateSeconds"] is not None
+        assert job["estimateSeconds"] > 0
+
+    def test_no_archive_503s_with_a_reason(self, bare_live_store, user_store, authed):
+        from vg.api import app as app_module
+        from vg.api.app import create_app
+
+        app_module.set_store(bare_live_store)
+        try:
+            app = create_app()
+            app.state.users = user_store
+            reply = authed(app).post("/path/legs", json=self.body())
+            assert reply.status_code == 503
+            assert "archive" in reply.json()["detail"].lower()
+        finally:
+            app_module.set_store(MockStore())
+
+    def test_demo_mode_refuses_rather_than_faking_footage(self, authed, user_store):
+        from vg.api import app as app_module
+        from vg.api.app import create_app
+
+        app_module.set_store(MockStore())
+        app = create_app()
+        app.state.users = user_store
+
+        client = authed(app)
+        reply = client.post("/path/legs", json=self.body())
+        assert reply.status_code == 503
+        # Still audited: an operator asking to watch somebody is the thing
+        # worth recording, and it happened.
+        assert any(e["action"] == "path.leg" for e in client.get("/audit").json())
+
+    def test_it_is_open_to_the_it_role(self, leg_app, authed):
+        app, _, _ = leg_app
+        assert authed(app, role="it").post(
+            "/path/legs", json=self.body()).status_code == 200
+
+    def test_a_stranger_is_refused(self, leg_app):
+        from fastapi.testclient import TestClient
+
+        app, _, _ = leg_app
+        assert TestClient(app).post("/path/legs", json=self.body()).status_code == 401
+
+
+class TestTheMeasurementTool:
+    def test_it_stores_what_it_measured(self, anchor_store):
+        # The tool's contract with everything downstream: one row, and every
+        # estimate reads it.
+        assert anchor_store.rates() is None
+        anchor_store.set_rates(fetch_x=6.5, process_fps=41.0, backend="footage")
+
+        rates = anchor_store.rates()
+        assert rates.fetch_x == pytest.approx(6.5)
+        assert rates.process_fps == pytest.approx(41.0)
+        assert rates.backend == "footage"
+
+    def test_estimates_move_when_the_measurement_does(self, anchor_store):
+        before = estimate_for(0.1, anchor_store.set_rates(2.0, 10.0), 1e9).seconds
+        after = estimate_for(0.1, anchor_store.set_rates(8.0, 40.0), 1e9).seconds
+        assert after < before, "a faster machine promises a shorter wait"
+
+    def test_the_tool_imports_and_names_its_own_budget(self):
+        # It is a script, so the thing worth pinning is that it still loads and
+        # that the sweep budget it prints is the one the endpoint enforces.
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "measure_track", Path("engine/tools/measure_track.py"))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        assert module.SWEEP_BUDGET_SECONDS == 15 * 60
+        assert module.DEFAULT_SECONDS >= 60

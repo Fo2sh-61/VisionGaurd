@@ -146,21 +146,21 @@ stalls, prefetch makes the next stop near-instant. No DVR hardware needed.
 
 ### Tests for User Story 3 ⚠️ write first, watch them fail
 
-- [ ] T034 [P] [US3] `test_footage_backend_slices_by_time` in `engine/tests/test_track_page.py` — a request for [t, t+30s] of the walk-through file returns exactly that span; a span outside any file → honest "footage unavailable" reason
-- [ ] T035 [P] [US3] `test_leg_job_grows_chunks_and_serves_them` in `engine/tests/test_track_page.py` — POST /path/legs audits then queues; GET shows `chunkUrls` growing; chunk endpoint returns mp4 bytes; a finished job's chunks survive until retention
-- [ ] T036 [P] [US3] `test_leg_retention_keeps_last_n_and_404s_with_reason` in `engine/tests/test_track_page.py` — oldest leg's chunks removed past N; fetching them → 404 whose reason says replaced, offering a re-derive
-- [ ] T037 [P] [US3] `test_prefetch_prefers_next_anchor_then_neighbours_then_area` in `engine/tests/test_track_page.py` — the three-step fallback of TRK-FR-005 pinned as a pure function
-- [ ] T038 [P] [US3] `test_jobs_refuse_honestly` in `engine/tests/test_track_page.py` — archive backend missing → 503 with reason; runner queue full → 409; estimates without a `measured_rates` row → "unavailable", never a guess (TRK-FR-014)
-- [ ] T039 [P] [US3] `test_measure_tool_writes_rates` in `engine/tests/test_track_page.py` — running the measurement against the footage backend stores fetch_x and process_fps; estimates change accordingly
+- [X] T034 [P] [US3] `test_footage_backend_slices_by_time` in `engine/tests/test_track_page.py` — a request for [t, t+30s] of the walk-through file returns exactly that span; a span outside any file → honest "footage unavailable" reason
+- [X] T035 [P] [US3] `test_leg_job_grows_chunks_and_serves_them` in `engine/tests/test_track_page.py` — POST /path/legs audits then queues; GET shows `chunkUrls` growing; chunk endpoint returns mp4 bytes; a finished job's chunks survive until retention
+- [X] T036 [P] [US3] `test_leg_retention_keeps_last_n_and_404s_with_reason` in `engine/tests/test_track_page.py` — oldest leg's chunks removed past N; fetching them → 404 whose reason says replaced, offering a re-derive
+- [X] T037 [P] [US3] `test_prefetch_prefers_next_anchor_then_neighbours_then_area` in `engine/tests/test_track_page.py` — the three-step fallback of TRK-FR-005 pinned as a pure function
+- [X] T038 [P] [US3] `test_jobs_refuse_honestly` in `engine/tests/test_track_page.py` — archive backend missing → 503 with reason; runner queue full → 409; estimates without a `measured_rates` row → "unavailable", never a guess (TRK-FR-014)
+- [X] T039 [P] [US3] `test_measure_tool_writes_rates` in `engine/tests/test_track_page.py` — running the measurement against the footage backend stores fetch_x and process_fps; estimates change accordingly
 
 ### Implementation for User Story 3
 
-- [ ] T040 [US3] Create `engine/vg/ingest/archive.py` — `ArchiveSource` seam; `footage` backend slicing `footage_dir` files by timestamp; `dvr` backend spawning ffmpeg from the config URL template; bounded 2-thread runner with a bounded queue; 30 s chunk pipeline: fetch → shared person detector + throwaway ByteTrack → highlight burn-in → mp4 under `clips_dir/track/<job>/`; keep-last-N retention; prefetch enqueue at low priority (next anchor camera → `neighbours:` → same area)
-- [ ] T041 [P] [US3] Create `engine/tools/measure_track.py` — times a 2-minute fetch (× real-time) and detect+track+encode fps over it; prints the derived chunk-1 wait and sweep budget; writes the `measured_rates` row (quickstart §0)
-- [ ] T042 [P] [US3] Add `LegJob` (SearchJob-shaped) to `engine/vg/api/schemas.py` per [data-model.md](./data-model.md) §4
-- [ ] T043 [US3] Add leg methods to `Store`/`MockStore` in `engine/vg/api/store.py` and implement in `engine/vg/api/live.py` — audit-first (`path.leg`), job creation/status via the runner, estimates from `measured_rates`
-- [ ] T044 [US3] Add `POST /path/legs`, `GET /path/legs/{id}`, `GET /path/legs/{id}/chunks/{n}` to `engine/vg/api/app.py` — chunk serving copies `get_breach_clip` exactly (FileResponse, 404-with-reason, same-origin)
-- [ ] T045 [US3] Build the leg player in `web/src/pages/TrackPerson.tsx` — click a stop → job → `<video>` advancing through `chunkUrls` as they land, honest buffering line ("fetching the next 30 seconds…"), prefetch indicator on the next stop; calls + mirrors in `web/src/services/api.ts` / `wire.ts` / `types.ts`
+- [X] T040 [US3] Create `engine/vg/ingest/archive.py` — `ArchiveSource` seam; `footage` backend slicing `footage_dir` files by timestamp; `dvr` backend spawning ffmpeg from the config URL template; bounded 2-thread runner with a bounded queue; 30 s chunk pipeline: fetch → shared person detector + throwaway ByteTrack → highlight burn-in → mp4 under `clips_dir/track/<job>/`; keep-last-N retention; prefetch enqueue at low priority (next anchor camera → `neighbours:` → same area)
+- [X] T041 [P] [US3] Create `engine/tools/measure_track.py` — times a 2-minute fetch (× real-time) and detect+track+encode fps over it; prints the derived chunk-1 wait and sweep budget; writes the `measured_rates` row (quickstart §0)
+- [X] T042 [P] [US3] Add `LegJob` (SearchJob-shaped) to `engine/vg/api/schemas.py` per [data-model.md](./data-model.md) §4
+- [X] T043 [US3] Add leg methods to `Store`/`MockStore` in `engine/vg/api/store.py` and implement in `engine/vg/api/live.py` — audit-first (`path.leg`), job creation/status via the runner, estimates from `measured_rates`
+- [X] T044 [US3] Add `POST /path/legs`, `GET /path/legs/{id}`, `GET /path/legs/{id}/chunks/{n}` to `engine/vg/api/app.py` — chunk serving copies `get_breach_clip` exactly (FileResponse, 404-with-reason, same-origin)
+- [X] T045 [US3] Build the leg player in `web/src/pages/TrackPerson.tsx` — click a stop → job → `<video>` advancing through `chunkUrls` as they land, honest buffering line ("fetching the next 30 seconds…"), prefetch indicator on the next stop; calls + mirrors in `web/src/services/api.ts` / `wire.ts` / `types.ts`
 
 **Checkpoint**: the loved criteria works end to end on recorded footage; the
 DVR backend is one config change plus a measurement run away. **Shippable.**

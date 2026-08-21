@@ -28,6 +28,7 @@ from vg.api.store import (
     NothingThere,
     SubsystemUnavailable,
 )
+from vg.ingest.archive import ArchiveUnavailable, QueueFull
 from vg.features.tracking import (
     AlreadyFollowing as FollowExists,
     AlreadyRecordingFollow,
@@ -98,6 +99,7 @@ class LiveStore(MockStore):
         people=None,
         tracking=None,
         anchors=None,
+        archive=None,
         counts=None,
         recorder=None,
         users=None,
@@ -128,6 +130,9 @@ class LiveStore(MockStore):
         # clears the bar. Absent means the past-path question has no answer
         # rather than a made-up one.
         self.anchors = anchors
+        # The archive job runner. Absent means recorded video cannot be
+        # fetched, which the page says rather than offering a dead control.
+        self.archive = archive
         # Track-a-person. Absent unless a camera has the `track` feature;
         # /track then falls back to fixtures rather than 500ing.
         self.tracking = tracking
@@ -1647,6 +1652,128 @@ class LiveStore(MockStore):
             return None
         camera = self.config.camera(camera_id)
         return camera.name if camera else camera_id
+
+    # -- the video behind a stop --------------------------------------------
+
+    NO_ARCHIVE = ("There is no recorded-video archive configured, so a stop "
+                  "cannot be played back. Set `archive:` in engine.yaml.")
+
+    def _runner(self):
+        if self.archive is None:
+            raise SubsystemUnavailable(self.NO_ARCHIVE)
+        return self.archive
+
+    def start_leg(self, req: S.LegRequest, actor: str) -> S.LegJob:
+        """Queue the video for one stop, and start answering with its pieces."""
+        runner = self._runner()
+        if self.config.camera(req.camera_id) is None:
+            raise NothingThere(f"There is no camera {req.camera_id!r}.")
+
+        seconds = (req.end - req.start).total_seconds()
+        if seconds <= 0:
+            raise NothingThere("That span ends before it starts.")
+
+        descriptor = None
+        if req.descriptor_of is not None:
+            descriptor = self._descriptor_at(req.descriptor_of)
+
+        # Audit before the work, not after it: the promise is that looking at
+        # somebody's recorded movements leaves a trail, and a job that started
+        # before the write could run to completion with nothing in the log.
+        self._log(actor, "path.leg", req.person_id or req.camera_id,
+                  f"{self._camera_name(req.camera_id)} "
+                  f"{req.start.isoformat(timespec='seconds')} +{seconds:.0f}s")
+
+        try:
+            job = runner.submit(
+                req.camera_id, req.start, req.end,
+                person_id=req.person_id, descriptor=descriptor,
+            )
+        except QueueFull as exc:
+            raise AlreadyBusy(str(exc)) from exc
+        except ArchiveUnavailable as exc:
+            raise SubsystemUnavailable(str(exc)) from exc
+
+        return self._leg_view(job)
+
+    def leg(self, job_id: str) -> S.LegJob:
+        runner = self._runner()
+        job = runner.job(job_id)
+        if job is None:
+            raise NothingThere(
+                "That leg has been replaced by newer ones. Ask for the stop "
+                "again and it will be rebuilt from the archive."
+            )
+        return self._leg_view(job)
+
+    def leg_chunk(self, job_id: str, index: int):
+        """`(path, reason)`, the shape the breach clip endpoint already uses."""
+        runner = self._runner()
+        return runner.chunk(job_id, index)
+
+    def warm_next(self, anchors: list, index: int, camera_id: str, actor: str
+                  ) -> str | None:
+        """Warm up the camera the operator will probably click next.
+
+        Best effort by definition. A prefetch that cannot start is not an
+        error — the leg will simply be fetched when it is asked for.
+        """
+        if self.archive is None:
+            return None
+        from vg.ingest.archive import next_to_warm
+
+        target = next_to_warm(anchors, index, list(self.config.cameras), camera_id)
+        return target
+
+    def _descriptor_at(self, point: S.ChunkPoint):
+        """The body under a click inside a chunk, as an appearance descriptor.
+
+        Deliberately returns evidence about a BODY. Whatever comes back from
+        following it is APPEARANCE — blue, unnamed — even if that person is
+        enrolled, because clothing is not an identification.
+        """
+        runner = self._runner()
+        path, reason = runner.chunk(point.job_id, point.chunk)
+        if path is None:
+            raise NothingThere(reason)
+        return (str(path), point.x, point.y)
+
+    def _leg_view(self, job) -> S.LegJob:
+        rates = self.anchors.rates() if self.anchors is not None else None
+        estimate = None
+        if rates is not None:
+            from vg.ingest.archive import estimate_for
+
+            estimate = estimate_for(
+                job.seconds / 3600.0, rates, budget_seconds=1e9,
+                chunk_seconds=self.config.archive.chunk_seconds,
+            ).seconds
+
+        return S.LegJob(
+            job=S.SearchJob(
+                id=job.id,
+                state=job.state,
+                progress=round(job.progress, 3),
+                submitted_at=_instant(job.submitted_at, self.clock),
+                clips_searched=len(job.chunks),
+                clips_total=job.chunks_total,
+                error=job.error,
+            ),
+            camera_id=job.camera_id,
+            camera_name=self._camera_name(job.camera_id) or job.camera_id,
+            place=self._area_of(job.camera_id),
+            start=_instant(job.start, self.clock),
+            seconds=job.seconds,
+            chunks_ready=len(job.chunks),
+            chunks_total=job.chunks_total,
+            # Same-origin paths, never absolute URLs: `<video>` cannot send an
+            # Authorization header, so a chunk has to be fetched through the
+            # same origin the page is already signed in to.
+            chunk_urls=[
+                f"/path/legs/{job.id}/chunks/{chunk.index}" for chunk in job.chunks
+            ],
+            estimate_seconds=round(estimate, 1) if estimate is not None else None,
+        )
 
     # -- the path behind somebody -------------------------------------------
 

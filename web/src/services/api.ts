@@ -616,6 +616,18 @@ export async function correctIdentity(stableId: string): Promise<void> {
   await post<void>(`/tracking/${encodeURIComponent(stableId)}/correct`);
 }
 
+/* ---------- the video behind a stop ---------- */
+
+/** Queue the recorded video for one stop. Returns straight away with a job. */
+export const startLeg = (req: W.LegRequest) => post<W.LegJob>('/path/legs', req);
+
+/** Poll a leg. `chunkUrls` grows as pieces land. */
+export const getLeg = (jobId: string) =>
+  get<W.LegJob>(`/path/legs/${encodeURIComponent(jobId)}`);
+
+/** Absolute URL for a chunk, so a `<video>` can play it directly. */
+export const legChunkUrl = (path: string) => assetUrl(path) ?? path;
+
 /* ---------- the path behind somebody ----------
  *
  *  One indexed read on the engine, so this answers immediately. Empty anchors

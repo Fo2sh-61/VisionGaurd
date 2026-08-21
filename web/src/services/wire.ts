@@ -580,6 +580,38 @@ export interface Problem {
 
 /* ---------- live tracking ---------- */
 
+/* ---------- the video behind a stop ----------
+ *
+ *  A leg is fetched and processed in pieces. `chunkUrls` grows while the job
+ *  runs, and the player starts on the first rather than waiting for the last.
+ *  The URLs are same-origin paths because a `<video src>` cannot send an
+ *  Authorization header. */
+
+export interface LegRequest {
+  cameraId: string;
+  /** ISO-8601 UTC. */
+  start: string;
+  end: string;
+  personId?: string | null;
+  descriptorOf?: { jobId: string; chunk: number; x: number; y: number } | null;
+}
+
+export interface LegJob {
+  job: SearchJob;
+  cameraId: string;
+  cameraName: string;
+  place: string;
+  start: Instant;
+  seconds: number;
+  chunksReady: number;
+  chunksTotal: number;
+  chunkUrls: string[];
+  nextPrefetched?: string | null;
+  /** From what was measured on this machine. null means nobody has measured
+   *  it, and the page says the wait is unknown rather than inventing one. */
+  estimateSeconds?: number | null;
+}
+
 /* ---------- the path behind somebody ----------
  *
  *  Two layers, never merged, because they answer different questions:

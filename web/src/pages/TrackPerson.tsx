@@ -25,7 +25,7 @@
  *     closed laptop can never leave a camera recording.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useCameras } from '@/app/CameraContext';
 import { useCapability } from '@/app/CapabilityContext';
 import { useToday } from '@/app/SiteContext';
@@ -37,9 +37,12 @@ import { ApiError } from '@/services/http';
 import {
   endFollow,
   getFollow,
+  getLeg,
   getPathSkeleton,
+  legChunkUrl,
   startFollow,
   startFollowRecording,
+  startLeg,
   stopFollowRecording,
 } from '@/services/api';
 import { formatLongDate, formatTime } from '@/services/format';
@@ -64,6 +67,11 @@ const FOLLOW_POLL_MS = 1_000;
  *  poll, and `CamGrid` scales its refresh to the number actually on screen, so
  *  a smaller page is a faster-looking one. */
 const GRID_PAGE = 8;
+
+/** How much video either side of a stop to fetch. Somebody walking into view
+ *  is usually the part being asked about, and that happens a few seconds
+ *  before their face was readable enough to anchor. */
+const PADDING_MS = 5_000;
 
 const TIMERS: { label: string; seconds: number | null }[] = [
   { label: 'Until I stop it', seconds: null },
@@ -625,6 +633,42 @@ function Skeleton({
 }) {
   const name = path.subject.name ?? path.subject.id ?? 'this person';
   const nothing = path.anchors.length === 0 && path.appearance.length === 0;
+  const [leg, setLeg] = useState<W.LegJob | null>(null);
+  const [legError, setLegError] = useState('');
+  const [opening, setOpening] = useState('');
+
+  // A stop is a span, so the video asked for is that span with a little
+  // either side — somebody walking into view is usually the part being asked
+  // about, and it happens just before the face was readable.
+  const watch = async (a: W.PathAnchor) => {
+    setOpening(a.cameraId + a.at.utc);
+    setLegError('');
+    try {
+      const from = new Date(new Date(a.at.utc).getTime() - PADDING_MS);
+      const until = new Date(new Date(a.until.utc).getTime() + PADDING_MS);
+      setLeg(
+        await startLeg({
+          cameraId: a.cameraId,
+          start: from.toISOString(),
+          end: until.toISOString(),
+          personId: path.subject.id ?? null,
+        }),
+      );
+    } catch (err) {
+      const status = err instanceof ApiError ? err.status : 0;
+      setLegError(
+        status === 503
+          ? (err as ApiError).message
+          : status === 409
+            ? 'The engine is already fetching as much video as it can keep up with. Try again in a moment.'
+            : err instanceof ApiError
+              ? err.message
+              : 'That video could not be fetched.',
+      );
+    } finally {
+      setOpening('');
+    }
+  };
 
   return (
     <Card>
@@ -645,7 +689,12 @@ function Skeleton({
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {path.anchors.map((a) => (
-            <AnchorRow key={`${a.cameraId}-${a.at.utc}`} anchor={a} />
+            <AnchorRow
+              key={`${a.cameraId}-${a.at.utc}`}
+              anchor={a}
+              busy={opening === a.cameraId + a.at.utc}
+              onWatch={() => void watch(a)}
+            />
           ))}
 
           {path.appearance.length > 0 && (
@@ -690,18 +739,11 @@ function Skeleton({
         </div>
       )}
 
-      <div
-        style={{
-          marginTop: 14,
-          paddingTop: 12,
-          borderTop: '1px solid var(--line)',
-          fontSize: 12,
-          color: 'var(--tx3)',
-        }}
-      >
-        Video for each stop arrives in the next release. Until then this is the record
-        of where they were, not footage of it.
-      </div>
+      {legError && (
+        <div style={{ fontSize: 12.5, color: 'var(--am)', marginTop: 10 }}>{legError}</div>
+      )}
+
+      {leg && <LegPlayer leg={leg} onClose={() => setLeg(null)} />}
     </Card>
   );
 }
@@ -710,7 +752,15 @@ function Skeleton({
  *
  *  Rule 5: the number shown is the one the engine measured. "6 matches over 4
  *  seconds, best 0.71" is checkable; "high confidence" is not. */
-function AnchorRow({ anchor }: { anchor: W.PathAnchor }) {
+function AnchorRow({
+  anchor,
+  busy,
+  onWatch,
+}: {
+  anchor: W.PathAnchor;
+  busy: boolean;
+  onWatch: () => void;
+}) {
   const seconds = Math.max(
     0,
     (new Date(anchor.until.utc).getTime() - new Date(anchor.at.utc).getTime()) / 1000,
@@ -731,9 +781,212 @@ function AnchorRow({ anchor }: { anchor: W.PathAnchor }) {
       <span style={{ fontWeight: 600 }}>{anchor.place}</span>
       <span style={{ color: 'var(--tx3)' }}>{anchor.cameraName}</span>
       <span style={{ color: 'var(--tx3)', fontSize: 11.5, marginLeft: 'auto' }}>{why}</span>
+      <button type="button" className="linkbtn" disabled={busy} onClick={onWatch}>
+        {busy ? 'Fetching…' : 'Watch'}
+      </button>
     </div>
   );
 }
+
+/* =========================================================================
+ * The video behind a stop
+ * ========================================================================= */
+
+/** How often a running leg is re-read. Pieces land every few seconds, so this
+ *  is fast enough to feel immediate and slow enough not to be a load. */
+const LEG_POLL_MS = 1_500;
+
+/** Plays a leg piece by piece, starting on the first that lands.
+ *
+ *  The honesty here is in the waiting line. A spinner with no number behind it
+ *  says nothing, so this shows how many pieces are ready out of how many, and
+ *  the expected wait ONLY when the machine has actually been measured. With no
+ *  measurement it says so and names the tool, rather than inventing a number
+ *  that reads exactly like a real one. */
+function LegPlayer({ leg, onClose }: { leg: W.LegJob; onClose: () => void }) {
+  const [job, setJob] = useState<W.LegJob>(leg);
+  const [piece, setPiece] = useState(0);
+  const [failed, setFailed] = useState('');
+  const video = useRef<HTMLVideoElement | null>(null);
+
+  const running = job.job.state === 'queued' || job.job.state === 'running';
+
+  useEffect(() => {
+    if (!running) return;
+    let alive = true;
+    const tick = () => {
+      void getLeg(job.job.id)
+        .then((next) => {
+          if (alive) setJob(next);
+        })
+        .catch(() => {
+          /* a dropped poll leaves the pieces already on screen playable */
+        });
+    };
+    const timer = setInterval(tick, LEG_POLL_MS);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [running, job.job.id]);
+
+  // Advance to the next piece the moment this one ends, so a leg plays as one
+  // stretch of video rather than as a row of separate clips.
+  const next = () => {
+    if (piece + 1 < job.chunkUrls.length) setPiece(piece + 1);
+  };
+
+  const url = job.chunkUrls[piece];
+  const waitingForMore = piece >= job.chunkUrls.length && running;
+
+  return (
+    <Card>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'flex-start',
+          justifyContent: 'space-between',
+          gap: 10,
+          marginBottom: 10,
+        }}
+      >
+        <div>
+          <div style={{ fontWeight: 700, fontSize: 15.5 }}>{job.cameraName}</div>
+          <div style={{ fontSize: 12.5, color: 'var(--tx3)' }}>
+            {job.place} · {formatTime(job.start)} · {job.seconds.toFixed(0)} seconds of
+            recorded video
+          </div>
+        </div>
+        <button type="button" className="linkbtn" onClick={onClose}>
+          Close
+        </button>
+      </div>
+
+      {job.job.state === 'failed' ? (
+        <Empty>
+          {job.job.error ??
+            'That video could not be fetched from the recorder. Nothing was lost — try the stop again.'}
+        </Empty>
+      ) : url ? (
+        <>
+          <video
+            ref={video}
+            key={url}
+            src={legChunkUrl(url)}
+            controls
+            autoPlay
+            onEnded={next}
+            onError={() =>
+              setFailed('That piece of video would not play. It may have been replaced.')
+            }
+            style={{
+              width: '100%',
+              borderRadius: 10,
+              background: '#000',
+              display: 'block',
+            }}
+          />
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              marginTop: 8,
+              fontSize: 12.5,
+              color: 'var(--tx2)',
+              flexWrap: 'wrap',
+            }}
+          >
+            <button
+              type="button"
+              className="linkbtn"
+              disabled={piece === 0}
+              onClick={() => setPiece(piece - 1)}
+            >
+              Back 30s
+            </button>
+            <span>
+              Piece {piece + 1} of {job.chunksTotal || job.chunkUrls.length}
+            </span>
+            <button
+              type="button"
+              className="linkbtn"
+              disabled={piece + 1 >= job.chunkUrls.length}
+              onClick={next}
+            >
+              Forward 30s
+            </button>
+            {running && (
+              <span style={{ color: 'var(--tx3)' }}>
+                · fetching the next 30 seconds…
+              </span>
+            )}
+          </div>
+        </>
+      ) : (
+        <Waiting job={job} />
+      )}
+
+      {waitingForMore && (
+        <div style={{ fontSize: 12.5, color: 'var(--tx3)', marginTop: 8 }}>
+          That is everything fetched so far. The next piece is still being built.
+        </div>
+      )}
+      {failed && (
+        <div style={{ fontSize: 12.5, color: 'var(--am)', marginTop: 8 }}>{failed}</div>
+      )}
+      {!running && job.chunkUrls.length > 0 && (
+        <div style={{ fontSize: 12, color: 'var(--tx3)', marginTop: 8 }}>
+          Outlines are burnt into the video, so each piece is evidence on its own — it
+          still shows them on a machine with none of this open.
+        </div>
+      )}
+    </Card>
+  );
+}
+
+/** The wait, with a real number behind it or an honest admission that there
+ *  is not one. */
+function Waiting({ job }: { job: W.LegJob }) {
+  const ready = job.chunksReady;
+  const total = job.chunksTotal || 1;
+
+  return (
+    <div style={{ padding: '18px 4px' }}>
+      <div style={{ fontSize: 13.5, fontWeight: 600 }}>
+        Fetching the video from the recorder…
+      </div>
+      <div style={{ fontSize: 12.5, color: 'var(--tx2)', marginTop: 4 }}>
+        {ready} of {total} {total === 1 ? 'piece' : 'pieces'} ready. It starts playing as
+        soon as the first one lands.
+      </div>
+      <div
+        style={{
+          height: 5,
+          borderRadius: 3,
+          background: 'var(--panel)',
+          marginTop: 10,
+          overflow: 'hidden',
+        }}
+      >
+        <div
+          style={{
+            width: `${Math.round((job.job.progress || 0) * 100)}%`,
+            height: '100%',
+            background: 'var(--ac)',
+            transition: 'width .3s',
+          }}
+        />
+      </div>
+      <div style={{ fontSize: 12, color: 'var(--tx3)', marginTop: 8 }}>
+        {job.estimateSeconds != null
+          ? `About ${Math.max(1, Math.round(job.estimateSeconds))} seconds in total, from what this machine was measured at.`
+          : 'Nobody has measured how fast this machine reads recorded video, so there is no expected time to give you. Run engine/tools/measure_track.py to get one.'}
+      </div>
+    </div>
+  );
+}
+
 
 /* ---------- small pieces ---------- */
 

@@ -1068,6 +1068,62 @@ class PathSkeleton(Wire):
     cameras: list[CameraView] = Field(default_factory=list)
 
 # ---------------------------------------------------------------------------
+# the video behind a stop
+# ---------------------------------------------------------------------------
+
+class ChunkPoint(Wire):
+    """A point inside a chunk that has already been built. Fractions, as ever."""
+
+    job_id: str
+    chunk: int
+    x: Fraction
+    y: Fraction
+
+
+class LegRequest(Wire):
+    """Fetch and process the recorded video for one stop.
+
+    `start`/`end` rather than the `from`/`to` the operator types: `from` is a
+    Python keyword, and `TrackQuery` already settled on these names.
+    """
+
+    camera_id: str
+    start: datetime
+    end: datetime
+    #: Whose leg this is, when it came from an anchor. None for the footage
+    #: browsing and stranger flows, where nobody has been identified.
+    person_id: str | None = None
+    #: A body clicked inside an existing chunk, for following a stranger. The
+    #: result is APPEARANCE evidence and never carries a name.
+    descriptor_of: ChunkPoint | None = None
+
+
+class LegJob(Wire):
+    """A leg being built, and the pieces of it that are ready.
+
+    `chunk_urls` grows while the job runs. The page plays the first the moment
+    it lands rather than waiting for the last, which is the difference between
+    a ten-second wait and a two-minute one.
+    """
+
+    job: SearchJob
+    camera_id: str
+    camera_name: str
+    place: str
+    start: Instant
+    seconds: float
+    chunks_ready: int = 0
+    chunks_total: int = 0
+    #: Same-origin, because `<video>` cannot send an Authorization header —
+    #: exactly like breach clips and camera streams.
+    chunk_urls: list[str] = Field(default_factory=list)
+    #: The camera being warmed up for the next stop, if one is.
+    next_prefetched: str | None = None
+    #: How long this is expected to take, from what was measured on this
+    #: machine. None when nobody has measured it — never a guess.
+    estimate_seconds: float | None = None
+
+# ---------------------------------------------------------------------------
 # following one person, live
 # ---------------------------------------------------------------------------
 

@@ -255,10 +255,16 @@ async def lifespan(app: FastAPI):
         app.state.recorder = Recorder(
             registry.bus, cfg.storage.clips_dir, clock=cfg.timezone)
 
+        # The archive runner. Its threads exist from here, but they do nothing
+        # at all until somebody asks to watch a stop — an idle engine spends
+        # nothing on this.
+        app.state.archive, app.state.archive_error = _start_archive(cfg, people)
+
         store = LiveStore(
             cfg, registry, gallery, sightings, recogniser, cameras, people,
             tracking=tracking,
             anchors=anchors,
+            archive=app.state.archive,
             counts=counts_store,
             recorder=app.state.recorder,
             users=app.state.users,
@@ -318,6 +324,9 @@ async def lifespan(app: FastAPI):
             app.state.registry.stop()
         # After the workers, never before: a store closed under a running
         # writer is the one way this loses a row it already decided to keep.
+        runner = getattr(app.state, "archive", None)
+        if runner is not None:
+            runner.stop()
         anchor_store = getattr(app.state, "anchors", None)
         if anchor_store is not None:
             anchor_store.close()
@@ -543,6 +552,37 @@ def _database(cfg) -> Path:
     """
     raw = Path(str(cfg.storage.database_url).replace("sqlite:///", ""))
     return raw if raw.is_absolute() else vgconfig.REPO_DIR / raw
+
+def _start_archive(cfg, people):
+    """The recorded-video runner. Absent is a normal, sayable state.
+
+    A site with no DVR and no footage folder simply cannot play back a stop,
+    and the Track page says so. That is a different thing from the feature
+    being broken, and much better than a button that spins for ever.
+
+    The person detector is shared, not a second one: outlines burnt into a
+    chunk come from the same model the live features use.
+    """
+    try:
+        from vg.ingest.archive import ArchiveRunner, backend_for
+
+        source = backend_for(cfg.archive, cfg.storage.footage_dir)
+        runner = ArchiveRunner(
+            source,
+            clips_dir=cfg.storage.clips_dir,
+            chunk_seconds=cfg.archive.chunk_seconds,
+            keep_legs=cfg.archive.keep_legs,
+            detector=getattr(getattr(people, "detector", None), "detector", None),
+        )
+        log.info("archive ready - %s backend, %.0fs chunks",
+                 cfg.archive.backend, cfg.archive.chunk_seconds)
+        return runner, None
+
+    except Exception as exc:
+        log.warning("archive is not available: %s", exc)
+        _reraise_if_strict(exc, "the recorded-video archive")
+        return None, _reason(exc)
+
 
 def _start_patrol(cfg, registry, roster, identity_cameras, shared, anchors):
     """The patrol tier: the same recogniser, slowly, on every other camera.
@@ -1580,6 +1620,60 @@ def _mount(app: FastAPI) -> None:
             raise HTTPException(503, str(exc)) from exc
         except NothingThere as exc:
             raise HTTPException(404, str(exc)) from exc
+
+    @app.post("/path/legs", response_model=S.LegJob, tags=["track"])
+    async def start_leg(
+        req: S.LegRequest, store: StoreDep, user: auth_deps.CurrentUser,
+    ) -> S.LegJob:
+        """Fetch and process the video behind one stop.
+
+        Returns immediately with a queued job. Chunks appear in `chunkUrls`
+        as they land, and the page plays the first without waiting for the
+        last — which is the whole reason this is a job and not a download.
+
+        503 when there is no archive to fetch from, 409 when the runner is
+        already doing as much as it will honestly promise.
+        """
+        try:
+            return store.start_leg(req, user.name)
+        except SubsystemUnavailable as exc:
+            raise HTTPException(503, str(exc)) from exc
+        except AlreadyBusy as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except NothingThere as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+    @app.get("/path/legs/{job_id}", response_model=S.LegJob, tags=["track"])
+    async def get_leg(
+        job_id: str, store: StoreDep, user: auth_deps.CurrentUser,
+    ) -> S.LegJob:
+        try:
+            return store.leg(job_id)
+        except SubsystemUnavailable as exc:
+            raise HTTPException(503, str(exc)) from exc
+        except NothingThere as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+    @app.get("/path/legs/{job_id}/chunks/{index}", tags=["track"])
+    async def get_leg_chunk(job_id: str, index: int, store: StoreDep):
+        """One processed piece of a leg.
+
+        Same-origin for the same reason breach clips are: a `<video src>`
+        cannot send an Authorization header, so the browser reaches this
+        through the dev proxy exactly as it reaches the camera streams.
+
+        Everything that can go wrong is a 404 with the reason in words —
+        not built yet, replaced by newer legs, or a file no longer on disk.
+        None of them is a 500: a job id is data, and a wrong one must not
+        become a stack trace or a way to read the disk.
+        """
+        try:
+            path, reason = store.leg_chunk(job_id, index)
+        except SubsystemUnavailable as exc:
+            raise HTTPException(503, str(exc)) from exc
+        if path is None:
+            raise HTTPException(404, reason)
+        return FileResponse(path, media_type="video/mp4")
 
     # -- following one person, live ------------------------------------------
     #

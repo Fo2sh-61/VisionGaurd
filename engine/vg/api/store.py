@@ -109,6 +109,10 @@ class Store(Protocol):
         start: str | None = None, end: str | None = None,
     ) -> S.PathSkeleton: ...
 
+    def start_leg(self, req: S.LegRequest, actor: str) -> S.LegJob: ...
+    def leg(self, job_id: str) -> S.LegJob: ...
+    def leg_chunk(self, job_id: str, index: int): ...
+
     def follow_start(
         self, camera_id: str, x: float, y: float, actor: str
     ) -> S.FollowView: ...
@@ -605,6 +609,21 @@ class MockStore:
                             match=S.MatchKind.APPEARANCE, confidence=0.89),
             ],
         )
+
+    NO_ARCHIVE = ("Demo mode has no recorded-video archive, so there is no "
+                  "footage to play behind a stop.")
+
+    def start_leg(self, req: S.LegRequest, actor: str) -> S.LegJob:
+        # Audited even though it refuses: an operator asking to watch somebody
+        # is the thing worth recording, and it happened.
+        self._log(actor, "path.leg", req.person_id or req.camera_id, "demo mode")
+        raise SubsystemUnavailable(self.NO_ARCHIVE)
+
+    def leg(self, job_id: str) -> S.LegJob:
+        raise SubsystemUnavailable(self.NO_ARCHIVE)
+
+    def leg_chunk(self, job_id: str, index: int):
+        return None, self.NO_ARCHIVE
 
     # -- following one person, live -----------------------------------------
 
