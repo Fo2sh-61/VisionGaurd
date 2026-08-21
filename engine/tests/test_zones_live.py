@@ -32,7 +32,13 @@ from vg.infer.persons import DetectedPerson
 from vg.ingest.source import Frame
 from vg.ingest.store import CameraStore
 
-START = datetime(2026, 8, 20, 9, 0, 0, tzinfo=timezone.utc)
+# Relative to the clock, never a date typed on the day this was written.
+# Every assertion below reads its scenes back through `recent(since_days=1)`,
+# so a fixed date stops matching its own window as soon as it is more than a
+# day old: these tests passed on the afternoon they were written and went red
+# the next morning. An hour ago sits inside every window used here and stays
+# in the past after a scene adds its minutes.
+START = (datetime.now(timezone.utc) - timedelta(hours=1)).replace(microsecond=0)
 
 
 # ---------------------------------------------------------------------------
