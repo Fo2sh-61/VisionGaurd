@@ -1495,6 +1495,15 @@ def _mount(app: FastAPI) -> None:
     ) -> S.TrackResult:
         """Reconstruct one person's day across cameras.
 
+        SUPERSEDED by `GET /path/{person}`, and no longer called by this
+        console. It rebuilds a path from every stored sighting, including the
+        single-frame recognitions that were never good enough to claim; the
+        anchor table `/path` reads only ever received stops whose evidence
+        cleared the bar, so it cannot return a wrong leg by construction.
+
+        Still served, because wire changes are additive only and something
+        outside this repository may still be asking. Nothing here does.
+
         The audit row is committed BEFORE the result is returned — if the audit
         write fails, the search fails. `TrackResult.audit_id` is the receipt.
         """

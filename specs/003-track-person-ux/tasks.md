@@ -196,12 +196,12 @@ run an allowed one — progress real, cancel works.
 
 ## Phase 7: Polish & cross-cutting
 
-- [ ] T053 Run the gates: `python -m pytest engine` (count must be **above** 602), `python -m pyflakes engine/vg engine/tools engine/tests`, `cd web; npx tsc -b --force`
-- [ ] T054 [P] Rewrite the Track line in `STATUS.md` — engine real, page real: live catch with honest naming and recording, instant anchor paths, chunked leg playback over the footage/DVR archive, sweeps behind measured estimates. Delete "page part fake"
-- [ ] T055 Retire the old `/track` call path: remove `trackPerson` usage from `web/src/pages/TrackPerson.tsx` and `web/src/services/api.ts` once nothing renders from it; the engine endpoint stays serving (additive-only wire rule) with a comment naming its successor
-- [ ] T056 Run `python engine/tools/measure_track.py` on the dev machine and confirm the page's estimates match the stored rates (quickstart §0)
+- [X] T053 Run the gates: `python -m pytest engine` (count must be **above** 602), `python -m pyflakes engine/vg engine/tools engine/tests`, `cd web; npx tsc -b --force`
+- [X] T054 [P] Rewrite the Track line in `STATUS.md` — engine real, page real: live catch with honest naming and recording, instant anchor paths, chunked leg playback over the footage/DVR archive, sweeps behind measured estimates. Delete "page part fake"
+- [X] T055 Retire the old `/track` call path: remove `trackPerson` usage from `web/src/pages/TrackPerson.tsx` and `web/src/services/api.ts` once nothing renders from it; the engine endpoint stays serving (additive-only wire rule) with a comment naming its successor
+- [X] T056 Run `python engine/tools/measure_track.py` on the dev machine and confirm the page's estimates match the stored rates (quickstart §0)
 - [ ] T057 Ask Mohamed for the by-eye session in [quickstart.md](./quickstart.md) §3 — three-click follow, sustained-look naming, timer recording, instant skeleton, non-stalling leg playback, sweep refusal arithmetic. Only his eyes confirm SC-001 through SC-007
-- [ ] T058 Commit per checkpoint with tests in the same commit, stating before/after pytest counts
+- [X] T058 Commit per checkpoint with tests in the same commit, stating before/after pytest counts
 
 ---
 

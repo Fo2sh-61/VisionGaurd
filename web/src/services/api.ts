@@ -37,8 +37,6 @@ import type {
   Recording,
   RecordingResult,
   SystemHealth,
-  TrackQuery,
-  TrackResult,
   User,
   WeaponDetection,
   WeaponWindow,
@@ -62,7 +60,6 @@ import {
   formatDuration,
   formatShortDate,
   formatTime,
-  matchLabel,
   severityToNeutralTone,
   severityToTone,
   toCamera,
@@ -418,50 +415,18 @@ export async function searchLostItem(query: LostQuery): Promise<LostResult> {
   };
 }
 
-/* ---------- track a person ---------- */
-
-export async function trackPerson(query: TrackQuery, actor = 'unknown'): Promise<TrackResult> {
-  const result = await post<W.TrackResult>(
-    '/track',
-    {
-      who: query.who,
-      date: query.date,
-      start: query.from,
-      end: query.to,
-    },
-    { actor },
-  );
-
-  return {
-    who: result.subject.name ?? query.who,
-    heading: `${result.subject.name ?? query.who} · ${result.sightings} sightings`,
-    sub: `${formatLongDate(result.date)} · ${query.from} to ${query.to}`,
-    stats: formatMetrics(result.metrics),
-    path: result.path.map((stop) => ({
-      time: formatTime(stop.at),
-      place: stop.place,
-      detail: `${stop.cameraName} · ${matchLabel(stop.match, stop.confidence)}`,
-      match: stop.match,
-      confidence: stop.confidence,
-      until: stop.until ? formatTime(stop.until) : undefined,
-    })),
-    cameras: result.cameras.map((c, i) =>
-      toCamera(
-        c,
-        result.path[i]
-          ? matchLabel(result.path[i].match, result.path[i].confidence)
-          : undefined,
-      ),
-    ),
-  };
-}
-
-/** The audit row is written by the engine INSIDE /track, before the result is
- *  returned — ordering the UI cannot guarantee on its own. Kept for signature
- *  compatibility; `trackPerson(query, actor)` is the real path. */
-export async function recordTrackSearch(_query: TrackQuery, _actor: string): Promise<void> {
-  /* no-op: /track audits server-side and returns the auditId as the receipt */
-}
+/* ---------- track a person ----------
+ *
+ *  RETIRED. `trackPerson()` called `POST /track`, which rebuilt a path out of
+ *  every stored sighting — including the single-frame recognitions that were
+ *  never good enough to claim. The Track page now asks `GET /path/{person}`
+ *  instead, which reads the anchor table: only stops whose evidence cleared
+ *  the bar were ever written there, so a wrong leg cannot come back by
+ *  construction. See `getPathSkeleton` above.
+ *
+ *  The engine keeps serving /track — wire changes here are additive only, and
+ *  something outside this repo may still be asking. Nothing in this console
+ *  does. */
 
 /* ---------- system + users ---------- */
 

@@ -14,7 +14,7 @@
 | Tracking engine | **Real** — ByteTrack + appearance IDs, stable across frames and cameras. Shares one detection pass with counting (P1-01) |
 | People counting | **Real for "Main entrance"** only (the laptop webcam). Over-counts — reads 4–6 for one person. Other areas are demo and labelled |
 | System health | **Real** — honest per-subsystem, including startup failure reasons |
-| Track a person | **Engine real, page part fake** — badge bug, clip save writes nothing |
+| Track a person | **Real** — live: click a body and it is followed across cameras, named only after a sustained face, recorded one file per camera with the stop reason. Past: stops answer instantly from the anchor table, each with its evidence, and play back as 30s chunks off the footage/DVR archive. Sweeps refuse over a measured budget |
 | Restricted zones | **Real** — any camera can be marked restricted; its whole frame is the zone. Scenes are logged and recorded, last three clips kept per camera, log refreshes itself. No schedules |
 | Weapons, lost items | **Fake** — models present, no worker, no tables. The pages now say so instead of showing an all-clear (P0-08) |
 | Users, audit, notifications | **Auth is real** (P2) — argon2 accounts, server-enforced roles, sessions revocable. Audit still lives in RAM |
