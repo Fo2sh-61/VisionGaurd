@@ -176,10 +176,14 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
       // This used to fall through to the network-error branch below and say
       // "Cannot reach the engine. Is it running?" - which sent people to look
       // at an engine that was running perfectly. Say what actually happened.
+      const prefix = `/${path.replace(/^\//, '').split('/')[0]}`;
       throw new ApiError(
-        'The engine did not answer — the dev server did. Restart it: '
-        + '`.\dev.ps1 down` then `.\dev.ps1 up -Clip`. '
-        + '(Vite reloads source automatically but not its proxy settings.)',
+        `The engine did not answer — the dev server did, for ${prefix}. `
+        + `Two causes, in the order they happen: ${prefix} may be missing from `
+        + 'API_PATHS in web/vite.config.ts (a new endpoint the proxy has never '
+        + 'been told about), or the dev server is running with an older copy of '
+        + 'that list. Add it if absent, then restart `npm run dev` either way — '
+        + 'Vite reloads source on save but never its own proxy settings.',
         response.status,
         false,
         `${method} ${path} returned ${response.headers.get('content-type') ?? 'no content-type'}`,
