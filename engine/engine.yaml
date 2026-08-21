@@ -44,6 +44,88 @@ storage:
   clip_retention_days: 30
 
 # ---------------------------------------------------------------------------
+# Tracking — the bar for putting a name on a body, and the patrol tier
+#
+# A gallery match already clears SFace's own threshold and margin. That is
+# enough to say "this frame looks like Sara". It is NOT enough to write her
+# name on a body, because one lucky frame doing exactly that is how every
+# person on screen once read as a single name.
+#
+# So there is a second bar, and it asks for evidence over time rather than a
+# bigger number: the same person, several separate looks, spread over seconds,
+# with a real gap between them. Five frames inside a third of a second are one
+# look at one moment, not five pieces of evidence.
+#
+# Two tiers, because a corridor camera sees faces smaller and more side-on
+# than a doorway does. A bar sized for the doorway would mean corridors never
+# identify anybody, which is the same as not having the feature.
+#
+#   identity   cameras with `faces: true` — people pass close and look at it
+#   patrol     everything else — easier to clear, and the evidence count
+#              carries the weight the raw score gives up
+#
+# Every value below is the default and is here to be seen, not because it must
+# be set. Delete the whole section and nothing changes.
+# ---------------------------------------------------------------------------
+tracking:
+  # How often the patrol recogniser looks at a non-`faces:` camera. Slow on
+  # purpose: patrol exists so "where did they go" can be answered later, not
+  # so anybody is watched now. 0 switches the patrol tier off entirely.
+  patrol_hz: 0.5
+
+  identity:
+    score: 0.45          # cosine similarity the best match must reach
+    margin: 0.10         # how far clear of the runner-up
+    matches: 3           # how many separate looks
+    seconds: 1.5         # spread over at least this long
+    gap_seconds: 0.3     # closer together than this is one look, not two
+    # face_px cannot go below 80. Measured, not chosen: at 40px the same
+    # person scores 0.23-0.48 against themselves. Raising it is allowed.
+    face_px: 80
+
+  patrol:
+    score: 0.40
+    margin: 0.07
+    matches: 3
+    seconds: 2.0
+    gap_seconds: 0.4
+    face_px: 80
+
+# ---------------------------------------------------------------------------
+# Archive — where recorded video comes from when somebody asks to watch a leg
+#
+#   footage   slice files already on disk under storage.footage_dir. Needs no
+#             hardware, identical every run, and it is what the tests use.
+#   dvr       pull a time range off the recorder with ffmpeg. Needs
+#             playback_url, and every DVR spells that URL differently, which
+#             is why it is a template rather than code.
+#
+# Switching to a real DVR is this section plus a run of
+# `python engine/tools/measure_track.py`, which measures how fast that
+# recorder actually hands video over. Until it has been run, the page says
+# waiting times are unavailable rather than guessing at them.
+# ---------------------------------------------------------------------------
+archive:
+  backend: footage
+
+  # For backend: dvr. {channel} is filled from `channels:` below, {start} and
+  # {end} from the span asked for. Both {start} and {end} are required — a
+  # template without them would fetch the same video every time.
+  # playback_url: "rtsp://${VG_DVR_USER}:${VG_DVR_PASS}@10.0.0.5:554/Streaming/tracks/{channel}?starttime={start}&endtime={end}"
+  # channels:
+  #   cam-rtsp-1: "101"
+
+  # How much video one processed piece covers. Playback starts as soon as the
+  # first piece lands, so this is also "how long until I see anything".
+  # measure_track.py says whether this machine sustains 30s; drop to 15 if not.
+  chunk_seconds: 30
+
+  # How many legs' worth of processed video to keep per camera. A leg can
+  # always be derived again from the archive, so this is a cache, not a record.
+  keep_legs: 3
+
+
+# ---------------------------------------------------------------------------
 # Models
 #
 # See models/README.md for what each of these actually is. Two things worth
@@ -182,6 +264,15 @@ cameras:
     # now: it costs ~2 ms of CPU per frame on top of the person detector it
     # shares, and its rows are dense.
     features: [attendance, counting, intrusion, track]
+    # The identity tier. `faces: true` says people look at this camera from
+    # close enough to be identified, so it gets the recogniser at full rate
+    # and the stricter `tracking.identity` bar. Every other camera is patrol.
+    faces: true
+    # Where somebody can walk to from here. Only ever a hint: it tells the
+    # archive layer which camera to warm up next while you watch this one.
+    # Left empty until the real layout is known — an empty list falls back to
+    # the rest of the same `area`, which is honest; a guessed list is not.
+    # neighbours: [cam-rtsp-1]
 
   # The deterministic test camera. Prefer this over the webcam for everything
   # except final confirmation: it is identical every run, locks no device, runs
@@ -201,7 +292,12 @@ cameras:
     area: Development
     fps: 5
     enabled: false
-    features: [attendance, counting, intrusion]
+    # `track` here so the tracking work has a deterministic camera to run
+    # against: same frames every run, no device locked, and 21 hand-marked
+    # ground-truth points in the sidecar json to check against.
+    features: [attendance, counting, intrusion, track]
+    # Deliberately NOT `faces: true`. With two cameras running this is the one
+    # in the patrol tier, so both bars get exercised on a normal `-Clip` start.
 
   - id: cam-rtsp-1
     name: Test camera 1

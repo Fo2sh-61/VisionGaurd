@@ -186,6 +186,16 @@ class CameraConfig:
     enabled: bool = True
     features: tuple[str, ...] = ()
     rotate: int = 0
+    # Which recognition tier this camera is in. True means "faces are the
+    # point here" — a doorway or a desk — and it gets the main recognition
+    # worker at its full rate. False is the patrol tier: the same recogniser
+    # at a much lower rate, whose job is to leave a trail to read later
+    # rather than to watch anybody now.
+    faces: bool = False
+    # Cameras a person can plausibly walk to from this one. Optional, and
+    # only ever a hint: it tells the archive layer which camera to warm up
+    # next. Empty falls back to the rest of the same `area`.
+    neighbours: tuple[str, ...] = ()
 
     @classmethod
     def parse(cls, raw: dict[str, Any], where: str) -> "CameraConfig":
@@ -211,6 +221,8 @@ class CameraConfig:
             enabled=bool(raw.get("enabled", True)),
             features=tuple(raw.get("features", ())),
             rotate=rotate,
+            faces=bool(raw.get("faces", False)),
+            neighbours=tuple(str(n) for n in raw.get("neighbours", ())),
         )
 
     def redacted_source(self) -> str:
@@ -434,6 +446,250 @@ class StorageConfig:
         return self.clips_dir / "zones"
 
 
+# ---------------------------------------------------------------------------
+# tracking: the bar for a name, and the patrol tier
+# ---------------------------------------------------------------------------
+
+# The smallest face the system will believe, in pixels. Measured, not chosen:
+# `infer/faces.py::MIN_FACE_PIXELS` records that at 40 px the same person
+# scored 0.23-0.48 against themselves — below the match threshold — so a face
+# that small is not a weak signal but a meaningless one.
+#
+# Repeated here rather than imported because `infer.faces` pulls in cv2 and
+# config has to stay importable without it. `test_track_page.py` pins the two
+# together so they cannot drift apart.
+FACE_PIXEL_FLOOR = 80
+
+
+@dataclass(frozen=True)
+class AnchorGates:
+    """What it takes before the system will put a name on a body.
+
+    A gallery match has already cleared its own threshold and margin. That is
+    enough to say "this frame looks like Sara". It is not enough to *claim*
+    her, because one lucky frame naming a body is exactly how every person on
+    screen once read as one name.
+
+    So this is a second bar, and it asks for evidence over time rather than a
+    bigger number: the same person, several separate times, spread across
+    seconds, with a real gap between the looks. Five frames inside a third of
+    a second are one look at one moment, not five pieces of evidence.
+
+    The numbers are per tier because a corner camera sees faces smaller and at
+    worse angles than a doorway one. A single bar sized for the doorway would
+    mean corner cameras never anchor at all, which is the same as not having
+    the feature.
+    """
+
+    #: cosine similarity the best match must reach.
+    score: float = 0.45
+    #: how far clear of the runner-up the best match must be. Wider than the
+    #: gallery's own margin: matching is an observation, naming is a claim.
+    margin: float = 0.10
+    #: how many separate looks are needed.
+    matches: int = 3
+    #: spread over at least this long.
+    seconds: float = 1.5
+    #: two matches closer together than this are the same look, not two.
+    gap_seconds: float = 0.3
+    #: smallest face that counts. Never below FACE_PIXEL_FLOOR.
+    face_px: int = FACE_PIXEL_FLOOR
+
+    _KEYS = ("score", "margin", "matches", "seconds", "gap_seconds", "face_px")
+
+    @classmethod
+    def parse(
+        cls, raw: dict[str, Any] | None, where: str, default: "AnchorGates"
+    ) -> "AnchorGates":
+        raw = raw or {}
+        unknown = sorted(set(raw) - set(cls._KEYS))
+        if unknown:
+            raise ConfigError(
+                f"{where}: unknown key(s) {unknown}. Expected any of "
+                f"{list(cls._KEYS)}"
+            )
+
+        score = float(raw.get("score", default.score))
+        if not 0 < score <= 1:
+            raise ConfigError(f"{where}.score: expected 0 < score <= 1, got {score}")
+
+        margin = float(raw.get("margin", default.margin))
+        if not 0 <= margin <= 1:
+            raise ConfigError(
+                f"{where}.margin: expected 0 <= margin <= 1, got {margin}"
+            )
+
+        matches = int(raw.get("matches", default.matches))
+        if matches < 2:
+            raise ConfigError(
+                f"{where}.matches: expected at least 2, got {matches}. Seeing "
+                f"somebody twice is the whole point of this gate; at 1 it is "
+                f"the single-frame naming it exists to stop."
+            )
+
+        seconds = float(raw.get("seconds", default.seconds))
+        if seconds <= 0:
+            raise ConfigError(f"{where}.seconds: expected > 0, got {seconds}")
+
+        gap = float(raw.get("gap_seconds", default.gap_seconds))
+        if gap < 0:
+            raise ConfigError(f"{where}.gap_seconds: expected >= 0, got {gap}")
+
+        face_px = int(raw.get("face_px", default.face_px))
+        if face_px < FACE_PIXEL_FLOOR:
+            raise ConfigError(
+                f"{where}.face_px: {face_px} is below the measured floor of "
+                f"{FACE_PIXEL_FLOOR}px, and cannot go lower. A face that small "
+                f"does not carry enough detail to identify anybody — see "
+                f"infer/faces.py::MIN_FACE_PIXELS. Raising it is allowed."
+            )
+
+        return cls(
+            score=score, margin=margin, matches=matches,
+            seconds=seconds, gap_seconds=gap, face_px=face_px,
+        )
+
+
+#: The patrol tier's defaults. Easier to clear than the identity tier's on
+#: purpose: these cameras see people in passing, further away and off-angle,
+#: and the owner's call was not to make it so hard that a corridor never
+#: anchors at all. The evidence requirement carries the weight the raw score
+#: gives up.
+PATROL_GATES = AnchorGates(
+    score=0.40, margin=0.07, matches=3, seconds=2.0, gap_seconds=0.4
+)
+
+
+@dataclass(frozen=True)
+class TrackingConfig:
+    """The patrol tier's rate, and the gates each tier answers to."""
+
+    #: how often the patrol recogniser looks at a camera that is not a
+    #: `faces:` camera. Slow on purpose: patrol exists so "where did they go"
+    #: can be answered later, not so that anybody is watched now. 0 switches
+    #: the tier off entirely.
+    patrol_hz: float = 0.5
+    identity: AnchorGates = field(default_factory=AnchorGates)
+    patrol: AnchorGates = field(default_factory=lambda: PATROL_GATES)
+
+    def gates_for(self, camera: "CameraConfig") -> AnchorGates:
+        """Which bar this camera's recognitions have to clear."""
+        return self.identity if camera.faces else self.patrol
+
+    @classmethod
+    def parse(cls, raw: dict[str, Any] | None, where: str) -> "TrackingConfig":
+        raw = raw or {}
+        unknown = sorted(set(raw) - {"patrol_hz", "identity", "patrol"})
+        if unknown:
+            raise ConfigError(f"{where}: unknown key(s) {unknown}")
+
+        patrol_hz = float(raw.get("patrol_hz", 0.5))
+        if not 0 <= patrol_hz <= 30:
+            raise ConfigError(
+                f"{where}.patrol_hz: expected 0 <= patrol_hz <= 30, got "
+                f"{patrol_hz}. 0 switches the patrol tier off."
+            )
+
+        return cls(
+            patrol_hz=patrol_hz,
+            identity=AnchorGates.parse(
+                raw.get("identity"), f"{where}.identity", AnchorGates()
+            ),
+            patrol=AnchorGates.parse(
+                raw.get("patrol"), f"{where}.patrol", PATROL_GATES
+            ),
+        )
+
+
+ArchiveBackend = Literal["dvr", "footage"]
+
+
+@dataclass(frozen=True)
+class ArchiveConfig:
+    """Where recorded video comes from when somebody asks to watch a leg.
+
+    ``footage`` slices files already sitting under ``storage.footage_dir``.
+    That is the dev backend and the one the tests run against, and it needs no
+    hardware at all.
+
+    ``dvr`` pulls a time range off the recorder over the network, filling
+    ``playback_url`` with the camera's channel and the span wanted. Every DVR
+    spells that URL differently, which is why it is a template here and not
+    code.
+    """
+
+    backend: ArchiveBackend = "footage"
+    playback_url: str = ""
+    #: camera id -> the channel that camera is on the recorder.
+    channels: dict[str, str] = field(default_factory=dict)
+    #: how much video one processed piece covers. Playback starts once the
+    #: first one lands, so this is also the "how long until I see anything"
+    #: number. `tools/measure_track.py` says whether the machine sustains it.
+    chunk_seconds: float = 30.0
+    #: how many legs' worth of processed chunks to keep per camera before the
+    #: oldest goes. A leg is always re-derivable from the archive.
+    keep_legs: int = 3
+
+    @property
+    def configured(self) -> bool:
+        """False when asking for archive video would fail, whatever the reason."""
+        return self.backend == "footage" or bool(self.playback_url)
+
+    def channel_for(self, camera_id: str) -> str | None:
+        return self.channels.get(camera_id)
+
+    @classmethod
+    def parse(cls, raw: dict[str, Any] | None, where: str) -> "ArchiveConfig":
+        raw = raw or {}
+        unknown = sorted(
+            set(raw)
+            - {"backend", "playback_url", "channels", "chunk_seconds", "keep_legs"}
+        )
+        if unknown:
+            raise ConfigError(f"{where}: unknown key(s) {unknown}")
+
+        backend = str(raw.get("backend", "footage"))
+        if backend not in ("dvr", "footage"):
+            raise ConfigError(
+                f"{where}.backend: expected dvr|footage, got {backend!r}"
+            )
+
+        url = str(raw.get("playback_url", "") or "")
+        if backend == "dvr":
+            if not url:
+                raise ConfigError(
+                    f"{where}.playback_url: the dvr backend needs a URL "
+                    f"template. Use {{channel}}, {{start}} and {{end}}."
+                )
+            for token in ("{start}", "{end}"):
+                if token not in url:
+                    raise ConfigError(
+                        f"{where}.playback_url: template is missing {token}. "
+                        f"Without it every request would fetch the same video."
+                    )
+
+        chunk = float(raw.get("chunk_seconds", 30.0))
+        if not 5 <= chunk <= 120:
+            raise ConfigError(
+                f"{where}.chunk_seconds: expected 5 <= chunk_seconds <= 120, "
+                f"got {chunk}"
+            )
+
+        keep = int(raw.get("keep_legs", 3))
+        if keep < 1:
+            raise ConfigError(f"{where}.keep_legs: expected at least 1, got {keep}")
+
+        channels = {
+            str(cam): str(channel)
+            for cam, channel in (raw.get("channels") or {}).items()
+        }
+
+        return cls(
+            backend=backend, playback_url=url, channels=channels,
+            chunk_seconds=chunk, keep_legs=keep,
+        )
+
+
 @dataclass(frozen=True)
 class EngineConfig:
     site_name: str
@@ -447,6 +703,11 @@ class EngineConfig:
     # Named places and their safe capacity. Keyed by the same name cameras use
     # in their `area` field.
     areas: dict[str, AreaConfig] = field(default_factory=dict)
+    # The naming bar and the patrol tier's rate.
+    tracking: TrackingConfig = field(default_factory=TrackingConfig)
+    # Where recorded video is fetched from. Defaults to slicing local footage,
+    # so a site with no DVR configured still has a working archive.
+    archive: ArchiveConfig = field(default_factory=ArchiveConfig)
 
     def camera(self, camera_id: str) -> CameraConfig | None:
         return next((c for c in self.cameras if c.id == camera_id), None)
@@ -501,6 +762,24 @@ def load(path: Path | str | None = None) -> EngineConfig:
         for i, c in enumerate(raw.get("cameras") or [])
     )
     _reject_duplicates([c.id for c in cameras], "camera")
+
+    # Checked against the whole file, not the running subset: `VG_CAMERAS`
+    # narrows what starts, and a neighbour pointing at a camera that exists
+    # but is not running today is correct config, not a typo.
+    defined = {c.id for c in cameras}
+    for camera in cameras:
+        for neighbour in camera.neighbours:
+            if neighbour not in defined:
+                raise ConfigError(
+                    f"camera {camera.id!r} lists neighbour {neighbour!r}, "
+                    f"which is not defined. Known cameras: "
+                    f"{sorted(defined) or 'none'}"
+                )
+            if neighbour == camera.id:
+                raise ConfigError(
+                    f"camera {camera.id!r} lists itself as a neighbour"
+                )
+
     cameras = _apply_camera_override(cameras)
 
     zones = tuple(
@@ -526,6 +805,14 @@ def load(path: Path | str | None = None) -> EngineConfig:
         name: AreaConfig.parse(name, spec, f"areas.{name}")
         for name, spec in (raw.get("areas") or {}).items()
     }
+
+    archive = ArchiveConfig.parse(raw.get("archive"), "archive")
+    for camera_id in archive.channels:
+        if camera_id not in defined:
+            raise ConfigError(
+                f"archive.channels names camera {camera_id!r}, which is not "
+                f"defined. Known cameras: {sorted(defined) or 'none'}"
+            )
 
     api_raw = raw.get("api") or {}
     store_raw = raw.get("storage") or {}
@@ -558,6 +845,8 @@ def load(path: Path | str | None = None) -> EngineConfig:
         zones=zones,
         areas=areas,
         models=models,
+        tracking=TrackingConfig.parse(raw.get("tracking"), "tracking"),
+        archive=archive,
     )
 
 
