@@ -2194,3 +2194,104 @@ class TestWhatGetsDrawnOnAChunk:
         assert tuple(int(v) for v in frame[10, 30]) == AMBER
         assert tuple(int(v) for v in frame[10, 140]) == BLUE
         assert AMBER != BLUE, "the two have to be distinguishable on screen"
+
+
+# ---------------------------------------------------------------------------
+# The two bugs that made the feature look broken on a real machine
+# ---------------------------------------------------------------------------
+
+class TestTheDevServerCanReachEveryEndpoint:
+    """`/path` existed, worked, and was unreachable from a browser.
+
+    Vite proxies a hard-coded list of prefixes to the engine. A new endpoint
+    under a new prefix is served perfectly by the engine and answered by the
+    dev server instead, so the page shows "the engine did not answer" for a
+    feature that is running fine. Nothing in either language notices, because
+    each side is correct on its own.
+    """
+
+    def routes(self) -> set[str]:
+        from vg.api.app import create_app
+
+        prefixes = set()
+        for route in create_app().routes:
+            path = getattr(route, "path", "")
+            if path.startswith("/") and len(path) > 1:
+                prefixes.add("/" + path.lstrip("/").split("/")[0])
+        return prefixes
+
+    def proxied(self) -> set[str]:
+        import re
+
+        config = Path("web/vite.config.ts").read_text(encoding="utf-8")
+        block = re.search(r"const API_PATHS = \[(.*?)\];", config, re.S)
+        assert block, "API_PATHS is not where this test expects it"
+        return set(re.findall(r"'(/[^']+)'", block.group(1)))
+
+    def test_every_served_prefix_is_proxied(self):
+        missing = self.routes() - self.proxied()
+        assert not missing, (
+            f"the engine serves {sorted(missing)} but web/vite.config.ts does "
+            f"not proxy it, so the browser gets the dev server's 404 instead "
+            f"of the engine's answer. Add it to API_PATHS."
+        )
+
+    def test_the_path_prefix_specifically(self):
+        # The one that actually broke, named so a failure is unambiguous.
+        assert "/path" in self.proxied()
+
+
+class TestARunningRecorderReachesTheFollow:
+    """A follow said recording was unavailable on an engine recording fine.
+
+    `TrackingWorker` gained a `recorder` argument and the startup never passed
+    one, because the Recorder was built later in the sequence than tracking.
+    Both halves worked; they were simply never introduced.
+    """
+
+    def test_the_tracking_starter_passes_the_recorder_through(self):
+        import inspect
+
+        from vg.api import app as app_module
+
+        signature = inspect.signature(app_module._start_tracking)
+        assert "recorder" in signature.parameters, (
+            "_start_tracking must accept a recorder, or a follow can never "
+            "record on a real engine"
+        )
+
+        source = inspect.getsource(app_module._start_tracking)
+        assert "recorder=recorder" in source, (
+            "the recorder has to reach TrackingWorker, not just the signature"
+        )
+
+    def test_the_recorder_is_built_before_tracking_starts(self):
+        # Ordering is the whole bug: built afterwards, there is nothing to
+        # pass, and the failure is silent and only visible on a real machine.
+        import inspect
+
+        from vg.api import app as app_module
+
+        source = inspect.getsource(app_module.lifespan)
+        assert source.index("app.state.recorder = Recorder") < source.index(
+            "tracking, app.state.tracking_error = _start_tracking"
+        ), "the Recorder must exist before tracking is started"
+
+    def test_a_worker_with_a_recorder_can_record(self):
+        worker, stage, _, _ = build_worker(recorder=FakeRecorder())
+        sees(worker, stage, "cam-a", 0.0, [BODY_A])
+        worker.follow("cam-a", 0.15, 0.3, "tester")
+
+        session = worker.record(None, "tester")
+        assert session.recording is not None
+        assert session.recording.running
+
+    def test_a_worker_without_one_says_so_rather_than_pretending(self):
+        from vg.features.tracking import NoRecorder
+
+        worker, stage, _, _ = build_worker(recorder=None)
+        sees(worker, stage, "cam-a", 0.0, [BODY_A])
+        worker.follow("cam-a", 0.15, 0.3, "tester")
+
+        with pytest.raises(NoRecorder):
+            worker.record(None, "tester")

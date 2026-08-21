@@ -197,9 +197,19 @@ async def lifespan(app: FastAPI):
         # to counting alone is fully served without loading a face model, and
         # an attendance camera never runs the person detector it does not use.
         people, app.state.people_error = _start_people(cfg, registry, roster)
+
+        # Before tracking, because a follow records through it. It needs only
+        # the frame bus and a folder, both of which exist by now, and it costs
+        # nothing until somebody presses record — no model, no thread.
+        from vg.ingest.recorder import Recorder
+
+        app.state.recorder = Recorder(
+            registry.bus, cfg.storage.clips_dir, clock=cfg.timezone)
+
         tracking, app.state.tracking_error = _start_tracking(
             cfg, registry, roster,
             getattr(people, "detector", None),
+            recorder=app.state.recorder,
         )
         app.state.tracking = tracking
         (
@@ -248,13 +258,6 @@ async def lifespan(app: FastAPI):
         app.state.people = people
         app.state.gallery = gallery
         app.state.recogniser = recogniser
-
-        # No model, no thread until somebody presses record. It exists as soon
-        # as the cameras do, which is the only thing recording depends on.
-        from vg.ingest.recorder import Recorder
-
-        app.state.recorder = Recorder(
-            registry.bus, cfg.storage.clips_dir, clock=cfg.timezone)
 
         # The archive runner. Its threads exist from here, but they do nothing
         # at all until somebody asks to watch a stop — an idle engine spends
@@ -725,7 +728,7 @@ def _start_patrol(cfg, registry, roster, identity_cameras, shared, anchors):
         _reraise_if_strict(exc, "patrol recognition")
         return None, _reason(exc)
 
-def _start_tracking(cfg, registry, roster, detector):
+def _start_tracking(cfg, registry, roster, detector, recorder=None):
     """Track-a-person: ByteTrack plus appearance identity, on `track` cameras.
 
     Takes the person detector that `_start_people` already built rather than
@@ -763,6 +766,10 @@ def _start_tracking(cfg, registry, roster, detector):
             cameras=cameras,
             rate_hz=rate,
             boost_hz=12.0,
+            # Without this a follow can be watched but never recorded, and the
+            # page correctly-but-uselessly says recording is unavailable on an
+            # engine whose recorder is running perfectly well.
+            recorder=recorder,
         )
         worker.start()
         log.info("tracking on %s - %.0f Hz idle / 12 Hz watched", cameras, rate)
