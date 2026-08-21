@@ -2439,3 +2439,110 @@ class TestTheNoFootageMessageIsUseful:
         with pytest.raises(ArchiveUnavailable):
             FootageBackend(tmp_path / "none").fetch(
                 "cam-a", at(0), at(30), tmp_path / "x.mp4")
+
+
+class TestOperatorRecordingsAreArchiveFootage:
+    """Record a camera through the console, then be told there is no video.
+
+    `Recorder` writes to `storage.clips_dir`; the archive only read
+    `storage.footage_dir`. Both were behaving correctly and the file was on
+    the same disk the whole time.
+    """
+
+    def a_clip(self, directory: Path, name: str) -> Path:
+        directory.mkdir(parents=True, exist_ok=True)
+        clip = directory / name
+        _make_clip(clip, frames=10)
+        return clip
+
+    def test_a_recording_is_found(self, tmp_path):
+        from vg.clock import clock_for
+        from vg.ingest.archive import FootageBackend
+
+        clips = tmp_path / "clips"
+        self.a_clip(clips, "cam-a_20260822-000728.mp4")
+
+        backend = FootageBackend(
+            tmp_path / "footage", clock_for(0), recordings_dir=clips)
+        assert [p.name for _s, _e, p in backend.coverage("cam-a")] == [
+            "cam-a_20260822-000728.mp4"
+        ]
+
+    def test_both_folders_are_read_together(self, tmp_path):
+        from vg.clock import clock_for
+        from vg.ingest.archive import FootageBackend
+
+        footage = tmp_path / "footage"
+        clips = tmp_path / "clips"
+        self.a_clip(footage, "cam-a_20260820-090000.mp4")
+        self.a_clip(clips, "cam-a_20260822-000728.mp4")
+
+        backend = FootageBackend(footage, clock_for(0), recordings_dir=clips)
+        assert len(backend.coverage("cam-a")) == 2
+
+    def test_the_filename_stamp_is_read_as_site_local_not_utc(self, tmp_path):
+        # `Recorder._open` writes `self.clock.local(...)` into the name. Read
+        # as UTC, a clip made at midnight in Cairo is filed at 3am and never
+        # found — which is exactly what happened.
+        from vg.clock import clock_for
+        from vg.ingest.archive import FootageBackend
+
+        clips = tmp_path / "clips"
+        self.a_clip(clips, "cam-a_20260822-000728.mp4")
+
+        cairo = FootageBackend(tmp_path / "f", clock_for(180), recordings_dir=clips)
+        [(start, _end, _p)] = cairo.coverage("cam-a")
+
+        assert start.hour == 21 and start.day == 21, (
+            "00:07 in Cairo is 21:07 UTC the day before"
+        )
+
+        utc = FootageBackend(tmp_path / "f", clock_for(0), recordings_dir=clips)
+        [(plain, _e, _p)] = utc.coverage("cam-a")
+        assert plain.hour == 0 and plain.day == 22, "no offset, no shift"
+
+    def test_a_sidecar_still_means_utc(self, tmp_path):
+        # The two naming schemes disagree on purpose: a sidecar says
+        # `started_utc` and means it, a filename is local. Both must be right.
+        import json
+
+        from vg.clock import clock_for
+        from vg.ingest.archive import FootageBackend
+
+        footage = tmp_path / "footage"
+        clip = self.a_clip(footage, "walk_cam-a_20260805-121705.mp4")
+        clip.with_suffix(".json").write_text(json.dumps({
+            "camera_id": "cam-a",
+            "started_utc": "2026-08-05T09:17:05+00:00",
+            "duration_seconds": 100.0,
+        }), encoding="utf-8")
+
+        backend = FootageBackend(footage, clock_for(180))
+        [(start, _e, _p)] = backend.coverage("cam-a")
+        assert start.hour == 9, "a sidecar's UTC is not shifted again"
+
+    def test_derived_video_is_not_treated_as_source(self, tmp_path):
+        # `clips/track` holds the chunks this module itself produces, and
+        # `clips/zones` holds zone clips. Re-reading a processed chunk as
+        # source footage would draw outlines on top of outlines.
+        from vg.clock import clock_for
+        from vg.ingest.archive import FootageBackend
+
+        clips = tmp_path / "clips"
+        self.a_clip(clips / "track" / "job1", "chunk-000.mp4")
+        self.a_clip(clips, "cam-a_20260822-000728.mp4")
+
+        backend = FootageBackend(tmp_path / "f", clock_for(0), recordings_dir=clips)
+        found = [p.name for _s, _e, p in backend.coverage("cam-a")]
+        assert found == ["cam-a_20260822-000728.mp4"]
+
+    def test_the_engine_hands_the_archive_both_folders(self):
+        import inspect
+
+        from vg.api import app as app_module
+
+        source = inspect.getsource(app_module._start_archive)
+        assert "recordings_dir" in source, (
+            "the archive must be given clips_dir, or console recordings stay "
+            "invisible to the page that plays them back"
+        )

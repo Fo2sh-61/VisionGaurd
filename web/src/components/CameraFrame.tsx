@@ -69,6 +69,7 @@ export function CameraFrame({
   live = false,
   refreshMs = SNAPSHOT_REFRESH_MS,
   onCount,
+  onBoxes,
   badge = 'LIVE',
   feature,
   detections = true,
@@ -82,6 +83,11 @@ export function CameraFrame({
   /** Called with each live headcount, so the enlarged view can show it
    *  without running a second poll of its own. */
   onCount?: (count: number | null) => void;
+  /** Called with the boxes currently drawn, in the same percentages they are
+   *  drawn at. The Track page uses it to tell whether the pointer is over a
+   *  body, so clicking to follow feels like clicking a person rather than
+   *  guessing at a spot. Same poll, no second request. */
+  onBoxes?: (boxes: DetectionBox[]) => void;
   /** Replaces the LIVE chip. The tracking page shows "Recording" here, because
    *  on that screen the badge means recording is running — showing both would
    *  say two different things at once. `null` hides it entirely. */
@@ -134,8 +140,10 @@ export function CameraFrame({
       void getCameraDetections(camera.id, feature)
         .then((result) => {
           if (cancelled) return;
-          setLiveBoxes(result.boxes);
+          const drawn = result.boxes;
+          setLiveBoxes(drawn);
           onCount?.(result.peopleCount);
+          onBoxes?.(drawn);
         })
         .catch(() => {
           // A dropped poll is not worth surfacing; the next one will land and
@@ -149,7 +157,7 @@ export function CameraFrame({
       cancelled = true;
       clearInterval(timer);
     };
-  }, [wantLiveBoxes, camera.id, onCount, feature]);
+  }, [wantLiveBoxes, camera.id, onCount, onBoxes, feature]);
 
   // Boxes are drawn ONLY in the enlarged view, and only from live polling.
   //

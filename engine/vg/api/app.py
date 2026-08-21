@@ -646,7 +646,12 @@ def _start_archive(cfg, people, face=None):
         # The clock so that "there is no video from then" can name the
         # time the operator actually typed, not its UTC equivalent.
         source = backend_for(
-            cfg.archive, cfg.storage.footage_dir, clock_for(cfg.timezone))
+            cfg.archive, cfg.storage.footage_dir, clock_for(cfg.timezone),
+            # Operator recordings are recorded video of that camera at that
+            # time, which is exactly what the archive is for. Leaving them out
+            # meant recording a camera through the console and then being told
+            # there was no video of it.
+            recordings_dir=cfg.storage.clips_dir)
         runner = ArchiveRunner(
             source,
             clips_dir=cfg.storage.clips_dir,

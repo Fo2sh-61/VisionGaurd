@@ -239,36 +239,59 @@ def segments_of(
 # ---------------------------------------------------------------------------
 
 class FootageBackend:
-    """Slices files already sitting under `storage.footage_dir`.
+    """Slices video files already on disk.
 
-    Spans are read from each clip's sidecar json when there is one — it
-    records `started_utc`, `duration_seconds` and `camera_id`, which is
-    exactly the index needed and is more trustworthy than a filename. Files
-    without a sidecar fall back to the recorder's own naming.
+    Two folders, because there are two ways video gets onto this machine and
+    an operator has no reason to care which:
+
+      footage_dir     deliberate captures from `tools/record.py`, each with a
+                      sidecar json
+      clips_dir       what the console's Record button produced
+
+    Leaving the second one out was a real gap: somebody records a camera
+    through the console, asks the Track page to play that moment back, and is
+    told there is no recorded video — while the file sits on the same disk.
+
+    Spans come from the sidecar json where there is one; it records
+    `started_utc` explicitly and is more trustworthy than any filename.
+    Without one, the recorder's own naming is used — see `_span_of` for the
+    timezone trap in that.
     """
 
     name = "footage"
 
-    def __init__(self, footage_dir: Path, clock=None) -> None:
+    def __init__(self, footage_dir: Path, clock=None, recordings_dir=None) -> None:
         self.directory = Path(footage_dir)
-        # Only for writing times a person will read. An operator who typed
-        # "12:06 AM" should not be answered with a UTC timestamp three hours
-        # away from what they asked for.
+        self.recordings = Path(recordings_dir) if recordings_dir else None
+        # Used both for reading the recorder's local-time filenames and for
+        # writing times a person will read. An operator who typed "12:06 AM"
+        # should not be answered with a UTC timestamp three hours away from
+        # what they asked for.
         self.clock = clock
+
+    def _files(self):
+        """Every mp4 either folder holds, newest last.
+
+        Recording subfolders are skipped, not searched: `clips/zones` and
+        `clips/track` hold derived video — zone clips and the very chunks this
+        module produces — and treating a processed chunk as source footage
+        would let outlines get drawn on top of outlines.
+        """
+        for directory in (self.directory, self.recordings):
+            if directory is None or not directory.is_dir():
+                continue
+            yield from sorted(directory.glob("*.mp4"))
 
     def coverage(self, camera_id: str) -> list[tuple[datetime, datetime, Path]]:
         found: list[tuple[datetime, datetime, Path]] = []
-        if not self.directory.is_dir():
-            return found
-
-        for clip in sorted(self.directory.glob("*.mp4")):
+        for clip in self._files():
             span = self._span_of(clip)
             if span is None:
                 continue
             cam, start, end = span
             if cam == camera_id:
                 found.append((start, end, clip))
-        return found
+        return sorted(found)
 
     def _span_of(self, clip: Path) -> tuple[str, datetime, datetime] | None:
         sidecar = clip.with_suffix(".json")
@@ -287,10 +310,18 @@ class FootageBackend:
         if len(parts) != 2:
             return None
         try:
-            start = datetime.strptime(parts[1], "%Y%m%d-%H%M%S").replace(
-                tzinfo=timezone.utc)
+            stamped = datetime.strptime(parts[1], "%Y%m%d-%H%M%S")
         except ValueError:
             return None
+
+        # That stamp is the SITE's local time — `Recorder._open` writes
+        # `self.clock.local(...)`. Reading it as UTC files every recording by
+        # the timezone offset, so a clip made at midnight in Cairo is looked
+        # for at 3am and never found. The sidecar files are the opposite: they
+        # say `started_utc` and mean it.
+        offset = self.clock.offset_minutes(
+            stamped.replace(tzinfo=timezone.utc)) if self.clock else 0
+        start = stamped.replace(tzinfo=timezone.utc) - timedelta(minutes=offset)
         seconds = _duration_of(clip)
         if seconds <= 0:
             return None
@@ -319,8 +350,8 @@ class FootageBackend:
         if not held:
             return (
                 f"There is no recorded video for this camera at all, so "
-                f"nothing can be played back from {asked}. Footage goes in "
-                f"{self.directory}."
+                f"nothing can be played back from {asked}. Recordings go in "
+                f"{self.recordings or self.directory}."
             )
 
         spans = ", ".join(
@@ -406,10 +437,10 @@ class DvrBackend:
         return into
 
 
-def backend_for(config, footage_dir: Path, clock=None):
+def backend_for(config, footage_dir: Path, clock=None, recordings_dir=None):
     """The archive seam, chosen by config. Never guessed at."""
     if config.backend == "footage":
-        return FootageBackend(footage_dir, clock)
+        return FootageBackend(footage_dir, clock, recordings_dir)
     if not config.playback_url:
         raise ArchiveUnavailable(
             "The dvr backend has no `archive.playback_url`, so there is "

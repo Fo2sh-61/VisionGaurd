@@ -52,7 +52,7 @@ import {
 } from '@/services/api';
 import { formatLongDate, formatTime } from '@/services/format';
 import type * as W from '@/services/wire';
-import type { Camera } from '@/types';
+import type { Camera, DetectionBox } from '@/types';
 
 /* ---------- evidence colours ----------
  *
@@ -154,6 +154,14 @@ function LiveMode({ cameras }: { cameras: Camera[] }) {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
+  // The bodies the frame is currently drawing, in the same percentages it
+  // draws them at. Kept so the pointer can tell whether it is over a person:
+  // a crosshair that never changes gives no clue whether a click will land on
+  // somebody or on the floor beside them, and clicking the floor is the one
+  // failure this screen has.
+  const [boxes, setBoxes] = useState<DetectionBox[]>([]);
+  const [hovered, setHovered] = useState<DetectionBox | null>(null);
+
   /* The engine holds the session; this only catches up with it. In particular
    * a follow that ENDED server-side — the timer ran out, the track was lost —
    * arrives through this poll, which is the only way a browser that never
@@ -181,14 +189,33 @@ function LiveMode({ cameras }: { cameras: Camera[] }) {
     if (next) setWatching(next);
   }, [follow, cameras, watching?.id]);
 
+  /** The smallest body under a point, so somebody standing in front of a
+   *  larger box is picked rather than the crowd behind them. Mirrors the
+   *  engine's own hit test, which is what makes the ring honest: what
+   *  highlights here is what gets followed there. */
+  const bodyAt = (x: number, y: number): DetectionBox | null => {
+    const hits = boxes.filter(
+      (b) =>
+        x * 100 >= b.x && x * 100 <= b.x + b.w && y * 100 >= b.y && y * 100 <= b.y + b.h,
+    );
+    if (hits.length === 0) return null;
+    return hits.reduce((a, b) => (a.w * a.h <= b.w * b.h ? a : b));
+  };
+
+  const fractions = (event: React.MouseEvent<HTMLDivElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    return {
+      x: (event.clientX - rect.left) / rect.width,
+      y: (event.clientY - rect.top) / rect.height,
+    };
+  };
+
   const click = async (event: React.MouseEvent<HTMLDivElement>, camera: Camera) => {
     // Fractions of the tile, which is also how the boxes over it are
     // positioned. Matching the overlay is what matters: the operator is
     // clicking a body they can see outlined, so the click has to use the same
     // frame of reference the outline was drawn in.
-    const rect = event.currentTarget.getBoundingClientRect();
-    const x = (event.clientX - rect.left) / rect.width;
-    const y = (event.clientY - rect.top) / rect.height;
+    const { x, y } = fractions(event);
     if (x < 0 || x > 1 || y < 0 || y > 1) return;
 
     setBusy(true);
@@ -294,8 +321,26 @@ function LiveMode({ cameras }: { cameras: Camera[] }) {
           </div>
 
           <div
-            onClick={(e) => void click(e, watching)}
-            style={{ cursor: busy ? 'progress' : 'crosshair' }}
+            onClick={active ? undefined : (e) => void click(e, watching)}
+            onMouseMove={
+              active
+                ? undefined
+                : (e) => {
+                    const { x, y } = fractions(e);
+                    setHovered(bodyAt(x, y));
+                  }
+            }
+            onMouseLeave={() => setHovered(null)}
+            style={{
+              position: 'relative',
+              cursor: active
+                ? 'default'
+                : busy
+                  ? 'progress'
+                  : hovered
+                    ? 'pointer'
+                    : 'crosshair',
+            }}
             role="presentation"
           >
             <CameraFrame
@@ -303,9 +348,39 @@ function LiveMode({ cameras }: { cameras: Camera[] }) {
               size="lg"
               live
               feature="track"
+              onBoxes={setBoxes}
               badge={active?.recording?.state === 'recording' ? 'Recording' : 'LIVE'}
             />
+
+            {/* What you are about to follow, marked before you commit to it.
+                Positioned from the same numbers the frame drew the box with,
+                so the ring cannot drift away from the body it describes. */}
+            {hovered && !active && (
+              <div
+                style={{
+                  position: 'absolute',
+                  left: `${hovered.x}%`,
+                  top: `${hovered.y}%`,
+                  width: `${hovered.w}%`,
+                  height: `${hovered.h}%`,
+                  border: '2px solid #fff',
+                  borderRadius: 4,
+                  boxShadow: '0 0 0 2px rgba(0,0,0,.45)',
+                  pointerEvents: 'none',
+                }}
+              />
+            )}
           </div>
+
+          {!active && (
+            <div style={{ fontSize: 12, color: 'var(--tx3)', marginTop: 6 }}>
+              {boxes.length === 0
+                ? 'Nobody is being tracked on this camera right now. Step into view.'
+                : hovered
+                  ? 'Click to follow this person.'
+                  : `${boxes.length} ${boxes.length === 1 ? 'person' : 'people'} in view — hover one to pick them out.`}
+            </div>
+          )}
 
           {active && <RecordPanel follow={active} busy={busy} act={act} />}
 
