@@ -50,12 +50,17 @@ import numpy as np
 
 log = logging.getLogger(__name__)
 
-#: Colours burnt into a chunk. The same meanings as everywhere else: amber is
-#: a body nobody has identified, blue is "the same body", green is a face.
-#: BGR, because that is what OpenCV draws in.
+#: Colours burnt into a chunk, with the same meanings as everywhere else:
+#: amber is a body nobody has identified, blue is "the same body as the one
+#: you clicked". BGR, because that is what OpenCV draws in.
+#:
+#: There is deliberately no green here. Green means a face was recognised, and
+#: nothing in this pipeline looks at a face — it detects bodies and compares
+#: how they look. A green constant sitting in this file would eventually get
+#: used for "the one being followed", and that is exactly how a clothing match
+#: starts reading as an identification.
 AMBER = (63, 162, 223)
 BLUE = (216, 155, 91)
-GREEN = (116, 143, 63)
 
 #: How alike two bodies have to look before the system will say "the same
 #: one". The live appearance stitcher uses 0.72 within a camera; across
@@ -549,17 +554,48 @@ class ArchiveRunner:
         height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
         writer = _writer(out, fps, width, height)
 
+        signer = matcher = None
+        if job.descriptor is not None:
+            from loiterwatch.identity import BodySignature, similarity
+
+            signer, matcher = BodySignature(), similarity
+
         try:
             while True:
                 ok, frame = capture.read()
                 if not ok:
                     break
+
+                marked = None
+                best = 0.0
+                boxes = []
                 for person in self.detector.detect(frame):
-                    x = int(person.x * width)
-                    y = int(person.y * height)
-                    w = int(person.w * width)
-                    h = int(person.h * height)
-                    cv2.rectangle(frame, (x, y), (x + w, y + h), AMBER, 2)
+                    box = (
+                        int(person.x * width), int(person.y * height),
+                        int(person.w * width), int(person.h * height),
+                    )
+                    boxes.append(box)
+                    if signer is None:
+                        continue
+                    signature = signer.signature(
+                        frame, (box[0], box[1], box[0] + box[2], box[1] + box[3]))
+                    if signature is None:
+                        continue
+                    score = matcher(job.descriptor, signature, use_shape=False)
+                    if score is not None and score >= self.body_threshold and score > best:
+                        best, marked = score, box
+
+                for box in boxes:
+                    x, y, w, h = box
+                    # BLUE for the body being followed, AMBER for everybody
+                    # else. Never green: green means a face was recognised, and
+                    # nothing here has looked at a face. Drawing this one green
+                    # because it is the one being followed is precisely how a
+                    # clothing match starts reading as an identification.
+                    colour = BLUE if box == marked else AMBER
+                    cv2.rectangle(frame, (x, y), (x + w, y + h), colour,
+                                  3 if box == marked else 2)
+
                 if writer is not None:
                     writer.write(frame)
         finally:

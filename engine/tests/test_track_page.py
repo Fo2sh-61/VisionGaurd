@@ -2147,3 +2147,50 @@ def _make_clip(path: Path, frames: int = 3, size: int = 256) -> None:
             writer.write(frame)
     finally:
         writer.release()
+
+
+class TestWhatGetsDrawnOnAChunk:
+    """The burn-in is evidence, so what it claims has to be exactly true."""
+
+    def test_there_is_no_green_to_draw_with(self):
+        # Green means a face was recognised. Nothing in the chunk pipeline
+        # looks at a face — it detects bodies and compares how they look — so
+        # a green constant in that module would eventually get used for "the
+        # one being followed", which is how a clothing match starts reading as
+        # an identification.
+        from vg.ingest import archive
+
+        assert hasattr(archive, "AMBER") and hasattr(archive, "BLUE")
+        assert not hasattr(archive, "GREEN"), (
+            "no colour in the archive pipeline may mean 'identified'"
+        )
+
+    def test_a_leg_with_no_descriptor_marks_nobody_out(self, tmp_path):
+        # Without something to match against, every body is amber. Picking one
+        # to highlight would be picking one to accuse.
+        from vg.ingest.archive import ArchiveRunner
+
+        runner = ArchiveRunner(FakeSource(), tmp_path, chunk_seconds=10.0,
+                               workers=1, detector=None)
+        try:
+            job = drain(runner, runner.submit("cam-a", at(0), at(10)))
+            assert job.state == "done"
+            assert job.descriptor is None
+        finally:
+            runner.stop()
+
+    def test_the_matched_body_is_blue_and_the_rest_amber(self, tmp_path):
+        # Drawn straight, without the runner, so the assertion is about the
+        # pixels rather than about threading.
+        import cv2
+        import numpy as np
+
+        from vg.ingest.archive import AMBER, BLUE
+
+        frame = np.zeros((120, 200, 3), dtype=np.uint8)
+        cv2.rectangle(frame, (10, 10), (50, 90), AMBER, 2)
+        cv2.rectangle(frame, (120, 10), (160, 90), BLUE, 3)
+
+        assert tuple(int(v) for v in frame[10, 30]) == AMBER
+        assert tuple(int(v) for v in frame[10, 140]) == BLUE
+        assert AMBER != BLUE, "the two have to be distinguishable on screen"
