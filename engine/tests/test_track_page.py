@@ -1816,3 +1816,334 @@ class TestTheMeasurementTool:
 
         assert module.SWEEP_BUDGET_SECONDS == 15 * 60
         assert module.DEFAULT_SECONDS >= 60
+
+
+# ===========================================================================
+# US4 — strangers, and the wide net
+#
+# Two things with teeth here. A sweep states its cost before it runs and is
+# refused when the sum is over budget, so nobody watches a progress bar for an
+# hour. And a body followed by how it looks NEVER acquires a name, however
+# well the system knows that person — because clothing matching is evidence
+# about continuity and a name is a claim about identity.
+# ===========================================================================
+
+from vg.ingest.archive import SweepJob as RunnerSweep, segments_of
+
+
+class TestWhatASweepIs:
+    def test_the_work_is_listed_before_any_of_it_runs(self):
+        # A sweep's cost is this list times the cost of one piece, which is
+        # what makes the estimate arithmetic instead of a guess.
+        work = segments_of(["cam-a", "cam-b"], at(0), at(60), 30.0)
+        assert len(work) == 4
+        assert work[0] == ("cam-a", at(0), at(30))
+        assert work[-1] == ("cam-b", at(30), at(60))
+
+    def test_a_ragged_end_is_still_covered(self):
+        work = segments_of(["cam-a"], at(0), at(70), 30.0)
+        assert [(s, e) for _c, s, e in work] == [
+            (at(0), at(30)), (at(30), at(60)), (at(60), at(70)),
+        ]
+
+    def test_camera_hours_is_cameras_times_hours(self):
+        job = RunnerSweep(id="j", cameras=["a", "b", "c"], start=at(0), end=at(3600))
+        assert job.camera_hours == pytest.approx(3.0)
+
+
+class TestSweepEstimates:
+    @pytest.fixture
+    def sweep_app(self, user_store, tmp_path):
+        from vg import config as vgconfig
+        from vg.api import app as app_module
+        from vg.api.app import create_app
+        from vg.api.live import LiveStore
+        from vg.ingest.registry import CameraRegistry
+
+        tmp = tempfile.TemporaryDirectory()
+        root = Path(tmp.name)
+        gallery = FaceGallery(root / "g.db", model=MODEL, threshold=0.363)
+        gallery.add_person("p-layla", "Layla Ahmed")
+        gallery.add_embedding("p-layla", unit("p-layla"), MODEL)
+        anchors = AnchorStore(root / "a.db", clock=CAIRO)
+
+        hits: list = []
+
+        def finder(clip, camera_id, at_, person_id):
+            return list(hits)
+
+        runner = ArchiveRunner(
+            FakeSource(), tmp_path, chunk_seconds=30.0, workers=1, finder=finder)
+        store = LiveStore(
+            config=vgconfig.load(), registry=CameraRegistry([]),
+            gallery=gallery, anchors=anchors, archive=runner,
+        )
+        app_module.set_store(store)
+        application = create_app()
+        application.state.users = user_store
+        try:
+            yield application, anchors, runner, hits
+        finally:
+            app_module.set_store(MockStore())
+            runner.stop()
+            anchors.close()
+            gallery.close()
+            tmp.cleanup()
+
+    def ask(self, minutes_wide=10, cameras=("cam-laptop",)):
+        return {
+            "person": "Layla Ahmed",
+            "start": at(0).isoformat(),
+            "end": at(minutes_wide * 60).isoformat(),
+            "cameraIds": list(cameras),
+        }
+
+    def test_unmeasured_is_refused_and_says_why(self, sweep_app, authed):
+        app, _, _, _ = sweep_app
+        reply = authed(app).post("/path/sweep/estimate", json=self.ask())
+
+        assert reply.status_code == 200, "an estimate is an answer, not an error"
+        body = reply.json()
+        assert body["allowed"] is False
+        assert "measured" in body["reason"].lower()
+        assert body["measuredAt"] is None
+
+    def test_a_measurement_produces_the_arithmetic(self, sweep_app, authed):
+        app, anchors, _, _ = sweep_app
+        anchors.set_rates(fetch_x=8.0, process_fps=60.0)
+
+        body = authed(app).post("/path/sweep/estimate", json=self.ask()).json()
+        assert body["allowed"] is True
+        assert body["cameras"] == 1
+        assert body["cameraHours"] == pytest.approx(10 / 60, rel=0.01)
+        assert body["seconds"] > 0
+        assert body["measuredAt"] is not None
+
+    def test_too_big_is_refused_with_the_sum(self, sweep_app, authed):
+        app, anchors, _, _ = sweep_app
+        anchors.set_rates(fetch_x=1.0, process_fps=5.0)
+
+        body = authed(app).post(
+            "/path/sweep/estimate", json=self.ask(minutes_wide=600)).json()
+        assert body["allowed"] is False
+        assert "minutes" in body["reason"]
+        assert "narrow the window" in body["reason"].lower()
+
+    def test_running_an_unaffordable_sweep_422s(self, sweep_app, authed):
+        app, anchors, _, _ = sweep_app
+        anchors.set_rates(fetch_x=1.0, process_fps=5.0)
+
+        reply = authed(app).post("/path/sweep", json=self.ask(minutes_wide=600))
+        # 422, not 400: the request was understood perfectly. It is the amount
+        # of work that is refused, and the reason carries the arithmetic.
+        assert reply.status_code == 422
+        assert "minutes" in reply.json()["detail"]
+
+    def test_an_unmeasured_sweep_cannot_be_run_at_all(self, sweep_app, authed):
+        app, _, _, _ = sweep_app
+        assert authed(app).post("/path/sweep", json=self.ask()).status_code == 422
+
+    def test_an_estimate_looks_at_nobody_and_is_not_audited(self, sweep_app, authed):
+        # Finding out whether a question is affordable is not asking it.
+        app, anchors, _, _ = sweep_app
+        anchors.set_rates(fetch_x=8.0, process_fps=60.0)
+
+        client = authed(app)
+        client.post("/path/sweep/estimate", json=self.ask())
+        assert not any(
+            e["action"].startswith("path.sweep")
+            for e in client.get("/audit").json()
+        )
+
+    def test_an_unknown_area_404s(self, sweep_app, authed):
+        app, anchors, _, _ = sweep_app
+        anchors.set_rates(8.0, 60.0)
+        ask = self.ask()
+        ask["cameraIds"] = []
+        ask["areas"] = ["Atlantis"]
+
+        reply = authed(app).post("/path/sweep/estimate", json=ask)
+        assert reply.status_code == 404
+        assert "Atlantis" in reply.json()["detail"]
+
+
+class TestSweepsRun:
+    @pytest.fixture
+    def sweep_app(self, user_store, tmp_path, request):
+        yield from TestSweepEstimates.sweep_app.__wrapped__(
+            self, user_store, tmp_path)
+
+    def ask(self, **kw):
+        return TestSweepEstimates.ask(self, **kw)
+
+    def test_it_audits_before_it_looks_at_anybody(self, sweep_app, authed):
+        app, anchors, runner, _ = sweep_app
+        anchors.set_rates(fetch_x=8.0, process_fps=60.0)
+        client = authed(app)
+
+        started = client.post("/path/sweep", json=self.ask(minutes_wide=1))
+        assert started.status_code == 200, started.text
+
+        entries = client.get("/audit").json()
+        assert any(e["action"] == "path.sweep" for e in entries)
+        assert any(e["subject"] == "Layla Ahmed" for e in entries)
+
+    def test_progress_advances_and_hits_arrive(self, sweep_app, authed):
+        app, anchors, runner, hits = sweep_app
+        anchors.set_rates(fetch_x=8.0, process_fps=60.0)
+        hits.append(anchor(camera="cam-laptop"))
+
+        client = authed(app)
+        started = client.post("/path/sweep", json=self.ask(minutes_wide=1)).json()
+        job = runner.sweep(started["job"]["id"])
+
+        import time as _time
+
+        deadline = _time.monotonic() + 10
+        while _time.monotonic() < deadline and job.state == "running":
+            _time.sleep(0.02)
+
+        body = client.get(f"/path/sweep/{started['job']['id']}").json()
+        assert body["segmentsTotal"] == 2
+        assert body["job"]["progress"] == pytest.approx(1.0)
+        assert body["hits"], "the finder's hits reach the wire"
+        assert body["hits"][0]["cameraId"] == "cam-laptop"
+        assert body["hits"][0]["match"] == "face"
+        assert body["hits"][0]["matches"] == 5
+
+    def test_stopping_says_stopped_not_finished(self, sweep_app, authed):
+        app, anchors, runner, _ = sweep_app
+        anchors.set_rates(fetch_x=8.0, process_fps=60.0)
+        client = authed(app)
+
+        started = client.post("/path/sweep", json=self.ask(minutes_wide=5)).json()
+        stopped = client.delete(f"/path/sweep/{started['job']['id']}")
+
+        assert stopped.status_code == 200
+        # A cancelled sweep found what it found. Reporting it as a plain
+        # completion would say it looked everywhere, which it did not.
+        assert stopped.json()["job"]["error"] == "stopped"
+        assert any(
+            e["action"] == "path.sweep.stop" for e in client.get("/audit").json())
+
+    def test_an_unknown_sweep_404s(self, sweep_app, authed):
+        app, _, _, _ = sweep_app
+        assert authed(app).get("/path/sweep/nosuch").status_code == 404
+
+    def test_an_unknown_person_404s(self, sweep_app, authed):
+        app, anchors, _, _ = sweep_app
+        anchors.set_rates(8.0, 60.0)
+        ask = self.ask()
+        ask["person"] = "Nobody At All"
+        assert authed(app).post("/path/sweep", json=ask).status_code == 404
+
+    def test_it_is_open_to_the_it_role(self, sweep_app, authed):
+        app, anchors, _, _ = sweep_app
+        anchors.set_rates(8.0, 60.0)
+        assert authed(app, role="it").post(
+            "/path/sweep", json=self.ask(minutes_wide=1)).status_code == 200
+
+
+class TestASweepNeedsSomethingToLookFor:
+    def test_without_recognition_it_refuses_rather_than_finding_nobody(self, tmp_path):
+        # Finding nobody and being unable to look are different answers, and
+        # only one of them means "they were not there".
+        runner = ArchiveRunner(FakeSource(), tmp_path, workers=1, finder=None)
+        try:
+            with pytest.raises(ArchiveUnavailable) as raised:
+                runner.submit_sweep(["cam-a"], at(0), at(60))
+            assert "face recognition is not running" in str(raised.value).lower()
+        finally:
+            runner.stop()
+
+
+class TestAStrangerNeverGetsAName:
+    def test_a_clicked_body_yields_a_description_and_no_identity(self, tmp_path):
+        from vg.ingest.archive import descriptor_at
+
+        class OneBody:
+            def detect(self, image, min_area=0.0):
+                class Person:
+                    x, y, w, h = 0.2, 0.05, 0.4, 0.9
+                return [Person()]
+
+        clip = tmp_path / "chunk.mp4"
+        _make_clip(clip, size=256)
+
+        result = descriptor_at(clip, 0.3, 0.4, OneBody())
+        assert result is not None, "a body big enough to describe was clicked"
+        signature, box = result
+        assert len(box) == 4
+        assert all(0.0 <= v <= 1.0 for v in box), "fractions, never pixels"
+
+        # The whole point: what comes back describes how somebody LOOKS. There
+        # is no id and no name on it, and nothing downstream can invent one —
+        # which is what keeps a clothing match from ever reading as a
+        # recognition.
+        assert not hasattr(signature, "person_id")
+        assert not hasattr(signature, "name")
+
+    def test_a_click_on_nothing_yields_nothing(self, tmp_path):
+        from vg.ingest.archive import descriptor_at
+
+        class NoBodies:
+            def detect(self, image, min_area=0.0):
+                return []
+
+        clip = tmp_path / "chunk.mp4"
+        _make_clip(clip)
+        assert descriptor_at(clip, 0.5, 0.5, NoBodies()) is None
+
+    def test_a_stranger_leg_carries_no_person(self):
+        # The wire shape itself refuses to name a stranger: a descriptor leg
+        # is built with personId None, and there is no path from a descriptor
+        # to an id anywhere in the request.
+        from vg.api import schemas as S
+
+        req = S.LegRequest(
+            camera_id="cam-a", start=at(0), end=at(30),
+            descriptor_of=S.ChunkPoint(job_id="j1", chunk=0, x=0.4, y=0.5),
+        )
+        assert req.person_id is None
+        assert "person" not in S.ChunkPoint.model_fields
+
+    def test_appearance_hits_stay_appearance_on_the_wire(self):
+        from vg.api import schemas as S
+
+        # A stop found by clothing is APPEARANCE and the UI colours it blue.
+        # It must never arrive as FACE, whatever else is known about them.
+        stop = S.TrackStop(
+            at=S.Instant(utc=at(0)), camera_id="cam-a", camera_name="A",
+            place="Hall", match=S.MatchKind.APPEARANCE, confidence=0.9,
+        )
+        assert stop.match == S.MatchKind.APPEARANCE
+
+
+def _make_clip(path: Path, frames: int = 3, size: int = 256) -> None:
+    """A small playable mp4, so a test needs no fixture video.
+
+    Deliberately not flat black: a colour signature refuses a region with too
+    few usable pixels, so a uniform frame would make every one of these tests
+    pass for the wrong reason.
+    """
+    import cv2
+
+    writer = None
+    for code in ("avc1", "mp4v"):
+        writer = cv2.VideoWriter(
+            str(path), cv2.VideoWriter_fourcc(*code), 5.0, (size, size))
+        if writer.isOpened():
+            break
+        writer.release()
+        writer = None
+    if writer is None:
+        pytest.skip("no usable video encoder on this machine")
+
+    frame = np.zeros((size, size, 3), dtype=np.uint8)
+    frame[: size // 2, :] = (40, 90, 200)   # a red-ish top half
+    frame[size // 2:, :] = (180, 120, 40)   # a blue-ish bottom half
+    try:
+        for _ in range(frames):
+            writer.write(frame)
+    finally:
+        writer.release()

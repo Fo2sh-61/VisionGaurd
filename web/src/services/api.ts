@@ -616,6 +616,32 @@ export async function correctIdentity(stableId: string): Promise<void> {
   await post<void>(`/tracking/${encodeURIComponent(stableId)}/correct`);
 }
 
+/* ---------- sweeping a window ---------- */
+
+/** What that sweep would cost. Nothing runs and nobody is looked at, which is
+ *  why this one is not audited. */
+export const estimateSweep = (req: W.SweepRequest) =>
+  post<W.SweepEstimate>('/path/sweep/estimate', req);
+
+/** Run it. 422 when the same estimate says it is too big — the message
+ *  carries the arithmetic, so the operator can narrow the window. */
+export const startSweep = (req: W.SweepRequest) => post<W.SweepJob>('/path/sweep', req);
+
+export const getSweep = (jobId: string) =>
+  get<W.SweepJob>(`/path/sweep/${encodeURIComponent(jobId)}`);
+
+/** Stop it. Stopped means stopped: the hits so far are what it found, never
+ *  presented as everything there was. */
+export const stopSweep = (jobId: string) =>
+  del<W.SweepJob>(`/path/sweep/${encodeURIComponent(jobId)}`);
+
+/** Follow a body clicked in a chunk onto other cameras. Every hit comes back
+ *  as APPEARANCE and carries no name — clothing is not an identification. */
+export const followStranger = (
+  point: { jobId: string; chunk: number; x: number; y: number },
+  sweep: W.SweepRequest,
+) => post<W.SweepJob>('/path/sweep/stranger', { point, sweep });
+
 /* ---------- the video behind a stop ---------- */
 
 /** Queue the recorded video for one stop. Returns straight away with a job. */

@@ -80,6 +80,15 @@ class AlreadyBusy(RuntimeError):
     """Something is already doing this — 409. The message names what."""
 
 
+class NotAffordable(ValueError):
+    """More work than the budget allows — 422, with the arithmetic.
+
+    Distinct from `AlreadyBusy` on purpose: "come back in a minute" and
+    "narrow your question" are different instructions, and only one of them
+    is worth the operator's time to follow.
+    """
+
+
 class Store(Protocol):
     """Everything the API needs. Implement this to go live."""
 
@@ -108,6 +117,14 @@ class Store(Protocol):
         self, person: str, on: str, actor: str,
         start: str | None = None, end: str | None = None,
     ) -> S.PathSkeleton: ...
+
+    def sweep_estimate(self, req: S.SweepRequest) -> S.SweepEstimate: ...
+    def start_sweep(self, req: S.SweepRequest, actor: str) -> S.SweepJob: ...
+    def follow_stranger(
+        self, point: S.ChunkPoint, req: S.SweepRequest, actor: str
+    ) -> S.SweepJob: ...
+    def sweep(self, job_id: str) -> S.SweepJob: ...
+    def stop_sweep(self, job_id: str, actor: str) -> S.SweepJob: ...
 
     def start_leg(self, req: S.LegRequest, actor: str) -> S.LegJob: ...
     def leg(self, job_id: str) -> S.LegJob: ...
@@ -624,6 +641,30 @@ class MockStore:
 
     def leg_chunk(self, job_id: str, index: int):
         return None, self.NO_ARCHIVE
+
+    def sweep_estimate(self, req: S.SweepRequest) -> S.SweepEstimate:
+        # An estimate with no measurement behind it is the one number this
+        # feature must never invent, and demo mode has no machine to measure.
+        return S.SweepEstimate(
+            seconds=0.0, camera_hours=0.0, cameras=0, allowed=False,
+            reason=("Demo mode has no recorded video to sweep and no measured "
+                    "speeds to estimate from."),
+        )
+
+    def start_sweep(self, req: S.SweepRequest, actor: str) -> S.SweepJob:
+        self._log(actor, "path.sweep", req.person, "demo mode")
+        raise SubsystemUnavailable(self.NO_ARCHIVE)
+
+    def follow_stranger(self, point: S.ChunkPoint, req: S.SweepRequest,
+                        actor: str) -> S.SweepJob:
+        self._log(actor, "path.sweep", "an unidentified person", "demo mode")
+        raise SubsystemUnavailable(self.NO_ARCHIVE)
+
+    def sweep(self, job_id: str) -> S.SweepJob:
+        raise SubsystemUnavailable(self.NO_ARCHIVE)
+
+    def stop_sweep(self, job_id: str, actor: str) -> S.SweepJob:
+        raise SubsystemUnavailable(self.NO_ARCHIVE)
 
     # -- following one person, live -----------------------------------------
 

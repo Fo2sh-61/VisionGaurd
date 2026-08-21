@@ -36,14 +36,19 @@ import { Card, DataNotice, Empty, PageHeader } from '@/components/ui';
 import { ApiError } from '@/services/http';
 import {
   endFollow,
+  estimateSweep,
+  followStranger,
   getFollow,
   getLeg,
   getPathSkeleton,
+  getSweep,
   legChunkUrl,
   startFollow,
   startFollowRecording,
   startLeg,
+  startSweep,
   stopFollowRecording,
+  stopSweep,
 } from '@/services/api';
 import { formatLongDate, formatTime } from '@/services/format';
 import type * as W from '@/services/wire';
@@ -57,7 +62,7 @@ const FACE = '#3f8f74';
 const CLOTH = '#5b9bd8';
 const UNKNOWN = '#dfa23f';
 
-type Mode = 'live' | 'past';
+type Mode = 'live' | 'past' | 'find';
 
 /** How often the follow is re-read. The engine is the only thing that knows
  *  where the person is; this is just how quickly the screen catches up. */
@@ -109,22 +114,29 @@ export function TrackPerson() {
       <DataNotice capability={capability} />
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-        {(['live', 'past'] as Mode[]).map((m) => (
+        {(['live', 'past', 'find'] as Mode[]).map((m) => (
           <button
             key={m}
             type="button"
             className={`chip-btn ${mode === m ? 'chip-btn--on' : 'chip-btn--off'}`}
             onClick={() => setMode(m)}
           >
-            {m === 'live' ? 'Catch someone now' : 'Where did they go'}
+            {m === 'live'
+              ? 'Catch someone now'
+              : m === 'past'
+                ? 'Where did they go'
+                : 'Search the footage'}
           </button>
         ))}
       </div>
 
-      {mode === 'live' ? (
-        <LiveMode cameras={cameras} />
-      ) : (
-        <PastMode people={people} today={today} />
+      {mode === 'live' && <LiveMode cameras={cameras} />}
+      {mode === 'past' && <PastMode people={people} today={today} />}
+      {mode === 'find' && (
+        <>
+          <BrowseFootage cameras={cameras} today={today} />
+          <SweepPanel cameras={cameras} people={people} today={today} />
+        </>
       )}
 
       <Legend />
@@ -803,7 +815,18 @@ const LEG_POLL_MS = 1_500;
  *  the expected wait ONLY when the machine has actually been measured. With no
  *  measurement it says so and names the tool, rather than inventing a number
  *  that reads exactly like a real one. */
-function LegPlayer({ leg, onClose }: { leg: W.LegJob; onClose: () => void }) {
+function LegPlayer({
+  leg,
+  onClose,
+  onPickBody,
+}: {
+  leg: W.LegJob;
+  onClose: () => void;
+  /** Set on the footage-browsing view: clicking a body follows it onto other
+   *  cameras. Absent everywhere else, because clicking a body inside somebody
+   *  else's path is not a question anybody is asking there. */
+  onPickBody?: (point: { jobId: string; chunk: number; x: number; y: number }) => void;
+}) {
   const [job, setJob] = useState<W.LegJob>(leg);
   const [piece, setPiece] = useState(0);
   const [failed, setFailed] = useState('');
@@ -876,6 +899,22 @@ function LegPlayer({ leg, onClose }: { leg: W.LegJob; onClose: () => void }) {
             controls
             autoPlay
             onEnded={next}
+            onClick={
+              onPickBody
+                ? (e) => {
+                    // Fractions of the frame, the same units the outlines
+                    // were burnt in at, so a click lands on the body the
+                    // operator can see marked.
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    onPickBody({
+                      jobId: job.job.id,
+                      chunk: piece,
+                      x: (e.clientX - rect.left) / rect.width,
+                      y: (e.clientY - rect.top) / rect.height,
+                    });
+                  }
+                : undefined
+            }
             onError={() =>
               setFailed('That piece of video would not play. It may have been replaced.')
             }
@@ -884,8 +923,15 @@ function LegPlayer({ leg, onClose }: { leg: W.LegJob; onClose: () => void }) {
               borderRadius: 10,
               background: '#000',
               display: 'block',
+              cursor: onPickBody ? 'crosshair' : undefined,
             }}
           />
+          {onPickBody && (
+            <div style={{ fontSize: 12, color: 'var(--tx3)', marginTop: 6 }}>
+              Pause where you can see them, then click the person to follow that body
+              onto the other cameras.
+            </div>
+          )}
           <div
             style={{
               display: 'flex',
@@ -1049,5 +1095,433 @@ function Legend() {
         </div>
       ))}
     </div>
+  );
+}
+
+/* =========================================================================
+ * Sweeping a window, and following somebody who was never enrolled
+ * ========================================================================= */
+
+const SWEEP_POLL_MS = 2_000;
+
+/** The wide net.
+ *
+ *  The rule this panel exists to keep: the cost is stated before anything
+ *  runs, and the run button does not work until the arithmetic says it is
+ *  affordable. An operator should never discover a fifteen-minute wait by
+ *  starting it. */
+function SweepPanel({
+  cameras,
+  people,
+  today,
+}: {
+  cameras: Camera[];
+  people: string[];
+  today: string;
+}) {
+  const [who, setWho] = useState('');
+  const [date, setDate] = useState(today);
+  const [from, setFrom] = useState('07:00');
+  const [to, setTo] = useState('08:00');
+  const [area, setArea] = useState('');
+  const [estimate, setEstimate] = useState<W.SweepEstimate | null>(null);
+  const [job, setJob] = useState<W.SweepJob | null>(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const areas = useMemo(() => {
+    const named = new Set<string>();
+    for (const cam of cameras) if (cam.area) named.add(cam.area);
+    return [...named].sort();
+  }, [cameras]);
+
+  const request = (): W.SweepRequest => ({
+    person: who,
+    start: new Date(`${date}T${from}:00`).toISOString(),
+    end: new Date(`${date}T${to}:00`).toISOString(),
+    areas: area ? [area] : [],
+  });
+
+  const windowOk = minutes(from) < minutes(to);
+
+  // Any change invalidates the estimate. Running against a stale one would be
+  // exactly the surprise the estimate exists to prevent.
+  useEffect(() => {
+    setEstimate(null);
+  }, [who, date, from, to, area]);
+
+  const price = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      setEstimate(await estimateSweep(request()));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not work out the cost.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const run = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      setJob(await startSweep(request()));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'That sweep would not start.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const running = job?.job.state === 'queued' || job?.job.state === 'running';
+  useEffect(() => {
+    if (!job || !running) return;
+    let alive = true;
+    const timer = setInterval(() => {
+      void getSweep(job.job.id)
+        .then((next) => {
+          if (alive) setJob(next);
+        })
+        .catch(() => {
+          /* a dropped poll leaves the hits already found on screen */
+        });
+    }, SWEEP_POLL_MS);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [job, running]);
+
+  return (
+    <Card>
+      <Step
+        n="2"
+        title="Or search a whole window"
+        sub="Slower, and it says how much slower before it starts."
+      />
+
+      <div className="row" style={{ gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr', gap: 10 }}>
+        <Labelled label="Person">
+          <input
+            list="sweep-people"
+            value={who}
+            onChange={(e) => setWho(e.target.value)}
+            placeholder="Name"
+          />
+          <datalist id="sweep-people">
+            {people.map((n) => (
+              <option key={n} value={n} />
+            ))}
+          </datalist>
+        </Labelled>
+        <Labelled label="Date">
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        </Labelled>
+        <Labelled label="From">
+          <input type="time" value={from} onChange={(e) => setFrom(e.target.value)} />
+        </Labelled>
+        <Labelled label="To">
+          <input type="time" value={to} onChange={(e) => setTo(e.target.value)} />
+        </Labelled>
+        <Labelled label="Where">
+          <select value={area} onChange={(e) => setArea(e.target.value)}>
+            <option value="">Everywhere</option>
+            {areas.map((a) => (
+              <option key={a} value={a}>
+                {a}
+              </option>
+            ))}
+          </select>
+        </Labelled>
+      </div>
+
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 12 }}>
+        <button
+          type="button"
+          className="chip-btn chip-btn--off"
+          disabled={!who || !windowOk || busy}
+          onClick={() => void price()}
+        >
+          {busy && !estimate ? 'Working it out…' : 'What would this cost?'}
+        </button>
+        <button
+          type="button"
+          className="chip-btn chip-btn--on"
+          // Deliberately not enabled until the arithmetic has been seen AND
+          // says yes. Nobody starts a fifteen-minute wait by accident.
+          disabled={!estimate?.allowed || busy || running}
+          onClick={() => void run()}
+        >
+          Run the sweep
+        </button>
+      </div>
+
+      {!windowOk && (
+        <div style={{ fontSize: 12.5, color: 'var(--am)', marginTop: 8 }}>
+          The end of the window has to come after the start.
+        </div>
+      )}
+
+      {estimate && <EstimateLine estimate={estimate} />}
+      {error && <div style={{ fontSize: 12.5, color: 'var(--am)', marginTop: 8 }}>{error}</div>}
+
+      {job && (
+        <div style={{ marginTop: 14 }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              fontSize: 13,
+              flexWrap: 'wrap',
+            }}
+          >
+            <span style={{ fontWeight: 600 }}>
+              {running ? 'Searching…' : job.job.error === 'stopped' ? 'Stopped' : 'Finished'}
+            </span>
+            <span style={{ color: 'var(--tx2)' }}>
+              {job.segmentsDone} of {job.segmentsTotal} pieces · {job.hits.length}{' '}
+              {job.hits.length === 1 ? 'hit' : 'hits'}
+            </span>
+            {running && (
+              <button
+                type="button"
+                className="linkbtn"
+                onClick={() => void stopSweep(job.job.id).then(setJob)}
+              >
+                Stop
+              </button>
+            )}
+          </div>
+
+          {job.job.error === 'stopped' && (
+            <div style={{ fontSize: 12, color: 'var(--tx3)', marginTop: 4 }}>
+              These are the hits found before it was stopped, not everything there was.
+            </div>
+          )}
+
+          <div
+            style={{
+              height: 5,
+              borderRadius: 3,
+              background: 'var(--panel)',
+              margin: '8px 0',
+              overflow: 'hidden',
+            }}
+          >
+            <div
+              style={{
+                width: `${Math.round(job.job.progress * 100)}%`,
+                height: '100%',
+                background: 'var(--ac)',
+                transition: 'width .3s',
+              }}
+            />
+          </div>
+
+          {job.hits.length === 0 && !running ? (
+            <Empty>
+              Nobody matching was found on those cameras in that window. That is an
+              answer about what was recorded, not proof they were not there.
+            </Empty>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {job.hits.map((hit, i) => (
+                <div
+                  key={`${hit.cameraId}-${hit.at.utc}-${i}`}
+                  style={{ display: 'flex', alignItems: 'baseline', gap: 10, fontSize: 13 }}
+                >
+                  <span
+                    style={{
+                      width: 10,
+                      height: 10,
+                      borderRadius: hit.match === 'face' ? '50%' : 2,
+                      background: hit.match === 'face' ? FACE : CLOTH,
+                      flexShrink: 0,
+                    }}
+                  />
+                  <span style={{ fontWeight: 600, minWidth: 62 }}>{formatTime(hit.at)}</span>
+                  <span style={{ fontWeight: 600 }}>{hit.place}</span>
+                  <span style={{ color: 'var(--tx3)' }}>{hit.cameraName}</span>
+                  <span style={{ color: 'var(--tx3)', fontSize: 11.5, marginLeft: 'auto' }}>
+                    {hit.match === 'face'
+                      ? `${hit.matches} matches · best ${hit.score.toFixed(2)}`
+                      : `same body · ${hit.matches} looks`}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+/** The arithmetic, in words. Never a spinner, and never a number nobody
+ *  measured. */
+function EstimateLine({ estimate }: { estimate: W.SweepEstimate }) {
+  const tone = estimate.allowed ? 'var(--tx2)' : 'var(--am)';
+  return (
+    <div
+      style={{
+        marginTop: 10,
+        padding: '9px 13px',
+        borderRadius: 9,
+        fontSize: 12.5,
+        color: tone,
+        background: estimate.allowed ? 'var(--bg)' : 'var(--am-bg)',
+      }}
+    >
+      {estimate.allowed ? (
+        <>
+          About {Math.max(1, Math.round(estimate.seconds / 60))} minute
+          {estimate.seconds >= 120 ? 's' : ''} — {estimate.cameras}{' '}
+          {estimate.cameras === 1 ? 'camera' : 'cameras'}, {estimate.cameraHours.toFixed(2)}{' '}
+          camera-hours of video, at the speed this machine was measured at.
+        </>
+      ) : (
+        estimate.reason
+      )}
+    </div>
+  );
+}
+
+/** Open a camera's recorded video at a moment, so a person nobody enrolled
+ *  can be picked out of it. */
+function BrowseFootage({ cameras, today }: { cameras: Camera[]; today: string }) {
+  const [cameraId, setCameraId] = useState(cameras[0]?.id ?? '');
+  const [date, setDate] = useState(today);
+  const [time, setTime] = useState('12:00');
+  const [leg, setLeg] = useState<W.LegJob | null>(null);
+  const [hunt, setHunt] = useState<W.SweepJob | null>(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!cameraId && cameras[0]) setCameraId(cameras[0].id);
+  }, [cameras, cameraId]);
+
+  const open = async () => {
+    setBusy(true);
+    setError('');
+    setHunt(null);
+    try {
+      const start = new Date(`${date}T${time}:00`);
+      setLeg(
+        await startLeg({
+          cameraId,
+          start: start.toISOString(),
+          end: new Date(start.getTime() + 2 * 60_000).toISOString(),
+          personId: null,
+        }),
+      );
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'That footage could not be opened.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const follow = async (point: { jobId: string; chunk: number; x: number; y: number }) => {
+    setBusy(true);
+    setError('');
+    try {
+      const start = new Date(`${date}T${time}:00`);
+      setHunt(
+        await followStranger(point, {
+          person: '',
+          start: start.toISOString(),
+          end: new Date(start.getTime() + 10 * 60_000).toISOString(),
+        }),
+      );
+    } catch (err) {
+      setError(
+        err instanceof ApiError ? err.message : 'That body could not be followed.',
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card>
+      <Step
+        n="1"
+        title="Open a camera's recorded video"
+        sub="For somebody who was never enrolled: find them in the footage, then click them."
+      />
+
+      <div className="row" style={{ gridTemplateColumns: '2fr 1fr 1fr auto', gap: 10 }}>
+        <Labelled label="Camera">
+          <select value={cameraId} onChange={(e) => setCameraId(e.target.value)}>
+            {cameras.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+                {c.area ? ` · ${c.area}` : ''}
+              </option>
+            ))}
+          </select>
+        </Labelled>
+        <Labelled label="Date">
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        </Labelled>
+        <Labelled label="From">
+          <input type="time" value={time} onChange={(e) => setTime(e.target.value)} />
+        </Labelled>
+        <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+          <button
+            type="button"
+            className="chip-btn chip-btn--on"
+            disabled={!cameraId || busy}
+            onClick={() => void open()}
+          >
+            {busy ? 'Opening…' : 'Open footage'}
+          </button>
+        </div>
+      </div>
+
+      {error && <div style={{ fontSize: 12.5, color: 'var(--am)', marginTop: 8 }}>{error}</div>}
+
+      {leg && (
+        <div style={{ marginTop: 12 }}>
+          <LegPlayer leg={leg} onClose={() => setLeg(null)} onPickBody={follow} />
+        </div>
+      )}
+
+      {hunt && (
+        <div style={{ marginTop: 12 }}>
+          <div style={{ fontWeight: 700, fontSize: 14 }}>Where that body turns up</div>
+          <div style={{ fontSize: 12, color: 'var(--tx3)', margin: '2px 0 8px' }}>
+            Matched by clothing and build. That says the same body moved through — it
+            does not say who they are, and no name will appear here.
+          </div>
+          {hunt.hits.length === 0 ? (
+            <div style={{ fontSize: 12.5, color: 'var(--tx2)' }}>
+              {hunt.job.state === 'done'
+                ? 'Nothing that looks like them on the other cameras in that window.'
+                : `Looking… ${hunt.segmentsDone} of ${hunt.segmentsTotal} pieces.`}
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {hunt.hits.map((hit, i) => (
+                <div
+                  key={`${hit.cameraId}-${hit.at.utc}-${i}`}
+                  style={{ display: 'flex', alignItems: 'baseline', gap: 10, fontSize: 13 }}
+                >
+                  <span
+                    style={{ width: 10, height: 10, borderRadius: 2, background: CLOTH }}
+                  />
+                  <span style={{ fontWeight: 600, minWidth: 62 }}>{formatTime(hit.at)}</span>
+                  <span style={{ fontWeight: 600 }}>{hit.place}</span>
+                  <span style={{ color: 'var(--tx3)' }}>{hit.cameraName}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </Card>
   );
 }

@@ -31,6 +31,7 @@ from vg.api import schemas as S
 from vg.api.store import (
     AlreadyBusy,
     MockStore,
+    NotAffordable,
     NothingThere,
     Store,
     SubsystemUnavailable,
@@ -258,7 +259,8 @@ async def lifespan(app: FastAPI):
         # The archive runner. Its threads exist from here, but they do nothing
         # at all until somebody asks to watch a stop — an idle engine spends
         # nothing on this.
-        app.state.archive, app.state.archive_error = _start_archive(cfg, people)
+        app.state.archive, app.state.archive_error = _start_archive(
+            cfg, people, face=(face_pipeline, gallery))
 
         store = LiveStore(
             cfg, registry, gallery, sightings, recogniser, cameras, people,
@@ -553,7 +555,78 @@ def _database(cfg) -> Path:
     raw = Path(str(cfg.storage.database_url).replace("sqlite:///", ""))
     return raw if raw.is_absolute() else vgconfig.REPO_DIR / raw
 
-def _start_archive(cfg, people):
+def _face_finder(cfg, pipeline, gallery):
+    """What a sweep looks for in a fetched segment: a face, at the same bar.
+
+    The same `AnchorAccumulator` the live tiers use, applied to recorded
+    frames instead of a camera. That is the whole design: one bar for one
+    claim, so a hit found by sweeping a Tuesday means exactly what a stop on
+    a live path means, and the two can sit in the same list without one of
+    them being weaker than it looks.
+
+    Returns None when there is nothing to search with, so the runner can
+    refuse the sweep honestly rather than finding nobody and calling it an
+    answer.
+    """
+    if pipeline is None or gallery is None:
+        return None
+
+    import cv2
+
+    from vg.events.anchors import AnchorAccumulator, FaceMatch
+
+    def find(clip, camera_id, at, person_id):
+        camera = cfg.camera(camera_id)
+        gates = cfg.tracking.gates_for(camera) if camera else cfg.tracking.patrol
+        accumulator = AnchorAccumulator(gates)
+
+        capture = cv2.VideoCapture(str(clip))
+        if not capture.isOpened():
+            return []
+
+        fps = capture.get(cv2.CAP_PROP_FPS) or 15.0
+        found: dict[tuple, object] = {}
+        index = 0
+        try:
+            while True:
+                ok, frame = capture.read()
+                if not ok:
+                    break
+                # Every few frames, not every one. A sweep is looking for
+                # somebody being somewhere, and the gate already asks for
+                # looks spread over seconds — reading every frame would cost
+                # several times as much to answer the same question.
+                if index % max(1, int(fps / 2)) == 0:
+                    when = at + timedelta(seconds=index / fps)
+                    for observation in pipeline.observe(frame):
+                        match = gallery.match(observation.embedding, observation.model)
+                        if match.person is None:
+                            continue
+                        if person_id and match.person.id != person_id:
+                            continue
+                        anchor = accumulator.offer(camera_id, FaceMatch(
+                            person_id=match.person.id,
+                            score=match.score,
+                            runner_up=match.runner_up,
+                            face_px=int(min(observation.face.w, observation.face.h)),
+                            at=when,
+                            model=observation.model,
+                        ))
+                        if anchor is not None:
+                            # Keyed by run, so a person standing in front of
+                            # one camera is one hit that grows rather than a
+                            # column of near-identical rows.
+                            found[(anchor.person_id, anchor.started_at)] = anchor
+                index += 1
+        finally:
+            capture.release()
+
+        return list(found.values())
+
+    return find
+
+
+def _start_archive(cfg, people, face=None):
     """The recorded-video runner. Absent is a normal, sayable state.
 
     A site with no DVR and no footage folder simply cannot play back a stop,
@@ -573,6 +646,7 @@ def _start_archive(cfg, people):
             chunk_seconds=cfg.archive.chunk_seconds,
             keep_legs=cfg.archive.keep_legs,
             detector=getattr(getattr(people, "detector", None), "detector", None),
+            finder=_face_finder(cfg, *(face or (None, None))),
         )
         log.info("archive ready - %s backend, %.0fs chunks",
                  cfg.archive.backend, cfg.archive.chunk_seconds)
@@ -1616,6 +1690,91 @@ def _mount(app: FastAPI) -> None:
         on = date or store.site().today
         try:
             return store.path_skeleton(person, on, user.name, start, end)
+        except SubsystemUnavailable as exc:
+            raise HTTPException(503, str(exc)) from exc
+        except NothingThere as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+    @app.post("/path/sweep/estimate", response_model=S.SweepEstimate, tags=["track"])
+    async def sweep_estimate(
+        req: S.SweepRequest, store: StoreDep, user: auth_deps.CurrentUser,
+    ) -> S.SweepEstimate:
+        """What that sweep would cost. Nothing runs, and nobody is looked at.
+
+        Not audited on purpose: this is an operator finding out whether the
+        question is affordable, not asking it. The audit entry belongs on the
+        sweep itself, which is the thing that actually looks at people.
+        """
+        try:
+            return store.sweep_estimate(req)
+        except SubsystemUnavailable as exc:
+            raise HTTPException(503, str(exc)) from exc
+        except NothingThere as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+    @app.post("/path/sweep", response_model=S.SweepJob, tags=["track"])
+    async def start_sweep(
+        req: S.SweepRequest, store: StoreDep, user: auth_deps.CurrentUser,
+    ) -> S.SweepJob:
+        """Run a sweep, if the same estimate says it is affordable.
+
+        422 rather than 400 when it is too big: the request is well formed and
+        the engine understood it perfectly — it is the amount of work that is
+        refused, and the reason carries the arithmetic so the operator can
+        narrow the window rather than guess.
+        """
+        try:
+            return store.start_sweep(req, user.name)
+        except SubsystemUnavailable as exc:
+            raise HTTPException(503, str(exc)) from exc
+        except NotAffordable as exc:
+            raise HTTPException(422, str(exc)) from exc
+        except AlreadyBusy as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except NothingThere as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+    @app.post("/path/sweep/stranger", response_model=S.SweepJob, tags=["track"])
+    async def follow_stranger(
+        req: S.StrangerRequest, store: StoreDep, user: auth_deps.CurrentUser,
+    ) -> S.SweepJob:
+        """Follow somebody who was never enrolled, from a body in a chunk.
+
+        Every hit comes back as APPEARANCE and carries no name. That is not a
+        gap to fill in later: a body matched by the colour of its clothes is
+        evidence that the same body moved, and calling that an identification
+        is the exact mistake this system is built to avoid.
+        """
+        try:
+            return store.follow_stranger(req.point, req.sweep, user.name)
+        except SubsystemUnavailable as exc:
+            raise HTTPException(503, str(exc)) from exc
+        except NotAffordable as exc:
+            raise HTTPException(422, str(exc)) from exc
+        except AlreadyBusy as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except NothingThere as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+    @app.get("/path/sweep/{job_id}", response_model=S.SweepJob, tags=["track"])
+    async def get_sweep(
+        job_id: str, store: StoreDep, user: auth_deps.CurrentUser,
+    ) -> S.SweepJob:
+        try:
+            return store.sweep(job_id)
+        except SubsystemUnavailable as exc:
+            raise HTTPException(503, str(exc)) from exc
+        except NothingThere as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+    @app.delete("/path/sweep/{job_id}", response_model=S.SweepJob, tags=["track"])
+    async def stop_sweep(
+        job_id: str, store: StoreDep, user: auth_deps.CurrentUser,
+    ) -> S.SweepJob:
+        """Stop it. Stopped means stopped — the hits so far are what it found,
+        never dressed up as everything there was."""
+        try:
+            return store.stop_sweep(job_id, user.name)
         except SubsystemUnavailable as exc:
             raise HTTPException(503, str(exc)) from exc
         except NothingThere as exc:

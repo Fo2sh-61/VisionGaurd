@@ -25,6 +25,7 @@ from vg.api import schemas as S
 from vg.api.store import (
     AlreadyBusy,
     MockStore,
+    NotAffordable,
     NothingThere,
     SubsystemUnavailable,
 )
@@ -1733,10 +1734,20 @@ class LiveStore(MockStore):
         enrolled, because clothing is not an identification.
         """
         runner = self._runner()
+        from vg.ingest.archive import descriptor_at
+
         path, reason = runner.chunk(point.job_id, point.chunk)
         if path is None:
             raise NothingThere(reason)
-        return (str(path), point.x, point.y)
+
+        found = descriptor_at(path, point.x, point.y, runner.detector)
+        if found is None:
+            raise NothingThere(
+                "There is no body at that point, or too little of them is in "
+                "frame to describe. Click the person themselves."
+            )
+        signature, _box = found
+        return signature
 
     def _leg_view(self, job) -> S.LegJob:
         rates = self.anchors.rates() if self.anchors is not None else None
@@ -1876,6 +1887,175 @@ class LiveStore(MockStore):
 
         found = self.gallery.person(person) or self.gallery.find_by_name(person)
         return (found.id, found.name) if found else (None, None)
+
+    # -- sweeping a window --------------------------------------------------
+
+    #: The wall-clock a sweep may take. Everything over it is refused with the
+    #: arithmetic, so the operator narrows the question instead of watching a
+    #: progress bar for an hour.
+    SWEEP_BUDGET_SECONDS = 15 * 60.0
+
+    def _sweep_cameras(self, req: S.SweepRequest) -> list[str]:
+        known = {c.id: c for c in self.config.cameras if c.enabled}
+        if req.camera_ids:
+            chosen = [c for c in req.camera_ids if c in known]
+            if not chosen:
+                raise NothingThere(
+                    "None of those cameras are configured and switched on.")
+            return chosen
+        if req.areas:
+            wanted = {a.lower() for a in req.areas}
+            chosen = [c.id for c in known.values() if (c.area or "").lower() in wanted]
+            if not chosen:
+                raise NothingThere(
+                    f"No camera watches {', '.join(req.areas)}.")
+            return chosen
+        return list(known)
+
+    def sweep_estimate(self, req: S.SweepRequest) -> S.SweepEstimate:
+        """What it would cost. Nothing runs, and nothing is audited.
+
+        Deliberately not audited: this is the operator finding out whether the
+        question is affordable, not asking it. The audit entry belongs on the
+        sweep itself, which is the thing that actually looks at people.
+        """
+        from vg.ingest.archive import estimate_for
+
+        cameras = self._sweep_cameras(req)
+        span = (req.end - req.start).total_seconds()
+        if span <= 0:
+            raise NothingThere("That window ends before it starts.")
+
+        camera_hours = len(cameras) * span / 3600.0
+        rates = self.anchors.rates() if self.anchors is not None else None
+        estimate = estimate_for(
+            camera_hours, rates, budget_seconds=self.SWEEP_BUDGET_SECONDS,
+            chunk_seconds=self.config.archive.chunk_seconds,
+        )
+
+        return S.SweepEstimate(
+            seconds=round(estimate.seconds, 1),
+            # Three places, not two: a ten-minute look at one camera is
+            # 0.167 camera-hours, and 0.17 reads as a rounder number than
+            # the arithmetic behind it actually is.
+            camera_hours=round(camera_hours, 3),
+            cameras=len(cameras),
+            allowed=estimate.allowed and self.archive is not None,
+            reason=(estimate.reason if not estimate.allowed
+                    else None if self.archive is not None else self.NO_ARCHIVE),
+            measured_at=_instant(estimate.measured_at, self.clock),
+        )
+
+    def follow_stranger(self, point: S.ChunkPoint, req: S.SweepRequest,
+                        actor: str) -> S.SweepJob:
+        """Look for the body somebody clicked, on other cameras.
+
+        The same sweep machinery with a colour signature instead of a person,
+        and every hit it returns is APPEARANCE. Nothing here can produce a
+        name, however well the system happens to know that person from
+        somewhere else — clothing is not an identification, and the moment a
+        page can show one from a body match, the distinction stops meaning
+        anything.
+        """
+        runner = self._runner()
+        estimate = self.sweep_estimate(req)
+        if not estimate.allowed:
+            raise NotAffordable(estimate.reason or "That search is too big to run.")
+
+        descriptor = self._descriptor_at(point)
+        cameras = self._sweep_cameras(req)
+        self._log(actor, "path.sweep", "an unidentified person",
+                  f"{len(cameras)} camera(s) from a clicked body")
+
+        try:
+            job = runner.submit_sweep(
+                cameras, req.start, req.end, descriptor=descriptor)
+        except QueueFull as exc:
+            raise AlreadyBusy(str(exc)) from exc
+        except ArchiveUnavailable as exc:
+            raise SubsystemUnavailable(str(exc)) from exc
+
+        return self._sweep_view(job, estimate.seconds)
+
+    def start_sweep(self, req: S.SweepRequest, actor: str) -> S.SweepJob:
+        """Run it — but only if the same estimate says it is affordable."""
+        runner = self._runner()
+        estimate = self.sweep_estimate(req)
+        if not estimate.allowed:
+            raise NotAffordable(estimate.reason or "That sweep is too big to run.")
+
+        person_id, name = self._resolve_path_subject(req.person)
+        if person_id is None:
+            raise NothingThere(f"Nobody here is called {req.person!r}.")
+
+        cameras = self._sweep_cameras(req)
+        self._log(actor, "path.sweep", name or person_id,
+                  f"{len(cameras)} camera(s), "
+                  f"{estimate.camera_hours:.1f} camera-hours")
+
+        try:
+            job = runner.submit_sweep(cameras, req.start, req.end, person_id)
+        except QueueFull as exc:
+            raise AlreadyBusy(str(exc)) from exc
+        except ArchiveUnavailable as exc:
+            raise SubsystemUnavailable(str(exc)) from exc
+
+        return self._sweep_view(job, estimate.seconds)
+
+    def sweep(self, job_id: str) -> S.SweepJob:
+        runner = self._runner()
+        job = runner.sweep(job_id)
+        if job is None:
+            raise NothingThere("That sweep is not running any more.")
+        return self._sweep_view(job)
+
+    def stop_sweep(self, job_id: str, actor: str) -> S.SweepJob:
+        runner = self._runner()
+        job = runner.cancel_sweep(job_id)
+        if job is None:
+            raise NothingThere("That sweep is not running any more.")
+        self._log(actor, "path.sweep.stop", job.person_id or "?",
+                  f"stopped after {job.segments_done} of {job.segments_total}")
+        return self._sweep_view(job)
+
+    def _sweep_view(self, job, estimate: float | None = None) -> S.SweepJob:
+        return S.SweepJob(
+            job=S.SearchJob(
+                id=job.id,
+                # `stopped` is not one of SearchJob's states, and it must not
+                # be dressed up as `done` — a sweep somebody cancelled found
+                # what it found, not everything there was.
+                state="done" if job.state == "stopped" else job.state,
+                progress=round(job.progress, 3),
+                submitted_at=_instant(job.submitted_at, self.clock),
+                clips_searched=job.segments_done,
+                clips_total=job.segments_total,
+                error=job.error or ("stopped" if job.state == "stopped" else None),
+            ),
+            cameras=list(job.cameras),
+            hits=[self._sweep_hit(h) for h in job.hits],
+            segments_done=job.segments_done,
+            segments_total=job.segments_total,
+            estimate_seconds=round(estimate, 1) if estimate is not None else None,
+        )
+
+    def _sweep_hit(self, hit) -> S.SweepHit:
+        return S.SweepHit(
+            camera_id=hit.camera_id,
+            camera_name=self._camera_name(hit.camera_id) or hit.camera_id,
+            place=self._area_of(hit.camera_id),
+            at=_instant(hit.started_at, self.clock),
+            until=_instant(hit.ended_at, self.clock),
+            matches=hit.matches,
+            score=min(1.0, max(0.0, hit.best)),
+            face_px=getattr(hit, "face_px", 0),
+            # Whatever found them, said plainly. A body matched by colour is
+            # APPEARANCE and is drawn blue; dressing it as FACE would make the
+            # weakest evidence in the system look like the strongest.
+            match=(S.MatchKind.APPEARANCE
+                   if getattr(hit, "match", "face") == "appearance"
+                   else S.MatchKind.FACE),
+        )
 
     # -- following one person, live -----------------------------------------
     #

@@ -179,16 +179,16 @@ run an allowed one — progress real, cancel works.
 
 ### Tests for User Story 4 ⚠️ write first, watch them fail
 
-- [ ] T046 [P] [US4] `test_sweep_estimate_shows_arithmetic_and_caps` in `engine/tests/test_track_page.py` — estimate computed from stored rates; over-budget → `allowed: false` with reason; unmeasured → refused; POST /path/sweep 422s unless the estimate passes (SC-006)
-- [ ] T047 [P] [US4] `test_sweep_runs_audits_progresses_and_cancels` in `engine/tests/test_track_page.py` — audit before run; progress advances per segment; hits append; DELETE stops it and says stopped
-- [ ] T048 [P] [US4] `test_stranger_hop_carries_a_descriptor_never_a_name` in `engine/tests/test_track_page.py` — a clicked body in a chunk becomes an appearance query; hop results are APPEARANCE/blue and carry no name even if the person is enrolled (rule 1)
+- [X] T046 [P] [US4] `test_sweep_estimate_shows_arithmetic_and_caps` in `engine/tests/test_track_page.py` — estimate computed from stored rates; over-budget → `allowed: false` with reason; unmeasured → refused; POST /path/sweep 422s unless the estimate passes (SC-006)
+- [X] T047 [P] [US4] `test_sweep_runs_audits_progresses_and_cancels` in `engine/tests/test_track_page.py` — audit before run; progress advances per segment; hits append; DELETE stops it and says stopped
+- [X] T048 [P] [US4] `test_stranger_hop_carries_a_descriptor_never_a_name` in `engine/tests/test_track_page.py` — a clicked body in a chunk becomes an appearance query; hop results are APPEARANCE/blue and carry no name even if the person is enrolled (rule 1)
 
 ### Implementation for User Story 4
 
-- [ ] T049 [US4] Add sweep enumeration + estimate + stranger descriptor query to `engine/vg/ingest/archive.py` — same runner; a sweep is segments × the leg pipeline in scan mode; a stranger hop is a leg job whose query is an appearance descriptor lifted from the clicked chunk box
-- [ ] T050 [P] [US4] Add `SweepEstimate`, `SweepJob` to `engine/vg/api/schemas.py`; sweep + stranger store methods in `engine/vg/api/store.py`; implement audit-first in `engine/vg/api/live.py`
-- [ ] T051 [US4] Add `POST /path/sweep/estimate`, `POST /path/sweep`, `GET/DELETE /path/sweep/{id}`, and the `descriptorOf` variant of `POST /path/legs` to `engine/vg/api/app.py` per [contracts/api.md](./contracts/api.md)
-- [ ] T052 [US4] Build the footage scrub-and-click view and sweep panel in `web/src/pages/TrackPerson.tsx` — open a camera at a date/time (a leg job with no highlight), click a body, follow hop by hop; sweep form shows the estimate before the run button enables; progress and hits stream in; calls + mirrors in `web/src/services/api.ts` / `wire.ts` / `types.ts`
+- [X] T049 [US4] Add sweep enumeration + estimate + stranger descriptor query to `engine/vg/ingest/archive.py` — same runner; a sweep is segments × the leg pipeline in scan mode; a stranger hop is a leg job whose query is an appearance descriptor lifted from the clicked chunk box
+- [X] T050 [P] [US4] Add `SweepEstimate`, `SweepJob` to `engine/vg/api/schemas.py`; sweep + stranger store methods in `engine/vg/api/store.py`; implement audit-first in `engine/vg/api/live.py`
+- [X] T051 [US4] Add `POST /path/sweep/estimate`, `POST /path/sweep`, `GET/DELETE /path/sweep/{id}`, and the `descriptorOf` variant of `POST /path/legs` to `engine/vg/api/app.py` per [contracts/api.md](./contracts/api.md)
+- [X] T052 [US4] Build the footage scrub-and-click view and sweep panel in `web/src/pages/TrackPerson.tsx` — open a camera at a date/time (a leg job with no highlight), click a body, follow hop by hop; sweep form shows the estimate before the run button enables; progress and hits stream in; calls + mirrors in `web/src/services/api.ts` / `wire.ts` / `types.ts`
 
 **Checkpoint**: the whole spec is real.
 

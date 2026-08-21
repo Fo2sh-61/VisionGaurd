@@ -57,6 +57,13 @@ AMBER = (63, 162, 223)
 BLUE = (216, 155, 91)
 GREEN = (116, 143, 63)
 
+#: How alike two bodies have to look before the system will say "the same
+#: one". The live appearance stitcher uses 0.72 within a camera; across
+#: cameras and across recorded footage the lighting differs, so this sits a
+#: little lower — and every hit it produces stays APPEARANCE, which is what
+#: makes a lower bar safe here. It can never buy anybody a name.
+BODY_SIMILARITY = 0.62
+
 #: How long one fetch may run before it is given up on. A DVR that has stopped
 #: answering must not hold a worker for ever.
 FETCH_TIMEOUT_SECONDS = 120.0
@@ -130,6 +137,86 @@ class LegJob:
     @property
     def seconds(self) -> float:
         return (self.end - self.start).total_seconds()
+
+
+# ---------------------------------------------------------------------------
+# sweeping a window
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class Hit:
+    """Somebody found in recorded video, and what found them.
+
+    `match` is the whole reason this is not just an `Anchor`: a face says
+    WHICH person, a body match only says the SAME body. They travel together
+    in one list and must never be collapsed into one number, because an
+    operator decides how much to believe a hit entirely on that difference.
+    """
+
+    camera_id: str
+    started_at: datetime
+    ended_at: datetime
+    matches: int
+    best: float
+    face_px: int = 0
+    match: str = "appearance"
+    person_id: str | None = None
+
+
+@dataclass
+class SweepJob:
+    """Look for somebody across several cameras and a stretch of time.
+
+    The expensive one, and the only thing here that is refused before it
+    starts. A sweep is segments through the same pipeline a leg uses, so its
+    cost is arithmetic rather than a mystery — and the arithmetic is shown to
+    the operator before the button does anything.
+    """
+
+    id: str
+    cameras: list[str]
+    start: datetime
+    end: datetime
+    person_id: str | None = None
+    #: A body's colour signature, when the sweep is looking for somebody who
+    #: was never enrolled. Mutually exclusive with `person_id` in practice.
+    descriptor: object | None = None
+    state: str = "queued"  # queued | running | done | failed | stopped
+    hits: list = field(default_factory=list)
+    segments_done: int = 0
+    segments_total: int = 0
+    error: str | None = None
+    submitted_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    cancelled: bool = False
+
+    @property
+    def progress(self) -> float:
+        if self.segments_total <= 0:
+            return 0.0
+        return min(1.0, self.segments_done / self.segments_total)
+
+    @property
+    def camera_hours(self) -> float:
+        span = (self.end - self.start).total_seconds()
+        return len(self.cameras) * span / 3600.0
+
+
+def segments_of(
+    cameras: list[str], start: datetime, end: datetime, segment_seconds: float,
+) -> list[tuple[str, datetime, datetime]]:
+    """Every piece of work a sweep is, listed before any of it runs.
+
+    A sweep's cost is exactly this list times the cost of one piece, which is
+    what makes the estimate arithmetic instead of a guess.
+    """
+    out: list[tuple[str, datetime, datetime]] = []
+    for camera_id in cameras:
+        at = start
+        while at < end:
+            until = min(end, at + timedelta(seconds=segment_seconds))
+            out.append((camera_id, at, until))
+            at = until
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -301,6 +388,8 @@ class ArchiveRunner:
         chunk_seconds: float = 30.0,
         keep_legs: int = 3,
         detector=None,
+        finder=None,
+        body_threshold: float = BODY_SIMILARITY,
         workers: int = 2,
         queue_size: int = 8,
     ) -> None:
@@ -309,9 +398,15 @@ class ArchiveRunner:
         self.chunk_seconds = float(chunk_seconds)
         self.keep_legs = int(keep_legs)
         self.detector = detector
+        # What a sweep looks for in a fetched segment. Supplied from outside
+        # so this module knows nothing about face models: it fetches video and
+        # hands it to whatever was given it.
+        self.finder = finder
+        self.body_threshold = body_threshold
 
         self._queue: queue.Queue = queue.Queue(maxsize=queue_size)
         self._jobs: dict[str, LegJob] = {}
+        self._sweeps: dict[str, SweepJob] = {}
         self._order: list[str] = []
         self._lock = threading.RLock()
         self._stop = threading.Event()
@@ -381,7 +476,10 @@ class ArchiveRunner:
             except queue.Empty:
                 continue
             try:
-                self._build(job)
+                if isinstance(job, SweepJob):
+                    self._sweep(job)
+                else:
+                    self._build(job)
             except Exception as exc:  # noqa: BLE001 - a bad job is not a dead runner
                 job.state = "failed"
                 job.error = str(exc)
@@ -472,6 +570,166 @@ class ArchiveRunner:
         if not out.is_file() or out.stat().st_size == 0:
             shutil.move(str(raw), str(out))
 
+    # -- sweeping -----------------------------------------------------------
+
+    def submit_sweep(
+        self, cameras: list[str], start: datetime, end: datetime,
+        person_id: str | None = None, descriptor=None,
+    ) -> SweepJob:
+        """Queue a sweep. The caller has already checked it is affordable."""
+        if descriptor is None and self.finder is None:
+            raise ArchiveUnavailable(
+                "Face recognition is not running, so there is nothing to "
+                "search recorded video for. A sweep looks for a face."
+            )
+        if descriptor is not None and self.detector is None:
+            raise ArchiveUnavailable(
+                "Person detection is not running, so a body cannot be looked "
+                "for in recorded video."
+            )
+
+        job = SweepJob(
+            id=uuid.uuid4().hex[:12], cameras=list(cameras),
+            start=start, end=end, person_id=person_id, descriptor=descriptor,
+        )
+        job.segments_total = len(
+            segments_of(job.cameras, start, end, self.chunk_seconds))
+
+        try:
+            self._queue.put_nowait(job)
+        except queue.Full as exc:
+            raise QueueFull(
+                "The engine is already fetching as much recorded video as it "
+                "can keep up with. Try again in a moment."
+            ) from exc
+
+        with self._lock:
+            self._sweeps[job.id] = job
+        return job
+
+    def sweep(self, job_id: str) -> SweepJob | None:
+        with self._lock:
+            return self._sweeps.get(job_id)
+
+    def cancel_sweep(self, job_id: str) -> SweepJob | None:
+        """Stop a sweep. Cancelled means stopped, not quietly finished."""
+        job = self.sweep(job_id)
+        if job is None:
+            return None
+        job.cancelled = True
+        if job.state in ("queued", "running"):
+            job.state = "stopped"
+        return job
+
+    def _sweep(self, job: SweepJob) -> None:
+        job.state = "running"
+        work = segments_of(job.cameras, job.start, job.end, self.chunk_seconds)
+        scratch = self.root / f"sweep-{job.id}"
+        scratch.mkdir(parents=True, exist_ok=True)
+
+        try:
+            for index, (camera_id, at, until) in enumerate(work):
+                if job.cancelled or self._stop.is_set():
+                    job.state = "stopped"
+                    return
+
+                raw = scratch / f"seg-{index:04d}.mp4"
+                try:
+                    self.source.fetch(camera_id, at, until, raw)
+                except ArchiveUnavailable:
+                    # A camera with no footage for that stretch is a fact
+                    # about the archive, not a failed sweep. The other
+                    # cameras still get looked at.
+                    job.segments_done += 1
+                    continue
+
+                try:
+                    if job.descriptor is not None:
+                        job.hits.extend(
+                            self.find_body(raw, camera_id, at, job.descriptor))
+                    else:
+                        job.hits.extend(
+                            self.finder(raw, camera_id, at, job.person_id) or [])
+                finally:
+                    raw.unlink(missing_ok=True)
+                job.segments_done += 1
+
+            job.state = "done"
+        finally:
+            shutil.rmtree(scratch, ignore_errors=True)
+
+
+
+    def find_body(self, clip: Path, camera_id: str, at: datetime, descriptor
+                  ) -> list[Hit]:
+        """Look for the same BODY in a segment, and never for a person.
+
+        Colour and build, compared classically on the CPU. There is no neural
+        re-identification model in this system and the `reid:` slot in
+        engine.yaml is deliberately unset, so this is what "the same body"
+        actually means here — and it is why every hit it produces is
+        APPEARANCE, blue, and unnamed.
+
+        That restraint is the point rather than a limitation to apologise for.
+        A body matched by the colour of its clothes is genuinely weaker
+        evidence than a recognised face, and the moment the two are shown as
+        the same kind of thing, an operator starts believing one of them more
+        than they should.
+        """
+        from loiterwatch.identity import BodySignature, similarity
+
+        capture = cv2.VideoCapture(str(clip))
+        if not capture.isOpened():
+            return []
+
+        signer = BodySignature()
+        fps = capture.get(cv2.CAP_PROP_FPS) or 15.0
+        step = max(1, int(fps / 2))
+
+        best_run: dict[int, list] = {}
+        index = 0
+        try:
+            while True:
+                ok, frame = capture.read()
+                if not ok:
+                    break
+                if index % step == 0:
+                    height, width = frame.shape[:2]
+                    when = at + timedelta(seconds=index / fps)
+                    for person in self.detector.detect(frame):
+                        box = (
+                            person.x * width, person.y * height,
+                            (person.x + person.w) * width,
+                            (person.y + person.h) * height,
+                        )
+                        signature = signer.signature(frame, box)
+                        if signature is None:
+                            continue
+                        # `use_shape=False`: height-to-width depends on how a
+                        # camera is mounted, so the same person head-on and
+                        # from an overhead corner has genuinely different
+                        # proportions. Scoring that as a mismatch buries a good
+                        # colour match under a penalty about the ceiling.
+                        score = similarity(descriptor, signature, use_shape=False)
+                        if score is None or score < self.body_threshold:
+                            continue
+                        best_run.setdefault(0, []).append((when, float(score)))
+                index += 1
+        finally:
+            capture.release()
+
+        seen = best_run.get(0) or []
+        if not seen:
+            return []
+        return [Hit(
+            camera_id=camera_id,
+            started_at=seen[0][0],
+            ended_at=seen[-1][0],
+            matches=len(seen),
+            best=max(s for _w, s in seen),
+            match="appearance",
+        )]
+
     # -- retention ----------------------------------------------------------
 
     def _retain(self) -> None:
@@ -493,6 +751,56 @@ class ArchiveRunner:
                     self._order.remove(job_id)
                 if job is not None:
                     shutil.rmtree(self.root / job.id, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# following somebody who was never enrolled
+# ---------------------------------------------------------------------------
+
+def descriptor_at(clip: Path, x: float, y: float, detector):
+    """The body under a click in a chunk, as something to look for elsewhere.
+
+    Returns a colour-and-build signature and the box it came from — and
+    nothing else. In particular it does NOT return a name, and nothing
+    downstream may attach one: a body matched by how it looks is evidence that
+    the same body moved, which is a different and far weaker claim than
+    knowing who somebody is. That is rule 1, and it is why this hands back a
+    signature rather than an identity.
+    """
+    capture = cv2.VideoCapture(str(clip))
+    if not capture.isOpened():
+        return None
+    try:
+        ok, frame = capture.read()
+        if not ok:
+            return None
+    finally:
+        capture.release()
+
+    height, width = frame.shape[:2]
+    point = (x * width, y * height)
+
+    best = None
+    if detector is not None:
+        for person in detector.detect(frame):
+            px, py = person.x * width, person.y * height
+            pw, ph = person.w * width, person.h * height
+            if px <= point[0] <= px + pw and py <= point[1] <= py + ph:
+                if best is None or pw * ph < best[2] * best[3]:
+                    best = (px, py, pw, ph)
+
+    if best is None:
+        return None
+
+    from loiterwatch.identity import BodySignature
+
+    left, top, w, h = best
+    signature = BodySignature().signature(frame, (left, top, left + w, top + h))
+    if signature is None:
+        # Too small, or too little of them in frame to describe. Saying so
+        # beats handing back a signature that would match half the building.
+        return None
+    return signature, (left / width, top / height, w / width, h / height)
 
 
 # ---------------------------------------------------------------------------

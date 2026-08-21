@@ -1123,6 +1123,70 @@ class LegJob(Wire):
     #: machine. None when nobody has measured it — never a guess.
     estimate_seconds: float | None = None
 
+class SweepRequest(Wire):
+    """Look for somebody across several cameras and a stretch of time."""
+
+    #: Empty for a stranger search, where nobody has a name to look for.
+    person: str = ""
+    start: datetime
+    end: datetime
+    #: Explicit cameras, or every camera in these areas. One or the other.
+    camera_ids: list[str] = Field(default_factory=list)
+    areas: list[str] = Field(default_factory=list)
+
+
+class StrangerRequest(Wire):
+    """Follow the body somebody clicked in a chunk, onto other cameras.
+
+    There is no `person` here and there cannot be one. Whatever this finds is
+    evidence that the same body moved, never evidence about who it is.
+    """
+
+    point: ChunkPoint
+    sweep: SweepRequest
+
+
+class SweepEstimate(Wire):
+    """The arithmetic, shown before anything runs.
+
+    `allowed: false` always carries its reason in words, and the reason is
+    either "that is more work than the budget" with the sum, or "nobody has
+    measured this machine yet". Never a shrug, and never a number that was
+    typed rather than measured.
+    """
+
+    seconds: float
+    camera_hours: float
+    cameras: int
+    allowed: bool
+    reason: str | None = None
+    measured_at: Instant | None = None
+
+
+class SweepHit(Wire):
+    """Somebody found in recorded video, with the evidence that found them."""
+
+    camera_id: str
+    camera_name: str
+    place: str
+    at: Instant
+    until: Instant
+    matches: int
+    score: Confidence
+    face_px: int
+    #: FACE when a face cleared the bar, APPEARANCE when only a body matched.
+    #: Never merged: one says who, the other only says the same body.
+    match: MatchKind = MatchKind.FACE
+
+
+class SweepJob(Wire):
+    job: SearchJob
+    cameras: list[str] = Field(default_factory=list)
+    hits: list[SweepHit] = Field(default_factory=list)
+    segments_done: int = 0
+    segments_total: int = 0
+    estimate_seconds: float | None = None
+
 # ---------------------------------------------------------------------------
 # following one person, live
 # ---------------------------------------------------------------------------

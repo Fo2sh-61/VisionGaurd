@@ -580,6 +580,53 @@ export interface Problem {
 
 /* ---------- live tracking ---------- */
 
+/* ---------- sweeping a window ----------
+ *
+ *  The expensive question, and the only one that states its cost before it
+ *  runs. `allowed: false` always carries the reason in words — either the
+ *  arithmetic says it is over budget, or nobody has measured this machine. */
+
+export interface SweepRequest {
+  /** Empty for a stranger search: nobody has a name to look for. */
+  person: string;
+  start: string;
+  end: string;
+  cameraIds?: string[];
+  areas?: string[];
+}
+
+export interface SweepEstimate {
+  seconds: number;
+  cameraHours: number;
+  cameras: number;
+  allowed: boolean;
+  reason?: string | null;
+  measuredAt?: Instant | null;
+}
+
+export interface SweepHit {
+  cameraId: string;
+  cameraName: string;
+  place: string;
+  at: Instant;
+  until: Instant;
+  matches: number;
+  score: number;
+  facePx: number;
+  /** face = a face was recognised. appearance = only the body matched, which
+   *  says the same body moved and never who it is. */
+  match: MatchKind;
+}
+
+export interface SweepJob {
+  job: SearchJob;
+  cameras: string[];
+  hits: SweepHit[];
+  segmentsDone: number;
+  segmentsTotal: number;
+  estimateSeconds?: number | null;
+}
+
 /* ---------- the video behind a stop ----------
  *
  *  A leg is fetched and processed in pieces. `chunkUrls` grows while the job
