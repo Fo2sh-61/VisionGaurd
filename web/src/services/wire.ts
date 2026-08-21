@@ -655,6 +655,12 @@ export interface LegJob {
   seconds: number;
   chunksReady: number;
   chunksTotal: number;
+  /** Pieces the archive holds no video for. A stop starts when somebody was
+   *  recognised and a recording starts when somebody pressed a button, so a
+   *  gap at the front is ordinary. */
+  chunksMissing: number;
+  /** The archive's own words about the gap, naming what it does hold. */
+  gapReason?: string | null;
   chunkUrls: string[];
   nextPrefetched?: string | null;
   /** From what was measured on this machine. null means nobody has measured

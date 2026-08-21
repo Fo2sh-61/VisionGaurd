@@ -132,12 +132,21 @@ class LegJob:
     submitted_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     #: Set on a prefetched job so the page can say the next stop is warm.
     prefetch: bool = False
+    #: Pieces of the span the archive holds no video for. A stop can easily
+    #: start before a recording did, and the video that DOES exist is still
+    #: the video the operator asked to see.
+    gaps: int = 0
+    #: The archive's own words for the first gap, which name what it does
+    #: hold. Worth far more to the operator than "not found".
+    gap_reason: str | None = None
 
     @property
     def progress(self) -> float:
         if self.chunks_total <= 0:
             return 0.0
-        return min(1.0, len(self.chunks) / self.chunks_total)
+        # Gaps count as done. They were looked for and answered; leaving them
+        # out strands the bar short of the end on a leg that has finished.
+        return min(1.0, (len(self.chunks) + self.gaps) / self.chunks_total)
 
     @property
     def seconds(self) -> float:
@@ -585,14 +594,22 @@ class ArchiveRunner:
 
             try:
                 self.source.fetch(job.camera_id, at, until, raw)
-            except ArchiveUnavailable:
-                if index == 0:
-                    raise
-                # Ran off the end of what the archive holds. The chunks
-                # already built stay playable; the leg is simply shorter than
-                # asked for, which is the truth about that camera.
-                log.debug("leg %s ran out of footage at chunk %d", job.id, index)
-                break
+            except ArchiveUnavailable as exc:
+                # A gap is a fact about the archive, not a reason to abandon
+                # the video either side of it.
+                #
+                # This used to give up entirely when the FIRST piece was
+                # missing, which is the common case rather than a rare one: a
+                # stop begins when somebody was recognised, and a recording
+                # begins when somebody pressed a button, and those are never
+                # the same moment. A stop from 00:44 with a recording from
+                # 00:45 threw away video that existed.
+                job.gaps += 1
+                if job.gap_reason is None:
+                    job.gap_reason = str(exc)
+                at = until
+                index += 1
+                continue
 
             self._process(raw, out, job)
             raw.unlink(missing_ok=True)
@@ -604,8 +621,16 @@ class ArchiveRunner:
             at = until
             index += 1
 
-        job.chunks_total = max(job.chunks_total, len(job.chunks)) or 1
-        job.state = "done"
+        job.chunks_total = max(job.chunks_total, len(job.chunks) + job.gaps) or 1
+
+        if not job.chunks:
+            # Nothing anywhere in the span. Now it is a failure, and it fails
+            # with the archive's own message, which names what it does hold.
+            job.state = "failed"
+            job.error = job.gap_reason or (
+                "The archive holds no video for any part of that stop.")
+        else:
+            job.state = "done"
         self._retain()
 
     def _process(self, raw: Path, out: Path, job: LegJob) -> None:

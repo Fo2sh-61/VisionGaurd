@@ -1777,6 +1777,8 @@ class LiveStore(MockStore):
             seconds=job.seconds,
             chunks_ready=len(job.chunks),
             chunks_total=job.chunks_total,
+            chunks_missing=getattr(job, "gaps", 0),
+            gap_reason=getattr(job, "gap_reason", None),
             # Same-origin paths, never absolute URLs: `<video>` cannot send an
             # Authorization header, so a chunk has to be fetched through the
             # same origin the page is already signed in to.

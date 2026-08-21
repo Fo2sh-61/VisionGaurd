@@ -125,19 +125,16 @@ export function TrackPerson() {
               ? 'Catch someone now'
               : m === 'past'
                 ? 'Where did they go'
-                : 'Search the footage'}
+                : 'Someone not enrolled'}
           </button>
         ))}
       </div>
 
       {mode === 'live' && <LiveMode cameras={cameras} />}
-      {mode === 'past' && <PastMode people={people} today={today} />}
-      {mode === 'find' && (
-        <>
-          <BrowseFootage cameras={cameras} today={today} />
-          <SweepPanel cameras={cameras} people={people} today={today} />
-        </>
+      {mode === 'past' && (
+        <PastMode people={people} today={today} cameras={cameras} />
       )}
+      {mode === 'find' && <BrowseFootage cameras={cameras} today={today} />}
 
       <Legend />
     </>
@@ -609,7 +606,15 @@ function Trail({ hops }: { hops: W.TrailHop[] }) {
  * PAST — where did they go
  * ========================================================================= */
 
-function PastMode({ people, today }: { people: string[]; today: string }) {
+function PastMode({
+  people,
+  today,
+  cameras,
+}: {
+  people: string[];
+  today: string;
+  cameras: Camera[];
+}) {
   const [who, setWho] = useState('');
   const [date, setDate] = useState(today);
   const [from, setFrom] = useState('07:00');
@@ -703,6 +708,22 @@ function PastMode({ people, today }: { people: string[]; today: string }) {
       </Card>
 
       {path && <Skeleton path={path} from={from} to={to} />}
+
+      {/* The same question, asked the expensive way. It belongs here rather
+          than under a heading of its own: "where did they go" and "search the
+          footage for them" are one question, and splitting them by HOW they
+          are answered rather than by what is being asked made the page look
+          like it did the same thing twice. */}
+      {path && (
+        <SweepPanel
+          cameras={cameras}
+          person={path.subject.name ?? who}
+          date={date}
+          from={from}
+          to={to}
+          foundSomething={path.anchors.length > 0}
+        />
+      )}
     </>
   );
 }
@@ -770,8 +791,9 @@ function Skeleton({
       {nothing ? (
         <Empty>
           Nobody recognised {name} anywhere in that window. That is not the same as
-          them not being there — widen the window, try another day, or look at a
-          camera's footage directly.
+          them not being there — the cameras may simply not have read a face as they
+          walked past. Widen the window, try another day, or use the search below to
+          go back through the recorded video itself.
         </Empty>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -1027,7 +1049,8 @@ function LegPlayer({
               Back 30s
             </button>
             <span>
-              Piece {piece + 1} of {job.chunksTotal || job.chunkUrls.length}
+              Piece {piece + 1} of {job.chunkUrls.length}
+              {job.chunksMissing > 0 && ` recorded (${job.chunksTotal} in the stop)`}
             </span>
             <button
               type="button"
@@ -1046,6 +1069,16 @@ function LegPlayer({
         </>
       ) : (
         <Waiting job={job} />
+      )}
+
+      {job.chunksMissing > 0 && job.chunkUrls.length > 0 && (
+        // Said plainly, because the alternative reading — that this IS the
+        // whole stop — is a claim about what a camera saw, from video that
+        // was never recorded.
+        <div style={{ fontSize: 12.5, color: 'var(--am)', marginTop: 8 }}>
+          {job.chunksMissing} of {job.chunksTotal} pieces of this stop were never
+          recorded, so what plays here is only the part that was. {job.gapReason}
+        </div>
       )}
 
       {waitingForMore && (
@@ -1187,18 +1220,34 @@ const SWEEP_POLL_MS = 2_000;
  *  starting it. */
 function SweepPanel({
   cameras,
-  people,
-  today,
+  person,
+  date: seedDate,
+  from: seedFrom,
+  to: seedTo,
+  foundSomething,
 }: {
   cameras: Camera[];
-  people: string[];
-  today: string;
+  person: string;
+  date: string;
+  from: string;
+  to: string;
+  /** Whether the instant answer turned anything up. Only changes the wording:
+   *  after a hit this is "look harder", after nothing it is the next move. */
+  foundSomething: boolean;
 }) {
-  const [who, setWho] = useState('');
-  const [date, setDate] = useState(today);
-  const [from, setFrom] = useState('07:00');
-  const [to, setTo] = useState('08:00');
+  const who = person;
+  const [date, setDate] = useState(seedDate);
+  const [from, setFrom] = useState(seedFrom);
+  const [to, setTo] = useState(seedTo);
   const [area, setArea] = useState('');
+
+  // Re-seed when the question above changes, so this is an escalation of that
+  // question rather than a second, quietly different one.
+  useEffect(() => {
+    setDate(seedDate);
+    setFrom(seedFrom);
+    setTo(seedTo);
+  }, [seedDate, seedFrom, seedTo]);
   const [estimate, setEstimate] = useState<W.SweepEstimate | null>(null);
   const [job, setJob] = useState<W.SweepJob | null>(null);
   const [error, setError] = useState('');
@@ -1272,23 +1321,17 @@ function SweepPanel({
     <Card>
       <Step
         n="2"
-        title="Or search a whole window"
-        sub="Slower, and it says how much slower before it starts."
+        title={foundSomething ? 'Not the whole story?' : 'Look harder'}
+        sub={
+          foundSomething
+            ? 'The answer above is what the cameras recognised at the time. This goes back through the recorded video and looks again — slower, and it says how much slower before it starts.'
+            : 'Nothing was recognised live in that window. This re-examines the recorded video itself, which can find someone the cameras missed as they walked past. It is much slower, and it says how much before it starts.'
+        }
       />
 
       <div className="row" style={{ gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr', gap: 10 }}>
         <Labelled label="Person">
-          <input
-            list="sweep-people"
-            value={who}
-            onChange={(e) => setWho(e.target.value)}
-            placeholder="Name"
-          />
-          <datalist id="sweep-people">
-            {people.map((n) => (
-              <option key={n} value={n} />
-            ))}
-          </datalist>
+          <input value={who} readOnly disabled />
         </Labelled>
         <Labelled label="Date">
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />

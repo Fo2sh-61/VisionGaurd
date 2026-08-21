@@ -2546,3 +2546,123 @@ class TestOperatorRecordingsAreArchiveFootage:
             "the archive must be given clips_dir, or console recordings stay "
             "invisible to the page that plays them back"
         )
+
+
+class TestALegSurvivesAGapAtTheFront:
+    """The stop began at 00:44; the recording began at 00:45.
+
+    A stop starts when somebody was RECOGNISED. A recording starts when
+    somebody pressed a button. Those are never the same moment, so a gap at
+    the front of a leg is the ordinary case rather than a rare one — and the
+    code raised on it, throwing away video that existed a minute later.
+    """
+
+    class LateSource:
+        """An archive whose footage starts partway through the span asked for."""
+
+        name = "late"
+
+        def __init__(self, available_from: float) -> None:
+            self.available_from = available_from
+            self.asked: list = []
+
+        def coverage(self, camera_id):
+            return []
+
+        def fetch(self, camera_id, start, end, into):
+            self.asked.append(start)
+            if (start - at(0)).total_seconds() < self.available_from:
+                raise ArchiveUnavailable(
+                    "There is no recorded video from then. What this camera "
+                    "has: 22 Aug, 12:45am to 22 Aug, 12:45am."
+                )
+            into.write_bytes(b"\x00" * 32)
+            return into
+
+    def test_the_video_that_exists_is_still_served(self, tmp_path):
+        # Mohamed's case: a 2-minute stop, footage only in the last third.
+        source = self.LateSource(available_from=60.0)
+        runner = ArchiveRunner(source, tmp_path, chunk_seconds=30.0, workers=1)
+        try:
+            job = drain(runner, runner.submit("cam-a", at(0), at(120)))
+
+            assert job.state == "done", job.error
+            assert job.gaps == 2, "the first two pieces had nothing"
+            assert len(job.chunks) == 2, "the last two did, and they play"
+            assert [c.index for c in job.chunks] == [2, 3]
+        finally:
+            runner.stop()
+
+    def test_every_piece_is_still_attempted(self, tmp_path):
+        source = self.LateSource(available_from=60.0)
+        runner = ArchiveRunner(source, tmp_path, chunk_seconds=30.0, workers=1)
+        try:
+            drain(runner, runner.submit("cam-a", at(0), at(120)))
+            assert len(source.asked) == 4, "a gap stops nothing after it"
+        finally:
+            runner.stop()
+
+    def test_progress_reaches_the_end_on_a_leg_with_gaps(self, tmp_path):
+        # Gaps were looked for and answered. Leaving them out of progress
+        # strands the bar short of the end on a leg that has finished.
+        runner = ArchiveRunner(
+            self.LateSource(60.0), tmp_path, chunk_seconds=30.0, workers=1)
+        try:
+            job = drain(runner, runner.submit("cam-a", at(0), at(120)))
+            assert job.progress == pytest.approx(1.0)
+        finally:
+            runner.stop()
+
+    def test_no_video_anywhere_is_still_a_failure_with_the_reason(self, tmp_path):
+        # Skipping gaps must not turn "there is nothing at all" into a silent
+        # empty success.
+        runner = ArchiveRunner(
+            self.LateSource(9e9), tmp_path, chunk_seconds=30.0, workers=1)
+        try:
+            job = drain(runner, runner.submit("cam-a", at(0), at(120)))
+            assert job.state == "failed"
+            assert job.chunks == []
+            # The archive's own words, which name what it DOES hold.
+            assert "12:45am" in (job.error or "")
+        finally:
+            runner.stop()
+
+    def test_the_gap_count_reaches_the_wire(self, user_store, tmp_path, authed):
+        from vg import config as vgconfig
+        from vg.api import app as app_module
+        from vg.api.app import create_app
+        from vg.api.live import LiveStore
+        from vg.ingest.registry import CameraRegistry
+
+        tmp = tempfile.TemporaryDirectory()
+        anchors = AnchorStore(Path(tmp.name) / "a.db", clock=CAIRO)
+        runner = ArchiveRunner(
+            self.LateSource(60.0), tmp_path, chunk_seconds=30.0, workers=1)
+        store = LiveStore(
+            config=vgconfig.load(), registry=CameraRegistry([]),
+            anchors=anchors, archive=runner,
+        )
+        app_module.set_store(store)
+        app = create_app()
+        app.state.users = user_store
+        try:
+            client = authed(app)
+            started = client.post("/path/legs", json={
+                "cameraId": "cam-laptop",
+                "start": at(0).isoformat(),
+                "end": at(120).isoformat(),
+            }).json()
+            drain(runner, runner.job(started["job"]["id"]))
+
+            body = client.get(f"/path/legs/{started['job']['id']}").json()
+            assert body["chunksMissing"] == 2
+            assert body["chunksReady"] == 2
+            assert len(body["chunkUrls"]) == 2
+            assert "12:45am" in (body["gapReason"] or ""), (
+                "the operator is told what the archive does hold"
+            )
+        finally:
+            app_module.set_store(MockStore())
+            runner.stop()
+            anchors.close()
+            tmp.cleanup()

@@ -1114,6 +1114,12 @@ class LegJob(Wire):
     seconds: float
     chunks_ready: int = 0
     chunks_total: int = 0
+    #: Pieces of the stop the archive holds no video for. A stop starts when
+    #: somebody was recognised and a recording starts when somebody pressed a
+    #: button, so a gap at the front is ordinary rather than exceptional.
+    chunks_missing: int = 0
+    #: The archive's own words about the gap, naming what it does hold.
+    gap_reason: str | None = None
     #: Same-origin, because `<video>` cannot send an Authorization header —
     #: exactly like breach clips and camera streams.
     chunk_urls: list[str] = Field(default_factory=list)
