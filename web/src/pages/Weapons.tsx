@@ -243,9 +243,13 @@ export function Weapons() {
         )}
       </Card>
 
+      {/* The note says "open a camera" because a grid tile genuinely cannot
+          draw the box: CameraFrame only polls detections in the enlarged view
+          (see the comment above `wantLiveBoxes`), so a tile that promised a red
+          box would be promising something it never draws. */}
       <CamGrid
         title="Cameras being checked"
-        note="Red boxes mark a possible knife on a person. A knife with nobody near it is not detected."
+        note="Open a camera to see the red box over a possible knife. A knife with nobody near it is not detected."
         cameras={cameras}
         feature="weapons"
       />

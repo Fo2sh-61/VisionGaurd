@@ -30,6 +30,7 @@ import pytest
 
 from vg.api import schemas as S
 from vg.events.weapons import WeaponSceneStore
+from vg.features.weapons import OVERLAY_HOLD_SECONDS
 from vg.infer.persons import DetectedPerson
 from vg.infer.weapons import DetectedWeapon
 from vg.ingest.source import Frame
@@ -548,6 +549,37 @@ class TestRecording:
         assert entry.clip is None, "no file, no clip on the wire"
         assert entry.clip_reason == BUSY_REASON
 
+    def test_the_box_survives_a_blink_so_it_can_actually_be_seen(
+            self, scenes, tmp_path):
+        # The overlay is read from the LAST ANALYSED FRAME. The knife model is
+        # intermittent by nature — that is the whole reason GAP_SECONDS is ten
+        # seconds and not one — so on most analysed frames it finds nothing
+        # even while somebody is plainly holding a knife.
+        #
+        # Reading the instantaneous frame therefore draws a box for one 200 ms
+        # analysis tick and nothing in between, which at 5 Hz is invisible to a
+        # person: the entry appears in the list and the picture stays bare.
+        # Reported by the owner, 22 Aug 2026.
+        people = FakeDetector()
+        knives = FakeKnives()
+        ww = worker(scenes, people=people, knives=knives,
+                    recorder=FakeRecorder(tmp_path / "clips"))
+
+        # Three hits open a scene. The model fires on the third frame.
+        walk(ww, people, knives, [(0.0, 1, 1), (0.5, 1, 1), (1.0, 1, 1)])
+        assert ww.knives_on("cam-a"), "a box on the frame the model fired"
+
+        # The very next frame: person still there, model blinks. The scene is
+        # still open and the list still shows the entry — so the picture must
+        # not go blank.
+        walk(ww, people, knives, [(1.2, 1, 0)])
+        assert ww.knives_on("cam-a"), "the box vanished on the next frame"
+
+        # It must not be held for ever, though. A box a person can no longer
+        # justify is worse than no box.
+        walk(ww, people, knives, [(1.2 + OVERLAY_HOLD_SECONDS + 0.1, 1, 0)])
+        assert ww.knives_on("cam-a") == [], "a stale box is a false claim"
+
     def test_shutdown_closes_the_open_scene(self, scenes, tmp_path):
         people = FakeDetector()
         knives = FakeKnives()
@@ -616,6 +648,40 @@ class TestOverlay:
         faces = store.overlay("cam-a", "attendance")
         assert [f.label for f in faces] == ["Mohamed Fouad"]
         assert faces[0].match is S.MatchKind.FACE
+
+
+    def test_a_real_worker_puts_a_red_knife_box_on_the_page(
+            self, tmp_path, scenes):
+        # The end-to-end overlay test, and the one that was missing.
+        #
+        # `test_weapons_overlay_carries_no_name_even_when_a_face_is_matched`
+        # proves _knife_boxes maps correctly, but it hands LiveStore a FAKE
+        # worker whose knives_on always returns a knife. Every link between the
+        # real worker and the page was therefore untested, and the overlay
+        # shipped invisible: the model blinks, knives_on read only the current
+        # frame, and the box existed for one analysis tick at a time.
+        #
+        # This drives a REAL WeaponsWorker and asks the store what it would
+        # draw, one frame after the model last fired.
+        people = FakeDetector()
+        knives = FakeKnives()
+        ww = worker(scenes, people=people, knives=knives,
+                    recorder=FakeRecorder(tmp_path / "clips"))
+
+        walk(ww, people, knives, [(0.0, 1, 1), (0.5, 1, 1), (1.0, 1, 1)])
+        # ...and now a frame the model found nothing on, which is the common
+        # case while somebody is holding a knife.
+        walk(ww, people, knives, [(1.2, 1, 0)])
+
+        store = live_store(tmp_path, scene_store=scenes, weapons=ww)
+        boxes = store.overlay("cam-a", "weapons")
+
+        assert len(boxes) == 1, "the page would have shown a bare picture"
+        assert boxes[0].kind == "weapon"
+        assert boxes[0].label == "Knife"
+        assert boxes[0].severity is S.Severity.CRITICAL
+        # A camera the worker never saw draws nothing, not another camera's box.
+        assert store.overlay("cam-b", "weapons") == []
 
 
 # ---------------------------------------------------------------------------

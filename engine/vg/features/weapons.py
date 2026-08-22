@@ -91,6 +91,25 @@ MAX_SCENE_SECONDS = 120.0
 #: comes back. Research D2.
 PERSON_MARGIN = 0.0
 
+#: How long the red box stays on the picture after the last frame the model
+#: actually fired on.
+#:
+#: Without this the overlay is invisible. The knife model is intermittent by
+#: nature — that is the entire reason `GAP_SECONDS` is ten seconds and not one
+#: — so on most analysed frames it finds nothing even while somebody is plainly
+#: holding a knife. Drawing only the current frame's hits therefore put a box
+#: on screen for one 200 ms analysis tick and nothing in between: the entry
+#: appeared in the list and the picture stayed bare, which is exactly what the
+#: owner reported on 22 Aug 2026.
+#:
+#: Two seconds is the compromise. Long enough to be seen at the 5 Hz analysis
+#: rate; short enough that the box is never far from where the knife actually
+#: was. It is deliberately far shorter than `GAP_SECONDS`: a scene survives a
+#: ten-second blink because the incident is still happening, but a *box* held
+#: for ten seconds would be pointing at a place the knife has left, and a box
+#: in the wrong place is a false claim about what the camera can see.
+OVERLAY_HOLD_SECONDS = 2.0
+
 #: Who the recorder logs as having asked. Never a person's name: pretending an
 #: operator pressed record would be a lie in the recording log.
 ACTOR = "knife-detection"
@@ -181,12 +200,20 @@ class WeaponsWorker(FeatureWorker[WeaponsResult]):
         self._candidates: dict[str, Candidate] = {}
         # camera id -> the scene running on it right now.
         self._live: dict[str, SceneState] = {}
+        # camera id -> (frame time of the last frame the model fired on, the
+        # boxes it found). What the overlay draws — see OVERLAY_HOLD_SECONDS.
+        self._seen: dict[str, tuple[datetime, tuple[DetectedWeapon, ...]]] = {}
+        # camera id -> the time of the last frame analysed at all. The hold is
+        # measured between two FRAME times, never against the wall clock, so it
+        # means the same thing on a live camera and on a recorded clip.
+        self._last_frame_at: dict[str, datetime] = {}
 
     # -- one frame ----------------------------------------------------------
 
     def analyse(self, frame: Frame) -> WeaponsResult:
         camera_id = frame.camera_id
         now = frame.captured_at
+        self._last_frame_at[camera_id] = now
 
         people = self.people.detect(frame)
         if not people:
@@ -201,6 +228,13 @@ class WeaponsWorker(FeatureWorker[WeaponsResult]):
         if not hits:
             self._quiet(camera_id, now)
             return WeaponsResult(checked=True, people=len(people))
+
+        # What the overlay will draw for the next OVERLAY_HOLD_SECONDS. Kept
+        # separate from the returned result on purpose: the result says what
+        # THIS frame showed, which is what the state machine reasons about;
+        # the overlay says what the camera has shown recently, which is what a
+        # person needs to be able to see at all.
+        self._seen[camera_id] = (now, hits)
 
         peak = max(k.confidence for k in hits)
         state = self._live.get(camera_id)
@@ -299,6 +333,9 @@ class WeaponsWorker(FeatureWorker[WeaponsResult]):
 
     def _close(self, camera_id: str, at: datetime, reason: str) -> None:
         state = self._live.pop(camera_id, None)
+        # Dropped whether or not a scene was running, so a camera that leaves
+        # the roster cannot leave its last boxes behind for ever.
+        self._seen.pop(camera_id, None)
         if state is None:
             return
         self.scenes.close(state.scene_id, at, reason)
@@ -394,13 +431,39 @@ class WeaponsWorker(FeatureWorker[WeaponsResult]):
     # -- reads --------------------------------------------------------------
 
     def knives_on(self, camera_id: str) -> list[DetectedWeapon]:
-        """The knives on this camera's last analysed frame.
+        """The knives to draw on this camera right now.
+
+        The last frame the model actually fired on, held for
+        `OVERLAY_HOLD_SECONDS` — not the last frame analysed. Reading the
+        instantaneous frame is what made this overlay invisible: the model
+        blinks constantly, so the box existed for one analysis tick at a time
+        and a person watching the page saw an entry appear over a bare picture.
+
+        The hold is measured between two **frame** times, never against the
+        wall clock, so it means the same thing on a live camera and on a
+        recorded clip and a test can prove it without sleeping.
+
+        A camera that has stopped delivering frames is not handled here and
+        does not need to be: both callers — `camera_view` and
+        `camera_detections` in `api/live.py` — already build `boxes` as
+        `self._boxes(...) if online else []`, so a dropped stream draws nothing
+        whatever this returns. Repeating that check here by asking `payload()`
+        looked prudent and was worse than useless: `Result.at` is the frame's
+        timestamp, so on any source whose frames are not stamped with the wall
+        clock `payload()` returns None and the overlay silently disappears.
 
         Empty when the last frame had nobody in it, which is the truth: the
         model was not asked, so it found nothing.
         """
-        result = self.payload(camera_id)
-        return list(result.knives) if result else []
+        seen = self._seen.get(camera_id)
+        last_frame_at = self._last_frame_at.get(camera_id)
+        if seen is None or last_frame_at is None:
+            return []
+
+        seen_at, knives = seen
+        if (last_frame_at - seen_at).total_seconds() > OVERLAY_HOLD_SECONDS:
+            return []
+        return list(knives)
 
     def scene_on(self, camera_id: str) -> str | None:
         """The running scene for a camera, if a knife is in view right now."""
