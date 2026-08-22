@@ -1428,13 +1428,23 @@ def _mount(app: FastAPI) -> None:
         Boxes are drawn client-side rather than burned into the JPEG so they
         stay sharp at any size and the pixels remain untouched evidence.
         """
+        # Boost the worker whose overlay was actually asked for, and only
+        # that one.
+        #
+        # Recognition used to be boosted on EVERY detections poll, whatever
+        # the page wanted. That was affordable while only the enlarged view
+        # polled — one camera at a time. The Knife page now draws its overlay
+        # on the grid tiles as well, so an unconditional boost would push
+        # every camera on screen to the expensive face rate to answer a
+        # question about knives. `_boxes` sends weapons to `_knife_boxes` and
+        # counting/intrusion to `_person_boxes`; neither reads a face.
+        FACE_OVERLAYS = (None, "attendance", "track")
         recogniser = request.app.state.recogniser
-        if recogniser is not None:
+        if feature in FACE_OVERLAYS and recogniser is not None:
             recogniser.note_interest(camera_id)
 
-        # Boost whichever worker serves this page's overlay, not just
-        # recognition — a tracking view that only woke the face model would sit
-        # at the cheap background rate and its ids would lag the video.
+        # A tracking view that only woke the face model would sit at the
+        # cheap background rate and its ids would lag the video.
         tracking = getattr(request.app.state, "tracking", None)
         if feature == "track" and tracking is not None:
             tracking.note_interest(camera_id)

@@ -684,6 +684,55 @@ class TestOverlay:
         assert store.overlay("cam-b", "weapons") == []
 
 
+    def test_a_weapons_poll_boosts_knives_and_leaves_face_recognition_alone(
+            self, tmp_path, scenes, user_store, authed):
+        # The Knife page draws its overlay on the grid TILES, not only in the
+        # enlarged view, so a screenful of cameras polls this endpoint at once.
+        # Boosting recognition on every one of them would push the whole grid to
+        # the expensive face rate to answer a question about knives - and the
+        # weapons overlay never reads a face. Rule 9, and the cost argument.
+        from vg.api import app as app_module
+        from vg.api.app import create_app
+        from vg.api.store import MockStore
+
+        class Boostable:
+            def __init__(self):
+                self.boosted: list[str] = []
+
+            def note_interest(self, camera_id):
+                self.boosted.append(camera_id)
+
+            def knives_on(self, camera_id):
+                return []
+
+            def serves(self, camera_id):
+                return True
+
+            def faces_on(self, camera_id):
+                return []
+
+        knife_worker = Boostable()
+        recogniser = Boostable()
+
+        store = live_store(tmp_path, scene_store=scenes, weapons=knife_worker)
+        app_module.set_store(store)
+        app = create_app()
+        app.state.users = user_store
+        app.state.weapons = knife_worker
+        app.state.recogniser = recogniser
+        client = authed(app)
+
+        client.get("/cameras/cam-a/detections", params={"feature": "weapons"})
+        assert knife_worker.boosted == ["cam-a"], "the knife worker must speed up"
+        assert recogniser.boosted == [], "a knife question must not wake the face model"
+
+        # The pages that DO read faces still get their boost.
+        client.get("/cameras/cam-a/detections", params={"feature": "attendance"})
+        assert recogniser.boosted == ["cam-a"]
+
+        app_module.set_store(MockStore())
+
+
 # ---------------------------------------------------------------------------
 # honest states
 # ---------------------------------------------------------------------------

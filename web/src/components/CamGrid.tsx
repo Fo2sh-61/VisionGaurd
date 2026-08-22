@@ -47,6 +47,7 @@ export function CamGrid({
   onPick,
   activeId,
   feature,
+  tileOverlay = false,
 }: {
   title: string;
   note?: string;
@@ -75,6 +76,14 @@ export function CamGrid({
    *  so this only reaches the opened camera — which is exactly where it
    *  matters: the counting page must not open a face review. */
   feature?: CameraFeature;
+  /** Draw the overlay on the tiles too, not only in the enlarged view.
+   *
+   *  Off by default and it should stay that way for most pages: a box at
+   *  128px is unreadable and the poll is not free. The Knife page turns it
+   *  on because a knife is the one overlay worth seeing without clicking
+   *  first. Requires `feature` - a tile overlay with no feature would draw
+   *  the default face boxes, which carry names. */
+  tileOverlay?: boolean;
 }) {
   const [open, setOpen] = useState<Camera | null>(null);
   const [search, setSearch] = useState('');
@@ -150,7 +159,12 @@ export function CamGrid({
           : undefined
       }
     >
-      <CameraFrame camera={cam} refreshMs={refreshMs} />
+      <CameraFrame
+        camera={cam}
+        refreshMs={refreshMs}
+        feature={tileOverlay ? feature : undefined}
+        tileOverlay={tileOverlay}
+      />
       <div className="camcard__meta">
         <div
           style={{

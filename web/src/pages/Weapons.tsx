@@ -243,15 +243,16 @@ export function Weapons() {
         )}
       </Card>
 
-      {/* The note says "open a camera" because a grid tile genuinely cannot
-          draw the box: CameraFrame only polls detections in the enlarged view
-          (see the comment above `wantLiveBoxes`), so a tile that promised a red
-          box would be promising something it never draws. */}
+      {/* `tileOverlay` is the one place in the product a grid tile draws its
+          own overlay. A knife is the overlay worth seeing without clicking
+          first: the question it answers is "is that a knife", and you should
+          not have to open a camera to ask it. Owner decision, 22 Aug 2026. */}
       <CamGrid
         title="Cameras being checked"
-        note="Open a camera to see the red box over a possible knife. A knife with nobody near it is not detected."
+        note="Red boxes mark a possible knife on a person. A knife with nobody near it is not detected."
         cameras={cameras}
         feature="weapons"
+        tileOverlay
       />
     </>
   );
