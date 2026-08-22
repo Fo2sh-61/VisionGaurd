@@ -228,6 +228,7 @@ class MockStore:
             cameras_total=health.cameras_total,
             places=["All"] + [a.name for a in self.count("Cafeteria", "Right now").areas],
             areas=self.areas(),
+            clip_retention_days=30,
         )
 
     # -- intrusion ----------------------------------------------------------

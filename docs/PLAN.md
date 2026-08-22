@@ -136,7 +136,7 @@ pass: the knife model is never called on a frame with nobody in it, and a knife
 counts only when its box centre sits inside a person's box, margin zero. Both rules
 were measured on the recorded clips, where the false hits were room furniture with
 somebody sitting beside it. Three sightings over a second open one entry with one
-video; a 9.5-second detector blink does not split it; ten seconds of nothing closes
+video; a blink shorter than the gap does not split it; two seconds of nothing closes
 it; two minutes cuts it and says so. Every entry waits for a person to press Confirm
 or False alarm — recorded against the signed-in account, audited before the write,
 never reversible, never deleted. Videos expire at 30 days; entries never do.

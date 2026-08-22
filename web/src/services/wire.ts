@@ -576,6 +576,10 @@ export interface SiteInfo {
   camerasTotal: number;
   places: string[];
   areas: string[];
+  /** How long recorded clips are kept, from the engine's configuration.
+   *  A page that states a retention period must read this rather than
+   *  print a number, or it promises something the engine may not do. */
+  clipRetentionDays?: number;
 }
 
 export interface Problem {

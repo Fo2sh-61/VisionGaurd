@@ -511,6 +511,7 @@ class LiveStore(MockStore):
             cameras_total=self.registry.total,
             places=([self.ALL_PLACES] + areas) if areas else [],
             areas=areas,
+            clip_retention_days=self.config.storage.clip_retention_days,
         )
 
     # -- restricted zones ---------------------------------------------------
@@ -1940,6 +1941,22 @@ class LiveStore(MockStore):
         return None, None
 
     def _area_of(self, camera_id: str) -> str:
+        """Where this camera is, in words. Never its id if that can be helped.
+
+        The **live roster first**, engine.yaml second. Asking the file alone
+        meant a camera an operator added through the console had no entry to
+        find, so the id fell through to the screen: "cam-3" in the Area
+        column where somebody had typed "Back stairwell". Worse, the camera
+        NAME on the same row already came from the roster, so one entry could
+        show the name and the raw id side by side.
+
+        The id is still the last resort. A camera that has been deleted since
+        the detection happened has no name left anywhere, and its id is more
+        honest than inventing one or leaving the column blank.
+        """
+        for cam in self.registry.configs():
+            if cam.id == camera_id:
+                return cam.area or cam.name
         for cam in self.config.cameras:
             if cam.id == camera_id:
                 return cam.area or cam.name

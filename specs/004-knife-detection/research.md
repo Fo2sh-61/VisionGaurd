@@ -70,7 +70,7 @@ does.
 | knife counts only if its box centre lies inside a person box, margin **0** | measured: 0 % margin leaves no run longer than one frame; 25 % lets the corner object back |
 | open a scene after **3** hits spanning **≥ 1.0 s** (`CONFIRM_HITS`, `CONFIRM_SECONDS`) | the longest false run inside a person box is 1 frame; a held knife is visible for seconds |
 | drop a candidate after **2 s** without a hit (`CANDIDATE_GAP_SECONDS`) | a blink between the three hits must not reset them, a minute must |
-| close a scene after **10 s** without a knife (`GAP_SECONDS`) | the owner's "no flicker" rule; a knife is lost by the detector far more often than a body is (zones use 1 s) |
+| close a scene after **2 s** without a knife (`GAP_SECONDS`) | was 10 s. **Owner decision, 22 Aug 2026**, taken with a real knife in hand: the gap is also the tail on the video, and his scenes ran 12–19 s for 2–9 s of knife. A knife is still lost far more often than a body is (zones use 1 s), so the cost is that a blink longer than 2 s now splits one incident into two entries |
 | cut at **120 s** (`MAX_SCENE_SECONDS`) | same as zones; the entry says it was cut |
 
 > **Corrected 22 Aug 2026, after building it.** The claim below was measured on

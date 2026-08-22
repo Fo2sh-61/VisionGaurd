@@ -3,7 +3,7 @@
 A scene is one incident, not one detection. A knife held in a corridor at 2 Hz
 is dozens of detections and exactly one thing that happened, so the row here
 opens at the **first** sighting of the run that confirmed it and closes when the
-knife has been gone for ten seconds. The worker in `features/weapons.py` owns
+knife has been gone for a couple of seconds. `features/weapons.py` owns
 that rule; this file only stores it.
 
 Four decisions worth stating:

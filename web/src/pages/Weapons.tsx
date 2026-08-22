@@ -4,6 +4,7 @@ import { Badge, Card, DataNotice, Empty, Field, LoadError, PageHeader, Select, t
 import { getWeaponCameras, getWeaponDetections, reviewWeapon } from '@/services/api';
 import type { Camera, WeaponDetection, WeaponWindow } from '@/types';
 import { useCapability } from '@/app/CapabilityContext';
+import { useSite } from '@/app/SiteContext';
 import { useAsync } from '@/app/useAsync';
 
 const WINDOWS: WeaponWindow[] = [
@@ -30,6 +31,10 @@ const NO_CAMERAS: Camera[] = [];
 
 export function Weapons() {
   const capability = useCapability('weapons');
+  // Read, never printed. The engine deletes by its own configured
+  // `clip_retention_days`; a number typed in here would be a promise the
+  // engine is not required to keep.
+  const retentionDays = useSite().site?.clipRetentionDays;
   const [when, setWhen] = useState<WeaponWindow>('Last 30 days');
 
   const { data: cameras } = useAsync(
@@ -119,7 +124,10 @@ export function Weapons() {
         </div>
 
         <div style={{ fontSize: 12.5, color: 'var(--tx2)', marginBottom: 10 }}>
-          Videos are kept for 30 days. Entries are never removed.
+          {retentionDays
+            ? `Videos are kept for ${retentionDays} ${retentionDays === 1 ? 'day' : 'days'}. `
+            : 'Videos are removed once they reach the age the engine is set to keep them for. '}
+          Entries are never removed.
         </div>
 
         <LoadError error={error} onRetry={reload} what="the detection log" />

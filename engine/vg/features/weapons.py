@@ -24,19 +24,25 @@ them straight back in, so the margin is zero.
 
 The rest is one small state machine per camera:
 
-    idle       --1st hit-->         candidate    remember when it started
-    candidate  --3 hits, >=1 s-->   in a scene   open, and start recording
-    candidate  --2 s quiet-->       idle         forget it; it was furniture
-    in a scene --hit-->             in a scene   extend, raise the peak
-    in a scene --no knife, <10 s--> in a scene   a blink; do nothing
-    in a scene --no knife, >=10 s-->idle         close, reason "gone"
-    in a scene --2 min elapsed-->   idle         close "limit", reopen at once
+    idle       --1st hit-->        candidate    remember when it started
+    candidate  --3 hits, >=1 s-->  in a scene   open, and start recording
+    candidate  --2 s quiet-->      idle         forget it; it was furniture
+    in a scene --hit-->            in a scene   extend, raise the peak
+    in a scene --no knife, <2 s--> in a scene   a blink; do nothing
+    in a scene --no knife, >=2 s-->idle         close, reason "gone"
+    in a scene --2 min elapsed-->  idle         close "limit", reopen at once
 
-**Ten seconds, not one.** Restricted zones close a scene after a second
-without a body, because a body is a large reliable thing. A knife is small,
-often half-hidden by the hand holding it, and the detector loses it constantly
-— so the same one-second rule would turn a single incident into a dozen
-entries and a dozen videos. Ten seconds is the owner's "no flicker" rule.
+**Two seconds, not one and not ten.** Restricted zones close a scene after a
+second without a body, because a body is a large reliable thing. A knife is
+small, often half-hidden by the hand holding it, and the detector loses it
+constantly — so a one-second rule would turn a single incident into a dozen
+entries and a dozen videos.
+
+This was ten seconds until the owner watched it with a real knife. Ten bought
+one entry per incident and charged ten dead seconds at the end of every video
+for it. Two is his call, made with the thing in his hand: short clips, at the
+price of an occasional split when the detector loses a knife for longer than
+that. See `GAP_SECONDS`.
 
 **The entry is stamped with the first sighting, not the third.** An operator
 opening the clip should watch the knife arrive, not find it already in shot.
@@ -76,9 +82,26 @@ CONFIRM_SECONDS = 1.0
 #: between the three sightings must not reset the count; a minute must.
 CANDIDATE_GAP_SECONDS = 2.0
 
-#: How long the camera must see no knife before the incident is over. Ten
-#: times the zones figure, on purpose — see the module docstring. P6-FR-004.
-GAP_SECONDS = 10.0
+#: How long the camera must see no knife before the incident is over, and
+#: therefore how long the video runs on past the last sighting. P6-FR-004.
+#:
+#: **Two seconds, set by the owner on 22 Aug 2026 after watching it with a real
+#: knife.** It was ten, chosen from the recorded clips before anyone had seen
+#: the model track a knife somebody was actually holding. Ten seconds is a long
+#: time to sit at the end of every video waiting for nothing to happen: his
+#: scenes ran 12 to 19 seconds for 2 to 9 seconds of knife.
+#:
+#: The cost is real and he accepted it. This is also the anti-flicker rule, so
+#: shortening it means a detector that loses the knife for more than two
+#: seconds now ends the incident: one hand-turn too long and what a person
+#: would call a single event becomes two entries and two videos. Ten seconds
+#: bought one entry per incident at the price of ten dead seconds on every
+#: clip. Two buys short clips at the price of occasional splits.
+#:
+#: If the splitting turns out to be worse than the waiting, this is the number
+#: to move, and `test_flicker_under_the_gap_is_one_scene` is the test that
+#: describes what changes.
+GAP_SECONDS = 2.0
 
 #: Longest a single scene may run. Somebody holding a knife for an afternoon is
 #: not one clip, and the entry says it was cut rather than looking like they

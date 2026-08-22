@@ -104,10 +104,31 @@ def weapon_window(label: str, clock, term_from: str | None) -> tuple:
 
 
 def _local_midnight(when: datetime, clock) -> datetime:
-    """The start of the site's day containing `when`, as an instant."""
+    """The start of the site's day containing `when`, as an instant.
+
+    Solved, not assumed. Turning a local wall-clock time back into an
+    instant needs the offset **at that instant**, which on the two days a
+    year the clocks change is not the offset now. Using today's offset put
+    the start of Today an hour out on those days — and Yesterday's bounds
+    moved with it, so an hour of entries appeared in both periods at once or
+    in neither.
+
+    One guess, then one correction. The guess uses the current offset; the
+    correction re-asks the clock what the offset is at the guessed instant
+    and tries again. A second iteration converges because offsets move by
+    whole hours and a day is much longer than the jump.
+    """
     local = clock.local(when).replace(hour=0, minute=0, second=0, microsecond=0)
-    return local.replace(tzinfo=timezone.utc) - timedelta(
-        minutes=clock.offset_minutes(when))
+    naive_midnight = local.replace(tzinfo=timezone.utc)
+
+    guess = naive_midnight - timedelta(minutes=clock.offset_minutes(when))
+    for _ in range(2):
+        corrected = naive_midnight - timedelta(
+            minutes=clock.offset_minutes(guess))
+        if corrected == guess:
+            return guess
+        guess = corrected
+    return guess
 
 
 def _term_start(term_from: str | None, clock) -> datetime | None:

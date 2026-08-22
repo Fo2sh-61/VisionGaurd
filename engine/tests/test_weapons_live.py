@@ -425,34 +425,47 @@ class TestSceneMachine:
         assert scene.started_at == START
         assert scene.started_at != START + timedelta(seconds=1.0)
 
-    def test_flicker_under_ten_seconds_is_one_scene(self, scenes, tmp_path):
-        # P6-FR-004 and SC-002 — the test that decides whether this feels
-        # solid. A knife is lost by the detector far more often than a body is:
-        # a hand turns, a sleeve covers it. Ten seconds of nothing is the bar,
-        # and 9.5 s must not split one incident into two entries.
+    def test_flicker_under_the_gap_is_one_scene(self, scenes, tmp_path):
+        # P6-FR-004 and SC-002 - the test that decides whether this feels solid.
+        # A knife is lost by the detector far more often than a body is: a hand
+        # turns, a sleeve covers it. A blink shorter than GAP_SECONDS must not
+        # split one incident into two entries and two videos.
         people = FakeDetector()
         knives = FakeKnives()
         ww = worker(scenes, people=people, knives=knives,
                     recorder=FakeRecorder(tmp_path / "clips"))
 
         script = [(0.0, 1, 1), (0.5, 1, 1), (1.0, 1, 1)]
-        # Nothing at all from 1.0 s to 10.5 s — a 9.5 second gap.
-        script += [(t / 2, 1, 0) for t in range(3, 21)]
-        script += [(10.5, 1, 1)]
+        # Nothing from 1.0 s to 2.5 s - a 1.5 s blink, inside the 2 s gap.
+        script += [(1.5, 1, 0), (2.0, 1, 0)]
+        script += [(2.5, 1, 1)]
         walk(ww, people, knives, script)
 
         logged = scenes.recent(None, None)
         assert len(logged) == 1, "a blink must not become a second entry"
         assert logged[0].running is True
 
-    def test_ten_seconds_without_a_knife_closes_and_saves(self, scenes, tmp_path):
+    def test_the_video_ends_two_seconds_after_the_knife_does(
+            self, scenes, tmp_path):
+        # Owner decision, 22 Aug 2026, made with a real knife in his hand. This
+        # was ten seconds, and ten seconds of nothing at the end of every clip
+        # is most of a short clip: his scenes ran 12-19 s for 2-9 s of knife.
+        #
+        # The number here IS the tail on the video, because the recording stops
+        # when the scene closes. If this test starts failing because somebody
+        # raised GAP_SECONDS, the videos got longer and that is the thing to
+        # weigh - not the test.
+        from vg.features.weapons import GAP_SECONDS
+
         people = FakeDetector()
         knives = FakeKnives()
         recorder = FakeRecorder(tmp_path / "clips")
         ww = worker(scenes, people=people, knives=knives, recorder=recorder)
 
-        script = [(0.0, 1, 1), (0.5, 1, 1), (1.0, 1, 1)]
-        script += [(1.0 + t / 2, 1, 0) for t in range(1, 22)]  # out to 11.5 s
+        last_knife_at = 1.0
+        script = [(0.0, 1, 1), (0.5, 1, 1), (last_knife_at, 1, 1)]
+        # Frames every 200 ms (5 Hz, the configured rate) out past the gap.
+        script += [(last_knife_at + t / 5, 1, 0) for t in range(1, 21)]
         walk(ww, people, knives, script)
 
         scene = scenes.recent(None, None)[0]
@@ -461,6 +474,11 @@ class TestSceneMachine:
         assert scene.clip_state == "saved"
         assert recorder.stopped == ["cam-a"]
         assert scene.clip_path.is_file()
+
+        tail = (scene.ended_at - scene.started_at).total_seconds() - last_knife_at
+        assert tail <= GAP_SECONDS + 0.25, (
+            f"the video ran {tail:.1f}s past the last sighting")
+        assert GAP_SECONDS <= 2.0, "the owner asked for two seconds maximum"
 
     def test_scene_is_cut_at_two_minutes_and_a_knife_still_there_reopens(
             self, scenes, tmp_path):
@@ -731,6 +749,74 @@ class TestOverlay:
         assert recogniser.boosted == ["cam-a"]
 
         app_module.set_store(MockStore())
+
+
+class TestNamesAndTimes:
+    def test_the_area_is_a_place_not_a_camera_id(self, tmp_path, scenes):
+        # `_area_of` only ever looked in engine.yaml, so a camera an operator
+        # added through the console had no entry there and the page printed its
+        # raw id in the Area column - "cam-3" where somebody typed "Back
+        # stairwell". The camera NAME was already read from the live roster, so
+        # one row could show the name and the id side by side.
+        store = live_store(tmp_path, scene_store=scenes)
+        scene_id = scenes.open("cam-a", START, 0.9, "knifebest")
+
+        entry = [w for w in store.weapons(None, None) if w.id == scene_id][0]
+        assert entry.camera_name == "Main entrance"
+        # "Unassigned" is the product's word for a camera nobody has put in an
+        # area yet - the config, the wire and the camera store all default to
+        # it. It is a place word an operator understands; the raw id is not,
+        # and the raw id is what used to appear here.
+        assert entry.location != "cam-a", "the raw id reached the screen"
+        assert entry.location == "Unassigned"
+
+        # And when somebody HAS named the area, that is what shows.
+        for cam in store.registry.configs():
+            if cam.id == "cam-a":
+                object.__setattr__(cam, "area", "Back stairwell")
+        entry = [w for w in store.weapons(None, None) if w.id == scene_id][0]
+        assert entry.location == "Back stairwell"
+
+    def test_today_is_right_on_the_day_the_clocks_change(self):
+        # `weapon_window` converted local midnight back to an instant using the
+        # offset RIGHT NOW. On a changeover day the offset at midnight is not
+        # the offset now, so Today began an hour early or an hour late - and
+        # Yesterday's bounds moved with it, so an hour of entries could land in
+        # both periods at once, or in neither.
+        from vg.api.app import weapon_window
+        from vg.clock import Clock
+
+        # A real changeover: one FIXED instant, a few hours ago, where the site
+        # jumped from +1 to +2. Anchoring it to a fixed moment rather than to
+        # "01:00 on whatever day you are asking about" is the whole point - the
+        # first version of this test asked the clock a question relative to each
+        # instant, so it never disagreed with itself and passed against the bug.
+        switch = datetime.now(timezone.utc) - timedelta(hours=6)
+
+        class ChangeoverClock(Clock):
+            name = "Test/Changeover"
+
+            def offset_minutes(self, when=None):
+                when = when or datetime.now(timezone.utc)
+                return 120 if when >= switch else 60
+
+        clock = ChangeoverClock()
+        since, until = weapon_window("Today", clock, "")
+
+        # Whatever instant we call the start of the day, the site's own clock
+        # must agree that it IS midnight there. That is the only invariant that
+        # holds on both sides of a changeover.
+        local = clock.local(since)
+        assert (local.hour, local.minute) == (0, 0), (
+            f"Today started at {local.hour:02d}:{local.minute:02d} local")
+        assert until is None
+
+        # Yesterday must butt up against it exactly - no gap, no overlap, or an
+        # hour of entries is listed twice or not at all.
+        y_since, y_until = weapon_window("Yesterday", clock, "")
+        assert y_until == since
+        y_local = clock.local(y_since)
+        assert (y_local.hour, y_local.minute) == (0, 0)
 
 
 class TestStandsAlone:

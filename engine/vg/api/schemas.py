@@ -967,6 +967,11 @@ class SiteInfo(Wire):
     cameras_total: int
     places: list[str] = Field(default_factory=list)
     areas: list[str] = Field(default_factory=list)
+    # How long recorded clips are kept, from `storage.clip_retention_days`.
+    # Site policy, so it belongs with the rest of the chrome: a page that
+    # tells an operator "videos are kept for 30 days" must be reading the
+    # number the engine actually deletes by, not one typed into the markup.
+    clip_retention_days: int = 30
 
 
 class Problem(Wire):

@@ -203,7 +203,10 @@ when. Nothing is sent to anybody by the detector itself.
   outside the person's box. A short recorded clip with a real knife is needed
   before go-live and joins the regression suite.
 - Starting values, all tunable: confidence 0.5; seen in 3 analysed frames
-  spanning at least 1 s to open; 10 s without a knife to close; 2-minute cut;
+  spanning at least 1 s to open; 2 s without a knife to close (was 10 s;
+  **changed by the owner on 22 Aug 2026** after testing with a real knife —
+  ten seconds of nothing at the end of every clip was most of a short clip);
+  2-minute cut;
   30-day retention. The video starts when the entry opens, about a second
   after the first sighting; the knife is still in view by definition.
 - The reviewer is the signed-in account. Reviewing is an operator action, not
