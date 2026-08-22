@@ -1,10 +1,22 @@
 import { useCallback, useEffect, useState } from 'react';
+import type { CameraFeature } from '@/services/api';
 import { describeCount } from '@/services/format';
 import type { Camera } from '@/types';
 import { CameraFrame } from './CameraFrame';
 import { RecordButton } from './RecordButton';
 
-export function CameraModal({ camera, onClose }: { camera: Camera; onClose: () => void }) {
+export function CameraModal({
+  camera,
+  onClose,
+  feature,
+}: {
+  camera: Camera;
+  onClose: () => void;
+  /** Which overlay the page that opened this was asking about. Counting
+   *  wants bodies, not faces — an enlarged view that answered a different
+   *  question from the page behind it would put names on a headcount. */
+  feature?: CameraFeature;
+}) {
   const [count, setCount] = useState<number | null>(null);
 
   // The frame already polls detections ~10x a second; it hands the headcount
@@ -31,7 +43,7 @@ export function CameraModal({ camera, onClose }: { camera: Camera; onClose: () =
         aria-label={camera.name}
       >
         {/* The enlarged view is the one place MJPEG is worth the bandwidth. */}
-        <CameraFrame camera={camera} size="lg" live onCount={onCount} />
+        <CameraFrame camera={camera} size="lg" live onCount={onCount} feature={feature} />
 
         <div style={{ padding: '18px 22px' }}>
           <div style={{ fontWeight: 700, fontSize: 16 }}>{camera.name}</div>

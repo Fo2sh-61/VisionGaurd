@@ -15,6 +15,7 @@ import {
   formatMetric, toDetectionBox, toCameraZone, severityToTone, boxColor, formatLongDate,
   identifiedByFace,
 } from '../src/services/format';
+import { pictureRect } from '../src/services/frame';
 
 let pass = 0, fail = 0;
 const eq = (name: string, got: unknown, want: unknown) => {
@@ -114,6 +115,42 @@ eq('a weapon is red whatever its label',
 const namedBody = { name: 'Layla A.', match: 'appearance' as const };
 eq('named body, appearance match, IS identified', identifiedByFace(namedBody.name), true);
 eq('reading the match kind gets it wrong', namedBody.match === 'face', false);
+
+/* ---------- where the picture is, inside the tile that holds it ----------
+ *
+ *  A tile is whatever size the page's grid gave it. The picture inside it is
+ *  whatever shape the camera is. Every overlay the engine sends is a fraction
+ *  of the PICTURE, so drawing one as a percentage of the TILE is only correct
+ *  when the two happen to be the same shape.
+ *
+ *  On the people counting page they were not: a tile about as tall as it is
+ *  wide, holding a 16:9 camera. Every box was drawn tens of percent away from
+ *  the person it belonged to, and `object-fit: cover` cropped the sides off as
+ *  well — so people who were in the count were not on the screen. */
+
+eq('same shape uses the whole tile',
+   pictureRect(400, 200, 2), { left: 0, top: 0, width: 400, height: 200 });
+eq('wider than the tile gets bars above and below',
+   pictureRect(400, 400, 2), { left: 0, top: 100, width: 400, height: 200 });
+eq('narrower than the tile gets bars either side',
+   pictureRect(400, 100, 2), { left: 100, top: 0, width: 200, height: 100 });
+
+// Before the first frame there is no shape to know, and pretending otherwise
+// would move every overlay for one paint. The whole tile is the honest answer.
+eq('unknown shape is the whole tile',
+   pictureRect(400, 400, null), { left: 0, top: 0, width: 400, height: 400 });
+eq('a nonsense aspect is the whole tile',
+   pictureRect(400, 400, 0), { left: 0, top: 0, width: 400, height: 400 });
+eq('an unmeasured tile has nothing to divide',
+   pictureRect(0, 0, 2), { left: 0, top: 0, width: 0, height: 0 });
+
+// The regression itself, in the pixels the box is actually drawn at. A body
+// 20% down a 16:9 picture inside a square tile is 140px down, not 80px — and
+// 80px is where it used to be drawn.
+const shot = pictureRect(400, 400, 2);
+eq('a box lands on the picture, not on the tile',
+   shot.top + (20 / 100) * shot.height, 140);
+eq('reading it against the tile gets it wrong', (20 / 100) * 400, 80);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

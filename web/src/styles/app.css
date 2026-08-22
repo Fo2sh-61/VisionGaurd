@@ -569,6 +569,15 @@ select.input {
   font-family: ui-monospace, Menlo, monospace;
 }
 
+/* The picture inside the tile.
+ *
+ * The tile is the size the page's grid gave it; the picture is whatever
+ * shape the camera is, fitted inside. Overlays live in here rather than in
+ * the tile, because a fraction of the frame is a fraction of the picture. */
+.camframe__stage {
+  position: absolute;
+}
+
 .camframe__box {
   position: absolute;
   border-radius: 3px;

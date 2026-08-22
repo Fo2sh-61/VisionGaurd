@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useAutoRun } from '@/app/useAutoRun';
-import { CameraFrame } from '@/components/CameraFrame';
+import { CamGrid } from '@/components/CamGrid';
 import { Card, CardHeader, DataNotice, Empty, Field, PageHeader, Select, Stats } from '@/components/ui';
 import { getCount } from '@/services/api';
 import { useChoice, usePlaces } from '@/app/useOptions';
@@ -150,43 +150,40 @@ export function Counting() {
             )}
           </Card>
 
-          {/* The live stream, not a polled thumbnail.
+          {/* Tiles you can open, not a wall of streams.
            *
-           *  Counting shows one area at a time — a handful of cameras, not a
-           *  wall of them — so each can afford the MJPEG stream and its own
-           *  detection poll. That is what puts a box round every person as
-           *  they move, which a static tile deliberately never does.
+           *  This page used to hold an MJPEG stream open for every camera at
+           *  once, each with its own ten-per-second detection poll. With the
+           *  default place — "All places", which is every enabled camera —
+           *  those held connections used up the handful the browser allows per
+           *  origin, and the cameras that lost the race never painted a frame.
+           *  `CamGrid` polls snapshots for the tiles and keeps the stream for
+           *  the one camera you open, which is also what makes a tile here
+           *  clickable at all.
+           *
+           *  `feature` follows it into the enlarged view. Counting asks how
+           *  many bodies are in shot; without it the opened camera would answer
+           *  a different question and draw faces with names on a headcount.
            *
            *  Only the cameras that actually count this area: the heading makes
-           *  that claim, so the roster must not sneak in cameras from
-           *  elsewhere. */}
-          <Card>
-            <CardHeader
-              title="Cameras counting this area"
-              sub="A box round every person the counter can see. This is how many are in view, not how many have passed through."
-            />
-            {result.cameras.length === 0 ? (
+           *  that claim, so `only` keeps the full roster from sneaking in. */}
+          {result.cameras.length === 0 ? (
+            <Card>
+              <CardHeader
+                title="Cameras counting this area"
+                sub="A box round every person the counter can see. This is how many are in view, not how many have passed through."
+              />
               <Empty>No camera watches this area yet, so its number is a demo figure.</Empty>
-            ) : (
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit,minmax(320px,1fr))',
-                  gap: 12,
-                }}
-              >
-                {result.cameras.map((c) => (
-                  <div key={c.id}>
-                    <CameraFrame camera={c} size="lg" live feature="counting" />
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 8 }}>
-                      <span style={{ fontSize: 13, fontWeight: 600 }}>{c.name}</span>
-                      <span style={{ fontSize: 13, color: 'var(--tx2)' }}>{c.status}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Card>
+            </Card>
+          ) : (
+            <CamGrid
+              title="Cameras counting this area"
+              note="Click a camera to enlarge it, with a box round every person the counter can see. This is how many are in view, not how many have passed through."
+              cameras={result.cameras}
+              only
+              feature="counting"
+            />
+          )}
         </>
       )}
     </>

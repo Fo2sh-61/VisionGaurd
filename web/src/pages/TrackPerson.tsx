@@ -33,6 +33,7 @@ import { usePersonNames } from '@/app/useOptions';
 import { CamGrid } from '@/components/CamGrid';
 import { CameraFrame } from '@/components/CameraFrame';
 import { Card, DataNotice, Empty, PageHeader } from '@/components/ui';
+import type { PictureRect } from '@/services/frame';
 import { ApiError } from '@/services/http';
 import {
   endFollow,
@@ -158,6 +159,14 @@ function LiveMode({ cameras }: { cameras: Camera[] }) {
   // failure this screen has.
   const [boxes, setBoxes] = useState<DetectionBox[]>([]);
   const [hovered, setHovered] = useState<DetectionBox | null>(null);
+  // Where the picture sits inside the tile. Zero until the first frame has
+  // loaded, which is also when there is nothing yet to click.
+  const [picture, setPicture] = useState<PictureRect>({
+    left: 0,
+    top: 0,
+    width: 0,
+    height: 0,
+  });
 
   /* The engine holds the session; this only catches up with it. In particular
    * a follow that ENDED server-side — the timer ran out, the track was lost —
@@ -199,16 +208,24 @@ function LiveMode({ cameras }: { cameras: Camera[] }) {
     return hits.reduce((a, b) => (a.w * a.h <= b.w * b.h ? a : b));
   };
 
+  /** A point on the PICTURE, not on the tile around it.
+   *
+   *  The engine hit-tests fractions of the frame the camera sent, and the tile
+   *  is a different rectangle with bars wherever the two shapes disagree. A
+   *  click measured against the tile lands somewhere else on the picture, so
+   *  following would start on nobody — or on the wrong body. Out of range
+   *  reads as no point at all. */
   const fractions = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (picture.width <= 0 || picture.height <= 0) return { x: -1, y: -1 };
     const rect = event.currentTarget.getBoundingClientRect();
     return {
-      x: (event.clientX - rect.left) / rect.width,
-      y: (event.clientY - rect.top) / rect.height,
+      x: (event.clientX - rect.left - picture.left) / picture.width,
+      y: (event.clientY - rect.top - picture.top) / picture.height,
     };
   };
 
   const click = async (event: React.MouseEvent<HTMLDivElement>, camera: Camera) => {
-    // Fractions of the tile, which is also how the boxes over it are
+    // Fractions of the picture, which is also how the boxes over it are
     // positioned. Matching the overlay is what matters: the operator is
     // clicking a body they can see outlined, so the click has to use the same
     // frame of reference the outline was drawn in.
@@ -346,6 +363,7 @@ function LiveMode({ cameras }: { cameras: Camera[] }) {
               live
               feature="track"
               onBoxes={setBoxes}
+              onPicture={setPicture}
               badge={active?.recording?.state === 'recording' ? 'Recording' : 'LIVE'}
             />
 
@@ -356,10 +374,11 @@ function LiveMode({ cameras }: { cameras: Camera[] }) {
               <div
                 style={{
                   position: 'absolute',
-                  left: `${hovered.x}%`,
-                  top: `${hovered.y}%`,
-                  width: `${hovered.w}%`,
-                  height: `${hovered.h}%`,
+                  // Inside the picture, exactly like the box the frame drew.
+                  left: picture.left + (hovered.x / 100) * picture.width,
+                  top: picture.top + (hovered.y / 100) * picture.height,
+                  width: (hovered.w / 100) * picture.width,
+                  height: (hovered.h / 100) * picture.height,
                   border: '2px solid #fff',
                   borderRadius: 4,
                   boxShadow: '0 0 0 2px rgba(0,0,0,.45)',

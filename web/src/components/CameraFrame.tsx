@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSite } from '@/app/SiteContext';
 import type { CameraFeature } from '@/services/api';
 import { getCameraDetections } from '@/services/api';
 import { siteClock } from '@/services/format';
+import type { PictureRect } from '@/services/frame';
+import { pictureRect } from '@/services/frame';
 import type { BoxColor, Camera, DetectionBox } from '@/types';
 
 const BOX_COLOR: Record<BoxColor, string> = {
@@ -73,6 +75,7 @@ export function CameraFrame({
   badge = 'LIVE',
   feature,
   detections = true,
+  onPicture,
 }: {
   camera: Camera;
   size?: Size;
@@ -100,6 +103,12 @@ export function CameraFrame({
    *  someone IS must not display the system's guess at who they are. It draws
    *  its own nameless outline instead. */
   detections?: boolean;
+  /** Where the picture ended up inside the tile, in CSS pixels from the
+   *  tile's top-left corner. A page that turns a click into a point on the
+   *  picture needs it — the Track page does, because a point on the picture
+   *  is the only thing the engine can hit-test. The tile and the picture are
+   *  rarely the same shape, so the two are not interchangeable. */
+  onPicture?: (rect: PictureRect) => void;
 }) {
   const s = SCALE[size];
   const tzOffsetMinutes = useSite().site?.tzOffsetMinutes ?? 0;
@@ -111,8 +120,35 @@ export function CameraFrame({
   const [imageFailed, setImageFailed] = useState(false);
   const [liveBoxes, setLiveBoxes] = useState<DetectionBox[] | null>(null);
 
+  // The tile's size, and the picture's shape.
+  //
+  // Every overlay the engine sends is a fraction of the PICTURE, so neither
+  // can be assumed: the tile is whatever the page's grid gave it, and the
+  // picture is whatever shape the camera is.
+  const frameRef = useRef<HTMLDivElement | null>(null);
+  const [frameSize, setFrameSize] = useState({ width: 0, height: 0 });
+  const [aspect, setAspect] = useState<number | null>(null);
+
   const useStream = live && !!camera.streamUrl && !camera.offline;
   const usePolling = !useStream && !!camera.snapshotUrl && !imageFailed;
+
+  // Measured, not assumed. A tile is sized by the page's grid and changes
+  // with the window, and a box drawn against a stale size is a box on nobody.
+  useEffect(() => {
+    const element = frameRef.current;
+    if (!element) return;
+    const measure = () =>
+      setFrameSize({ width: element.clientWidth, height: element.clientHeight });
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  // A different camera is a different shape. Keeping the previous one would
+  // draw this camera's boxes in the last camera's frame of reference until
+  // the first frame lands.
+  useEffect(() => setAspect(null), [camera.id]);
 
   useEffect(() => {
     if (!usePolling) return;
@@ -172,6 +208,23 @@ export function CameraFrame({
   // thumbnail is a picture rather than a picture plus an unreadable rectangle.
   const boxes = liveBoxes ?? [];
 
+  // Overlays are fractions of this rectangle, never of the tile around it.
+  // Reading them against the tile is what slid every box off the person it
+  // belonged to on the people counting page, where the tile is nearly square
+  // and the camera is 16:9.
+  const picture = pictureRect(frameSize.width, frameSize.height, aspect);
+  const { left: pictureLeft, top: pictureTop } = picture;
+  const { width: pictureWidth, height: pictureHeight } = picture;
+
+  useEffect(() => {
+    onPicture?.({
+      left: pictureLeft,
+      top: pictureTop,
+      width: pictureWidth,
+      height: pictureHeight,
+    });
+  }, [onPicture, pictureLeft, pictureTop, pictureWidth, pictureHeight]);
+
   // The clock ticks only while the camera is up.
   //
   // A running clock over a frozen frame would be the exact lie the NO SIGNAL
@@ -201,18 +254,27 @@ export function CameraFrame({
       : undefined;
 
   return (
-    <div className="camframe" style={{ height: s.height }}>
+    <div className="camframe" ref={frameRef} style={{ height: s.height }}>
       {frameSrc ? (
         <img
           src={frameSrc}
           alt={camera.name}
           onError={() => setImageFailed(true)}
+          onLoad={(e) => {
+            const { naturalWidth, naturalHeight } = e.currentTarget;
+            if (naturalWidth > 0 && naturalHeight > 0) {
+              setAspect(naturalWidth / naturalHeight);
+            }
+          }}
           style={{
             position: 'absolute',
             inset: 0,
             width: '100%',
             height: '100%',
-            objectFit: 'cover',
+            // Fitted, never cropped. `cover` filled the tile by throwing the
+            // edges of the frame away, which on a counting page means people
+            // who are in the number but not on the screen.
+            objectFit: 'contain',
             // Dim a frame that is no longer current, so a still corridor does
             // not read as a live one.
             filter: camera.offline ? 'grayscale(1) brightness(.45)' : undefined,
@@ -228,81 +290,97 @@ export function CameraFrame({
         </>
       )}
 
-      {zone && (
-        <div
-          className="camframe__zone"
-          style={{
-            left: `${zone.x}%`,
-            top: `${zone.y}%`,
-            width: `${zone.w}%`,
-            height: `${zone.h}%`,
-            borderWidth: s.border,
-          }}
-        >
-          <span
-            className="camframe__zonelabel"
+      {/* From here down, everything is positioned inside the PICTURE.
+
+          Zones, the counting line and every box are fractions of the frame
+          the camera sent. The tile around it is a different rectangle, and
+          reading one as the other is what put boxes beside people instead of
+          round them. */}
+      <div
+        className="camframe__stage"
+        style={{
+          left: pictureLeft,
+          top: pictureTop,
+          width: pictureWidth,
+          height: pictureHeight,
+        }}
+      >
+        {zone && (
+          <div
+            className="camframe__zone"
             style={{
-              top: zoneLabelInside ? 3 : s.labelTop,
-              left: zoneLabelInside ? 3 : -2,
-              fontSize: s.labelFont,
-              padding: s.labelPad,
+              left: `${zone.x}%`,
+              top: `${zone.y}%`,
+              width: `${zone.w}%`,
+              height: `${zone.h}%`,
+              borderWidth: s.border,
             }}
           >
-            {zone.label}
-          </span>
-        </div>
-      )}
-
-      {camera.countLine !== undefined && (
-        <div
-          className="camframe__countline"
-          style={{ top: `${camera.countLine}%`, borderTopWidth: s.border }}
-        />
-      )}
-
-      {boxes.map((b, i) => (
-        <div
-          key={i}
-          className="camframe__box"
-          style={{
-            left: `${b.x}%`,
-            top: `${b.y}%`,
-            width: `${b.w}%`,
-            height: `${b.h}%`,
-            border: `${s.border}px solid ${BOX_COLOR[b.color]}`,
-          }}
-        >
-          {(b.label || b.trackId) && (
             <span
-              className="camframe__label"
+              className="camframe__zonelabel"
               style={{
-                top: b.trackId ? undefined : s.labelTop,
-                bottom: b.trackId ? '100%' : undefined,
+                top: zoneLabelInside ? 3 : s.labelTop,
+                left: zoneLabelInside ? 3 : -2,
                 fontSize: s.labelFont,
                 padding: s.labelPad,
-                background: BOX_COLOR[b.color],
-                lineHeight: 1.15,
               }}
             >
-              {/* Tracked bodies lead with the identity, name underneath: the id
-                  is the thing that persists across cameras and is what the
-                  operator is actually following. A name may not exist at all. */}
-              {b.trackId ? (
-                <>
-                  <span style={{ display: 'block', fontSize: s.labelFont * 1.45, fontWeight: 800 }}>
-                    #{b.trackId}
-                  </span>
-                  <span style={{ display: 'block', fontSize: s.labelFont * 0.92 }}>
-                    {b.label ?? 'Unknown person'}
-                  </span>
-                </>
-              ) : (
-                b.label
-              )}
+              {zone.label}
             </span>
-          )}
-        </div>
-      ))}
+          </div>
+        )}
+
+        {camera.countLine !== undefined && (
+          <div
+            className="camframe__countline"
+            style={{ top: `${camera.countLine}%`, borderTopWidth: s.border }}
+          />
+        )}
+
+        {boxes.map((b, i) => (
+          <div
+            key={i}
+            className="camframe__box"
+            style={{
+              left: `${b.x}%`,
+              top: `${b.y}%`,
+              width: `${b.w}%`,
+              height: `${b.h}%`,
+              border: `${s.border}px solid ${BOX_COLOR[b.color]}`,
+            }}
+          >
+            {(b.label || b.trackId) && (
+              <span
+                className="camframe__label"
+                style={{
+                  top: b.trackId ? undefined : s.labelTop,
+                  bottom: b.trackId ? '100%' : undefined,
+                  fontSize: s.labelFont,
+                  padding: s.labelPad,
+                  background: BOX_COLOR[b.color],
+                  lineHeight: 1.15,
+                }}
+              >
+                {/* Tracked bodies lead with the identity, name underneath: the id
+                    is the thing that persists across cameras and is what the
+                    operator is actually following. A name may not exist at all. */}
+                {b.trackId ? (
+                  <>
+                    <span style={{ display: 'block', fontSize: s.labelFont * 1.45, fontWeight: 800 }}>
+                      #{b.trackId}
+                    </span>
+                    <span style={{ display: 'block', fontSize: s.labelFont * 0.92 }}>
+                      {b.label ?? 'Unknown person'}
+                    </span>
+                  </>
+                ) : (
+                  b.label
+                )}
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
 
       {!camera.offline && badge !== null && (
         <div

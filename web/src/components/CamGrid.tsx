@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useCameraGrid, useCameras } from '@/app/CameraContext';
+import type { CameraFeature } from '@/services/api';
 import { getCameraCounts } from '@/services/api';
 import { describeCount } from '@/services/format';
 import type { Camera } from '@/types';
@@ -45,6 +46,7 @@ export function CamGrid({
   pageSize,
   onPick,
   activeId,
+  feature,
 }: {
   title: string;
   note?: string;
@@ -69,6 +71,10 @@ export function CamGrid({
   onPick?: (camera: Camera) => void;
   /** Draw this camera as the chosen one. */
   activeId?: string;
+  /** Which overlay the enlarged view should draw. The tiles never draw one,
+   *  so this only reaches the opened camera — which is exactly where it
+   *  matters: the counting page must not open a face review. */
+  feature?: CameraFeature;
 }) {
   const [open, setOpen] = useState<Camera | null>(null);
   const [search, setSearch] = useState('');
@@ -283,7 +289,9 @@ export function CamGrid({
         </div>
       )}
 
-      {open && <CameraModal camera={open} onClose={() => setOpen(null)} />}
+      {open && (
+        <CameraModal camera={open} onClose={() => setOpen(null)} feature={feature} />
+      )}
     </div>
   );
 }
