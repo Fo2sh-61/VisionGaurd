@@ -178,6 +178,12 @@ export interface WeaponDetection {
   box?: Box | null;
   clip?: Clip | null;
   modelVersion?: string | null;
+  /** null means the knife is still in view; `seconds` is then counting up. */
+  endedAt?: Instant | null;
+  seconds?: number;
+  clipState?: string;
+  clipReason?: string | null;
+  endReason?: string | null;
 }
 
 /* ---------- attendance ---------- */

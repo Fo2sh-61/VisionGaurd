@@ -206,15 +206,40 @@ export type IntrusionWindow = 'Today' | 'Last 7 days' | 'Last 30 days';
 
 /* ---------- weapons ---------- */
 
-export type WeaponWindow = 'Last 30 days' | 'Last 90 days' | 'This school year';
+export type WeaponWindow =
+  | 'Today'
+  | 'Yesterday'
+  | 'Last 7 days'
+  | 'Last 30 days'
+  | 'Last 90 days'
+  | 'This school year'
+  | 'All';
+
+/** Where a detection has got to. Nothing moves back out of the last two.
+ *
+ *  Spelled out here rather than imported from `wire.ts`: this file is the
+ *  shapes the UI renders and deliberately does not depend on the wire. */
+export type WeaponVerdict = 'pending' | 'confirmed' | 'dismissed';
 
 export interface WeaponDetection {
   id: string;
+  camera: string;
+  area: string;
   time: string;
-  location: string;
-  item: string;
+  duration: string;
+  confidence: string;
   status: string;
   tone: Tone;
+  verdict: WeaponVerdict;
+  reviewer?: string;
+  reviewedAt?: string;
+  /** The knife is still in view: the duration is still growing. */
+  running: boolean;
+  /** The scene hit the two-minute limit; a second entry may follow it. */
+  cut: boolean;
+  clipUrl?: string;
+  /** Why there is no video. Shown where the button would be. */
+  clipReason?: string;
 }
 
 /* ---------- lost items ---------- */
@@ -332,17 +357,6 @@ export interface AttentionItem {
   sub: string;
   action: string;
   to: ToolId;
-}
-
-/* ---------- weapons workflow ---------- */
-
-export type WeaponState = 'clear' | 'live' | 'confirmed' | 'dismissed';
-
-export interface WeaponStep {
-  icon: string;
-  tone: Tone;
-  title: string;
-  sub: string;
 }
 
 /* ---------- people directory ---------- */

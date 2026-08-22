@@ -9,41 +9,95 @@ recovered by reading the checkpoints.
 
 ---
 
-## The headline: the weapons model is prompted, not trained
+## The headline: the knife model is trained, and it is the only weapons model wired up
 
-`yolov8m-worldv2-school.pt` (343 MB, saved 2026-05-06) is the weapons detector. It is a
-stock **YOLO-World v2** open-vocabulary model with 18 text prompts baked in:
+`knifebest.pt` (21 MB, trained 13 Aug 2026, supplied by the owner) is the weapons
+detector. Read from the checkpoint: **YOLOv8s, 11.1 M parameters, one class — `knife`**,
+imgsz 640, 80 epochs on a combined public + on-site dataset, ultralytics 8.4.118.
+Own-validation mAP50 0.90, precision 0.83, recall 0.84.
+
+It is what `models.weapons` in `engine.yaml` points at, and what `infer/weapons.py`
+loads. It replaced the prompted model in August 2026 — see below for why that was the
+right trade.
+
+**What "own-validation mAP50 0.90" does and does not mean.** It is the score on the
+model's own held-out split, which shares the distribution of its training set. It is
+*not* a measurement on school CCTV: nobody has footage of a knife on an Egyptian school
+corridor camera, so accuracy in the place this will actually run is **unmeasured**. That
+is exactly why every detection waits for a person to decide, and why the two false-alarm
+rules below exist.
+
+**The two rules that remove false alarms**, both measured on the recorded clips in
+`engine/data/footage/` (neither contains a knife):
+
+1. **The knife model never runs on a frame with nobody in it.** Not "runs and finds
+   nothing" — it is not called. This is also the cost argument: a second model on 208
+   cameras is only affordable because an empty corridor pays for one pass.
+2. **A knife counts only if its box centre sits inside a person's box**, margin zero.
+   Measured: over 120 sampled frames the model's strongest false runs were a desk edge
+   and a chair in the bottom-right corner, scoring above 0.5 in nine frames — with
+   somebody sitting at that desk the whole time. "Only when a person is in view" would
+   not have removed them. Growing the person box by 25 % lets them straight back in.
+
+Cost, measured through the real model on 22 Aug 2026:
+`python engine/tools/benchmark.py --model weapons` runs at p50 15.8 ms / p95 17.4 ms on
+the RTX 2080 — the same as the person model — and reports **zero** knives over the 60
+sampled frames of the walk-through clip.
+
+**But the rules do not remove every false alarm, and the planning figures said they
+would.** Running the whole pipeline live against that same clip (`.\dev.ps1 up -Clip`)
+produced **one** entry: a 12.5-second scene peaking at 0.76 confidence, on footage
+containing no knife. Three more loops of the clip produced nothing further. The
+sampled-frame analysis that set these thresholds looked at every 5th frame; the live
+worker sees frames that analysis skipped, and somewhere in the clip three of them in a
+row put a false box on a person.
+
+So the honest position is: roughly **one false alarm per four loops of a 40-second
+clip** with the current thresholds, not zero. That is what the human review gate is for,
+but it is also the number to drive down — and it cannot be driven down responsibly until
+there is footage with a real knife in it, because every available lever (confidence,
+hit count, the confirm window) trades false alarms against missing the real thing.
+
+**Gone from this folder**: the `knife detection/` subfolder (training notebooks, an
+`archive.zip`, and `knife-finetuned-v2/v3.onnx`). The ONNX files were exports of this
+same checkpoint; the engine decoded their raw tensor by hand because the pinned
+ultralytics misread the export's output layout and returned four "detections" with
+confidences of 90 and 100 on a flat grey image. The `.pt` has no such problem, so the
+hand-rolled decode and the onnxruntime dependency went with the folder.
+
+---
+
+## History: the prompted weapons model
+
+`yolov8m-worldv2-school.pt` (343 MB, saved 2026-05-06) **was** the weapons detector until
+August 2026. It is a stock **YOLO-World v2** open-vocabulary model with 18 text prompts
+baked in:
 
 > knife · kitchen knife · pocket knife · box cutter · utility knife · razor blade ·
 > screwdriver · scissors · hammer · axe · baseball bat · handgun · pistol · rifle ·
 > shotgun · machete · sword · dagger
 
-**This matters.** No weights were fine-tuned — the 343 MB is the CLIP text encoder plus
-the saved embeddings for those 18 phrases. It is zero-shot: it has never seen a school
-corridor, an Egyptian classroom, or a 4CIF ceiling-mounted camera.
+No weights were fine-tuned — the 343 MB is the CLIP text encoder plus the saved
+embeddings for those 18 phrases. It is zero-shot: it has never seen a school corridor,
+an Egyptian classroom, or a 4CIF ceiling-mounted camera.
 
-Consequences for planning:
+**Why it was replaced.** `screwdriver`, `scissors` and `hammer` were in the prompt list.
+Every school has scissors in every classroom and a screwdriver in every maintenance
+cupboard, so the false-alarm rate on those three was going to be high enough to burn
+through reviewers' trust — and a human gate only absorbs false alarms up to the point
+where people stop reading them. The owner supplying a trained single-class knife model
+resolved M2 in `docs/PLAN.md`: a narrow closed-set detector beats an open-vocabulary one
+on a narrow domain, and one class cannot fire on a screwdriver.
 
-- **Good:** it works today, with no training and no labelled data. Weapons can be wired
-  into the pipeline immediately.
-- **Bad:** its accuracy on real footage is completely unknown, and open-vocab detectors
-  are typically weaker than a fine-tuned closed-set detector on a narrow domain.
-- **The prompt list is a product decision, not a technical one.** `screwdriver`,
-  `scissors` and `hammer` are in there. Every school has scissors in every classroom and
-  a screwdriver in every maintenance cupboard. Expect a very high false-alarm rate on
-  those three specifically — which the mandatory human-review gate absorbs, but only up
-  to the point where reviewers stop trusting it.
-- The improvement path is one of: tune the prompt list, raise per-class thresholds, or
-  collect real footage and fine-tune a closed-set detector. The eval harness has to exist
-  before we can tell which of those actually helped.
+It is kept for comparison, not loaded. Guns are **not** detected by anything today: the
+trained model is knife-only, and that is a deliberate scope decision, not an oversight.
 
-**Cross-check available for free:** `yolov8n-oiv7.pt` is a 6.9 MB Open Images V7 detector
-whose 601 classes already include `Handgun`, `Rifle`, `Shotgun`, `Knife`, `Kitchen knife`,
-`Dagger`, `Sword`, `Axe`, `Hammer`, `Screwdriver`, `Scissors` and a generic `Weapon`. It's
-a genuinely trained closed-set model. Worth scoring both against the same golden clips —
-it may beat the prompted model, and it's 50× smaller.
-
----
+**Cross-check still available for free:** `yolov8n-oiv7.pt` is a 6.9 MB Open Images V7
+detector whose 601 classes already include `Handgun`, `Rifle`, `Shotgun`, `Knife`,
+`Kitchen knife`, `Dagger`, `Sword`, `Axe`, `Hammer`, `Screwdriver`, `Scissors` and a
+generic `Weapon`. It is a genuinely trained closed-set model and worth scoring against
+the same golden clips if guns are ever brought into scope. Neither it nor the prompted
+model has been benchmarked — that is model-manager work, not part of knife detection.
 
 ## The second custom model: appearance search
 

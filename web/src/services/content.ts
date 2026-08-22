@@ -9,8 +9,6 @@
  *  If you find yourself adding a number here that the engine could measure,
  *  it belongs in the API instead. */
 
-import type { Tone } from '@/types';
-
 /** Example questions on the Home ask bar. Pure copy. */
 export const SUGGESTED_QUESTIONS = [
   'Who is absent in Grade 8 today?',
@@ -37,13 +35,6 @@ export const CAPABILITIES: { capability: string; admin: boolean; it: boolean }[]
 
 /** The explainer on the Weapons page: what happens, in order, when something
  *  is spotted. The third step is the product's core safety claim. */
-export const WEAPON_STEPS: { icon: string; tone: Tone; title: string; sub: string }[] = [
-  { icon: '1', tone: 'neutral', title: 'Every camera is watched', sub: 'Continuously, on all cameras at once.' },
-  { icon: '2', tone: 'warn', title: 'A possible weapon is flagged', sub: 'The clip and the frame are saved immediately.' },
-  { icon: '3', tone: 'bad', title: 'A person decides', sub: 'Nothing is reported until a human confirms it. The system never calls anyone by itself.' },
-  { icon: '4', tone: 'good', title: 'False alarms are kept', sub: 'Dismissed alerts stay in the history so the record stays honest.' },
-];
-
 /** Search vocabulary for Lost Items.
  *
  *  These mirror the prompts baked into `yolov8m-worldv2-search.pt` — see

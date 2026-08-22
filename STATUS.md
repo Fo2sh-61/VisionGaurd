@@ -16,7 +16,8 @@
 | System health | **Real** — honest per-subsystem, including startup failure reasons |
 | Track a person | **Real** — live: click a body and it is followed across cameras, named only after a sustained face, recorded one file per camera with the stop reason. Past: stops answer instantly from the anchor table, each with its evidence, and play back as 30s chunks off the footage/DVR archive. Sweeps refuse over a measured budget |
 | Restricted zones | **Real** — any camera can be marked restricted; its whole frame is the zone. Scenes are logged and recorded, last three clips kept per camera, log refreshes itself. No schedules |
-| Weapons, lost items | **Fake** — models present, no worker, no tables. The pages now say so instead of showing an all-clear (P0-08) |
+| Knife detection | **Real** (P6) — the owner's trained knife model runs on every enabled camera, but only on frames with a person in them and only for knives held by one. Three sightings over a second open one entry with one video; ten seconds without a knife closes it. Every entry waits for a person to press Confirm or False alarm, recorded against the signed-in account and audited before the write. Videos are kept 30 days, entries for ever. **No alerts fan out** — nothing is sent to anybody. **False-alarm rate is not zero**: a live loop of the recorded clip raised one 12.5 s entry at 0.76 on footage with no knife (roughly one per four loops). Accuracy on a real knife is unmeasured |
+| Lost items | **Fake** — model present, no worker, no tables. The page says so instead of showing an all-clear (P0-08) |
 | Users, audit, notifications | **Auth is real** (P2) — argon2 accounts, server-enforced roles, sessions revocable. Audit still lives in RAM |
 | Mobile app | **Fake** — entirely fixtures, including random numbers |
 | Fights | **Removed from scope** — no model. Page, endpoints and mock methods all gone (P0-05) |
@@ -72,10 +73,10 @@ python engine/tools/create_user.py
 ## Blocked on the owner
 
 - **Re-ID model** + architecture + how it loads + Python version → blocks `.venv` and track
-- **Trained weapons model** → blocks honest weapon scoring
+- **A recorded clip with a knife in it** → the regression suite has 21 labelled ground-truth marks and not one knife, so knife accuracy on real footage is still unmeasured
 - **Consent / lawful basis for biometrics of minors** → blocks deployment entirely
 - **Target hardware** → blocks the 208-camera plan
-- **Rotate the Kaggle key** in `models/knife detection/kaggle.json`
+- **Rotate the Kaggle key** that was in `models/knife detection/kaggle.json`. The folder and the file are gone from disk and were never in git, but a key that once sat in a working tree is a key to rotate
 
 ## Run it
 
@@ -92,7 +93,7 @@ Tests: `.\dev.ps1 test` runs all four gates — pyflakes, pytest, smoke start, t
 
 No `.venv` yet — deliberately blocked on the re-ID handover. System Python 3.14 works: torch 2.11.0+cu128, CUDA true on an RTX 2080.
 
-**Gates verified 20 Aug 2026, all four green:** 484 passed, 6 skipped (55s) · pyflakes clean over `vg`, `tools` and `tests` · smoke start exit 0 · tsc clean.
+**Gates verified 22 Aug 2026, all four green:** 804 passed, 6 skipped · pyflakes clean over `vg`, `tools` and `tests` · smoke start exit 0 · tsc clean. (Was 768 passed before knife detection; it added 36 tests.)
 
 Also verified on a **fresh clone with no `engine/data/` and no model weights** — the condition CI runs in: 374 passed, 7 skipped. The extra skip is the model-weights check, which has nothing to check on a machine that has no weights.
 

@@ -99,11 +99,15 @@ class Store(Protocol):
     def clip_for_breach(self, breach_id: str): ...
     def intrusion_cameras(self) -> list[S.CameraView]: ...
 
-    def weapons(self, since_days: int) -> list[S.WeaponDetection]: ...
+    def weapons(
+        self, since: datetime | None, until: datetime | None = None
+    ) -> list[S.WeaponDetection]: ...
     def review_weapon(
-        self, detection_id: str, review: S.WeaponReview
+        self, detection_id: str, review: S.WeaponReview,
+        reviewer: str | None = None,
     ) -> S.WeaponDetection | None: ...
     def weapon_cameras(self) -> list[S.CameraView]: ...
+    def clip_for_weapon(self, detection_id: str): ...
 
 
     def attendance(
@@ -373,27 +377,43 @@ class MockStore:
             ),
         ]
 
-    def weapons(self, since_days: int) -> list[S.WeaponDetection]:
-        cutoff = datetime.now(timezone.utc) - timedelta(days=since_days)
+    def weapons(
+        self, since: datetime | None, until: datetime | None = None
+    ) -> list[S.WeaponDetection]:
+        # Either bound may be None, meaning open-ended: the page's "All"
+        # period asks for every row there has ever been.
+        #
         # Dismissed detections are returned too. The product promises false
         # alarms stay in the history; there is no delete and no hiding.
-        return [w for w in self._weapons if w.at.utc >= cutoff]
+        return [
+            w for w in self._weapons
+            if (since is None or w.at.utc >= since)
+            and (until is None or w.at.utc < until)
+        ]
 
     def review_weapon(
-        self, detection_id: str, review: S.WeaponReview
+        self, detection_id: str, review: S.WeaponReview,
+        reviewer: str | None = None,
     ) -> S.WeaponDetection | None:
+        # The signed-in account wins over anything the body claims. Demo
+        # mode has no session, so it falls back to the body's `actor`.
+        who = reviewer or review.actor or "unknown"
         for i, det in enumerate(self._weapons):
             if det.id == detection_id:
                 self._weapons[i] = det.model_copy(update={
                     "verdict": review.verdict,
-                    "reviewed_by": review.actor,
+                    "reviewed_by": who,
                     "reviewed_at": now(),
                     "dismissal_reason": review.reason,
                 })
-                self._log(review.actor, f"weapon.{review.verdict.value}",
+                self._log(who, f"weapon.{review.verdict.value}",
                           detection_id, review.reason)
                 return self._weapons[i]
         return None
+
+    def clip_for_weapon(self, detection_id: str):
+        """Demo mode has no files. `(path, reason)` — the reason is honest."""
+        return None, "Demo mode does not record video, so there is no clip."
 
     def weapon_cameras(self) -> list[S.CameraView]:
         return [

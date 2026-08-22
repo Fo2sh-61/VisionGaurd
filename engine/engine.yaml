@@ -130,9 +130,9 @@ archive:
 #
 # See models/README.md for what each of these actually is. Two things worth
 # repeating here:
-#   - `weapons` is YOLO-World with 18 saved text prompts. It is zero-shot, not
-#     fine-tuned, and has never seen school CCTV. Treat its scores with suspicion
-#     until the eval harness says otherwise.
+#   - `weapons` is the owner's knife model: one class, fine-tuned, trained
+#     13 Aug 2026. It is not zero-shot any more. Its accuracy on school CCTV is
+#     still unmeasured, which is why every detection waits for a person to decide.
 #   - Always point at a .pt. A .engine is compiled for one GPU and one TensorRT
 #     version; it is a build output, not an artifact.
 # ---------------------------------------------------------------------------
@@ -149,12 +149,12 @@ models:
 
   weapons:
     task: detect
-    weights: models/yolov8m-worldv2-school.pt
-    imgsz: 960                 # matches the exported engine; small objects need it
-    conf: 0.25                 # tuned for RECALL — the human gate recovers precision
+    weights: models/knifebest.pt
+    imgsz: 640
+    conf: 0.5                  # a starting value from two recorded clips, not a promise
     iou: 0.45
     half: true
-    version: worldv2-school-2026-05-06
+    version: knife-v3-2026-08-13
 
   # Trained closed-set alternative for weapons. Scored against the same golden
   # clips as `weapons` — it may well win, and it is 50x smaller.
@@ -306,7 +306,7 @@ cameras:
     area: Development
     fps: 5
     enabled: false             # flip to true once VG_RTSP_1 is set in .env
-    features: [intrusion, counting, weapons]
+    features: [intrusion, counting]
 
 # ---------------------------------------------------------------------------
 # Zones

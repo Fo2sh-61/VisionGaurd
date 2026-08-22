@@ -124,7 +124,7 @@ def test_nothing_unavailable_still_returns_rows(bare_live_store):
     store = bare_live_store
     getters = {
         "breaches": lambda: store.breaches(30),
-        "weapons": lambda: store.weapons(30),
+        "weapons": lambda: store.weapons(None, None),
         "users": lambda: store.users(),
         "attention": lambda: store.attention(),
         "people": lambda: store.people(),

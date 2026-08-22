@@ -75,14 +75,23 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--frames", type=int, default=60,
                         help="frames to time (default 60)")
     parser.add_argument("--cameras", type=int, default=TARGET_CAMERAS)
+    parser.add_argument("--model", choices=("person", "weapons"), default="person",
+                        help="which model to time (default person)")
     args = parser.parse_args(argv)
 
-    from vg.infer.persons import PersonDetector
+    # The knife model is timed the same way, on the same clip, so the two rows
+    # in PLAN section 7 are comparable. It is a second pass on top of the
+    # person one - but only on frames that had somebody in them, which is why
+    # the sizing arithmetic below stays the person model's question.
+    if args.model == "weapons":
+        from vg.infer.weapons import WeaponDetector as Detector
+    else:
+        from vg.infer.persons import PersonDetector as Detector
 
-    print("\nVisionGuard benchmark - person detection\n")
+    print(f"\nVisionGuard benchmark - {args.model} detection\n")
     frames = _frames(args.frames + WARMUP)
 
-    detector = PersonDetector()
+    detector = Detector()
     print(f"  device  {detector.device}")
     print(f"  weights {detector.weights.name}")
     try:
@@ -93,16 +102,25 @@ def main(argv: list[str] | None = None) -> int:
         pass
     print()
 
+    # `raw_boxes` on the person model returns ultralytics boxes with no
+    # conversion; the knife model has no such split and is timed through
+    # `detect`. Both are one model pass - turning boxes into fractions is a
+    # handful of floats and does not move the number.
+    def run(frame):
+        if args.model == "weapons":
+            return detector.detect(frame)
+        return detector.raw_boxes(frame)
+
     for frame in frames[:WARMUP]:
-        detector.raw_boxes(frame)
+        run(frame)
 
     timings: list[float] = []
-    people_seen = 0
+    found = 0
     for frame in frames[WARMUP:]:
         started = time.perf_counter()
-        boxes = detector.raw_boxes(frame)
+        boxes = run(frame)
         timings.append((time.perf_counter() - started) * 1000)
-        people_seen += 0 if boxes is None else len(boxes)
+        found += 0 if boxes is None else len(boxes)
 
     if not timings:
         print("  no frames timed")
@@ -113,7 +131,8 @@ def main(argv: list[str] | None = None) -> int:
     throughput = 1000.0 / mean
 
     print(f"  frames timed      {len(timings)}")
-    print(f"  people detected   {people_seen}")
+    label = "knives detected" if args.model == "weapons" else "people detected"
+    print(f"  {label:<17} {found}")
     print(f"  p50               {p50:6.1f} ms")
     print(f"  p95               {p95:6.1f} ms   <- PLAN section 7 budget: 250 ms")
     print(f"  mean              {mean:6.1f} ms")
@@ -121,6 +140,13 @@ def main(argv: list[str] | None = None) -> int:
 
     verdict = "MEETS" if p95 <= 250 else "MISSES"
     print(f"  camera -> detection ready: {verdict} the 250 ms p95 budget\n")
+
+    if args.model == "weapons":
+        # The labelled clip contains no knife, so the count above should be 0.
+        # Anything else is a false positive worth looking at, not a timing
+        # result.
+        print("  The labelled clip contains no knife, so any detection above")
+        print("  is a false positive rather than a hit.\n")
 
     print(f"  Scaling to {args.cameras} cameras, every camera detecting:")
     for hz in RATES:

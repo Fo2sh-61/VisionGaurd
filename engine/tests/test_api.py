@@ -87,11 +87,15 @@ class TestBehaviouralContract:
         assert client.delete("/weapons/w3").status_code in (404, 405)
 
     def test_weapon_review_records_who_decided_and_when(self, client):
+        # The reviewer is the SIGNED-IN account, not the request body
+        # (P6-FR-007). `actor` is still accepted so demo callers and older
+        # clients do not 422, but it is ignored: a caller must not be able
+        # to record a verdict on a weapon under somebody else's name.
         body = client.post("/weapons/w3/review",
                            json={"verdict": "confirmed",
-                                 "actor": "Mohamed Fouad"}).json()
+                                 "actor": "Mallory"}).json()
         assert body["verdict"] == "confirmed"
-        assert body["reviewedBy"] == "Mohamed Fouad"
+        assert body["reviewedBy"] == "Test Admin", "the session decides"
         assert body["reviewedAt"] is not None
 
     def test_a_detection_starts_unreviewed_and_only_a_human_moves_it(self, client):

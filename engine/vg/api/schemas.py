@@ -404,11 +404,23 @@ class WeaponDetection(Wire):
     box: Box | None = None
     clip: Clip | None = None
     model_version: str | None = None
+    # None means the knife is still in view; the page says so rather than
+    # printing a duration that is still growing as if it were final.
+    ended_at: Instant | None = None
+    seconds: float = 0.0
+    clip_state: str = "none"
+    # Why there is no video. Rendered next to the missing button, so it has
+    # to be a sentence that explains itself with nothing around it.
+    clip_reason: str | None = None
+    end_reason: str | None = None
 
 
 class WeaponReview(Wire):
     verdict: Literal[ReviewVerdict.CONFIRMED, ReviewVerdict.DISMISSED]
-    actor: str
+    # Optional because the live engine records the signed-in account and
+    # ignores whatever the body claims — a caller cannot review as somebody
+    # else. `MockStore` still reads it, so demo mode keeps working.
+    actor: str | None = None
     reason: str | None = None
 
 

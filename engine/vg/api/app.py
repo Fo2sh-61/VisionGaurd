@@ -18,7 +18,7 @@ import os
 import threading
 from pathlib import Path
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
@@ -30,6 +30,7 @@ from vg.auth import deps as auth_deps
 from vg.api import schemas as S
 from vg.clock import clock_for
 from vg.api.store import (
+    TZ_OFFSET_MINUTES,
     AlreadyBusy,
     MockStore,
     NotAffordable,
@@ -49,6 +50,78 @@ WINDOW_DAYS = {
     "Last 90 days": 90,
     "This school year": 365,
 }
+
+#: The knife page's periods. Seven, not the five in `WINDOW_DAYS`, and three
+#: of them are not "N days ago" at all: Today and Yesterday are calendar days
+#: at the site, and All has no bound. Kept separate from `WINDOW_DAYS` rather
+#: than widening it, because every other page's window genuinely is a rolling
+#: number of days and would have to grow a clock to use this.
+WEAPON_WINDOWS: tuple[str, ...] = (
+    "Today",
+    "Yesterday",
+    "Last 7 days",
+    "Last 30 days",
+    "Last 90 days",
+    "This school year",
+    "All",
+)
+
+
+def weapon_window(label: str, clock, term_from: str | None) -> tuple:
+    """A period label to `(since, until)`. Either bound may be None.
+
+    Today and Yesterday are the **site's** calendar days, not the server's: a
+    school in Cairo at 00:30 local is still on the previous UTC day, and a
+    server-midnight boundary would file last night's entries under this
+    morning.
+
+    `term_from` is a string out of `hours.term_from` — possibly empty, and
+    possibly not a date anybody typed correctly. An unusable one falls back to
+    a rolling year rather than to the epoch: a label reading "this school year"
+    must not quietly become "everything ever".
+    """
+    if label not in WEAPON_WINDOWS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"unknown window {label!r}; expected one of {list(WEAPON_WINDOWS)}",
+        )
+
+    now = datetime.now(timezone.utc)
+    if label == "All":
+        return None, None
+
+    midnight = _local_midnight(now, clock)
+    if label == "Today":
+        return midnight, None
+    if label == "Yesterday":
+        return midnight - timedelta(days=1), midnight
+    if label == "This school year":
+        start = _term_start(term_from, clock)
+        return (start if start is not None else now - timedelta(days=365)), None
+
+    days = {"Last 7 days": 7, "Last 30 days": 30, "Last 90 days": 90}[label]
+    return now - timedelta(days=days), None
+
+
+def _local_midnight(when: datetime, clock) -> datetime:
+    """The start of the site's day containing `when`, as an instant."""
+    local = clock.local(when).replace(hour=0, minute=0, second=0, microsecond=0)
+    return local.replace(tzinfo=timezone.utc) - timedelta(
+        minutes=clock.offset_minutes(when))
+
+
+def _term_start(term_from: str | None, clock) -> datetime | None:
+    """`hours.term_from` as local midnight, or None if it is not a date."""
+    if not term_from:
+        return None
+    try:
+        day = date.fromisoformat(term_from.strip())
+    except (TypeError, ValueError):
+        log.warning("hours.term_from is not a date: %r", term_from)
+        return None
+    local = datetime(day.year, day.month, day.day, tzinfo=timezone.utc)
+    return local - timedelta(minutes=clock.offset_minutes(local))
+
 
 _store: Store = MockStore()
 
@@ -155,6 +228,9 @@ async def lifespan(app: FastAPI):
     app.state.zones_error: str | None = None
     app.state.zones = None
     app.state.scenes = None
+    app.state.weapons_error: str | None = None
+    app.state.weapons = None
+    app.state.weapon_scenes = None
 
     if cfg is not None and os.getenv("VG_MOCK") != "1":
         from pathlib import Path
@@ -228,6 +304,15 @@ async def lifespan(app: FastAPI):
         ) = _start_zones(
             cfg, registry, roster, getattr(people, "detector", None), cameras,
         )
+        # Knife detection. Shares the same person detector, needs no other
+        # feature switched on, and every enabled camera is checked.
+        (
+            app.state.weapons,
+            app.state.weapon_scenes,
+            app.state.weapons_error,
+        ) = _start_weapons(
+            cfg, registry, roster, getattr(people, "detector", None),
+        )
         # Where somebody has been. Written by whichever recognition tier saw
         # them, read by the Track page as one indexed query — which is the
         # whole reason the past-path question is instant.
@@ -276,10 +361,13 @@ async def lifespan(app: FastAPI):
             users=app.state.users,
             scenes=app.state.scenes,
             zones=app.state.zones,
+            weapons=app.state.weapons,
+            weapon_scenes=app.state.weapon_scenes,
         )
         store.recognition_error = app.state.recognition_error
         store.people_error = app.state.people_error
         store.zones_error = app.state.zones_error
+        store.weapons_error = app.state.weapons_error
         set_store(store)
 
         # The banner. A console showing invented attendance next to real camera
@@ -315,9 +403,12 @@ async def lifespan(app: FastAPI):
             recorder.stop_all()
 
         for worker in (
-            # Zones first: stopping it closes any running scene and releases
-            # its clip, so the log has no row saying somebody is still standing
-            # there and no half-written mp4 nobody can play.
+            # Knife detection first, then zones: stopping either closes any
+            # running scene and releases its clip, so the log has no row
+            # saying a knife is still in view and no half-written mp4 nobody
+            # can play. Knives lead because that is the row an operator is
+            # most likely to be looking at when the engine goes down.
+            getattr(app.state, "weapons", None),
             getattr(app.state, "zones", None),
             getattr(app.state, "people", None),
             getattr(app.state, "recogniser", None),
@@ -868,6 +959,107 @@ def _start_zones(cfg, registry, roster, detector, cameras_store):
         return None, None, _reason(exc)
 
 
+def _start_weapons(cfg, registry, roster, detector):
+    """Knife detection: look for a knife on the people in view, on every camera.
+
+    Serves **every enabled camera**, not the ones with `weapons` in their
+    features. There is no per-camera switch on purpose: a flag would read as
+    "knife detection is on here and off there", and a school that thinks a
+    corridor is being checked when it is not is worse off than one that knows
+    it is not. A camera with nobody in view never reaches the knife model, so
+    watching all of them costs one person pass — which counting and zones have
+    usually already paid for.
+
+    Takes the person detector `_start_people` already built. Never a second
+    one: `SharedDetection` caches per frame, so counting, zones and knives
+    landing on the same frame cost one model pass, not three (P1-01).
+
+    Returns `(worker, scenes, error)`. Every failure comes back as a sentence
+    for the page rather than an exception — a missing weights file on a fresh
+    machine must not take the whole engine down, and it must not be silent
+    either (rule 8).
+    """
+    watched = [c.id for c in roster if c.enabled]
+    if not watched:
+        log.info("no enabled camera; knife detection is off")
+        return None, None, "No camera is running, so nothing is being checked for knives."
+
+    if detector is None:
+        # The exact sentence the page shows. Knives are looked for *on people*,
+        # so without person detection there is nothing to look at.
+        return None, None, (
+            "Person detection is not running, so knives cannot be checked - "
+            "knives are looked for on people."
+        )
+
+    try:
+        from vg.events.weapons import WeaponSceneStore
+        from vg.features.weapons import WeaponsWorker
+        from vg.infer.weapons import WeaponDetector
+        from vg.ingest.recorder import Recorder
+
+        spec = cfg.models.get("weapons")
+        if spec is None:
+            return None, None, "No 'weapons' model is configured in engine.yaml."
+
+        knives = WeaponDetector(
+            weights=spec.weights,
+            device=spec.device,
+            imgsz=spec.imgsz,
+            conf=spec.conf,
+            iou=spec.iou,
+            half=spec.half,
+        )
+
+        scenes = WeaponSceneStore(_database(cfg))
+        # A scene left open by a killed process would otherwise show a knife
+        # still in view, forever, and its half-written file would be offered
+        # as a clip.
+        scenes.close_orphans()
+        # Videos past their retention go now rather than waiting for the
+        # first page load, so an engine nobody opens the console on still
+        # keeps the promise the page makes.
+        scenes.expire(
+            datetime.now(timezone.utc)
+            - timedelta(days=cfg.storage.clip_retention_days)
+        )
+
+        rate = min((c.fps for c in roster if c.id in watched), default=2.0)
+
+        worker = WeaponsWorker(
+            registry.bus,
+            detector,
+            knives,
+            watched,
+            scenes,
+            # Its OWN recorder, into `clips_dir/weapons/`, deliberately not the
+            # one behind the operator's record button and not the zones one
+            # either. Sharing would make the features fight for the same
+            # camera, and a knife clip must never lose to a zone clip.
+            recorder=Recorder(
+                registry.bus, cfg.storage.weapon_clips_dir, clock=cfg.timezone),
+            retention_days=cfg.storage.clip_retention_days,
+            rate_hz=rate,
+            boost_hz=12.0,
+        )
+        worker.start()
+        log.info(
+            "knife detection on %d camera(s) - %s on %s, %.0f Hz idle",
+            len(watched), knives.version, knives.device, rate,
+        )
+        return worker, scenes, None
+    except FileNotFoundError as exc:
+        # The commonest case by far, and not a bug: a machine without the
+        # owner's weights. Say which file, and keep every other feature up.
+        log.warning("knife detection is off: %s", exc)
+        _reraise_if_strict(exc, "knife detection")
+        return None, None, f"Knife detection failed to start ({exc})"
+    except Exception as exc:
+        log.exception("knife detection failed to start")
+        _reraise_if_strict(exc, "knife detection")
+        return None, None, f"Knife detection failed to start ({_reason(exc)})"
+
+
 def _start_enrolment(cfg):
     """The face model and gallery, built once and shared.
 
@@ -1247,6 +1439,10 @@ def _mount(app: FastAPI) -> None:
         if feature == "track" and tracking is not None:
             tracking.note_interest(camera_id)
 
+        weapons = getattr(request.app.state, "weapons", None)
+        if feature == "weapons" and weapons is not None:
+            weapons.note_interest(camera_id)
+
         reader = getattr(store, "camera_detections", None)
         if callable(reader):
             return reader(camera_id, feature)
@@ -1374,21 +1570,60 @@ def _mount(app: FastAPI) -> None:
         False alarms are retained deliberately — the product's honesty claim
         depends on them staying visible. There is no delete endpoint.
         """
-        return store.weapons(window_days(window))
+        # The clock is the site's, from the live store when there is one.
+        # Demo mode has no store clock and falls back to the configured
+        # offset, which is what every other endpoint does.
+        clock = getattr(store, "clock", None) or clock_for(TZ_OFFSET_MINUTES)
+        hours = getattr(getattr(store, "config", None), "hours", None)
+        since, until = weapon_window(
+            window, clock, getattr(hours, "term_from", ""))
+        return store.weapons(since, until)
 
     @app.post("/weapons/{detection_id}/review", response_model=S.WeaponDetection,
               tags=["weapons"])
     async def review_weapon(
-        detection_id: str, review: S.WeaponReview, store: StoreDep
+        detection_id: str, review: S.WeaponReview, store: StoreDep,
+        user: auth_deps.CurrentUser,
     ) -> S.WeaponDetection:
         """The human gate. Nothing fans out until this is called.
 
         The detector alone never triggers a notification, a call or a lock.
+
+        The reviewer is the **signed-in account**, not `review.actor`. The
+        body's actor is ignored entirely: a caller must not be able to put
+        somebody else's name against a verdict on a weapon.
+
+        Not admin-only. Reviewing is an operator action — `/weapons` is
+        deliberately absent from `ADMIN_WRITE_PREFIXES`, so IT support
+        watching the cameras at night can clear a false alarm.
         """
-        result = store.review_weapon(detection_id, review)
+        result = store.review_weapon(detection_id, review, reviewer=user.name)
         if result is None:
-            raise HTTPException(404, f"no detection {detection_id!r}")
+            # Two causes, one answer: unknown id, or somebody already
+            # decided. Neither leaves anything here awaiting a decision.
+            raise HTTPException(
+                404, f"no detection {detection_id!r} awaiting review")
         return result
+
+    @app.get("/weapons/{detection_id}/clip", tags=["weapons"],
+             response_class=FileResponse)
+    async def get_weapon_clip(detection_id: str, store: StoreDep):
+        """Play the video recorded for one knife detection.
+
+        Same-origin on purpose: a `<video src>` cannot send an Authorization
+        header, so the browser reaches this through the dev proxy exactly the
+        way it reaches the camera streams. An absolute engine URL here would
+        play for nobody.
+
+        Everything that can go wrong is a 404 carrying the reason in words —
+        still recording, failed, expired, or a file that is no longer on
+        disk. None of them is a 500: the row is data, and a wrong one must
+        not become a stack trace or a way to read the disk.
+        """
+        path, reason = store.clip_for_weapon(detection_id)
+        if path is None:
+            raise HTTPException(404, reason)
+        return FileResponse(path, media_type="video/mp4")
 
     @app.get("/weapons/cameras", response_model=list[S.CameraView], tags=["weapons"])
     async def get_weapon_cameras(store: StoreDep) -> list[S.CameraView]:

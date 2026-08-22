@@ -46,7 +46,7 @@ Verified in code this cycle. These are why P0 and P1 come before any feature wor
 | FR-03 | Live camera view, per-feature overlays, honest offline state | partial |
 | FR-04 | People counting per area, live + history | partial |
 | FR-05 | Restricted-zone breaches with evidence clip | missing |
-| FR-06 | Weapon detection with mandatory human review | missing |
+| FR-06 | Weapon detection with mandatory human review | **partial** — knives detected, recorded and reviewed by a person; no alert fan-out until P9, and no gun detection |
 | FR-07 | Track a person; face and appearance kept distinct | partial |
 | FR-08 | Lost-item search over recorded footage | missing |
 | FR-09 | People directory, groups, person history | partial |
@@ -129,11 +129,40 @@ Pass `min_area` (already implemented in `persons.py:138`, never called) · calib
 
 **Done when:** counts match a manual count within agreed tolerance, and no claim on screen exceeds what the code does.
 
-### P6 — Model manager + weapons · 2–3 wk · needs owner model **M2**
+### P6 — Knife detection · **shipped 22 Aug 2026** · model manager still to do
 
-Model table, upload, benchmark against the labelled clip, activate-on-restart, rollback · weapon worker on person crops · review workflow with no delete · score all three candidates on identical clips · publish false-alarm rate per camera-hour.
+**Built.** The owner's trained `knifebest.pt` (one class, knife) on the shared person
+pass: the knife model is never called on a frame with nobody in it, and a knife
+counts only when its box centre sits inside a person's box, margin zero. Both rules
+were measured on the recorded clips, where the false hits were room furniture with
+somebody sitting beside it. Three sightings over a second open one entry with one
+video; a 9.5-second detector blink does not split it; ten seconds of nothing closes
+it; two minutes cuts it and says so. Every entry waits for a person to press Confirm
+or False alarm — recorded against the signed-in account, audited before the write,
+never reversible, never deleted. Videos expire at 30 days; entries never do.
 
-**Guard rails:** an unbenchmarked model cannot be activated; changing the face model warns it destroys every enrolment.
+**Not built, and deliberately.** The model manager — model table, upload,
+activate-on-restart, rollback, benchmarking UI — none of it. Scoring the three
+weapon candidates against each other, and the false-alarm rate per camera-hour,
+both need eval footage that does not exist. **Guns are not detected by anything**:
+the trained model is knife-only. And nothing fans out — Confirm is the single point
+an alert spec may hang from, and today it hangs nothing (P9).
+
+**Unmeasured, and one measurement that came out worse than planned.** Accuracy on
+school cameras is unknown: the regression suite has 21 labelled ground-truth marks and
+not one knife in any of them, so nothing here proves a real knife raises an entry.
+
+The plan also said the thresholds would raise **zero** entries on the two recorded
+clips. Run live on 22 Aug 2026 they raised **one** — a 12.5-second scene at 0.76
+confidence on footage with no knife in it, followed by three clean loops. The
+threshold analysis sampled every 5th frame; the live worker sees frames it skipped.
+Call it **one false alarm per four loops of a 40-second clip**, not zero. The review
+gate absorbs that, but only up to the point where reviewers stop reading — and the
+thresholds cannot be tightened responsibly until there is footage with a real knife
+in it, because every lever trades false alarms against missing the real thing.
+
+**Guard rails still owed by the model manager:** an unbenchmarked model cannot be
+activated; changing the face model warns it destroys every enrolment.
 
 ### P7 — Footage, lost items, real re-ID · 2–3 wk · needs owner model **M1**
 
@@ -177,16 +206,27 @@ One row is measured. The rest are still targets.
 | Path | Target p95 | Measured |
 |---|---|---|
 | Camera → screen (watched) | ≤ 400 ms | not measured |
-| Camera → detection ready | ≤ 250 ms | **18 ms — passes** |
+| Camera → detection ready (person) | ≤ 250 ms | **22 ms p95 — passes** |
+| Knife pass, on frames with a person | ≤ 250 ms | **17 ms p95 — passes** |
 | Overlay freshness | ≤ 200 ms | not measured (P1-02) |
 | Zone breach → visible | ≤ 5 s | built (P4), not yet timed by hand |
-| Weapon detection → review queue | ≤ 2 s | feature not built (P6) |
+| Weapon detection → review queue | ≤ 2 s | built (P6); the confirm rule adds ~1 s by design, not yet timed end to end by hand |
 | Camera drops → NO SIGNAL shown | ≤ 2 s | not measured |
 | Lost-item search | ≤ 60 s | feature not built (P7) |
 
-**Measured 20 Aug 2026**, `python engine/tools/benchmark.py`, on an RTX 2080
-Max-Q (8 GB, laptop) with `yolov8s.pt` on CUDA, timed over 60 frames of the
-labelled walk-through clip: p50 17.3 ms, p95 18.0 ms, 57.5 frames/sec.
+**Measured 22 Aug 2026**, `python engine/tools/benchmark.py [--model weapons]`,
+on an RTX 2080 Max-Q (8 GB, laptop) on CUDA, timed over 60 frames of the labelled
+walk-through clip:
+
+| Model | p50 | p95 | throughput |
+|---|---|---|---|
+| `yolov8s.pt` (person) | 17.7 ms | 22.3 ms | 54.5 frames/sec |
+| `knifebest.pt` (knife) | 15.8 ms | 17.4 ms | 61.4 frames/sec |
+
+The knife model costs the same as the person model, and it ran on that clip without
+a single detection — which is the right answer, because there is no knife in it.
+It is a **second** pass, but only on frames that had a person in them, so the sizing
+arithmetic below stays the person model's question.
 
 Re-run it on the deployment workstation. This is a power-limited laptop GPU
 without TensorRT, so it is the floor, not the ceiling.
@@ -227,7 +267,7 @@ real hardware with the real feature mix, not from this table.
 | | Need | Blocks |
 |---|---|---|
 | **M1** | Re-ID model + architecture name + how it loads + Python version built on | `.venv` creation, P7 — **highest leverage** |
-| **M2** | Trained weapons model + class list + eval footage | Honest P6 scoring. The current model is zero-shot and lists scissors and screwdrivers |
+| ~~M2~~ | ~~Trained weapons model + class list + eval footage~~ | **ANSWERED 22 Aug 2026 — `knifebest.pt` supplied**, one class, trained 13 Aug 2026, now wired and shipped. Eval footage with a knife in it is still outstanding, so accuracy on school cameras remains unmeasured |
 | ~~D1~~ | ~~Lawful basis + consent for biometrics of minors~~ | **ANSWERED 20 Aug 2026 — permission granted.** No longer gates deployment |
 | **D2** | Target hardware (GPUs, RAM, storage, network) | The 208-camera plan. Sizing arithmetic now in §7 |
 | ~~D3~~ | ~~Do the site cameras have low-res sub-streams?~~ | **ANSWERED 20 Aug 2026 — yes.** The laptop webcam does not, but it is a development device, not a site camera |

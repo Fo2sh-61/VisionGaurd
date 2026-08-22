@@ -106,6 +106,8 @@ class LiveStore(MockStore):
         users=None,
         scenes=None,
         zones=None,
+        weapons=None,
+        weapon_scenes=None,
     ) -> None:
         super().__init__()
         # Accounts. Real since P2, so the Users page stops saying the feature
@@ -150,6 +152,13 @@ class LiveStore(MockStore):
         # areas are being watched.
         self.scenes = scenes
         self.zones_worker = zones
+        # Knife detection. `weapon_scenes` is the log; `weapons_worker` is
+        # what watches. NOT `self.weapons` — that is the name of the method
+        # this class inherits from Store, and assigning it here would
+        # replace the method with the worker object, the way `self.people`
+        # once broke the People page.
+        self.weapons_worker = weapons
+        self.weapon_scenes = weapon_scenes
         # The site's clock, asked per timestamp. Holding one number from
         # startup left every time an hour out after the October change until
         # somebody restarted the engine, and nothing said so.
@@ -161,6 +170,7 @@ class LiveStore(MockStore):
         self.people_error: str | None = None
         self.tracking_error: str | None = None
         self.zones_error: str | None = None
+        self.weapons_error: str | None = None
 
     @property
     def recognition_live(self) -> bool:
@@ -248,7 +258,14 @@ class LiveStore(MockStore):
             # feature never made — rule 1 — and would make it need attendance
             # switched on to draw anything at all — rule 9.
             return self._person_boxes(camera_id)
-        # attendance, weapons and the default grid all want faces.
+        if feature == "weapons":
+            # Above the face default on purpose. Everything unrecognised
+            # used to fall through to faces, weapons included — so this
+            # page would have drawn somebody's NAME beside a knife the
+            # recogniser never associated with them. Rule 1, and the worst
+            # sentence in the product to get wrong.
+            return self._knife_boxes(camera_id)
+        # attendance and the default grid want faces.
         return self._face_boxes(camera_id)
 
     def _tracked_boxes(self, camera_id: str) -> list[S.Box]:
@@ -311,6 +328,30 @@ class LiveStore(MockStore):
         return [
             S.Box(x=p.x, y=p.y, w=p.w, h=p.h, confidence=p.confidence, kind="person")
             for p in self.people_worker.people_on(camera_id)
+        ]
+
+    def _knife_boxes(self, camera_id: str) -> list[S.Box]:
+        """Possible knives, on the bodies holding them. No identity, ever.
+
+        `kind="weapon"` and `severity=CRITICAL` are what `boxColor()` paints
+        red. `match=NONE` and no `track_id` are not omissions: a knife is
+        not a person, has no identity to match and is not tracked between
+        frames.
+        """
+        if self.weapons_worker is None:
+            return []
+        return [
+            S.Box(
+                x=max(0.0, min(1.0, k.x)),
+                y=max(0.0, min(1.0, k.y)),
+                w=max(0.0, min(1.0, k.w)),
+                h=max(0.0, min(1.0, k.h)),
+                label="Knife",
+                confidence=max(0.0, min(1.0, k.confidence)),
+                kind="weapon",
+                severity=S.Severity.CRITICAL,
+            )
+            for k in self.weapons_worker.knives_on(camera_id)
         ]
 
     def _face_boxes(self, camera_id: str) -> list[S.Box]:
@@ -690,6 +731,221 @@ class LiveStore(MockStore):
             starts_at=_instant(scene.started_at, self.clock),
         )
 
+    # -- knife detection ----------------------------------------------------
+
+    def weapons(self, since: datetime | None,
+                until: datetime | None = None) -> list[S.WeaponDetection]:
+        """The knife log: one entry per incident, newest first.
+
+        **Nobody is named here.** This feature detects a knife on a body; it
+        never runs a face against that body, so no entry carries an identity.
+        A name on one of these rows would be a claim nothing in this pipeline
+        made — rule 1, and the bug that once had every person read as one
+        person.
+
+        **Nothing is ever removed from this list.** Not by verdict, not by
+        retention, not by anything. A dismissed detection stays, with its
+        reason and its reviewer; only the video goes, and the entry then says
+        so. A page that hides its own false alarms cannot be audited, and the
+        record of what was looked at is most of the value here.
+        """
+        if self.weapon_scenes is None:
+            return []
+
+        # Cheap on every read: one indexed query that usually matches
+        # nothing. It runs here as well as at startup because a
+        # long-running engine would otherwise keep a video past the period
+        # this very page promises.
+        self._expire_weapon_clips()
+
+        # From the roster, not from engine.yaml: a camera added through the
+        # console is not in the config file, and the raw id would put "cam-3"
+        # on the screen where the operator typed "Back stairwell".
+        names = {c.id: c.name for c in self.registry.configs()}
+
+        out: list[S.WeaponDetection] = []
+        for scene in self.weapon_scenes.recent(since, until):
+            name = names.get(scene.camera_id) or scene.camera_id
+            dismissed = scene.verdict == "dismissed"
+            out.append(S.WeaponDetection(
+                id=scene.id,
+                at=_instant(scene.started_at, self.clock),
+                camera_id=scene.camera_id,
+                camera_name=name,
+                location=self._area_of(scene.camera_id),
+                item="Knife",
+                # `Confidence` is validated 0..1 and a stored peak is a float
+                # from a model; clamping here beats a 500 on the list endpoint.
+                confidence=max(0.0, min(1.0, scene.peak_confidence)),
+                # Dismissed means a person looked and said no. Leaving it
+                # CRITICAL would keep it red in a list somebody has already
+                # cleared, and the next real one would not stand out.
+                severity=S.Severity.INFO if dismissed else S.Severity.CRITICAL,
+                verdict=S.ReviewVerdict(scene.verdict),
+                reviewed_by=scene.reviewed_by,
+                reviewed_at=_instant(scene.reviewed_at, self.clock)
+                if scene.reviewed_at else None,
+                dismissal_reason=scene.review_reason,
+                # Boxes are live overlay, not history: a box drawn over a frame
+                # that is no longer on screen is decoration.
+                box=None,
+                clip=self._weapon_clip(scene),
+                model_version=scene.model_version or None,
+                ended_at=_instant(scene.ended_at, self.clock)
+                if scene.ended_at else None,
+                seconds=round(scene.seconds, 1),
+                clip_state=scene.clip_state,
+                clip_reason=scene.clip_reason or self._no_weapon_clip_reason(scene),
+                end_reason=scene.end_reason,
+            ))
+        return out
+
+    def _expire_weapon_clips(self) -> int:
+        """Remove knife videos past the configured retention period.
+
+        The period lives in the configuration, not in the store: a site that
+        changes `clip_retention_days` must not need a code change, and the
+        store must not have to be told the number twice.
+        """
+        if self.weapon_scenes is None:
+            return 0
+        days = self.config.storage.clip_retention_days
+        return self.weapon_scenes.expire(
+            datetime.now(timezone.utc) - timedelta(days=days))
+
+    def weapon_cameras(self) -> list[S.CameraView]:
+        """The cameras actually being checked for knives.
+
+        Not the whole roster: the header says "*N* cameras being checked", and
+        a camera the worker does not serve is not being checked. Without a
+        worker the honest answer is none at all, and the capability says why.
+        """
+        if self.weapons_worker is None:
+            return []
+        out: list[S.CameraView] = []
+        for camera in self.registry.configs():
+            if not self.weapons_worker.serves(camera.id):
+                continue
+            view = self.camera_view(camera.id, feature="weapons")
+            if view is not None:
+                out.append(view)
+        return out
+
+    def review_weapon(self, detection_id: str, review: S.WeaponReview,
+                      reviewer: str | None = None) -> S.WeaponDetection | None:
+        """A person decides. The only thing in this feature that fans out.
+
+        The detector never notifies, calls or locks anything on its own —
+        this endpoint is the single point an alert spec may hang from, and
+        today it hangs nothing.
+
+        **The audit entry is written first**, before the verdict it
+        records. Somebody pressing Confirm is a fact whether or not the
+        write behind it succeeded; logging afterwards means a failed write
+        leaves no trace that anyone ever looked at this detection.
+
+        `reviewer` is the signed-in account, passed by the endpoint.
+        `review.actor` is ignored: a caller must not be able to record a
+        verdict under somebody else's name.
+
+        None means there is nothing here awaiting a decision — either the
+        id is unknown or somebody has already decided. Both are a 404 with
+        words on it.
+        """
+        who = reviewer or "unknown"
+        self._log(who, f"weapon.{review.verdict.value}", detection_id,
+                  review.reason)
+
+        if self.weapon_scenes is None:
+            return None
+        if not self.weapon_scenes.review(
+            detection_id, review.verdict.value, who,
+            datetime.now(timezone.utc), review.reason,
+        ):
+            return None
+
+        scene = self.weapon_scenes.get(detection_id)
+        if scene is None:  # pragma: no cover - the row was just updated
+            return None
+        # Rebuilt through the same mapper the list uses, so a reviewed
+        # entry can never render differently from how the list will show it
+        # a moment later.
+        for entry in self.weapons(scene.started_at, None):
+            if entry.id == detection_id:
+                return entry
+        return None  # pragma: no cover - unreachable, the row exists
+
+    def clip_for_weapon(self, detection_id: str):
+        """The video for one detection, or why there is not one.
+
+        Returns `(path, reason)` — exactly one is set. The endpoint turns a
+        reason into a 404 with those words in it, so every refusal says what
+        happened rather than "not found".
+
+        **The path is never taken from the request.** The id is looked up, the
+        stored path is checked to be inside the knife clip directory, and only
+        then is anything opened. A row is data like any other; a wrong one must
+        not become a way to read the disk.
+        """
+        if self.weapon_scenes is None:
+            return None, "The knife log is not available."
+
+        scene = self.weapon_scenes.get(detection_id)
+        if scene is None:
+            return None, f"no detection {detection_id!r}"
+        if scene.clip_state != "saved" or scene.clip_path is None:
+            return None, (
+                scene.clip_reason
+                or self._no_weapon_clip_reason(scene)
+                or "There is no video for this detection."
+            )
+
+        root = self.config.storage.weapon_clips_dir
+        try:
+            path = scene.clip_path.resolve()
+            path.relative_to(root.resolve())
+        except (OSError, ValueError):
+            log.error("knife scene %s names a clip outside %s: %s",
+                      detection_id, root, scene.clip_path)
+            return None, "That video is not where it should be, so it was not served."
+
+        if not path.is_file():
+            # Rule 4: never claim a file that is not there. A row can outlive
+            # its file — a disk wiped by hand, a folder moved — and the honest
+            # answer is that it is gone, not a 500 from a failed open.
+            return None, "The video is no longer on disk."
+
+        return path, ""
+
+    @staticmethod
+    def _no_weapon_clip_reason(scene) -> str | None:
+        """A sentence for every state that has no file, so no control is bare."""
+        if scene.clip_state == "saved":
+            return None
+        if scene.clip_state == "recording":
+            return "Still recording — the video is saved when the knife leaves view."
+        if scene.clip_state == "expired":
+            return "Video no longer kept."
+        if scene.clip_state == "none":
+            return "No video was recorded for this detection."
+        return None
+
+    def _weapon_clip(self, scene) -> S.Clip | None:
+        """The playable video, and only when there genuinely is one.
+
+        The URL is **same-origin and relative**. A `<video src>` cannot send an
+        Authorization header, so an absolute engine URL would play for nobody —
+        that is exactly what made the camera streams go black last cycle.
+        """
+        if not scene.playable:
+            return None
+        return S.Clip(
+            id=scene.id,
+            url=f"/weapons/{scene.id}/clip",
+            duration_seconds=round(scene.seconds, 1),
+            starts_at=_instant(scene.started_at, self.clock),
+        )
+
     def sources(self) -> list[S.CameraSource]:
         """The configured cameras, with their true status."""
         out: list[S.CameraSource] = []
@@ -940,18 +1196,6 @@ class LiveStore(MockStore):
     # When one of these is built, delete its stub here and flip its entry in
     # `capabilities()`. Until then this list IS the to-do list.
 
-    def weapons(self, since_days: int) -> list[S.WeaponDetection]:
-        return []
-
-    def weapon_cameras(self) -> list[S.CameraView]:
-        return []
-
-    def review_weapon(self, detection_id: str,
-                      review: S.WeaponReview) -> S.WeaponDetection | None:
-        # Nothing to review, so nothing is found. The endpoint 404s, which is
-        # the truth: that detection does not exist.
-        return None
-
     def users(self) -> list[S.User]:
         """The real accounts, from the auth database.
 
@@ -1054,9 +1298,7 @@ class LiveStore(MockStore):
             # Not built yet. Saying "not built" is the truth and is different
             # from "broken" — an operator should not be waiting for these to
             # come back.
-            "weapons": (S.DataState.UNAVAILABLE,
-                        "Weapon detection is not built yet. No camera is being "
-                        "checked for weapons."),
+            "weapons": self._weapons_state(),
             "search_lost": (S.DataState.UNAVAILABLE,
                             "Lost item search is not built yet. No footage is "
                             "being searched."),
@@ -1104,6 +1346,32 @@ class LiveStore(MockStore):
                     "shown even though the cameras are being watched.")
         return S.DataState.LIVE, None
 
+    def _weapons_state(self) -> tuple[S.DataState, str | None]:
+        """Whether anything is actually looking for a knife.
+
+        Four different failures, four different sentences. "Unavailable" on
+        its own leaves an operator unable to tell a model that would not
+        load from a camera nobody switched on, and only one of those is
+        theirs to fix. On this feature above all others, an empty list must
+        never be allowed to read as an all-clear.
+        """
+        if self.weapons_worker is None:
+            if self.weapons_error:
+                return S.DataState.UNAVAILABLE, self.weapons_error
+            if self.people_worker is None:
+                return (S.DataState.UNAVAILABLE,
+                        "Person detection is not running, so knives cannot "
+                        "be checked - knives are looked for on people."
+                        + (f" ({self.people_error})" if self.people_error else ""))
+            return (S.DataState.UNAVAILABLE,
+                    "Knife detection is not running, so no camera is being "
+                    "checked.")
+        if self.weapon_scenes is None:
+            return (S.DataState.UNAVAILABLE,
+                    "The knife log is not available, so nothing can be shown "
+                    "even though the cameras are being checked.")
+        return S.DataState.LIVE, None
+
     def _clock_stage(self) -> S.PipelineStage:
         """Rule 8: a subsystem that failed to start says so in the UI.
 
@@ -1143,14 +1411,7 @@ class LiveStore(MockStore):
             self._recognition_stage(),
             self._people_stage(),
             self._clock_stage(),
-            # Honest about what is not built yet. A green tick next to a feature
-            # that does not exist is how a school ends up trusting nothing.
-            S.PipelineStage(
-                key="weapons", name="Weapon detection",
-                detail="Model present but not wired to the API - "
-                       "detections shown are demo data",
-                healthy=False, severity=S.Severity.WARN, restartable=False,
-            ),
+            self._weapons_stage(),
         ]
 
         return S.SystemHealth(
@@ -1236,6 +1497,32 @@ class LiveStore(MockStore):
         return S.PipelineStage(
             key="detect", name="Person detection",
             detail=f"Running on {stats['cameras']} camera(s), "
+                   f"{stats['last_inference_ms']}ms last inference",
+            healthy=True, severity=S.Severity.INFO, restartable=True,
+        )
+
+    def _weapons_stage(self) -> S.PipelineStage:
+        """Rule 8: a subsystem that failed to start says so in the UI.
+
+        The reason is the same sentence the capability gives, so the page and
+        System Health cannot disagree about whether knives are being looked
+        for.
+        """
+        state, reason = self._weapons_state()
+        if state is not S.DataState.LIVE:
+            return S.PipelineStage(
+                key="weapons", name="Knife detection",
+                detail=reason or "Not running.",
+                healthy=False, severity=S.Severity.WARN, restartable=False,
+            )
+
+        stats = self.weapons_worker.stats
+        knives = getattr(self.weapons_worker, "knives", None)
+        version = getattr(knives, "version", "unknown")
+        device = getattr(knives, "device", "unknown")
+        return S.PipelineStage(
+            key="weapons", name="Knife detection",
+            detail=f"{version} on {device} - {stats['cameras']} camera(s), "
                    f"{stats['last_inference_ms']}ms last inference",
             healthy=True, severity=S.Severity.INFO, restartable=True,
         )

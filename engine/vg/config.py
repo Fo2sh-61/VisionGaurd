@@ -445,6 +445,19 @@ class StorageConfig:
         """
         return self.clips_dir / "zones"
 
+    @property
+    def weapon_clips_dir(self) -> Path:
+        """Where knife-detection clips land, under the configured clips folder.
+
+        A subfolder rather than a config key, for the reason `zone_clips_dir`
+        gives: it is the boundary the clip endpoint checks a path against before
+        serving it, and it keeps the retention sweep away from files an operator
+        recorded by hand. The sweep here deletes by age only — knife videos have
+        no per-camera cap, because the second knife of the day matters as much as
+        the first.
+        """
+        return self.clips_dir / "weapons"
+
 
 # ---------------------------------------------------------------------------
 # tracking: the bar for a name, and the patrol tier

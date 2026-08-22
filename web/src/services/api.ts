@@ -48,7 +48,7 @@ import * as W from './wire';
 export type CameraFeature = 'attendance' | 'track' | 'counting' | 'intrusion' | 'weapons';
 import { ApiError, SEARCH_TIMEOUT_MS, apiBase, assetUrl, del, get, patch, post, postFile, request, setSessionToken } from './http';
 import type { Account } from '@/app/AuthContext';
-import type { Role } from '@/types';
+import type { Role, Tone } from '@/types';
 import {
   attendanceLabel,
   attendanceStatusLine,
@@ -58,6 +58,7 @@ import {
   formatLongDate,
   formatMetrics,
   formatDuration,
+  formatPercent,
   formatShortDate,
   formatTime,
   severityToNeutralTone,
@@ -328,49 +329,79 @@ export async function getIntrusionCameras(): Promise<Camera[]> {
 
 /* ---------- weapons ---------- */
 
+/** What the entry says it is. Plain sentences, built here — the engine sends
+ *  a verdict and a flag, never a sentence.
+ *
+ *  There used to be a "Confirmed — police notified" here. Nobody is notified
+ *  by anything in this product: the review endpoint is the only thing that
+ *  fans out and it fans out to nothing yet. It was deleted rather than
+ *  reworded, because a sentence promising a call that is not happening is the
+ *  most dangerous thing this page could say. */
 function weaponStatus(d: W.WeaponDetection): string {
-  if (d.verdict === 'confirmed') return 'Confirmed — police notified';
+  if (d.verdict === 'confirmed') {
+    const who = d.reviewedBy ? ` by ${d.reviewedBy}` : '';
+    const when = d.reviewedAt ? ` · ${formatEventTime(d.reviewedAt)}` : '';
+    return `Confirmed${who}${when}`;
+  }
   if (d.verdict === 'dismissed') {
     return d.dismissalReason ? `False alarm — ${d.dismissalReason}` : 'False alarm';
   }
-  return 'Awaiting review';
+  // No `endedAt` means the knife has not left view yet, which is a different
+  // and more urgent thing than an incident waiting for somebody to look at it.
+  return d.endedAt ? 'Awaiting review' : 'Still in view';
+}
+
+function weaponTone(d: W.WeaponDetection): Tone {
+  if (d.verdict === 'confirmed') return 'bad';
+  if (d.verdict === 'dismissed') return 'neutral';
+  return 'warn';
+}
+
+function toWeapon(d: W.WeaponDetection): WeaponDetection {
+  return {
+    id: d.id,
+    camera: d.cameraName,
+    area: d.location,
+    time: formatEventTime(d.at),
+    duration: formatDuration(d.seconds ?? 0),
+    confidence: formatPercent(d.confidence),
+    status: weaponStatus(d),
+    tone: weaponTone(d),
+    verdict: d.verdict,
+    reviewer: d.reviewedBy ?? undefined,
+    reviewedAt: d.reviewedAt ? formatEventTime(d.reviewedAt) : undefined,
+    running: !d.endedAt,
+    cut: d.endReason === 'limit',
+    // Only a saved video has a `clip`; everything else carries a reason
+    // instead, which the page shows where the button would have been.
+    clipUrl: d.clip?.url ?? undefined,
+    clipReason: d.clipReason ?? undefined,
+  };
 }
 
 export async function getWeaponDetections(window: WeaponWindow): Promise<WeaponDetection[]> {
   // Dismissed detections come back too. False alarms stay in the history.
   const detections = await get<W.WeaponDetection[]>('/weapons/detections', { window });
-  return detections.map((d) => ({
-    id: d.id,
-    time: formatEventTime(d.at),
-    location: d.location,
-    item: d.item,
-    status: weaponStatus(d),
-    tone:
-      d.verdict === 'confirmed' ? 'bad' : d.verdict === 'dismissed' ? 'neutral' : 'warn',
-  }));
+  return detections.map(toWeapon);
 }
 
-/** NEW: the human gate. Nothing downstream fires until this is called — the
- *  detector alone never notifies, calls or locks anything. */
+/** The human gate. Nothing downstream fires until this is called — the
+ *  detector alone never notifies, calls or locks anything.
+ *
+ *  No `actor`: the engine records the signed-in account from the session.
+ *  Sending a name would let a caller review as somebody else, and the server
+ *  ignores it anyway. */
 export async function reviewWeapon(
   id: string,
   verdict: 'confirmed' | 'dismissed',
-  actor: string,
   reason?: string,
 ): Promise<WeaponDetection> {
-  const d = await post<W.WeaponDetection>(`/weapons/${encodeURIComponent(id)}/review`, {
-    verdict,
-    actor,
-    reason,
-  });
-  return {
-    id: d.id,
-    time: formatEventTime(d.at),
-    location: d.location,
-    item: d.item,
-    status: weaponStatus(d),
-    tone: d.verdict === 'confirmed' ? 'bad' : 'neutral',
-  };
+  return toWeapon(
+    await post<W.WeaponDetection>(`/weapons/${encodeURIComponent(id)}/review`, {
+      verdict,
+      reason,
+    }),
+  );
 }
 
 /** CHANGED: was synchronous. */
