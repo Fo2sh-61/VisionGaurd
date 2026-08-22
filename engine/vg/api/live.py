@@ -1494,6 +1494,16 @@ class LiveStore(MockStore):
             )
 
         stats = self.people_worker.stats
+        if not stats["cameras"]:
+            # The model is loaded and knife detection is using it, but no
+            # camera asked for counting, intrusion or track. "Running on 0
+            # camera(s)" would read as broken; it is neither broken nor idle.
+            return S.PipelineStage(
+                key="detect", name="Person detection",
+                detail="Loaded and shared with knife detection. No camera "
+                       "asks for counting, intrusion or track.",
+                healthy=True, severity=S.Severity.INFO, restartable=True,
+            )
         return S.PipelineStage(
             key="detect", name="Person detection",
             detail=f"Running on {stats['cameras']} camera(s), "

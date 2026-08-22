@@ -435,21 +435,40 @@ BODY_FEATURES = {"counting", "intrusion", "track"}
 
 
 def _start_people(cfg, registry, roster):
-    """Person detection for counting, intrusion and tracking.
+    """The shared person detector, and the counting worker that uses it.
 
-    Returns `(worker, error)`. The worker is None when no camera asks for any
-    of these — in which case the person model is never loaded at all, and the
-    error is None because nothing is wrong.
+    Returns `(worker, error)`. The worker carries `.detector` — the one
+    `SharedDetection` every body feature is handed — so bringing it up is
+    what makes counting, intrusion, tracking AND knife detection possible.
+
+    **Two different questions, and conflating them broke rule 9.** Whether
+    the *detector* is needed is not the same as which cameras the
+    *PeopleWorker* watches. This used to load the model only when some
+    camera asked for counting, intrusion or track — the set that existed
+    before knife detection did. Knife detection consumes the same detector
+    on every enabled camera, so a school whose cameras were all `attendance`
+    got no knife detection at all, and switching People Counting off
+    anywhere turned knives off across the whole site. A feature must never
+    require another feature to be switched on.
+
+    So: any enabled camera means the detector is needed. The worker still
+    watches only the cameras that asked for a body feature, and watches
+    nothing — starting no threads — when none did.
+
+    None with no error means there is nothing enabled to look at, which is
+    the one case where loading the model would be pure waste.
     """
     # Zones here are vg.config.ZoneConfig - polygons in frame fractions.
+
+    enabled = [c.id for c in roster if c.enabled]
+    if not enabled:
+        log.info("no camera is enabled; not loading person detection")
+        return None, None
 
     cameras = [
         c.id for c in roster
         if c.enabled and BODY_FEATURES.intersection(c.features)
     ]
-    if not cameras:
-        log.info("no camera needs person detection; not loading it")
-        return None, None
 
     try:
         from vg.features.people import PeopleWorker
@@ -474,11 +493,19 @@ def _start_people(cfg, registry, roster):
         worker = PeopleWorker(
             registry.bus, detector, cameras, zones, rate_hz=rate, boost_hz=12.0
         )
+        # A worker with no cameras starts no threads (see FeatureWorker.start)
+        # and exists only to carry the shared detector to whoever needs it.
         worker.start()
-        log.info(
-            "people on %s - %d zone(s), %.0f Hz idle / 12 Hz watched",
-            cameras, sum(len(z) for z in zones.values()), rate,
-        )
+        if cameras:
+            log.info(
+                "people on %s - %d zone(s), %.0f Hz idle / 12 Hz watched",
+                cameras, sum(len(z) for z in zones.values()), rate,
+            )
+        else:
+            log.info(
+                "person model loaded for knife detection; no camera asks "
+                "for counting, intrusion or track"
+            )
         return worker, None
     except Exception as exc:
         # Counting degrades to unavailable; everything else keeps working.

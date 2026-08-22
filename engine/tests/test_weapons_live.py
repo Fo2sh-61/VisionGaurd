@@ -733,6 +733,70 @@ class TestOverlay:
         app_module.set_store(MockStore())
 
 
+class TestStandsAlone:
+    """Rule 9: a feature must never require another feature to be switched on."""
+
+    def _roster(self, features):
+        from vg.config import CameraConfig
+        return [CameraConfig.parse(
+            {"id": "cam-a", "name": "Hall", "source": "webcam:0",
+             "features": list(features)}, "cam-a")]
+
+    @pytest.fixture
+    def no_model(self, monkeypatch):
+        """A person detector that loads no weights, so this runs anywhere."""
+        from vg.infer import persons
+
+        class StubDetector:
+            device = "cpu"
+            version = "stub"
+            weights = Path("stub.pt")
+
+            def __init__(self, **kw):
+                pass
+
+            def raw_boxes(self, image):
+                return None
+
+        monkeypatch.setattr(persons, "PersonDetector", StubDetector)
+        return StubDetector
+
+    def test_knives_run_on_a_roster_with_no_other_body_feature(self, no_model):
+        # P6-FR-013 and rule 9. `_start_people` only built the shared detector
+        # when some camera asked for counting, intrusion or track - the set it
+        # had before knife detection existed. Knife detection consumes that same
+        # detector on EVERY enabled camera, so a school with only attendance
+        # cameras got no knife detection at all, and turning off People Counting
+        # anywhere switched knives off across the whole site.
+        from vg.api.app import _start_people
+        from vg.ingest.registry import CameraRegistry
+        from vg import config as vgconfig
+
+        roster = self._roster(["attendance"])
+        registry = CameraRegistry(roster)
+        people, error = _start_people(vgconfig.load(), registry, roster)
+
+        assert error is None
+        assert people is not None, "no shared detector, so no knife detection"
+        assert getattr(people, "detector", None) is not None
+        # ...and it watches nothing, because no camera asked it to count.
+        assert people.cameras == []
+
+    def test_a_roster_with_no_enabled_camera_loads_nothing(self, no_model):
+        # The other direction: nothing enabled means nothing to look at, and
+        # the person model must not be loaded for the sake of it.
+        from vg.api.app import _start_people
+        from vg.ingest.registry import CameraRegistry
+        from vg import config as vgconfig
+
+        roster = self._roster(["attendance"])
+        object.__setattr__(roster[0], "enabled", False)
+        registry = CameraRegistry(roster)
+        people, error = _start_people(vgconfig.load(), registry, roster)
+
+        assert (people, error) == (None, None)
+
+
 # ---------------------------------------------------------------------------
 # honest states
 # ---------------------------------------------------------------------------
