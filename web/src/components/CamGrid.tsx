@@ -121,25 +121,28 @@ export function CamGrid({
     [all, needle],
   );
 
-  const pages = pageSize ? Math.max(1, Math.ceil(matching.length / pageSize)) : 1;
+  // Pinned first, and **before paging**. Sorting the visible page instead
+  // would leave a camera that saw the bag sitting on page three, which is the
+  // one place the operator will not look. Inside a memo because `counts`
+  // repolls every second and re-sorting on each would make the tiles jump
+  // under the pointer. `sort` is stable, so everything else keeps roster order.
+  const ranked = useMemo(() => {
+    if (!pinned?.length) return matching;
+    const rank = new Map(pinned.map((id, i) => [id, i]));
+    return [...matching].sort(
+      (a, b) => (rank.get(a.id) ?? Infinity) - (rank.get(b.id) ?? Infinity),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [matching, pinned?.join(',')]);
+
+  const pages = pageSize ? Math.max(1, Math.ceil(ranked.length / pageSize)) : 1;
   // A narrowed search can leave the current page past the end. Clamping on
   // render rather than resetting on change keeps the pager honest without
   // yanking the operator back to page one every keystroke.
   const current = Math.min(page, pages - 1);
-  const shown = pageSize
-    ? matching.slice(current * pageSize, current * pageSize + pageSize)
-    : matching;
-
-  // Inside a memo: `counts` repolls every second, and re-sorting on each of
-  // those would make the tiles jump under the pointer.
-  const ordered = useMemo(() => {
-    if (!pinned?.length) return shown;
-    const rank = new Map(pinned.map((id, i) => [id, i]));
-    return [...shown].sort(
-      (a, b) => (rank.get(a.id) ?? Infinity) - (rank.get(b.id) ?? Infinity),
-    );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shown, pinned?.join(',')]);
+  const ordered = pageSize
+    ? ranked.slice(current * pageSize, current * pageSize + pageSize)
+    : ranked;
 
   const refreshMs = tileRefreshMs(ordered.length);
   const [counts, setCounts] = useState<Record<string, number | null>>({});

@@ -97,6 +97,20 @@ class Hit:
         return self.w * self.h
 
 
+def matches_colour(hit: Hit, wanted: str) -> bool:
+    """Does this hit answer to `wanted`?
+
+    Matched against the **lenient** set, never the single best name: a dark
+    blue bag looks black in poor light and has to answer to both.
+
+    A hit whose colour could not be named at all matches **everything**. An
+    unnamed colour means "we could not narrow this down", which is a different
+    answer from "this is not the one". Treating it as a mismatch would hide the
+    bag somebody is looking for because a crop came back one pixel wide.
+    """
+    return not hit.colours or wanted in hit.colours
+
+
 @dataclass(frozen=True)
 class Unavailable:
     """A camera that was asked for and could not be looked at, and why.
@@ -135,8 +149,13 @@ class Job:
         Sorted by the best confidence on each, so the most likely camera is
         first — which is the order the grid pins them in.
         """
-        good = [c for c, hs in self.hits.items() if len(hs) >= CONFIRM_FRAMES]
-        good.sort(key=lambda c: max(h.confidence for h in self.hits[c]), reverse=True)
+        # Snapshot each list before measuring it: the search thread may be
+        # appending to any of them while this runs, and a length that changes
+        # between the filter and the sort would sort on a different set than it
+        # filtered.
+        seen = {c: list(hs) for c, hs in list(self.hits.items())}
+        good = [c for c, hs in seen.items() if len(hs) >= CONFIRM_FRAMES]
+        good.sort(key=lambda c: max(h.confidence for h in seen[c]), reverse=True)
         return good
 
 
@@ -217,6 +236,16 @@ class BagSearch:
                 self._job = job
             return job
 
+        # One list per camera, created up front. The console polls
+        # `GET /lost-items/search` once a second while the search runs, and that
+        # read walks `job.hits` on the HTTP thread while `_run` is writing to it
+        # on the search thread. Adding a key mid-iteration is
+        # `RuntimeError: dictionary changed size during iteration` - an
+        # intermittent 500 on the one request the page depends on. Fixing the
+        # key set at the start means only the lists ever change, and appending
+        # to a list while another thread reads it is safe under the GIL.
+        job.hits = {camera_id: [] for camera_id in live}
+
         self._stop = threading.Event()
         with self._lock:
             self._job = job
@@ -274,6 +303,13 @@ class BagSearch:
             return []
         cutoff = self._now() - timedelta(seconds=OVERLAY_HOLD_SECONDS)
         recent = [h for h in list(job.hits.get(camera_id, [])) if h.at >= cutoff]
+        # The overlay answers the same question the search does. Somebody who
+        # asked for a blue bag and gets an amber box round a black one has been
+        # shown a detection they did not ask for, on the tile they are staring
+        # at while they wait.
+        wanted = getattr(job.query, "colour", None)
+        if wanted:
+            recent = [h for h in recent if matches_colour(h, wanted)]
         if not recent:
             return []
         newest = max(h.sequence for h in recent)
@@ -341,7 +377,7 @@ class BagSearch:
                     for box in boxes:
                         if not MIN_BOX_FRACTION <= box.w * box.h <= MAX_BOX_FRACTION:
                             continue
-                        job.hits.setdefault(camera_id, []).append(self._hit(box, frame))
+                        job.hits[camera_id].append(self._hit(box, frame))
 
                 if not fresh:
                     time.sleep(ROUND_PAUSE_SECONDS)

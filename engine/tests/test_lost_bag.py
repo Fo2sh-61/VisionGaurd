@@ -953,7 +953,7 @@ class TestColourFilter:
         assert all(h.colours for h in hits)
 
 
-def _paint(job, camera_id: str, colour: str, colours: set[str]) -> None:
+def _paint(job, camera_id: str, colour: str | None, colours: set[str]) -> None:
     """Restamp a camera's hits with a known colour.
 
     The colour a 16x16 black test frame produces is not the point of these
@@ -965,3 +965,147 @@ def _paint(job, camera_id: str, colour: str, colours: set[str]) -> None:
         dataclasses.replace(h, colour=colour, colours=frozenset(colours))
         for h in job.hits[camera_id]
     ]
+
+
+# ---------------------------------------------------------------------------
+# the live view: what an operator sees while the search is still running
+# ---------------------------------------------------------------------------
+
+class TestTheLiveView:
+    def test_a_box_appears_before_the_camera_is_confirmed(self, tmp_path):
+        """The overlay is live; the result is not. They answer different questions.
+
+        A camera needs two frames to become a *result*, but the operator is
+        watching the tile while it happens - so the first sighting draws a box
+        straight away. Without this the grid sat empty from the moment Search
+        was pressed until a confirmation, and pressing the button looked like
+        nothing happening.
+        """
+        registry, marks = make_registry(
+            ("cam-a", marked("cam-a", 1, 500, at_step=0.0)))
+        detector = FakeBags(marks=marks, script={"cam-a": [[bag()]]})
+        now = FixedNow()
+        search = new_search(registry, detector, now)
+        search.start(S.LostQuery(cameras=["cam-a"]))
+        wait_until(lambda: search.current().frames_checked >= 3)
+        search.stop()
+
+        job = search.current()
+        # One sighting only: not a result...
+        assert job.confirmed() == []
+        # ...but it was on screen while it happened.
+        assert len(job.hits["cam-a"]) == 1
+        assert search.boxes_on("cam-a")
+
+        store = live_store(tmp_path, lost=search)
+        boxes = store.overlay("cam-a", "lost")
+        assert len(boxes) == 1
+        assert boxes[0].kind == "object"
+
+    def test_the_overlay_only_draws_the_colour_that_was_asked_for(self, tmp_path):
+        """An amber box round a black bag, for somebody who asked for blue, is a
+        detection they did not ask for on the tile they are staring at."""
+        registry, marks = make_registry(
+            ("cam-a", marked("cam-a", 1, 500, at_step=0.0)))
+        detector = FakeBags(marks=marks, boxes_by_camera={"cam-a": [bag()]})
+        now = FixedNow()
+        search = new_search(registry, detector, now)
+        search.start(S.LostQuery(cameras=["cam-a"], colour="blue"))
+        wait_until(lambda: search.current().hits.get("cam-a"))
+        search.stop()
+
+        job = search.current()
+        store = live_store(tmp_path, lost=search)
+
+        _paint(job, "cam-a", "red", {"red"})
+        assert search.boxes_on("cam-a") == []
+        assert store.overlay("cam-a", "lost") == []
+
+        _paint(job, "cam-a", "blue", {"blue", "black"})
+        assert len(store.overlay("cam-a", "lost")) == 1
+
+    def test_a_bag_whose_colour_could_not_be_read_is_never_hidden(self, tmp_path):
+        """"We could not narrow this down" is not "this is not the one".
+
+        A one-pixel crop at the frame edge loses the colour, not the bag. If an
+        unnamed colour counted as a mismatch, the filter would hide the thing
+        somebody is looking for because of a bad crop.
+        """
+        registry, marks = make_registry(
+            ("cam-a", marked("cam-a", 1, 500, at_step=0.0)))
+        detector = FakeBags(marks=marks, boxes_by_camera={"cam-a": [bag()]})
+        now = FixedNow()
+        search = new_search(registry, detector, now)
+        search.start(S.LostQuery(cameras=["cam-a"], colour="blue"))
+        wait_until(lambda: len(search.current().hits.get("cam-a", [])) >= 2)
+        search.stop()
+
+        job = search.current()
+        _paint(job, "cam-a", None, set())
+
+        # On the overlay...
+        assert search.boxes_on("cam-a")
+        # ...and in the result, where it must not be counted as hidden either.
+        result = live_store(tmp_path, lost=search).lost_search()
+        assert [h.camera_id for h in result.hits] == ["cam-a"]
+        assert result.hidden_by_colour == 0
+
+
+
+    def test_the_hit_keys_are_fixed_when_the_search_starts(self, tmp_path):
+        """The key set of `job.hits` never changes once the thread is running.
+
+        This is the property, not the symptom. `confirmed()` walks `job.hits` on
+        the HTTP thread - the console polls `GET /lost-items/search` once a
+        second for the whole minute - while `_run` writes to it on the search
+        thread. A key appearing mid-walk is
+        `RuntimeError: dictionary changed size during iteration`: an
+        intermittent 500 on the one request the page depends on, leaving it
+        stuck on "Looking at N cameras" for ever.
+
+        Asserted as an invariant because the race itself is not reproducible on
+        demand - every key is created in the first pass, a window of
+        microseconds. Polling at it proves nothing; fixing the key set at start
+        makes the race impossible, and that is what this checks.
+        """
+        specs = [(f"cam-{i}", marked(f"cam-{i}", i + 1, 500, at_step=0.0))
+                 for i in range(8)]
+        registry, marks = make_registry(*specs)
+        detector = FakeBags(marks=marks,
+                            boxes_by_camera={c: [bag()] for c, _ in specs})
+        now = FixedNow()
+        search = new_search(registry, detector, now)
+        store = live_store(tmp_path, lost=search)
+        search.start(S.LostQuery(cameras=[c for c, _ in specs]))
+
+        # Every searched camera has its list from the very first moment...
+        at_start = set(search.current().hits)
+        assert at_start == {c for c, _ in specs}
+
+        # ...and polling throughout never sees a different key set.
+        deadline = time.monotonic() + 10.0
+        while time.monotonic() < deadline:
+            store.lost_search()
+            search.boxes_on("cam-0")
+            assert set(search.current().hits) == at_start
+            if len(search.current().confirmed()) == len(specs):
+                break
+        search.stop()
+
+        assert set(search.current().hits) == at_start
+        assert len(search.current().confirmed()) == len(specs)
+
+    def test_matches_colour_is_the_one_rule_both_paths_use(self):
+        """The overlay and the result must never disagree about a bag."""
+        from vg.features.lostbag import Hit, matches_colour
+
+        def hit(colours):
+            return Hit(at=START, x=0.1, y=0.1, w=0.2, h=0.2, label="backpack",
+                       confidence=0.8, colours=frozenset(colours))
+
+        assert matches_colour(hit({"blue", "black"}), "blue")
+        assert matches_colour(hit({"blue", "black"}), "black")
+        assert not matches_colour(hit({"red"}), "blue")
+        # Unknown matches anything.
+        assert matches_colour(hit(set()), "blue")
+        assert matches_colour(hit(set()), "red")

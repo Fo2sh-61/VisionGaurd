@@ -833,7 +833,7 @@ class LiveStore(MockStore):
         them the operator asked about is a question about the query, not about
         the search.
         """
-        from vg.features.lostbag import LIMIT_SECONDS
+        from vg.features.lostbag import LIMIT_SECONDS, matches_colour
 
         now = datetime.now(timezone.utc)
         elapsed = job.seconds_elapsed(now)
@@ -845,7 +845,8 @@ class LiveStore(MockStore):
         hidden = 0
         for camera_id in job.confirmed():
             seen = job.hits[camera_id]
-            matching = [h for h in seen if wanted is None or wanted in h.colours]
+            matching = [h for h in seen
+                        if wanted is None or matches_colour(h, wanted)]
             if not matching:
                 # Found, and deliberately not shown. The count goes on screen:
                 # an operator who filtered by the wrong colour has to be able

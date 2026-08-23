@@ -108,12 +108,25 @@ export function LostItems() {
     return groups;
   }, [cameras]);
 
-  /** Any change to the query invalidates the answer on screen. */
+  /** Any change to the query invalidates the answer on screen - and the
+   *  search behind it.
+   *
+   *  Clearing the result but leaving the engine running would keep a thread
+   *  working on a question nobody is asking any more, invisibly, for up to a
+   *  minute: the page would read *idle* while the cameras were still being
+   *  looked at. Stopping is also what makes the next Search honest, because a
+   *  running search is replaced rather than queued.
+   */
   const invalidate = useCallback(() => {
+    if (phase === 'running') {
+      void stopLostSearch().catch(() => {
+        /* it ends itself at the limit either way */
+      });
+    }
     setPhase('idle');
     setResult(null);
     setError(null);
-  }, []);
+  }, [phase]);
 
   const toggleCamera = (id: string) => {
     setTicked((prev) => {
@@ -191,6 +204,19 @@ export function LostItems() {
       clearInterval(timer);
     };
   }, [phase]);
+
+  /** The cameras on screen: exactly the ones ticked, in roster order.
+   *
+   *  Not `result.cameras` — that holds only the cameras that already saw a bag,
+   *  so the grid stayed **empty** from the moment Search was pressed until the
+   *  first confirmation. The operator pressed a button and watched nothing
+   *  happen. What they need to see is the cameras they chose, live, with a box
+   *  appearing on one of them the moment the model fires.
+   */
+  const watching = useMemo(
+    () => cameras.filter((c) => ticked.has(c.id)),
+    [cameras, ticked],
+  );
 
   const chosenColour = COLOURS.find((c) => c.value === colour) ?? COLOURS[0];
   const summary =
@@ -338,11 +364,12 @@ export function LostItems() {
         </div>
       </Card>
 
-      {phase === 'idle' && (
+      {phase === 'idle' && watching.length === 0 && (
         <Card>
           <Empty>
-            Nothing searched yet. Tick the areas to check and press Search — the
-            cameras are looked at live, so a bag has to still be there to be found.
+            Nothing chosen yet. Tick an area or a camera above and it appears
+            below, live. Press Search and any bag in view is outlined — the
+            cameras are looked at now, so a bag has to still be there to be found.
           </Empty>
         </Card>
       )}
@@ -362,16 +389,47 @@ export function LostItems() {
         </Card>
       )}
 
-      <CamGrid
-        title="Cameras searched"
-        note="Amber boxes mark a possible bag. Cameras that saw one are first."
-        cameras={result?.cameras ?? []}
-        only
-        feature="lost"
-        tileOverlay
-        pinned={hits.map((h) => h.cameraId)}
-      />
+      {watching.length > 0 && (
+        <CamGrid
+          title={gridTitle(phase)}
+          note={gridNote(phase, colour ? chosenColour.name.toLowerCase() : null)}
+          cameras={watching}
+          only
+          // Only worth offering once the grid is bigger than a glance.
+          searchable={watching.length > 12}
+          pageSize={12}
+          feature="lost"
+          // Only poll the overlay once a search has actually run. Before that
+          // there is nothing to draw, and a tile per camera asking every second
+          // for an empty list is a request nobody needed.
+          tileOverlay={phase !== 'idle'}
+          pinned={hits.map((h) => h.cameraId)}
+        />
+      )}
     </>
+  );
+}
+
+/** What the grid is, at this moment. It is three different things. */
+function gridTitle(phase: Phase): string {
+  if (phase === 'idle') return 'Cameras chosen';
+  if (phase === 'running') return 'Watching now';
+  return 'Cameras searched';
+}
+
+/** What the grid is showing right now, in one line under its title. */
+function gridNote(phase: Phase, colour: string | null): string {
+  const only = colour ? ` Only bags that could be ${colour} are outlined.` : '';
+  if (phase === 'idle') {
+    return 'These are live now. Nothing is being looked for until you press Search.';
+  }
+  if (phase === 'running') {
+    return `An amber box appears as a possible bag is seen.${only} Cameras that saw one come first.`;
+  }
+  return (
+    'Cameras that saw a possible bag are first, badged. Boxes clear a few ' +
+    'seconds after the bag was last seen — a box over a live picture of where ' +
+    'a bag used to be would be a lie. Open a camera to look properly.'
   );
 }
 
