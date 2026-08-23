@@ -117,9 +117,7 @@ class Store(Protocol):
         self, mode: str, subject: str, on: str
     ) -> S.AttendanceResult: ...
     def count(self, place: str, window: str) -> S.CountResult: ...
-    def search_lost(self, query: S.LostQuery) -> S.LostResult: ...
-    def lost_search(self) -> S.LostResult | None: ...
-    def stop_lost_search(self) -> None: ...
+    def note_lost_interest(self, camera_id: str) -> None: ...
     def track(self, query: S.TrackQuery, actor: str) -> S.TrackResult: ...
 
     def path_skeleton(
@@ -565,42 +563,10 @@ class MockStore:
                                   snapshot_url="/cameras/cnt-caf/snapshot")],
         )
 
-    # -- lost items ---------------------------------------------------------
+    # -- lost bag -----------------------------------------------------------
 
-    def search_lost(self, query: S.LostQuery) -> S.LostResult:
-        hits = [
-            S.LostHit(camera_id="l-lib", camera_name="Library - east",
-                      at=at(13, 8), confidence=0.94,
-                      note="Seen 14 times over 38 seconds",
-                      box=box(0.55, 0.62, 0.12, 0.14, kind="object",
-                              confidence=0.94),
-                      colour="black", colours=["black"]),
-            S.LostHit(camera_id="l-corr", camera_name="Building A corridor",
-                      at=at(12, 51), confidence=0.71,
-                      note="Seen 3 times over 6 seconds",
-                      colour="black", colours=["black"]),
-        ]
-        # No clips exist even in demo mode, so the clip counters stay 0 — the
-        # fixture may be invented but it must not invent a *kind* of answer
-        # the real engine can never give.
-        self._last_lost = S.LostResult(
-            job=S.SearchJob(id="job-1", state="done", progress=1.0,
-                            submitted_at=now()),
-            query=query, hits=hits,
-            cameras=[S.CameraView(id="l-lib", name="Library - east",
-                                  captured_at=at(13, 8),
-                                  boxes=[h.box for h in hits if h.box],
-                                  snapshot_url="/cameras/l-lib/snapshot")],
-            cameras_checked=1, hidden_by_colour=0, frames_checked=0,
-            seconds_limit=60.0, seconds_elapsed=0.0,
-        )
-        return self._last_lost
-
-    def lost_search(self) -> S.LostResult | None:
-        return getattr(self, "_last_lost", None)
-
-    def stop_lost_search(self) -> None:
-        """Demo mode has no thread to stop; stopping nothing is not a failure."""
+    def note_lost_interest(self, camera_id: str) -> None:
+        """Demo mode has no model to point at a camera."""
 
     # -- track --------------------------------------------------------------
 
@@ -798,7 +764,7 @@ class MockStore:
         ("track", "Track a person"),
         ("breaches", "Restricted zones"),
         ("weapons", "Weapon detection"),
-        ("search_lost", "Lost bag search"),
+        ("search_lost", "Bag detection"),
         ("users", "Users and roles"),
         ("audit", "Audit trail"),
         ("attention", "Alerts"),

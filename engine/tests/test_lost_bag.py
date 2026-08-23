@@ -1,19 +1,18 @@
-"""Lost bag search, end to end, without a camera or a model.
+"""Bag detection on the cameras somebody is looking at, without a camera or a model.
 
-A search is the one feature here that runs *only* while somebody is watching
-it, so most of what is worth proving is about what it does **not** do:
+There is no search and no job here, so what is worth proving is narrow:
 
-  * a camera the operator did not tick is never handed to the detector
-  * a frame already seen is not analysed twice, so "seen 40 times" means 40 looks
-  * one frame is not a result - a false hit is exactly one frame (D1)
-  * a box covering the whole picture is not a result either (D10)
-  * the overlay carries a bag, never a name, and drops when the hit goes stale
+  * nothing runs until a tile asks for a bag overlay, and it stops when they stop
+  * a camera nobody is looking at is never handed to the detector
+  * a frame already seen is not analysed twice
+  * the overlay shows the newest frame's boxes, not a stack of every recent one
+  * the box carries a bag, never a name, and goes stale rather than lingering
+  * the colour filter narrows, and never hides a bag whose colour is unknown
   * a `lost` poll does not wake face recognition
-  * nothing runs when nobody is searching, and no other feature has to be on
+  * it works with every other feature switched off
 
-The job takes its clock as a callable, so a sixty-second limit is proved in
-microseconds. No test here sleeps on the clock it is measuring, and none of
-them touch the real weights.
+The watch takes its clock as a callable, so ageing a box out takes microseconds
+and no test sleeps on the clock it is measuring.
 """
 
 from __future__ import annotations
@@ -24,15 +23,11 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import numpy as np
-import pytest
 
 from vg.api import schemas as S
 from vg.infer.bags import DetectedBag
 from vg.ingest.source import Frame
 
-# Relative to the clock, for the reason `test_weapons_live.py` gives: a date
-# typed on the day this was written stops sitting inside its own window as
-# soon as it is more than a day old.
 START = (datetime.now(timezone.utc) - timedelta(hours=1)).replace(microsecond=0)
 
 REPO_DIR = Path(__file__).resolve().parents[2]
@@ -50,8 +45,7 @@ def frame(camera_id: str = "cam-a", *, at: float = 0.0, sequence: int = 0,
     `mark` is written into pixel (0, 0) so `FakeBags` can tell which camera the
     pixels came from. The real detector cannot - `detect(image)` is handed bare
     pixels and never learns the camera - and the rule that matters most here,
-    that only ticked cameras are ever analysed, can only be proved by recording
-    which camera each call was about.
+    that only watched cameras are analysed, can only be proved by recording it.
     """
     image = np.zeros((16, 16, 3), dtype=np.uint8)
     image[0, 0, 0] = mark
@@ -70,19 +64,11 @@ def bag(x: float = 0.4, y: float = 0.4, w: float = 0.2, h: float = 0.2,
 
 
 class FakeBags:
-    """Stands in for `BagDetector`. Records every call, resolved to a camera.
-
-    `boxes_by_camera` is what to return for a camera on every call. `script`
-    overrides it with a per-call list, so a test can make a bag appear once and
-    then stop - which is how a false positive behaves and how a real one does
-    not.
-    """
+    """Stands in for `BagDetector`. Records every call, resolved to a camera."""
 
     def __init__(self, boxes_by_camera: dict[str, list[DetectedBag]] | None = None,
-                 marks: dict[int, str] | None = None,
-                 script: dict[str, list[list[DetectedBag]]] | None = None) -> None:
+                 marks: dict[int, str] | None = None) -> None:
         self.boxes_by_camera = boxes_by_camera or {}
-        self.script = script or {}
         self.marks = marks or {}
         self.asked: list[str] = []
         self.version = "bagbest"
@@ -92,11 +78,7 @@ class FakeBags:
     def detect(self, image, min_confidence=None):
         with self._lock:
             camera_id = self.marks.get(int(image[0, 0, 0]), "?")
-            n = self.asked.count(camera_id)
             self.asked.append(camera_id)
-        if camera_id in self.script:
-            steps = self.script[camera_id]
-            return list(steps[n]) if n < len(steps) else []
         return list(self.boxes_by_camera.get(camera_id, []))
 
 
@@ -111,9 +93,9 @@ class FakeConfig:
 class FakeWorker:
     """Hands out scripted frames, then repeats the last one forever.
 
-    Repeating is the real behaviour: `last_frame()` returns the same frame
-    until the camera delivers a new one, which is exactly why the job has to
-    skip on an unchanged `sequence`.
+    Repeating is the real behaviour: `last_frame()` returns the same frame until
+    the camera delivers a new one, which is why the watch skips an unchanged
+    `sequence`.
     """
 
     def __init__(self, config: FakeConfig, frames: list[Frame],
@@ -175,10 +157,10 @@ class FixedNow:
 
 
 class NamingRecogniser:
-    """A recogniser that always sees Mohamed, and records every boost.
+    """Always sees Mohamed, and records every boost.
 
-    Its whole job here is to be available and to stay untouched: if a `lost`
-    poll ever wakes it, `boosted` says so.
+    Its whole job is to be available and stay untouched: if a `lost` poll ever
+    wakes it, `boosted` says so.
     """
 
     def __init__(self) -> None:
@@ -210,10 +192,7 @@ class _Face:
 # ---------------------------------------------------------------------------
 
 def make_registry(*specs) -> tuple[FakeRegistry, dict[int, str]]:
-    """`specs` are `(camera_id, frames)` or `(camera_id, frames, status)`.
-
-    Returns the registry and the mark -> camera id map `FakeBags` needs.
-    """
+    """`specs` are `(camera_id, frames)` or `(camera_id, frames, status)`."""
     workers, marks = {}, {}
     for i, spec in enumerate(specs, start=1):
         camera_id, frames = spec[0], spec[1]
@@ -226,11 +205,14 @@ def make_registry(*specs) -> tuple[FakeRegistry, dict[int, str]]:
 
 
 def marked(camera_id: str, mark: int, count: int, *,
-           repeat_sequence: bool = False, at_step: float = 0.5) -> list[Frame]:
-    """`count` frames for one camera, each with a fresh sequence by default."""
+           repeat_sequence: bool = False) -> list[Frame]:
+    """`count` frames for one camera, all stamped at START.
+
+    One timestamp for every frame so that "how old is this box" is decided by
+    the clock the test moves and nothing else.
+    """
     return [
-        frame(camera_id, at=i * at_step, mark=mark,
-              sequence=0 if repeat_sequence else i)
+        frame(camera_id, at=0.0, mark=mark, sequence=0 if repeat_sequence else i)
         for i in range(count)
     ]
 
@@ -241,22 +223,16 @@ def _clock():
     return clock_for("UTC")
 
 
-def new_search(registry, detector, now: FixedNow, *, limit_seconds: float = 60.0):
-    from vg.features.lostbag import BagSearch
+def new_watch(registry, detector, now: FixedNow):
+    from vg.features.lostbag import BagWatch
 
-    return BagSearch(registry, detector, _clock(), limit_seconds=limit_seconds,
-                     now=now)
-
-
-def run_to_end(search, now: FixedNow, *, seconds: float = 61.0) -> None:
-    """Move the clock past the limit and wait for the thread to notice."""
-    now.advance(seconds)
-    search.join(timeout=5.0)
-    assert not search.alive(), "the search thread outlived its own limit"
+    watch = BagWatch(registry, detector, _clock(), now=now)
+    watch.start()
+    return watch
 
 
 def wait_until(predicate, *, timeout: float = 5.0) -> None:
-    """Wait on the *job*, never on the clock under test."""
+    """Wait on the watch, never on the clock under test."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if predicate():
@@ -265,486 +241,241 @@ def wait_until(predicate, *, timeout: float = 5.0) -> None:
     raise AssertionError("condition never became true")
 
 
-def live_store(tmp_path, **kw):
-    """A LiveStore over a small real roster and a throwaway database."""
+def live_store(tmp_path, registry=None, **kw):
+    """A LiveStore over a roster and a throwaway database.
+
+    Pass `registry` to use the fakes. Without one the cameras are real
+    `CameraWorker`s that were never started, so they read **offline** - and
+    `camera_detections` returns no boxes for an offline camera, which quietly
+    turns an endpoint assertion into one that passes for the wrong reason.
+    """
     from vg import config as vgconfig
     from vg.api.live import LiveStore
     from vg.config import CameraConfig
     from vg.ingest.registry import CameraRegistry
 
-    roster = [
-        CameraConfig.parse(
-            {"id": "cam-a", "name": "Main entrance", "source": "webcam:0",
-             "features": ["counting"]}, "cam-a"),
-        CameraConfig.parse(
-            {"id": "cam-b", "name": "Back door", "source": "webcam:1",
-             "features": ["counting"]}, "cam-b"),
-    ]
-    registry = CameraRegistry(roster)
-
-    # Keep every clip write inside the test's own directory, as
-    # `test_weapons_live.py` does - the real folder holds an operator's own
-    # recordings and the retention sweep.
+    if registry is None:
+        roster = [
+            CameraConfig.parse(
+                {"id": "cam-a", "name": "Main entrance", "source": "webcam:0",
+                 "features": ["counting"]}, "cam-a"),
+            CameraConfig.parse(
+                {"id": "cam-b", "name": "Back door", "source": "webcam:1",
+                 "features": ["counting"]}, "cam-b"),
+        ]
+        registry = CameraRegistry(roster)
     config = vgconfig.load()
     object.__setattr__(config.storage, "clips_dir", Path(tmp_path) / "clips")
     return LiveStore(config, registry, **kw)
 
 
 # ---------------------------------------------------------------------------
-# the honest states, before anything runs
+# nothing runs until somebody looks
 # ---------------------------------------------------------------------------
 
-class TestHonestStates:
-    def test_bare_live_store_search_is_failed_not_done(self, bare_live_store):
-        """"We searched and found nothing" and "we never searched" differ.
+class TestOnlyWhenSomebodyIsLooking:
+    def test_no_interest_means_no_model_call(self):
+        """The whole of the idle cost: one sleeping thread and nothing else."""
+        registry, marks = make_registry(("cam-a", marked("cam-a", 1, 50)))
+        detector = FakeBags(marks=marks)
+        watch = new_watch(registry, detector, FixedNow())
+        try:
+            time.sleep(0.5)
+            assert detector.asked == []
+            assert watch.watching == []
+            assert watch.stats["state"] == "idle"
+        finally:
+            watch.stop()
 
-        Only one of them should stop somebody looking for a child's bag.
-        """
-        result = bare_live_store.search_lost(S.LostQuery())
+    def test_a_poll_is_what_starts_the_work(self):
+        """Noting interest, and only that, puts a camera in front of the model."""
+        registry, marks = make_registry(("cam-a", marked("cam-a", 1, 50)))
+        detector = FakeBags(marks=marks)
+        watch = new_watch(registry, detector, FixedNow())
+        try:
+            watch.note_interest("cam-a")
+            wait_until(lambda: detector.asked)
+            assert set(detector.asked) == {"cam-a"}
+            assert watch.stats["state"] == "watching"
+        finally:
+            watch.stop()
 
-        assert result.job.state == "failed"
-        assert result.hits == []
-        assert result.cameras == []
-        assert result.job.error
-
-        cap = {c.key: c for c in bare_live_store.capabilities()}["search_lost"]
-        assert cap.state is S.DataState.UNAVAILABLE
-        assert cap.reason
-
-    def test_demo_mode_still_searches(self):
-        """Demo mode stays a working demo - and stays honest about clips."""
-        from vg.api.store import MockStore
-
-        store = MockStore()
-        result = store.search_lost(S.LostQuery(cameras=["x"]))
-
-        assert result.job.state == "done"
-        assert result.hits
-        assert result.cameras_checked == 1
-        # There are no clips, in demo mode or out of it.
-        assert result.job.clips_searched == 0
-        assert result.job.clips_total == 0
-        assert store.lost_search() is result
-        store.stop_lost_search()
-
-
-# ---------------------------------------------------------------------------
-# what the job looks at, and what it refuses to call a result
-# ---------------------------------------------------------------------------
-
-class TestWhatTheJobLooksAt:
-    def test_only_chosen_cameras_are_ever_analysed(self):
-        """SC-004 / P7-FR-003. The rule the recording double exists to prove."""
+    def test_a_camera_nobody_is_watching_is_never_analysed(self):
+        """Ticking one camera must not cost a pass on the one beside it."""
         registry, marks = make_registry(
-            ("cam-a", marked("cam-a", 1, 4)),
-            ("cam-b", marked("cam-b", 2, 4)),
-            ("cam-c", marked("cam-c", 3, 4)),
+            ("cam-a", marked("cam-a", 1, 50)),
+            ("cam-b", marked("cam-b", 2, 50)),
         )
         detector = FakeBags(marks=marks)
-        now = FixedNow()
-        search = new_search(registry, detector, now)
-        search.start(S.LostQuery(cameras=["cam-a", "cam-c"]))
-        # The loop checks the clock between cameras, so jumping it straight
-        # away can end the search after the first one. Wait for the work, then
-        # end it - what is under test is who was asked, not how fast.
-        wait_until(lambda: set(detector.asked) >= {"cam-a", "cam-c"})
-        run_to_end(search, now)
+        watch = new_watch(registry, detector, FixedNow())
+        try:
+            watch.note_interest("cam-a")
+            wait_until(lambda: len(detector.asked) >= 3)
+            assert set(detector.asked) == {"cam-a"}
+        finally:
+            watch.stop()
 
-        assert set(detector.asked) == {"cam-a", "cam-c"}
-        assert "cam-b" not in detector.asked
+    def test_interest_lapses_when_the_page_stops_polling(self):
+        """Leaving the page stops the work. Nobody has to press anything."""
+        from vg.features.lostbag import INTEREST_SECONDS
 
-    def test_a_single_frame_is_not_a_result(self):
-        """One frame is exactly what a false hit looks like (D1)."""
-        registry, marks = make_registry(("cam-a", marked("cam-a", 1, 8)))
-        detector = FakeBags(marks=marks, script={"cam-a": [[bag()]]})
-        now = FixedNow()
-        search = new_search(registry, detector, now)
-        search.start(S.LostQuery(cameras=["cam-a"]))
-        wait_until(lambda: search.current().frames_checked >= 3)
-        run_to_end(search, now)
-
-        job = search.current()
-        assert job.confirmed() == []
-        assert job.frames_checked >= 3
-
-    def test_a_bag_seen_twice_pins_its_camera_with_a_box(self, tmp_path):
-        """P7-FR-008, 009, 015 - the happy path, in one block."""
-        registry, marks = make_registry(("cam-a", marked("cam-a", 1, 3)))
-        detector = FakeBags(marks=marks, script={"cam-a": [
-            [bag(confidence=0.5)], [bag(confidence=0.9)], [bag(confidence=0.6)],
-        ]})
-        now = FixedNow()
-        search = new_search(registry, detector, now)
-        search.start(S.LostQuery(cameras=["cam-a"]))
-        wait_until(lambda: detector.asked.count("cam-a") == 3)
-        run_to_end(search, now)
-
-        store = live_store(tmp_path, lost=search)
-        result = store.lost_search()
-
-        assert len(result.hits) == 1
-        hit = result.hits[0]
-        assert hit.camera_id == "cam-a"
-        assert hit.box.kind == "object"
-        assert hit.box.severity is S.Severity.WARN
-        assert hit.box.label == "Backpack"
-        assert hit.box.match is S.MatchKind.NONE
-        assert hit.box.track_id is None
-        # The best of the three, and the time of the last - not the first.
-        assert hit.confidence == pytest.approx(0.9)
-        assert "3 times" in hit.note
-        assert len(result.cameras) == 1
-        assert result.cameras[0].id == "cam-a"
-        assert result.cameras[0].boxes
-
-    def test_an_unchanged_frame_is_not_analysed_twice(self):
-        """Otherwise "seen 40 times" describes one look, forty times over."""
-        registry, marks = make_registry(
-            ("cam-a", marked("cam-a", 1, 5, repeat_sequence=True)))
-        detector = FakeBags(marks=marks)
-        now = FixedNow()
-        search = new_search(registry, detector, now)
-        search.start(S.LostQuery(cameras=["cam-a"]))
-        wait_until(lambda: detector.asked)
-        run_to_end(search, now)
-
-        assert detector.asked.count("cam-a") == 1
-
-    def test_the_search_ends_at_the_limit(self):
-        """SC-002 / P7-FR-010. It stops itself; nobody has to."""
         registry, marks = make_registry(("cam-a", marked("cam-a", 1, 500)))
         detector = FakeBags(marks=marks)
         now = FixedNow()
-        search = new_search(registry, detector, now, limit_seconds=60.0)
-        job = search.start(S.LostQuery(cameras=["cam-a"]))
-        assert job.state == "running"
-        run_to_end(search, now)
+        watch = new_watch(registry, detector, now)
+        try:
+            watch.note_interest("cam-a")
+            wait_until(lambda: detector.asked)
 
-        job = search.current()
-        assert job.state == "done"
-        assert not search.alive()
-        assert job.seconds_elapsed(now()) >= 60.0
+            now.advance(INTEREST_SECONDS + 1)
+            wait_until(lambda: watch.watching == [])
+            settled = len(detector.asked)
+            time.sleep(0.5)
+            assert len(detector.asked) == settled, "still working with nobody looking"
+            assert watch.boxes_on("cam-a") == []
+        finally:
+            watch.stop()
 
-    def test_a_new_search_replaces_the_running_one(self):
-        """P7-FR-011. Replace, never queue - and never mix the results."""
+    def test_an_unchanged_frame_is_not_analysed_twice(self):
+        """A stalled camera must not cost a model pass per poll."""
         registry, marks = make_registry(
-            ("cam-a", marked("cam-a", 1, 500)),
-            ("cam-b", marked("cam-b", 2, 500)),
-        )
-        detector = FakeBags(marks=marks,
-                            boxes_by_camera={"cam-a": [bag()], "cam-b": [bag()]})
-        now = FixedNow()
-        search = new_search(registry, detector, now)
-        first = search.start(S.LostQuery(cameras=["cam-a"]))
-        second = search.start(S.LostQuery(cameras=["cam-b"]))
+            ("cam-a", marked("cam-a", 1, 50, repeat_sequence=True)))
+        detector = FakeBags(marks=marks)
+        watch = new_watch(registry, detector, FixedNow())
+        try:
+            watch.note_interest("cam-a")
+            wait_until(lambda: detector.asked)
+            time.sleep(0.4)
+            assert detector.asked.count("cam-a") == 1
+        finally:
+            watch.stop()
 
-        assert first.state == "stopped"
-        assert second.id != first.id
-        assert search.current() is second
-        run_to_end(search, now)
-        assert "cam-a" not in search.current().hits
+    def test_an_offline_camera_is_not_handed_to_the_model(self):
+        registry, marks = make_registry(
+            ("cam-a", marked("cam-a", 1, 50), "offline"))
+        detector = FakeBags(marks=marks)
+        watch = new_watch(registry, detector, FixedNow())
+        try:
+            watch.note_interest("cam-a")
+            time.sleep(0.4)
+            assert detector.asked == []
+            assert watch.boxes_on("cam-a") == []
+        finally:
+            watch.stop()
 
-    def test_stop_keeps_the_hits(self):
-        """Stopping is not undoing. The operator asked it to end, not to forget."""
+    def test_an_unknown_camera_is_ignored_not_a_crash(self):
+        registry, marks = make_registry(("cam-a", marked("cam-a", 1, 50)))
+        watch = new_watch(registry, FakeBags(marks=marks), FixedNow())
+        try:
+            watch.note_interest("cam-nope")
+            time.sleep(0.4)
+            assert watch.boxes_on("cam-nope") == []
+        finally:
+            watch.stop()
+
+
+# ---------------------------------------------------------------------------
+# the boxes
+# ---------------------------------------------------------------------------
+
+class TestTheBoxes:
+    def test_a_bag_in_view_is_outlined_at_once(self, tmp_path):
+        """One frame is enough. There is no confirmation to wait for - the
+        operator is looking at the picture and can judge it themselves."""
+        registry, marks = make_registry(("cam-a", marked("cam-a", 1, 500)))
+        detector = FakeBags(marks=marks, boxes_by_camera={"cam-a": [bag()]})
+        watch = new_watch(registry, detector, FixedNow())
+        try:
+            store = live_store(tmp_path, lost=watch, recogniser=NamingRecogniser())
+            store.note_lost_interest("cam-a")
+            wait_until(lambda: store.overlay("cam-a", "lost"))
+
+            boxes = store.overlay("cam-a", "lost")
+            assert len(boxes) == 1
+            assert boxes[0].kind == "object"
+            assert boxes[0].label == "Backpack"
+            assert boxes[0].match is S.MatchKind.NONE
+            assert boxes[0].severity is S.Severity.WARN
+            assert boxes[0].track_id is None
+        finally:
+            watch.stop()
+
+    def test_the_overlay_carries_no_name_even_when_a_face_is_matched(self, tmp_path):
+        """Rules 1 and 3, and the knife trap: `_boxes` falls through to faces."""
+        registry, marks = make_registry(("cam-a", marked("cam-a", 1, 500)))
+        detector = FakeBags(marks=marks, boxes_by_camera={"cam-a": [bag()]})
+        watch = new_watch(registry, detector, FixedNow())
+        try:
+            store = live_store(tmp_path, lost=watch, recogniser=NamingRecogniser())
+            store.note_lost_interest("cam-a")
+            wait_until(lambda: store.overlay("cam-a", "lost"))
+
+            assert all(b.label == "Backpack" for b in store.overlay("cam-a", "lost"))
+            # The same camera on attendance still names the face. The bag
+            # overlay hides nothing; it is simply not the one that names people.
+            assert any(b.label == "Mohamed Fouad"
+                       for b in store.overlay("cam-a", "attendance"))
+        finally:
+            watch.stop()
+
+    def test_a_box_goes_stale_rather_than_lingering(self, tmp_path):
+        """A box over a live picture of where a bag *was* is a stale frame
+        wearing a rectangle."""
+        from vg.features.lostbag import OVERLAY_HOLD_SECONDS
+
         registry, marks = make_registry(("cam-a", marked("cam-a", 1, 500)))
         detector = FakeBags(marks=marks, boxes_by_camera={"cam-a": [bag()]})
         now = FixedNow()
-        search = new_search(registry, detector, now)
-        search.start(S.LostQuery(cameras=["cam-a"]))
-        wait_until(lambda: len(search.current().hits.get("cam-a", [])) >= 2)
-        search.stop()
+        watch = new_watch(registry, detector, now)
+        try:
+            store = live_store(tmp_path, lost=watch)
+            store.note_lost_interest("cam-a")
+            wait_until(lambda: store.overlay("cam-a", "lost"))
 
-        job = search.current()
-        assert job.state == "stopped"
-        assert job.confirmed() == ["cam-a"]
-        assert not search.alive()
+            now.advance(OVERLAY_HOLD_SECONDS + 1)
+            assert store.overlay("cam-a", "lost") == []
+        finally:
+            watch.stop()
+
+    def test_one_bag_is_one_box_however_many_frames_saw_it(self):
+        """Holding every recent hit would stack a hundred rectangles on one
+        rucksack, which reads as a smear rather than a box."""
+        registry, marks = make_registry(("cam-a", marked("cam-a", 1, 500)))
+        detector = FakeBags(marks=marks, boxes_by_camera={"cam-a": [bag()]})
+        watch = new_watch(registry, detector, FixedNow())
+        try:
+            watch.note_interest("cam-a")
+            wait_until(lambda: len(detector.asked) >= 20)
+            assert len(watch.boxes_on("cam-a")) == 1
+        finally:
+            watch.stop()
 
     def test_a_tiny_box_is_ignored(self):
         """A distant smudge is not a bag somebody can go and pick up."""
-        registry, marks = make_registry(("cam-a", marked("cam-a", 1, 8)))
+        registry, marks = make_registry(("cam-a", marked("cam-a", 1, 500)))
         detector = FakeBags(marks=marks,
                             boxes_by_camera={"cam-a": [bag(w=0.02, h=0.02)]})
-        now = FixedNow()
-        search = new_search(registry, detector, now)
-        search.start(S.LostQuery(cameras=["cam-a"]))
-        wait_until(lambda: search.current().frames_checked >= 3)
-        run_to_end(search, now)
-
-        assert search.current().confirmed() == []
+        watch = new_watch(registry, detector, FixedNow())
+        try:
+            watch.note_interest("cam-a")
+            wait_until(lambda: len(detector.asked) >= 3)
+            assert watch.boxes_on("cam-a") == []
+        finally:
+            watch.stop()
 
     def test_a_whole_frame_box_is_ignored(self):
-        """Research D10: a motion-blurred frame reads as one 99.7 % `suitcase`.
-
-        Measured on `baseline-empty` at the configured confidence, four times
-        over 706 sampled frames. A box covering the whole picture is a blur
-        artefact, never a bag anybody can walk over and collect - and unlike a
-        one-frame flicker it recurs, so the two-frame rule does not catch it.
-        """
-        registry, marks = make_registry(("cam-a", marked("cam-a", 1, 8)))
+        """Research D10: a motion-blurred frame reads as one 99.7 % `suitcase`,
+        four times over 706 sampled frames of footage with no bag in it."""
+        registry, marks = make_registry(("cam-a", marked("cam-a", 1, 500)))
         detector = FakeBags(marks=marks, boxes_by_camera={
             "cam-a": [bag(x=0.0, y=0.0, w=1.0, h=1.0, label="suitcase")]})
-        now = FixedNow()
-        search = new_search(registry, detector, now)
-        search.start(S.LostQuery(cameras=["cam-a"]))
-        wait_until(lambda: search.current().frames_checked >= 3)
-        run_to_end(search, now)
-
-        assert search.current().confirmed() == []
-
-
-# ---------------------------------------------------------------------------
-# cameras that could not be looked at
-# ---------------------------------------------------------------------------
-
-class TestCamerasThatCannotBeLookedAt:
-    def test_an_offline_camera_is_named_not_dropped(self):
-        """P7-FR-013. Ticking a box earns an answer, even a disappointing one."""
-        registry, marks = make_registry(
-            ("cam-a", marked("cam-a", 1, 4)),
-            ("cam-b", marked("cam-b", 2, 4), "offline"),
-        )
-        detector = FakeBags(marks=marks)
-        now = FixedNow()
-        search = new_search(registry, detector, now)
-        search.start(S.LostQuery(cameras=["cam-a", "cam-b"]))
-        wait_until(lambda: "cam-a" in search.current().checked
-                   and search.current().unavailable)
-        run_to_end(search, now)
-
-        job = search.current()
-        named = {u.camera_id: u.reason for u in job.unavailable}
-        assert "cam-b" in named
-        assert "offline" in named["cam-b"].lower()
-        assert "cam-a" in job.checked
-        assert job.state == "done"
-
-    def test_an_unknown_camera_is_named_not_404(self, tmp_path):
-        """A bad id in a list of ten must not lose the other nine."""
-        registry, marks = make_registry(("cam-a", marked("cam-a", 1, 4)))
-        detector = FakeBags(marks=marks)
-        now = FixedNow()
-        search = new_search(registry, detector, now)
-        search.start(S.LostQuery(cameras=["cam-a", "cam-nope"]))
-        run_to_end(search, now)
-
-        store = live_store(tmp_path, lost=search)
-        result = store.lost_search()
-        named = {u.camera_id: u.reason for u in result.cameras_unavailable}
-        assert named.get("cam-nope") == "Not a camera on this engine."
-        assert result.job.state == "done"
-
-    def test_a_search_of_nothing_fails_with_a_sentence(self):
-        """Payload, not a 422 - an error code helps nobody tick a box."""
-        registry, marks = make_registry(("cam-a", marked("cam-a", 1, 4)))
-        detector = FakeBags(marks=marks)
-        search = new_search(registry, detector, FixedNow())
-        job = search.start(S.LostQuery(cameras=[]))
-
-        assert job.state == "failed"
-        assert job.error == "No camera was chosen."
-        assert not search.alive()
-        assert detector.asked == []
-
-
-# ---------------------------------------------------------------------------
-# the overlay
-# ---------------------------------------------------------------------------
-
-class TestTheOverlay:
-    def test_the_overlay_carries_no_name_and_drops_after_the_hold(self, tmp_path):
-        """Rules 1 and 3, D5. The knife trap, checked before it can be sprung."""
-        from vg.features.lostbag import OVERLAY_HOLD_SECONDS
-
-        # Every frame carries the same timestamp, so "how old is this hit" is
-        # decided by the clock the test moves and nothing else.
-        registry, marks = make_registry(
-            ("cam-a", marked("cam-a", 1, 500, at_step=0.0)))
-        detector = FakeBags(marks=marks, boxes_by_camera={"cam-a": [bag()]})
-        now = FixedNow()
-        search = new_search(registry, detector, now)
-        search.start(S.LostQuery(cameras=["cam-a"]))
-        wait_until(lambda: search.boxes_on("cam-a"))
-        search.stop()
-
-        store = live_store(tmp_path, lost=search, recogniser=NamingRecogniser())
-
-        boxes = store.overlay("cam-a", "lost")
-        # One bag in view is one box, however many times it was seen.
-        assert len(boxes) == 1
-        assert all(b.kind == "object" for b in boxes)
-        assert all(b.label == "Backpack" for b in boxes)
-        assert all(b.match is S.MatchKind.NONE for b in boxes)
-        assert all(b.severity is S.Severity.WARN for b in boxes)
-
-        # The same camera on the attendance page still names the face. The bag
-        # overlay hides nothing; it simply is not the one that names people.
-        named = store.overlay("cam-a", "attendance")
-        assert any(b.label == "Mohamed Fouad" for b in named)
-
-        # A box over where a bag *was* is a stale frame wearing a rectangle.
-        now.advance(OVERLAY_HOLD_SECONDS + 5)
-        assert store.overlay("cam-a", "lost") == []
-
-    def test_a_lost_poll_does_not_wake_face_recognition(self, tmp_path, authed):
-        """The knife-page lesson, kept. `lost` is not in `FACE_OVERLAYS`."""
-        from vg.api import app as app_module
-        from vg.api.store import MockStore
-
-        registry, marks = make_registry(("cam-a", marked("cam-a", 1, 4)))
-        detector = FakeBags(marks=marks)
-        recogniser = NamingRecogniser()
-        search = new_search(registry, detector, FixedNow())
-        store = live_store(tmp_path, lost=search, recogniser=recogniser)
-
-        app_module.set_store(store)
+        watch = new_watch(registry, detector, FixedNow())
         try:
-            app = app_module.create_app()
-            app.state.recogniser = recogniser
-            client = authed(app)
-
-            assert client.get("/cameras/cam-a/detections?feature=lost").status_code == 200
-            assert recogniser.boosted == []
-
-            client.get("/cameras/cam-a/detections?feature=attendance")
-            assert recogniser.boosted == ["cam-a"]
+            watch.note_interest("cam-a")
+            wait_until(lambda: len(detector.asked) >= 3)
+            assert watch.boxes_on("cam-a") == []
         finally:
-            app_module.set_store(MockStore())
-
-
-# ---------------------------------------------------------------------------
-# start-up, capabilities and the endpoints
-# ---------------------------------------------------------------------------
-
-class TestStandsAlone:
-    def test_works_with_every_other_feature_off(self, monkeypatch):
-        """Rule 9 / P7-FR-014. No feature may require another to be switched on."""
-        from vg import config as vgconfig
-        from vg.api import app as app_module
-        from vg.config import CameraConfig
-        from vg.infer import bags as bags_module
-
-        built: list[str] = []
-
-        class StubDetector:
-            version, device = "bagbest", "cpu"
-
-            def __init__(self, **kw):
-                built.append("bags")
-
-            def detect(self, image, min_confidence=None):
-                return []
-
-        monkeypatch.setattr(bags_module, "BagDetector", StubDetector)
-
-        def boom(*a, **kw):  # pragma: no cover - only runs if the gate breaks
-            raise AssertionError("lost bag search must not build a person detector")
-
-        from vg.infer import persons as persons_module
-
-        monkeypatch.setattr(persons_module, "PersonDetector", boom)
-
-        roster = [CameraConfig.parse(
-            {"id": "cam-a", "name": "Main entrance", "source": "webcam:0",
-             "features": []}, "cam-a")]
-        registry = FakeRegistry({"cam-a": FakeWorker(
-            FakeConfig("cam-a", "Main entrance"), marked("cam-a", 1, 2))})
-
-        search, error = app_module._start_lost(vgconfig.load(), registry, roster)
-
-        assert error is None
-        assert search is not None
-        assert built == ["bags"]
-
-
-class TestCapabilities:
-    def test_capabilities_say_why(self, tmp_path, bare_live_store):
-        """P7-FR-016 / D6. Four failures, four sentences - never a bare label."""
-        cap = {c.key: c for c in bare_live_store.capabilities()}["search_lost"]
-        assert cap.name == "Lost bag search"
-        assert cap.state is S.DataState.UNAVAILABLE
-        assert cap.reason
-
-        bare_live_store.lost_error = "weights not found"
-        cap = {c.key: c for c in bare_live_store.capabilities()}["search_lost"]
-        assert cap.state is S.DataState.UNAVAILABLE
-        assert "weights not found" in cap.reason
-
-        registry, marks = make_registry(("cam-a", marked("cam-a", 1, 4)))
-        search = new_search(registry, FakeBags(marks=marks), FixedNow())
-        store = live_store(tmp_path, lost=search)
-
-        cap = {c.key: c for c in store.capabilities()}["search_lost"]
-        assert cap.state is S.DataState.LIVE
-        assert cap.reason is None
-
-        stage = {s.key: s for s in store.health().pipeline}["search_lost"]
-        assert stage.healthy
-        assert "idle" in stage.detail
-
-        store.search_lost(S.LostQuery(cameras=["cam-a"]))
-        stage = {s.key: s for s in store.health().pipeline}["search_lost"]
-        assert "searching 1 camera" in stage.detail
-        search.stop()
-
-
-class TestEndpoints:
-    def test_endpoints_through_the_app(self, tmp_path, authed):
-        """POST starts, GET describes, DELETE stops. 404 before any of it."""
-        from vg.api import app as app_module
-        from vg.api.store import MockStore
-
-        registry, marks = make_registry(("cam-a", marked("cam-a", 1, 500)))
-        detector = FakeBags(marks=marks)
-        now = FixedNow()
-        search = new_search(registry, detector, now)
-        store = live_store(tmp_path, lost=search)
-
-        app_module.set_store(store)
-        try:
-            client = authed(app_module.create_app())
-
-            assert client.get("/lost-items/search").status_code == 404
-
-            started = client.post("/lost-items/search",
-                                  json={"cameras": ["cam-a"]})
-            assert started.status_code == 200
-            job_id = started.json()["job"]["id"]
-            assert started.json()["job"]["state"] == "running"
-            assert started.json()["secondsLimit"] == 60.0
-
-            polled = client.get("/lost-items/search")
-            assert polled.status_code == 200
-            assert polled.json()["job"]["id"] == job_id
-
-            assert client.delete("/lost-items/search").status_code == 204
-            assert client.get("/lost-items/search").json()["job"]["state"] == "stopped"
-
-            # Stopping nothing is not a failure.
-            assert client.delete("/lost-items/search").status_code == 204
-        finally:
-            search.stop()
-            app_module.set_store(MockStore())
-
-    def test_any_signed_in_user_may_search(self, tmp_path, authed):
-        """`/lost-items` is in neither admin prefix list, and must stay out.
-
-        A search reveals nothing the live camera pages do not already show.
-        """
-        from vg.api import app as app_module
-        from vg.api.store import MockStore
-
-        registry, marks = make_registry(("cam-a", marked("cam-a", 1, 500)))
-        search = new_search(registry, FakeBags(marks=marks), FixedNow())
-        store = live_store(tmp_path, lost=search)
-
-        app_module.set_store(store)
-        try:
-            client = authed(app_module.create_app(), role="it")
-            assert client.post("/lost-items/search",
-                               json={"cameras": ["cam-a"]}).status_code == 200
-        finally:
-            search.stop()
-            app_module.set_store(MockStore())
+            watch.stop()
 
 
 # ---------------------------------------------------------------------------
@@ -764,7 +495,6 @@ LIGHTING = [
     ("dim and warm", (0.36, 0.44, 0.54)),
 ]
 
-# The true colour of each patch, in BGR, and the palette name it must answer to.
 SWATCHES = [
     ("black", (34, 36, 32)),
     ("light", (232, 236, 234)),
@@ -781,11 +511,7 @@ def _lit(bgr, gain):
 
 
 def swatch(bgr, gain, *, size: int = 64, seed: int = 0) -> np.ndarray:
-    """A bag-sized patch: flat colour, texture noise, and a dark strap.
-
-    The strap crosses 10 % of the patch and is what the central-60 % crop and
-    the median are there to survive.
-    """
+    """A bag-sized patch: flat colour, texture noise, and a dark strap."""
     rng = np.random.default_rng(seed)
     lit = _lit(bgr, gain)
     patch = np.zeros((size, size, 3), dtype=np.float32)
@@ -798,37 +524,34 @@ def swatch(bgr, gain, *, size: int = 64, seed: int = 0) -> np.ndarray:
 
 def scene(gain, *, size: int = 240) -> np.ndarray:
     """A mid-grey frame under the same light, for the grey-world reference."""
-    frame = np.zeros((size, size, 3), dtype=np.float32)
-    frame[:, :] = _lit((128, 128, 128), gain)
-    return np.clip(frame, 0, 255).astype(np.uint8)
+    frame_ = np.zeros((size, size, 3), dtype=np.float32)
+    frame_[:, :] = _lit((128, 128, 128), gain)
+    return np.clip(frame_, 0, 255).astype(np.uint8)
 
 
 class TestColour:
     def test_colour_under_seven_lights(self):
         """D3's acceptance bar: the lenient set must hold the true name.
 
-        The strict guess is measured and printed but not asserted on - it is
-        86 % on this table and the design does not depend on it. What the
+        The strict guess is measured and printed but not asserted on - what the
         filter uses is the lenient set, and that is what must never drop the
         right answer, because hiding the bag somebody is looking for is the
         expensive error.
         """
         from vg.infer.colour import name_colour
 
-        strict = 0
-        rows = 0
+        strict = rows = 0
         missed: list[str] = []
         for light, gain in LIGHTING:
-            frame = scene(gain)
+            reference = scene(gain)
             for i, (expected, bgr) in enumerate(SWATCHES):
                 rows += 1
-                guess = name_colour(swatch(bgr, gain, seed=i), frame)
+                guess = name_colour(swatch(bgr, gain, seed=i), reference)
                 if guess.best == expected:
                     strict += 1
                 if expected not in guess.lenient:
-                    missed.append(
-                        f"{expected} under {light}: best={guess.best} "
-                        f"lenient={sorted(guess.lenient)}")
+                    missed.append(f"{expected} under {light}: best={guess.best} "
+                                  f"lenient={sorted(guess.lenient)}")
 
         print(f"\nstrict nearest colour: {strict}/{rows} = {strict / rows:.0%}")
         assert not missed, (
@@ -836,267 +559,31 @@ class TestColour:
             "this design cannot absorb:\n  " + "\n  ".join(missed))
 
     def test_every_name_is_one_the_wire_knows(self):
-        """A name the palette does not contain could never be filtered on."""
         from vg.infer.colour import KNOWN_COLOURS, name_colour
 
-        for light, gain in LIGHTING:
-            frame = scene(gain)
+        for _, gain in LIGHTING:
+            reference = scene(gain)
             for i, (_, bgr) in enumerate(SWATCHES):
-                guess = name_colour(swatch(bgr, gain, seed=i), frame)
+                guess = name_colour(swatch(bgr, gain, seed=i), reference)
                 assert guess.best in KNOWN_COLOURS
                 assert guess.lenient <= set(KNOWN_COLOURS)
 
     def test_a_degenerate_crop_does_not_raise(self):
-        """An empty or one-pixel crop is a bad box, not a reason to lose a hit."""
+        """An empty or one-pixel crop is a bad box, not a reason to lose one."""
         from vg.infer.colour import name_colour
 
-        frame = scene((1.0, 1.0, 1.0))
-        assert name_colour(np.zeros((0, 0, 3), dtype=np.uint8), frame).best
-        assert name_colour(np.zeros((1, 1, 3), dtype=np.uint8), frame).best
+        reference = scene((1.0, 1.0, 1.0))
+        assert name_colour(np.zeros((0, 0, 3), dtype=np.uint8), reference).best
+        assert name_colour(np.zeros((1, 1, 3), dtype=np.uint8), reference).best
 
     def test_crop_for_clamps_to_the_frame(self):
-        """A box running off the edge must come back with pixels, not nothing."""
-        from vg.infer.bags import DetectedBag
         from vg.infer.colour import crop_for
 
         image = np.zeros((100, 200, 3), dtype=np.uint8)
-        crop = crop_for(image, DetectedBag(x=0.95, y=0.95, w=0.5, h=0.5,
-                                           confidence=0.9, label="backpack"))
+        crop = crop_for(image, bag(x=0.95, y=0.95, w=0.5, h=0.5))
         assert crop.size > 0
 
-
-class TestColourFilter:
-    def test_colour_filter_hides_with_a_count(self, tmp_path):
-        """P7-FR-006, 007. Hidden is not the same as not found, and says so."""
-        registry, marks = make_registry(
-            ("cam-a", marked("cam-a", 1, 3)),
-            ("cam-b", marked("cam-b", 2, 3)),
-        )
-        detector = FakeBags(marks=marks, boxes_by_camera={
-            "cam-a": [bag()], "cam-b": [bag()]})
-        now = FixedNow()
-        search = new_search(registry, detector, now)
-        search.start(S.LostQuery(cameras=["cam-a", "cam-b"]))
-        wait_until(lambda: sorted(search.current().confirmed()) == ["cam-a", "cam-b"])
-        run_to_end(search, now)
-
-        job = search.current()
-        _paint(job, "cam-a", "blue", {"blue", "black"})
-        _paint(job, "cam-b", "red", {"red"})
-
-        store = live_store(tmp_path, lost=search)
-
-        job.query = S.LostQuery(cameras=["cam-a", "cam-b"], colour="blue")
-        narrowed = store.lost_search()
-        assert [h.camera_id for h in narrowed.hits] == ["cam-a"]
-        assert narrowed.hidden_by_colour == 1
-        assert [c.id for c in narrowed.cameras] == ["cam-a"]
-
-        job.query = S.LostQuery(cameras=["cam-a", "cam-b"])
-        everything = store.lost_search()
-        assert len(everything.hits) == 2
-        assert everything.hidden_by_colour == 0
-
-    def test_a_hit_carries_its_colour_on_the_wire(self, tmp_path):
-        """The page says "looked blue or black", so both have to travel."""
-        registry, marks = make_registry(("cam-a", marked("cam-a", 1, 3)))
-        detector = FakeBags(marks=marks, boxes_by_camera={"cam-a": [bag()]})
-        now = FixedNow()
-        search = new_search(registry, detector, now)
-        search.start(S.LostQuery(cameras=["cam-a"]))
-        wait_until(lambda: search.current().confirmed() == ["cam-a"])
-        run_to_end(search, now)
-        _paint(search.current(), "cam-a", "blue", {"blue", "black"})
-
-        hit = live_store(tmp_path, lost=search).lost_search().hits[0]
-        assert hit.colour == "blue"
-        assert sorted(hit.colours) == ["black", "blue"]
-
-    def test_an_unknown_colour_is_422_naming_the_palette(self, tmp_path, authed):
-        """"purple" is not a refusal to answer - it is a list of what to pick."""
-        from vg.api import app as app_module
-        from vg.api.store import MockStore
-
-        registry, marks = make_registry(("cam-a", marked("cam-a", 1, 4)))
-        search = new_search(registry, FakeBags(marks=marks), FixedNow())
-        store = live_store(tmp_path, lost=search)
-
-        app_module.set_store(store)
-        try:
-            client = authed(app_module.create_app())
-            refused = client.post("/lost-items/search",
-                                  json={"cameras": ["cam-a"], "colour": "purple"})
-            assert refused.status_code == 422
-            detail = str(refused.json())
-            for name in ("black", "light", "red", "blue", "green", "yellow"):
-                assert name in detail
-        finally:
-            search.stop()
-            app_module.set_store(MockStore())
-
-    def test_the_real_detector_names_a_colour_on_every_hit(self):
-        """The job must fill the colour fields, not leave the filter blind.
-
-        Without this the chips on the page would hide every bag: an empty
-        lenient set contains nothing, so every colour filters everything out.
-        """
-        registry, marks = make_registry(("cam-a", marked("cam-a", 1, 3)))
-        detector = FakeBags(marks=marks, boxes_by_camera={"cam-a": [bag()]})
-        now = FixedNow()
-        search = new_search(registry, detector, now)
-        search.start(S.LostQuery(cameras=["cam-a"]))
-        run_to_end(search, now)
-
-        hits = search.current().hits["cam-a"]
-        assert hits
-        assert all(h.colour for h in hits)
-        assert all(h.colours for h in hits)
-
-
-def _paint(job, camera_id: str, colour: str | None, colours: set[str]) -> None:
-    """Restamp a camera's hits with a known colour.
-
-    The colour a 16x16 black test frame produces is not the point of these
-    tests; what the filter does with a colour is.
-    """
-    import dataclasses
-
-    job.hits[camera_id] = [
-        dataclasses.replace(h, colour=colour, colours=frozenset(colours))
-        for h in job.hits[camera_id]
-    ]
-
-
-# ---------------------------------------------------------------------------
-# the live view: what an operator sees while the search is still running
-# ---------------------------------------------------------------------------
-
-class TestTheLiveView:
-    def test_a_box_appears_before_the_camera_is_confirmed(self, tmp_path):
-        """The overlay is live; the result is not. They answer different questions.
-
-        A camera needs two frames to become a *result*, but the operator is
-        watching the tile while it happens - so the first sighting draws a box
-        straight away. Without this the grid sat empty from the moment Search
-        was pressed until a confirmation, and pressing the button looked like
-        nothing happening.
-        """
-        registry, marks = make_registry(
-            ("cam-a", marked("cam-a", 1, 500, at_step=0.0)))
-        detector = FakeBags(marks=marks, script={"cam-a": [[bag()]]})
-        now = FixedNow()
-        search = new_search(registry, detector, now)
-        search.start(S.LostQuery(cameras=["cam-a"]))
-        wait_until(lambda: search.current().frames_checked >= 3)
-        search.stop()
-
-        job = search.current()
-        # One sighting only: not a result...
-        assert job.confirmed() == []
-        # ...but it was on screen while it happened.
-        assert len(job.hits["cam-a"]) == 1
-        assert search.boxes_on("cam-a")
-
-        store = live_store(tmp_path, lost=search)
-        boxes = store.overlay("cam-a", "lost")
-        assert len(boxes) == 1
-        assert boxes[0].kind == "object"
-
-    def test_the_overlay_only_draws_the_colour_that_was_asked_for(self, tmp_path):
-        """An amber box round a black bag, for somebody who asked for blue, is a
-        detection they did not ask for on the tile they are staring at."""
-        registry, marks = make_registry(
-            ("cam-a", marked("cam-a", 1, 500, at_step=0.0)))
-        detector = FakeBags(marks=marks, boxes_by_camera={"cam-a": [bag()]})
-        now = FixedNow()
-        search = new_search(registry, detector, now)
-        search.start(S.LostQuery(cameras=["cam-a"], colour="blue"))
-        wait_until(lambda: search.current().hits.get("cam-a"))
-        search.stop()
-
-        job = search.current()
-        store = live_store(tmp_path, lost=search)
-
-        _paint(job, "cam-a", "red", {"red"})
-        assert search.boxes_on("cam-a") == []
-        assert store.overlay("cam-a", "lost") == []
-
-        _paint(job, "cam-a", "blue", {"blue", "black"})
-        assert len(store.overlay("cam-a", "lost")) == 1
-
-    def test_a_bag_whose_colour_could_not_be_read_is_never_hidden(self, tmp_path):
-        """"We could not narrow this down" is not "this is not the one".
-
-        A one-pixel crop at the frame edge loses the colour, not the bag. If an
-        unnamed colour counted as a mismatch, the filter would hide the thing
-        somebody is looking for because of a bad crop.
-        """
-        registry, marks = make_registry(
-            ("cam-a", marked("cam-a", 1, 500, at_step=0.0)))
-        detector = FakeBags(marks=marks, boxes_by_camera={"cam-a": [bag()]})
-        now = FixedNow()
-        search = new_search(registry, detector, now)
-        search.start(S.LostQuery(cameras=["cam-a"], colour="blue"))
-        wait_until(lambda: len(search.current().hits.get("cam-a", [])) >= 2)
-        search.stop()
-
-        job = search.current()
-        _paint(job, "cam-a", None, set())
-
-        # On the overlay...
-        assert search.boxes_on("cam-a")
-        # ...and in the result, where it must not be counted as hidden either.
-        result = live_store(tmp_path, lost=search).lost_search()
-        assert [h.camera_id for h in result.hits] == ["cam-a"]
-        assert result.hidden_by_colour == 0
-
-
-
-    def test_the_hit_keys_are_fixed_when_the_search_starts(self, tmp_path):
-        """The key set of `job.hits` never changes once the thread is running.
-
-        This is the property, not the symptom. `confirmed()` walks `job.hits` on
-        the HTTP thread - the console polls `GET /lost-items/search` once a
-        second for the whole minute - while `_run` writes to it on the search
-        thread. A key appearing mid-walk is
-        `RuntimeError: dictionary changed size during iteration`: an
-        intermittent 500 on the one request the page depends on, leaving it
-        stuck on "Looking at N cameras" for ever.
-
-        Asserted as an invariant because the race itself is not reproducible on
-        demand - every key is created in the first pass, a window of
-        microseconds. Polling at it proves nothing; fixing the key set at start
-        makes the race impossible, and that is what this checks.
-        """
-        specs = [(f"cam-{i}", marked(f"cam-{i}", i + 1, 500, at_step=0.0))
-                 for i in range(8)]
-        registry, marks = make_registry(*specs)
-        detector = FakeBags(marks=marks,
-                            boxes_by_camera={c: [bag()] for c, _ in specs})
-        now = FixedNow()
-        search = new_search(registry, detector, now)
-        store = live_store(tmp_path, lost=search)
-        search.start(S.LostQuery(cameras=[c for c, _ in specs]))
-
-        # Every searched camera has its list from the very first moment...
-        at_start = set(search.current().hits)
-        assert at_start == {c for c, _ in specs}
-
-        # ...and polling throughout never sees a different key set.
-        deadline = time.monotonic() + 10.0
-        while time.monotonic() < deadline:
-            store.lost_search()
-            search.boxes_on("cam-0")
-            assert set(search.current().hits) == at_start
-            if len(search.current().confirmed()) == len(specs):
-                break
-        search.stop()
-
-        assert set(search.current().hits) == at_start
-        assert len(search.current().confirmed()) == len(specs)
-
-    def test_matches_colour_is_the_one_rule_both_paths_use(self):
-        """The overlay and the result must never disagree about a bag."""
+    def test_matches_colour_is_the_one_rule_the_overlay_uses(self):
         from vg.features.lostbag import Hit, matches_colour
 
         def hit(colours):
@@ -1106,6 +593,187 @@ class TestTheLiveView:
         assert matches_colour(hit({"blue", "black"}), "blue")
         assert matches_colour(hit({"blue", "black"}), "black")
         assert not matches_colour(hit({"red"}), "blue")
-        # Unknown matches anything.
+        # No colour asked for means every bag.
+        assert matches_colour(hit({"red"}), None)
+        # An unnamed colour means "could not narrow this down", which is a
+        # different answer from "not the one" - it must never hide a bag.
         assert matches_colour(hit(set()), "blue")
-        assert matches_colour(hit(set()), "red")
+
+    def test_the_overlay_only_draws_the_colour_that_was_asked_for(self, tmp_path):
+        """An amber box round a black bag, for somebody who asked for blue, is a
+        detection they did not ask for on the tile they are staring at."""
+        registry, marks = make_registry(("cam-a", marked("cam-a", 1, 500)))
+        detector = FakeBags(marks=marks, boxes_by_camera={"cam-a": [bag()]})
+        watch = new_watch(registry, detector, FixedNow())
+        try:
+            store = live_store(tmp_path, lost=watch)
+            store.note_lost_interest("cam-a")
+            wait_until(lambda: watch.boxes_on("cam-a"))
+
+            named = {c for h in watch.boxes_on("cam-a") for c in h.colours}
+            assert named, "the watch must name a colour on every box"
+
+            # A colour the bag is not.
+            wrong = next(c for c in ("red", "green", "yellow", "blue")
+                         if c not in named)
+            assert store.overlay("cam-a", "lost", wrong) == []
+            # ...and one it is.
+            assert store.overlay("cam-a", "lost", sorted(named)[0])
+            # No colour asked for shows everything.
+            assert store.overlay("cam-a", "lost")
+        finally:
+            watch.stop()
+
+
+# ---------------------------------------------------------------------------
+# start-up, capability and the endpoint
+# ---------------------------------------------------------------------------
+
+class TestHonestStates:
+    def test_a_bare_engine_says_why_there_are_no_boxes(self, bare_live_store):
+        cap = {c.key: c for c in bare_live_store.capabilities()}["search_lost"]
+        assert cap.name == "Bag detection"
+        assert cap.state is S.DataState.UNAVAILABLE
+        assert cap.reason
+        assert bare_live_store.overlay("cam-a", "lost") == []
+
+    def test_capabilities_and_health_say_what_is_happening(self, tmp_path):
+        """P7-FR-016 / D6. Never a bare label."""
+        registry, marks = make_registry(("cam-a", marked("cam-a", 1, 500)))
+        watch = new_watch(registry, FakeBags(marks=marks), FixedNow())
+        try:
+            store = live_store(tmp_path, lost=watch)
+            cap = {c.key: c for c in store.capabilities()}["search_lost"]
+            assert cap.state is S.DataState.LIVE
+            assert cap.reason is None
+
+            stage = {s.key: s for s in store.health().pipeline}["search_lost"]
+            assert stage.healthy
+            assert "idle" in stage.detail
+            assert "bagbest" in stage.detail
+
+            store.note_lost_interest("cam-a")
+            stage = {s.key: s for s in store.health().pipeline}["search_lost"]
+            assert "watching 1 camera" in stage.detail
+        finally:
+            watch.stop()
+
+    def test_a_failed_start_is_a_sentence_not_a_crash(self, bare_live_store):
+        bare_live_store.lost_error = "weights not found"
+        cap = {c.key: c for c in bare_live_store.capabilities()}["search_lost"]
+        assert cap.state is S.DataState.UNAVAILABLE
+        assert "weights not found" in cap.reason
+
+
+class TestStandsAlone:
+    def test_works_with_every_other_feature_off(self, monkeypatch):
+        """Rule 9 / P7-FR-014. No feature may require another to be on."""
+        from vg import config as vgconfig
+        from vg.api import app as app_module
+        from vg.config import CameraConfig
+        from vg.infer import bags as bags_module
+        from vg.infer import persons as persons_module
+
+        built: list[str] = []
+
+        class StubDetector:
+            version, device = "bagbest", "cpu"
+
+            def __init__(self, **kw):
+                built.append("bags")
+
+            def detect(self, image, min_confidence=None):
+                return []
+
+        monkeypatch.setattr(bags_module, "BagDetector", StubDetector)
+
+        def boom(*a, **kw):  # pragma: no cover - only runs if the gate breaks
+            raise AssertionError("bag detection must not build a person detector")
+
+        monkeypatch.setattr(persons_module, "PersonDetector", boom)
+
+        roster = [CameraConfig.parse(
+            {"id": "cam-a", "name": "Main entrance", "source": "webcam:0",
+             "features": []}, "cam-a")]
+        registry = FakeRegistry({"cam-a": FakeWorker(
+            FakeConfig("cam-a", "Main entrance"), marked("cam-a", 1, 2))})
+
+        watch, error = app_module._start_lost(vgconfig.load(), registry, roster)
+        try:
+            assert error is None
+            assert watch is not None
+            assert built == ["bags"]
+        finally:
+            if watch is not None:
+                watch.stop()
+
+
+class TestTheEndpoint:
+    def test_a_lost_poll_draws_a_bag_and_leaves_faces_alone(self, tmp_path, authed):
+        """The poll is what starts the work - and it must not wake the face
+        model, which is the lesson the knife page paid for."""
+        from vg.api import app as app_module
+        from vg.api.store import MockStore
+
+        registry, marks = make_registry(("cam-a", marked("cam-a", 1, 500)))
+        detector = FakeBags(marks=marks, boxes_by_camera={"cam-a": [bag()]})
+        recogniser = NamingRecogniser()
+        watch = new_watch(registry, detector, FixedNow())
+        store = live_store(tmp_path, registry, lost=watch, recogniser=recogniser)
+
+        app_module.set_store(store)
+        try:
+            app = app_module.create_app()
+            app.state.recogniser = recogniser
+            client = authed(app)
+
+            first = client.get("/cameras/cam-a/detections?feature=lost")
+            assert first.status_code == 200
+            # The poll registered interest, so the model starts looking.
+            wait_until(lambda: watch.boxes_on("cam-a"))
+            assert recogniser.boosted == []
+
+            client.get("/cameras/cam-a/detections?feature=attendance")
+            assert recogniser.boosted == ["cam-a"]
+        finally:
+            watch.stop()
+            app_module.set_store(MockStore())
+
+    def test_the_colour_query_narrows_the_overlay(self, tmp_path, authed):
+        from vg.api import app as app_module
+        from vg.api.store import MockStore
+
+        registry, marks = make_registry(("cam-a", marked("cam-a", 1, 500)))
+        detector = FakeBags(marks=marks, boxes_by_camera={"cam-a": [bag()]})
+        watch = new_watch(registry, detector, FixedNow())
+        store = live_store(tmp_path, registry, lost=watch)
+
+        app_module.set_store(store)
+        try:
+            app = app_module.create_app()
+            app.state.recogniser = None
+            client = authed(app)
+            client.get("/cameras/cam-a/detections?feature=lost")
+            wait_until(lambda: watch.boxes_on("cam-a"))
+
+            named = {c for h in watch.boxes_on("cam-a") for c in h.colours}
+            wrong = next(c for c in ("red", "green", "yellow", "blue")
+                         if c not in named)
+
+            asked = client.get(f"/cameras/cam-a/detections?feature=lost&colour={wrong}")
+            assert asked.status_code == 200
+            assert asked.json()["boxes"] == []
+
+            right = sorted(named)[0]
+            kept = client.get(f"/cameras/cam-a/detections?feature=lost&colour={right}")
+            assert kept.json()["boxes"]
+        finally:
+            watch.stop()
+            app_module.set_store(MockStore())
+
+    def test_demo_mode_does_not_pretend_to_detect(self):
+        """`MockStore` has no model to point at a camera, and says nothing."""
+        from vg.api.store import MockStore
+
+        store = MockStore()
+        store.note_lost_interest("cam-a")

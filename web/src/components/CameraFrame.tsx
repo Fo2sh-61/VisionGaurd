@@ -74,6 +74,7 @@ export function CameraFrame({
   onBoxes,
   badge = 'LIVE',
   feature,
+  colour,
   detections = true,
   tileOverlay = false,
   onPicture,
@@ -99,6 +100,9 @@ export function CameraFrame({
   /** Which overlay to draw. Tracking ids on an attendance tile answer a
    *  question that page never asked, so the page says what it wants. */
   feature?: CameraFeature;
+  /** Narrow a `lost` overlay to one bag colour. Ignored by every other
+   *  feature - it is part of the question this page is asking. */
+  colour?: string;
   /** Draw the engine's recognition boxes over the stream. The enrolment page
    *  turns this off: those boxes carry names, and a page that is deciding who
    *  someone IS must not display the system's guess at who they are. It draws
@@ -197,7 +201,7 @@ export function CameraFrame({
 
     let cancelled = false;
     const poll = () => {
-      void getCameraDetections(camera.id, feature)
+      void getCameraDetections(camera.id, feature, colour)
         .then((result) => {
           if (cancelled) return;
           const drawn = result.boxes;

@@ -9,6 +9,7 @@ export function CameraModal({
   camera,
   onClose,
   feature,
+  colour,
 }: {
   camera: Camera;
   onClose: () => void;
@@ -16,6 +17,7 @@ export function CameraModal({
    *  wants bodies, not faces — an enlarged view that answered a different
    *  question from the page behind it would put names on a headcount. */
   feature?: CameraFeature;
+  colour?: string;
 }) {
   const [count, setCount] = useState<number | null>(null);
 
@@ -43,7 +45,7 @@ export function CameraModal({
         aria-label={camera.name}
       >
         {/* The enlarged view is the one place MJPEG is worth the bandwidth. */}
-        <CameraFrame camera={camera} size="lg" live onCount={onCount} feature={feature} />
+        <CameraFrame camera={camera} size="lg" live onCount={onCount} feature={feature} colour={colour} />
 
         <div style={{ padding: '18px 22px' }}>
           <div style={{ fontWeight: 700, fontSize: 16 }}>{camera.name}</div>

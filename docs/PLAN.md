@@ -170,13 +170,14 @@ activated; changing the face model warns it destroys every enrolment.
 
 Continuous recording + retention · index at ingest so search is a query not a rescan · job-based search API · integrate the owner's re-ID model · clip export for track.
 
-**Part built, 23 Aug 2026 — lost bag search.** The owner supplied `bagbest.pt`, so
-the half of this phase that does not need recording went in: an operator ticks
-areas or cameras, presses Search, and one thread looks at those cameras live for
-up to sixty seconds. A camera that saw a bag in **two or more frames** comes to the
-front of the grid, badged, with an amber box. Colour is a filter over what was
-found, matched leniently against a set rather than one name, and the page says how
-many it hid. Nothing runs when nobody is searching; idle cost is zero.
+**Part built, 23 Aug 2026 — live bag detection.** The owner supplied `bagbest.pt`,
+so the half of this phase that does not need recording went in. It is **not** a
+search: an operator ticks cameras and picks a colour, and any bag of that colour
+is outlined in amber on the live tiles, continuously, the way attendance draws
+faces. The tile's own overlay poll is what makes the model run, so work happens
+only for cameras somebody is looking at and stops within seconds of them leaving.
+Idle cost is zero. Colour is matched leniently against a set rather than one
+name, because a dark blue bag looks black in poor light.
 
 **Not built, and the page no longer implies otherwise.** No continuous recording,
 so no clip to watch and no "missing since" period — both were removed from the
@@ -235,7 +236,7 @@ One row is measured. The rest are still targets.
 | Zone breach → visible | ≤ 5 s | built (P4), not yet timed by hand |
 | Weapon detection → review queue | ≤ 2 s | built (P6); the confirm rule adds ~1 s by design, not yet timed end to end by hand |
 | Camera drops → NO SIGNAL shown | ≤ 2 s | not measured |
-| Lost bag search | ≤ 60 s | **built (P7), 23 Aug 2026** — the limit *is* 60 s and the job ends itself at it |
+| Lost bag search | ≤ 60 s | **replaced 23 Aug 2026** — there is no search to time. Bags are outlined live on the cameras being watched; a box appears within a second of the model seeing one |
 
 **Measured 22–23 Aug 2026**, `python engine/tools/benchmark.py [--model weapons|bags]`,
 on an RTX 2080 Max-Q (8 GB, laptop) on CUDA, timed over 60 frames of the labelled

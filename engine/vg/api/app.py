@@ -336,8 +336,8 @@ async def lifespan(app: FastAPI):
         ) = _start_weapons(
             cfg, registry, roster, getattr(people, "detector", None),
         )
-        # Lost bag search. Constructed, never started: nothing runs until
-        # somebody presses Search, which is what "on demand" has to cost.
+        # Bag detection. The thread starts but sleeps: work happens only
+        # for cameras somebody is actually looking at.
         app.state.lost, app.state.lost_error = _start_lost(cfg, registry, roster)
         # Where somebody has been. Written by whichever recognition tier saw
         # them, read by the Track page as one indexed query — which is the
@@ -430,12 +430,11 @@ async def lifespan(app: FastAPI):
         if recorder is not None:
             recorder.stop_all()
 
-        # Not a worker: it has no `stop(actor)` signature and no permanent
-        # thread. If a search is running, ending it here joins that thread
-        # before the cameras it is reading go away underneath it.
-        search = getattr(app.state, "lost", None)
-        if search is not None:
-            search.stop()
+        # Not a worker: it has no `stop(actor)` signature. Ended here so its
+        # thread is joined before the cameras it reads go away underneath it.
+        watch = getattr(app.state, "lost", None)
+        if watch is not None:
+            watch.stop()
         for worker in (
             # Knife detection first, then zones: stopping either closes any
             # running scene and releases its clip, so the log has no row
@@ -1163,12 +1162,11 @@ def _start_enrolment(cfg):
 
 
 def _start_lost(cfg, registry, roster):
-    """Lost bag search: built now, run only when somebody presses Search.
+    """Bag detection, on whichever cameras somebody is looking at.
 
-    Unlike every other feature here this one is **constructed and not
-    started**. There is no thread and no model call until a POST arrives, which
-    is the whole of what "on demand" has to cost. `BagSearch` owns the thread
-    it makes then.
+    There is no search and no job. The thread starts here but stays asleep: it
+    does work only for cameras a tile is currently polling a `lost` overlay
+    for, so an operator who is not on the page costs nothing.
 
     Takes no person detector, on purpose. Knives are looked for on people; a
     lost bag is precisely the one with nobody near it, so the frame goes to the
@@ -1180,11 +1178,11 @@ def _start_lost(cfg, registry, roster):
     must not take the engine down, and it must not be silent either (rule 8).
     """
     if not [c.id for c in roster if c.enabled]:
-        log.info("no enabled camera; lost bag search has nothing to search")
-        return None, "No camera is running, so there is nothing to search."
+        log.info("no enabled camera; bag detection has nothing to look at")
+        return None, "No camera is running, so there is nothing to check."
 
     try:
-        from vg.features.lostbag import BagSearch
+        from vg.features.lostbag import BagWatch
         from vg.infer.bags import BagDetector
 
         spec = cfg.models.get("bags")
@@ -1199,17 +1197,21 @@ def _start_lost(cfg, registry, roster):
             iou=spec.iou,
             half=spec.half,
         )
-        return BagSearch(registry, detector, clock_for(cfg.timezone)), None
+        watch = BagWatch(registry, detector, clock_for(cfg.timezone))
+        # Started, but it does nothing until a tile asks for a bag
+        # overlay - the loop sleeps while no camera is being looked at.
+        watch.start()
+        return watch, None
     except FileNotFoundError as exc:
         # The commonest case by far, and not a bug: a machine without the
         # owner's weights. Say which file, and keep every other feature up.
-        log.warning("lost bag search is off: %s", exc)
-        _reraise_if_strict(exc, "lost bag search")
-        return None, f"Lost bag search failed to start ({exc})"
+        log.warning("bag detection is off: %s", exc)
+        _reraise_if_strict(exc, "bag detection")
+        return None, f"Bag detection failed to start ({exc})"
     except Exception as exc:
-        log.exception("lost bag search failed to start")
+        log.exception("bag detection failed to start")
         _reraise_if_strict(exc, "lost bag search")
-        return None, f"Lost bag search failed to start ({_reason(exc)})"
+        return None, f"Bag detection failed to start ({_reason(exc)})"
 
 
 def _reason(exc: BaseException) -> str:
@@ -1522,6 +1524,7 @@ def _mount(app: FastAPI) -> None:
             str | None,
             Query(pattern="^(attendance|track|counting|intrusion|weapons|lost)$"),
         ] = None,
+        colour: Annotated[str | None, Query()] = None,
     ) -> S.CameraDetections:
         """Just the overlay geometry, nothing else.
 
@@ -1564,9 +1567,22 @@ def _mount(app: FastAPI) -> None:
         if feature == "weapons" and weapons is not None:
             weapons.note_interest(camera_id)
 
+        # Bag detection runs for exactly the cameras somebody is looking at,
+        # and this poll is what says so. No page open, no poll, no model call -
+        # which is the whole of why it costs nothing when nobody is using it.
+        if feature == "lost":
+            noticed = getattr(store, "note_lost_interest", None)
+            if callable(noticed):
+                noticed(camera_id)
+
         reader = getattr(store, "camera_detections", None)
         if callable(reader):
-            return reader(camera_id, feature)
+            try:
+                return reader(camera_id, feature, colour)
+            except TypeError:
+                # A store that predates the colour filter (MockStore) still
+                # answers the question it does understand.
+                return reader(camera_id, feature)
         return S.CameraDetections(camera_id=camera_id)
 
     @app.get(
@@ -1846,45 +1862,6 @@ def _mount(app: FastAPI) -> None:
         when: Annotated[str, Query(description="Right now | Today by hour | This week by day")] = "Right now",
     ) -> S.CountResult:
         return store.count(place, when)
-
-    # ----------------------------------------------------------- lost items
-    @app.post("/lost-items/search", response_model=S.LostResult, tags=["lost-items"])
-    async def search_lost(query: S.LostQuery, store: StoreDep) -> S.LostResult:
-        """Start a live search of the chosen cameras, and return at once.
-
-        Replaces any search already running - results must never mix, and a
-        queue of searches for a missing bag is a queue nobody wants to wait in.
-
-        An empty camera list comes back 200 with `job.state = "failed"` and a
-        sentence, not a 422: there is nothing an error code helps somebody do
-        except tick a box. A camera id this engine does not know is named in
-        `camerasUnavailable` and the rest of the search still runs.
-        """
-        try:
-            return store.search_lost(query)
-        except ValueError as exc:
-            raise HTTPException(422, str(exc)) from exc
-        except SubsystemUnavailable as exc:
-            raise HTTPException(503, str(exc)) from exc
-
-    @app.get("/lost-items/search", response_model=S.LostResult, tags=["lost-items"])
-    async def get_lost_search(store: StoreDep) -> S.LostResult:
-        """The running search, or the last one. Polled once a second."""
-        try:
-            result = store.lost_search()
-        except SubsystemUnavailable as exc:
-            raise HTTPException(503, str(exc)) from exc
-        if result is None:
-            raise HTTPException(404, "No search has been run.")
-        return result
-
-    @app.delete("/lost-items/search", status_code=204, tags=["lost-items"])
-    async def stop_lost_search(store: StoreDep) -> None:
-        """Stop the search, keeping its hits. Stopping nothing is not a failure."""
-        try:
-            store.stop_lost_search()
-        except SubsystemUnavailable as exc:
-            raise HTTPException(503, str(exc)) from exc
 
     # ----------------------------------------------------------------- track
     @app.post("/track", response_model=S.TrackResult, tags=["track"])

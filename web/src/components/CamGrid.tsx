@@ -48,6 +48,7 @@ export function CamGrid({
   onPick,
   activeId,
   feature,
+  colour,
   tileOverlay = false,
   pinned,
 }: {
@@ -78,6 +79,8 @@ export function CamGrid({
    *  so this only reaches the opened camera — which is exactly where it
    *  matters: the counting page must not open a face review. */
   feature?: CameraFeature;
+  /** Narrow a `lost` overlay to one bag colour. */
+  colour?: string;
   /** Draw the overlay on the tiles too, not only in the enlarged view.
    *
    *  Off by default and it should stay that way for most pages: a box at
@@ -188,6 +191,7 @@ export function CamGrid({
         camera={cam}
         refreshMs={refreshMs}
         feature={tileOverlay ? feature : undefined}
+        colour={colour}
         tileOverlay={tileOverlay}
       />
       <div className="camcard__meta">
@@ -334,7 +338,7 @@ export function CamGrid({
       )}
 
       {open && (
-        <CameraModal camera={open} onClose={() => setOpen(null)} feature={feature} />
+        <CameraModal camera={open} onClose={() => setOpen(null)} feature={feature} colour={colour} />
       )}
     </div>
   );

@@ -530,50 +530,8 @@ class CountResult(Wire):
 
 
 # ---------------------------------------------------------------------------
-# lost items — a live search of the cameras you tick, for up to a minute
+# a job that runs and finishes
 # ---------------------------------------------------------------------------
-# Nothing is recorded and nothing is stored: a search is a question asked now
-# and answered now. `clips_searched` / `clips_total` therefore stay 0 — there
-# are no clips, and saying otherwise would be the precision rule broken.
-
-class LostQuery(Wire):
-    """Which cameras to look at, and optionally which colour to keep.
-
-    `area` and `since` were removed on 23 Aug 2026: the console resolves areas
-    to camera ids itself, and there is no recorded footage for `since` to mean
-    anything. `item` keeps its default so demo mode still constructs one.
-    """
-
-    cameras: list[str] = Field(default_factory=list)
-    colour: str | None = None
-    item: str = "bag"
-
-
-class LostHit(Wire):
-    camera_id: str
-    camera_name: str
-    at: Instant
-    confidence: Confidence
-    note: str | None = None
-    box: Box | None = None
-    clip: Clip | None = None
-    #: the best colour name, and the lenient set the filter matches against —
-    #: a dark blue bag looks black in poor light, so it answers to both.
-    colour: str | None = None
-    colours: list[str] = Field(default_factory=list)
-
-
-class UnavailableCamera(Wire):
-    """A camera that was asked for but could not be looked at, and why.
-
-    Named rather than dropped: an operator who ticked a camera is owed an
-    answer about it, even when the answer is that it is switched off.
-    """
-
-    camera_id: str
-    camera_name: str
-    reason: str
-
 
 class SearchJob(Wire):
     """POST returns one of these; the console polls until it leaves `running`.
@@ -589,20 +547,6 @@ class SearchJob(Wire):
     clips_searched: int = 0
     clips_total: int = 0
     error: str | None = None
-
-
-class LostResult(Wire):
-    job: SearchJob
-    query: LostQuery
-    hits: list[LostHit] = Field(default_factory=list)
-    cameras: list[CameraView] = Field(default_factory=list)
-    #: what the page needs to say something true when `hits` is empty.
-    cameras_checked: int = 0
-    cameras_unavailable: list[UnavailableCamera] = Field(default_factory=list)
-    hidden_by_colour: int = 0
-    frames_checked: int = 0
-    seconds_limit: float = 60.0
-    seconds_elapsed: float = 0.0
 
 
 # ---------------------------------------------------------------------------

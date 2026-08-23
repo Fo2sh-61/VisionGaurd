@@ -244,43 +244,6 @@ export interface WeaponDetection {
 
 /* ---------- lost items ---------- */
 
-export interface LostQuery {
-  /** Camera ids, resolved from the ticked areas by the page. The engine is
-   *  never asked what an area contains - the roster already says. */
-  cameras: string[];
-  colour?: string;
-}
-
-export interface LostHit {
-  cameraId: string;
-  camera: string;
-  area: string;
-  time: string;
-  /** Already a percentage string. The engine sends a number; sentences and
-   *  units are built in `format.ts`. */
-  confidence: string;
-  note: string;
-  colour?: string;
-  colours: string[];
-}
-
-export interface LostResult {
-  /** `failed` is not `done` with no hits. "We searched and found nothing" and
-   *  "we never searched" are different answers, and only one of them should
-   *  stop somebody looking for a child's missing bag. An earlier version of
-   *  this page collapsed the two into one boolean. */
-  state: 'queued' | 'running' | 'done' | 'stopped' | 'failed';
-  hits: LostHit[];
-  cameras: Camera[];
-  camerasChecked: number;
-  unavailable: { camera: string; reason: string }[];
-  hiddenByColour: number;
-  framesChecked: number;
-  secondsElapsed: number;
-  secondsLimit: number;
-  error?: string;
-}
-
 /* ---------- track a person ---------- */
 
 export interface TrackQuery {

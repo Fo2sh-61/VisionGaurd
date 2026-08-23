@@ -29,9 +29,6 @@ import type {
   GroupMember,
   GroupSummary,
   IntrusionWindow,
-  LostHit,
-  LostQuery,
-  LostResult,
   PersonHistory,
   PersonType,
   Recording,
@@ -87,10 +84,11 @@ export const getSite = () => get<W.SiteInfo>('/site');
 export async function getCameraDetections(
   cameraId: string,
   feature?: CameraFeature,
+  colour?: string,
 ): Promise<{ boxes: DetectionBox[]; peopleCount: number | null }> {
   const result = await get<W.CameraDetections>(
     `/cameras/${encodeURIComponent(cameraId)}/detections`,
-    feature ? { feature } : undefined,
+    feature ? { feature, ...(colour ? { colour } : {}) } : undefined,
   );
   return {
     boxes: result.boxes.map(toDetectionBox),
@@ -407,76 +405,6 @@ export async function reviewWeapon(
 /** CHANGED: was synchronous. */
 export async function getWeaponCameras(): Promise<Camera[]> {
   return toCameras(await get<W.CameraView[]>('/weapons/cameras'));
-}
-
-/* ---------- lost items ----------
- *
- *  A live search, not a search of footage: the engine looks at the ticked
- *  cameras for up to a minute and nothing is recorded. POST starts it and
- *  returns at once, GET is polled once a second while it runs, DELETE stops
- *  it. None of them needs the long timeout the old footage search had.
- */
-
-export async function searchLostItem(query: LostQuery): Promise<LostResult> {
-  return toLostResult(
-    await post<W.LostResult>('/lost-items/search', {
-      cameras: query.cameras,
-      colour: query.colour ?? null,
-    }),
-  );
-}
-
-/** The running search, or the last one. `null` before any has been run. */
-export async function getLostSearch(): Promise<LostResult | null> {
-  try {
-    return toLostResult(await get<W.LostResult>('/lost-items/search'));
-  } catch (err) {
-    if (err instanceof ApiError && err.status === 404) return null;
-    throw err;
-  }
-}
-
-export async function stopLostSearch(): Promise<void> {
-  await del('/lost-items/search');
-}
-
-function toLostResult(result: W.LostResult): LostResult {
-  const areaOf = new Map(result.cameras.map((c) => [c.id, c.area ?? '']));
-  const hits: LostHit[] = result.hits.map((h) => ({
-    cameraId: h.cameraId,
-    camera: h.cameraName,
-    area: areaOf.get(h.cameraId) ?? '',
-    time: formatTime(h.at),
-    confidence: formatPercent(h.confidence),
-    note: h.note ?? '',
-    colour: h.colour ?? undefined,
-    colours: h.colours ?? [],
-  }));
-
-  const byCamera = new Map(hits.map((h) => [h.cameraId, h]));
-
-  return {
-    state: result.job.state,
-    hits,
-    cameras: result.cameras.map((c) => {
-      const hit = byCamera.get(c.id);
-      // The tile says when a bag was seen and what colour it looked, never
-      // that a bag *is* there: the model is not sure enough for that sentence
-      // and the operator is about to look at the picture anyway.
-      const looked = hit && hit.colours.length ? ` · looked ${hit.colours.join(' or ')}` : '';
-      return toCamera(c, hit ? `Bag seen · ${hit.time}${looked}` : undefined);
-    }),
-    camerasChecked: result.camerasChecked,
-    unavailable: result.camerasUnavailable.map((u) => ({
-      camera: u.cameraName,
-      reason: u.reason,
-    })),
-    hiddenByColour: result.hiddenByColour,
-    framesChecked: result.framesChecked,
-    secondsElapsed: result.secondsElapsed,
-    secondsLimit: result.secondsLimit,
-    error: result.job.error ?? undefined,
-  };
 }
 
 /* ---------- track a person ----------

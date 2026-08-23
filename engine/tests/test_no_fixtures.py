@@ -129,7 +129,6 @@ def test_nothing_unavailable_still_returns_rows(bare_live_store):
         "attention": lambda: store.attention(),
         "people": lambda: store.people(),
         "groups": lambda: store.groups(),
-        "search_lost": lambda: store.search_lost(S.LostQuery(item="bag")).hits,
         "track": lambda: store.track(
             S.TrackQuery(who="Anyone", date="2026-08-19"), actor="t").path,
         "attendance": lambda: store.attendance(

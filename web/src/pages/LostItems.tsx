@@ -1,54 +1,40 @@
-/** Lost bag — looking at the cameras you tick, right now, for up to a minute.
+/** Lost bag — tick the cameras, pick a colour, watch.
  *
- *  **This does not search footage.** Nothing is recorded, so there is nothing
- *  to search: the engine looks at the live pictures from the cameras chosen
- *  here and stops after sixty seconds. The page it replaced offered a bag type,
- *  a "missing since" period and a ranked list with *Watch clip* buttons — every
- *  one of which promised a recording that does not exist.
+ *  There is no Search button and no result, because there is no search. The
+ *  cameras you tick appear below, live, and a box is drawn round any bag of the
+ *  colour you picked for as long as you are looking at them. Leaving the page
+ *  stops the work; nothing has to be switched off.
  *
- *  Three things carried over from the redesign, and they are the reason the
- *  form still looks like a form:
+ *  It answers one question — *is my bag on any of these cameras right now* —
+ *  and the answer is the picture, not a list beside it.
  *
- *  1. **The query is readable before it runs.** A summary line spells the
- *     search back in words, so the operator sees what they are about to ask
- *     rather than assembling it from four controls in their head.
+ *  **Nothing is recorded.** No clip, no still, no history. A bag that was taken
+ *  before you opened this page cannot be found here, and the page must never
+ *  imply otherwise.
  *
- *  2. **Any change to the query invalidates the answer on screen.** Old hits
- *     under a changed search is how somebody collects the wrong bag.
- *
- *  3. **A camera that saw a bag comes to the front of the grid, marked.** The
- *     answer is *which camera to walk to*, so the grid is the result — not a
- *     list beside it.
- *
- *  What the page must never say is that a bag *has been found*. The model is
- *  measurably wrong on ordinary furniture (research D10), so every hit is a
- *  possible bag for a person to look at, and the wording here is the only
- *  place that distinction is made.
+ *  **A box is a possible bag, never a found one.** Measured on footage with no
+ *  bag in it (research D10), this model draws a `suitcase` box on a black
+ *  office chair at up to 0.88 and holds it there. That is why the box is amber,
+ *  labelled with what the model thinks it is, and drawn over a live picture the
+ *  operator can judge for themselves.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useCameras } from '@/app/CameraContext';
 import { useCapability } from '@/app/CapabilityContext';
 import { CamGrid } from '@/components/CamGrid';
 import { Card, DataNotice, Empty, PageHeader } from '@/components/ui';
-import { getLostSearch, searchLostItem, stopLostSearch } from '@/services/api';
-import type { LostResult } from '@/types';
-
-type Phase = 'idle' | 'running' | 'done' | 'stopped' | 'failed';
 
 const UNASSIGNED = 'Unassigned';
-
-/** How often the page asks how the search is getting on. */
-const POLL_MS = 1_000;
 
 /** The colour palette, and the only names the engine accepts.
  *
  *  Grey and white are one chip on purpose. They differ only in lightness, and
  *  lightness is exactly what lighting changes — a white bag in shadow is grey
- *  to the camera and no measurement fixes that without knowing the light
- *  (research D3). Offering them separately would be offering a distinction the
- *  camera cannot make. `Any` is a gradient because it is not a colour: it is
- *  the absence of a filter, and a flat grey chip would read as "grey".
+ *  to the camera, and no measurement fixes that without knowing the light
+ *  (research D3). A distinction the camera cannot make must not be offered as
+ *  a choice. `Any` is a gradient because it is not a colour: it is the absence
+ *  of a filter, and a flat grey chip would read as "grey".
  */
 const COLOURS: { name: string; value?: string; dot: string }[] = [
   { name: 'Any', dot: 'linear-gradient(135deg,#d7ded9,#8d9a95)' },
@@ -90,10 +76,6 @@ export function LostItems() {
   const [openAreas, setOpenAreas] = useState<Set<string>>(new Set());
   const [colour, setColour] = useState<string | undefined>(undefined);
 
-  const [phase, setPhase] = useState<Phase>('idle');
-  const [result, setResult] = useState<LostResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
   /** Areas in roster order, each with its cameras. `Unassigned` is a real
    *  group, not a leftover: today it is almost every camera, and hiding them
    *  would hide the whole school. */
@@ -108,35 +90,18 @@ export function LostItems() {
     return groups;
   }, [cameras]);
 
-  /** Any change to the query invalidates the answer on screen - and the
-   *  search behind it.
-   *
-   *  Clearing the result but leaving the engine running would keep a thread
-   *  working on a question nobody is asking any more, invisibly, for up to a
-   *  minute: the page would read *idle* while the cameras were still being
-   *  looked at. Stopping is also what makes the next Search honest, because a
-   *  running search is replaced rather than queued.
-   */
-  const invalidate = useCallback(() => {
-    if (phase === 'running') {
-      void stopLostSearch().catch(() => {
-        /* it ends itself at the limit either way */
-      });
-    }
-    setPhase('idle');
-    setResult(null);
-    setError(null);
-  }, [phase]);
+  const watching = useMemo(
+    () => cameras.filter((c) => ticked.has(c.id)),
+    [cameras, ticked],
+  );
 
-  const toggleCamera = (id: string) => {
+  const toggleCamera = (id: string) =>
     setTicked((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
-    invalidate();
-  };
 
   const toggleArea = (name: string) => {
     const ids = areas.find((a) => a.name === name)?.cameras.map((c) => c.id) ?? [];
@@ -149,98 +114,26 @@ export function LostItems() {
       }
       return next;
     });
-    invalidate();
   };
 
-  const run = useCallback(async () => {
-    setPhase('running');
-    setResult(null);
-    setError(null);
-    try {
-      const started = await searchLostItem({ cameras: [...ticked], colour });
-      setResult(started);
-      // The engine can refuse before any thread starts — no camera chosen, or
-      // none of the chosen ones reachable. That is payload, not an exception,
-      // and the page has to notice it rather than poll forever.
-      if (started.state !== 'running') setPhase(started.state as Phase);
-    } catch (caught) {
-      // Without this the throw escaped and the page sat on "Searching…"
-      // indefinitely. "We could not search" and "we searched and found
-      // nothing" are different answers, and only one of them should stop
-      // somebody looking for a child's missing bag.
-      setError(caught instanceof Error ? caught.message : 'The search could not be run.');
-      setPhase('failed');
-    }
-  }, [ticked, colour]);
-
-  const stop = useCallback(async () => {
-    try {
-      await stopLostSearch();
-      const last = await getLostSearch();
-      if (last) setResult(last);
-      setPhase('stopped');
-    } catch {
-      /* the poll below will notice soon enough */
-    }
-  }, []);
-
-  // Poll while it runs, and only while it runs.
-  useEffect(() => {
-    if (phase !== 'running') return;
-    let cancelled = false;
-    const timer = setInterval(() => {
-      void getLostSearch()
-        .then((next) => {
-          if (cancelled || !next) return;
-          setResult(next);
-          if (next.state !== 'running') setPhase(next.state as Phase);
-        })
-        .catch(() => {
-          /* a dropped poll leaves the previous numbers up */
-        });
-    }, POLL_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [phase]);
-
-  /** The cameras on screen: exactly the ones ticked, in roster order.
-   *
-   *  Not `result.cameras` — that holds only the cameras that already saw a bag,
-   *  so the grid stayed **empty** from the moment Search was pressed until the
-   *  first confirmation. The operator pressed a button and watched nothing
-   *  happen. What they need to see is the cameras they chose, live, with a box
-   *  appearing on one of them the moment the model fires.
-   */
-  const watching = useMemo(
-    () => cameras.filter((c) => ticked.has(c.id)),
-    [cameras, ticked],
-  );
-
-  const chosenColour = COLOURS.find((c) => c.value === colour) ?? COLOURS[0];
-  const summary =
-    `${ticked.size === 0 ? 'no cameras' : `${ticked.size} camera${ticked.size === 1 ? '' : 's'}`}` +
-    ` · ${colour ? chosenColour.name.toLowerCase() : 'any colour'}`;
-
-  const hits = result?.hits ?? [];
-  const status = describeSearch(phase, result, error);
+  const chosen = COLOURS.find((c) => c.value === colour) ?? COLOURS[0];
+  const offline = watching.filter((c) => c.offline);
 
   return (
     <>
       <DataNotice capability={capability} />
       <PageHeader
         title="Lost bag"
-        lead="Tick the areas to check and press Search. The cameras are looked at live for up to a minute; nothing is recorded."
+        lead="Tick the cameras to watch and pick a colour. Any bag of that colour is outlined as it is seen. Nothing is recorded, so the bag has to still be there."
       />
 
       <Card>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
           <div>
-            <div style={labelStyle}>Where to look</div>
+            <div style={labelStyle}>Where to watch</div>
             {areas.length === 0 ? (
               <div style={{ fontSize: 13.5, color: 'var(--tx2)' }}>
-                There are no cameras on this engine, so there is nothing to search.
+                There are no cameras on this engine, so there is nothing to watch.
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -261,7 +154,7 @@ export function LostItems() {
                             if (el) el.indeterminate = on > 0 && on < ids.length;
                           }}
                           onChange={() => toggleArea(area.name)}
-                          aria-label={`Search all cameras in ${area.name}`}
+                          aria-label={`Watch every camera in ${area.name}`}
                         />
                         <button
                           type="button"
@@ -279,7 +172,9 @@ export function LostItems() {
                           {open ? '▾' : '▸'} {area.name}
                         </button>
                         <span style={{ fontSize: 12.5, color: 'var(--tx3)' }}>
-                          {on > 0 ? `${on} of ${ids.length}` : `${ids.length} camera${ids.length === 1 ? '' : 's'}`}
+                          {on > 0
+                            ? `${on} of ${ids.length}`
+                            : `${ids.length} camera${ids.length === 1 ? '' : 's'}`}
                         </span>
                       </div>
                       {open && (
@@ -287,7 +182,10 @@ export function LostItems() {
                           {area.cameras.map((cam) => (
                             <label
                               key={cam.id}
-                              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '4px 0', fontSize: 13, cursor: 'pointer' }}
+                              style={{
+                                display: 'flex', alignItems: 'center', gap: 10,
+                                padding: '4px 0', fontSize: 13, cursor: 'pointer',
+                              }}
                             >
                               <input
                                 type="checkbox"
@@ -316,11 +214,11 @@ export function LostItems() {
                 <button
                   key={c.name}
                   type="button"
-                  style={{ ...chipStyle(colour === c.value), display: 'flex', alignItems: 'center', gap: 8, padding: '8px 15px' }}
-                  onClick={() => {
-                    setColour(c.value);
-                    invalidate();
+                  style={{
+                    ...chipStyle(colour === c.value),
+                    display: 'flex', alignItems: 'center', gap: 8, padding: '8px 15px',
                   }}
+                  onClick={() => setColour(c.value)}
                 >
                   <span
                     aria-hidden="true"
@@ -335,136 +233,49 @@ export function LostItems() {
             </div>
             <div style={{ fontSize: 12.5, color: 'var(--tx3)', marginTop: 8 }}>
               Colour is judged from the camera picture and can be wrong in poor light.
-              Pick Any if the bag is not found.
+              Pick Any if the bag is not outlined.
             </div>
-          </div>
-
-          <div style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            gap: 16, flexWrap: 'wrap', paddingTop: 16, borderTop: '1px solid var(--line)',
-          }}>
-            <div style={{ fontSize: 13.5, color: 'var(--tx2)' }}>
-              Looking at <b style={{ color: 'var(--tx)', fontWeight: 600 }}>{summary}</b>
-            </div>
-            <button
-              type="button"
-              onClick={() => void (phase === 'running' ? stop() : run())}
-              disabled={phase !== 'running' && ticked.size === 0}
-              style={{
-                height: 44, padding: '0 26px', border: 'none', borderRadius: 11,
-                background: phase === 'running' ? 'var(--danger)' : 'var(--ac)',
-                color: '#fff', fontWeight: 600, fontSize: 14.5,
-                cursor: phase !== 'running' && ticked.size === 0 ? 'not-allowed' : 'pointer',
-                opacity: phase !== 'running' && ticked.size === 0 ? 0.55 : 1,
-              }}
-            >
-              {phase === 'running' ? 'Stop' : 'Search'}
-            </button>
           </div>
         </div>
       </Card>
 
-      {phase === 'idle' && watching.length === 0 && (
+      {watching.length === 0 ? (
         <Card>
           <Empty>
-            Nothing chosen yet. Tick an area or a camera above and it appears
-            below, live. Press Search and any bag in view is outlined — the
-            cameras are looked at now, so a bag has to still be there to be found.
+            Nothing ticked yet. Tick an area or a camera above and it appears
+            below, live, with any {colour ? chosen.name.toLowerCase() : ''} bag
+            outlined in amber.
           </Empty>
         </Card>
-      )}
-
-      {status && (
-        <Card>
-          <div style={{ fontSize: 13.5, color: 'var(--tx)' }}>{status}</div>
-          {result && result.unavailable.length > 0 && (
-            <div style={{ fontSize: 12.5, color: 'var(--tx3)', marginTop: 8 }}>
-              {result.unavailable.map((u) => (
-                <div key={u.camera}>
-                  {u.camera} — {u.reason}
-                </div>
-              ))}
-            </div>
+      ) : (
+        <>
+          {offline.length > 0 && (
+            <Card>
+              <div style={{ fontSize: 13, color: 'var(--tx3)' }}>
+                {offline.map((c) => c.name).join(', ')}
+                {offline.length === 1 ? ' is offline' : ' are offline'}, so nothing
+                can be checked on {offline.length === 1 ? 'it' : 'them'}.
+              </div>
+            </Card>
           )}
-        </Card>
-      )}
-
-      {watching.length > 0 && (
-        <CamGrid
-          title={gridTitle(phase)}
-          note={gridNote(phase, colour ? chosenColour.name.toLowerCase() : null)}
-          cameras={watching}
-          only
-          // Only worth offering once the grid is bigger than a glance.
-          searchable={watching.length > 12}
-          pageSize={12}
-          feature="lost"
-          // Only poll the overlay once a search has actually run. Before that
-          // there is nothing to draw, and a tile per camera asking every second
-          // for an empty list is a request nobody needed.
-          tileOverlay={phase !== 'idle'}
-          pinned={hits.map((h) => h.cameraId)}
-        />
+          <CamGrid
+            title="Watching now"
+            note={
+              (colour
+                ? `A bag that could be ${chosen.name.toLowerCase()} is outlined in amber as it is seen.`
+                : 'Any bag is outlined in amber as it is seen.') +
+              ' A box means the model thinks it sees a bag, not that one is there — open a camera to look.'
+            }
+            cameras={watching}
+            only
+            searchable={watching.length > 12}
+            pageSize={12}
+            feature="lost"
+            colour={colour}
+            tileOverlay
+          />
+        </>
       )}
     </>
-  );
-}
-
-/** What the grid is, at this moment. It is three different things. */
-function gridTitle(phase: Phase): string {
-  if (phase === 'idle') return 'Cameras chosen';
-  if (phase === 'running') return 'Watching now';
-  return 'Cameras searched';
-}
-
-/** What the grid is showing right now, in one line under its title. */
-function gridNote(phase: Phase, colour: string | null): string {
-  const only = colour ? ` Only bags that could be ${colour} are outlined.` : '';
-  if (phase === 'idle') {
-    return 'These are live now. Nothing is being looked for until you press Search.';
-  }
-  if (phase === 'running') {
-    return `An amber box appears as a possible bag is seen.${only} Cameras that saw one come first.`;
-  }
-  return (
-    'Cameras that saw a possible bag are first, badged. Boxes clear a few ' +
-    'seconds after the bag was last seen — a box over a live picture of where ' +
-    'a bag used to be would be a lie. Open a camera to look properly.'
-  );
-}
-
-/** One sentence about the search, built from the counts the engine sent.
- *
- *  Never a bare empty grid: "nothing found" and "nothing searched" look
- *  identical on screen and mean opposite things.
- */
-function describeSearch(
-  phase: Phase,
-  result: LostResult | null,
-  error: string | null,
-): string | null {
-  if (phase === 'failed') return error ?? result?.error ?? 'The search could not be run.';
-  if (phase === 'idle' || !result) return null;
-
-  const secs = Math.round(result.secondsElapsed);
-  const limit = Math.round(result.secondsLimit);
-  const checked = `${result.camerasChecked} camera${result.camerasChecked === 1 ? '' : 's'}`;
-  const hidden = result.hiddenByColour
-    ? ` ${result.hiddenByColour} possible bag${result.hiddenByColour === 1 ? '' : 's'} hidden by the colour filter.`
-    : '';
-
-  if (phase === 'running') {
-    return `Looking at ${checked} · ${secs}s of ${limit}.${hidden}`;
-  }
-
-  const seen = result.hits.length;
-  const ending = phase === 'stopped' ? `Stopped after ${secs}s.` : `Checked for ${secs} seconds.`;
-
-  if (seen === 0) {
-    return `${ending} ${checked} looked at, ${result.framesChecked} frames. No bag seen.${hidden}`;
-  }
-  return (
-    `${ending} ${checked} looked at — a possible bag on ` +
-    `${seen} of them. Open the camera to see whether it is the right one.${hidden}`
   );
 }

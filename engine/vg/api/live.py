@@ -160,10 +160,8 @@ class LiveStore(MockStore):
         # once broke the People page.
         self.weapons_worker = weapons
         self.weapon_scenes = weapon_scenes
-        # Lost bag search. `lost_search_job` for the same reason as
-        # `weapons_worker`: `lost_search` is a method on Store, and
-        # assigning the job to it here would shadow the method.
-        self.lost_search_job = lost
+        # Bag detection, on whichever cameras somebody is looking at.
+        self.lost_watch = lost
         # The site's clock, asked per timestamp. Holding one number from
         # startup left every time an hour out after the October change until
         # somebody restarted the engine, and nothing said so.
@@ -232,7 +230,8 @@ class LiveStore(MockStore):
             stream_url=f"/cameras/{worker.config.id}/stream",
         )
 
-    def overlay(self, camera_id: str, feature: str | None = None) -> list[S.Box]:
+    def overlay(self, camera_id: str, feature: str | None = None,
+                colour: str | None = None) -> list[S.Box]:
         """The public name for `_boxes`, for callers outside this class.
 
         `app.py` needs the tracking overlay to build the identities list, so
@@ -241,9 +240,10 @@ class LiveStore(MockStore):
         through the front door, and it keeps the per-feature rule - the caller
         still has to say which feature is asking.
         """
-        return self._boxes(camera_id, feature)
+        return self._boxes(camera_id, feature, colour)
 
-    def _boxes(self, camera_id: str, feature: str | None = None) -> list[S.Box]:
+    def _boxes(self, camera_id: str, feature: str | None = None,
+               colour: str | None = None) -> list[S.Box]:
         """What to draw on a camera tile, for the page that asked.
 
         **Each feature draws its own overlay.** The same camera means different
@@ -276,7 +276,7 @@ class LiveStore(MockStore):
             # reason is not hypothetical: knife detection shipped with this
             # branch missing. A bag search that fell through to faces would
             # draw somebody's NAME over a bag nobody has claimed.
-            return self._bag_boxes(camera_id)
+            return self._bag_boxes(camera_id, colour)
         # attendance and the default grid want faces.
         return self._face_boxes(camera_id)
 
@@ -364,34 +364,6 @@ class LiveStore(MockStore):
                 severity=S.Severity.CRITICAL,
             )
             for k in self.weapons_worker.knives_on(camera_id)
-        ]
-
-    def _bag_boxes(self, camera_id: str) -> list[S.Box]:
-        """Possible bags, on the tiles. No identity, ever.
-
-        `kind="object"` and `severity=WARN` are what `boxColor()` paints amber:
-        never green (a face), never blue (a body). `match=NONE` and no
-        `track_id` are not omissions - a bag has no identity to match and is
-        not tracked between frames.
-
-        The label is the class name, so an operator can tell a rucksack from a
-        suitcase at a glance. It is never a person's name, and never the word
-        "bag" alone dressed up as a certainty the model does not have.
-        """
-        if self.lost_search_job is None:
-            return []
-        return [
-            S.Box(
-                x=max(0.0, min(1.0, hit.x)),
-                y=max(0.0, min(1.0, hit.y)),
-                w=max(0.0, min(1.0, hit.w)),
-                h=max(0.0, min(1.0, hit.h)),
-                label=hit.label.title(),
-                confidence=max(0.0, min(1.0, hit.confidence)),
-                kind="object",
-                severity=S.Severity.WARN,
-            )
-            for hit in self.lost_search_job.boxes_on(camera_id)
         ]
 
     def _face_boxes(self, camera_id: str) -> list[S.Box]:
@@ -488,7 +460,8 @@ class LiveStore(MockStore):
         return stopped or recorded
 
     def camera_detections(
-        self, camera_id: str, feature: str | None = None
+        self, camera_id: str, feature: str | None = None,
+        colour: str | None = None,
     ) -> S.CameraDetections:
         """Boxes and headcount from the same inference pass.
 
@@ -507,7 +480,7 @@ class LiveStore(MockStore):
         return S.CameraDetections(
             camera_id=camera_id,
             at=_instant(frame.captured_at if frame else None, self.clock),
-            boxes=self._boxes(camera_id, feature) if online else [],
+            boxes=self._boxes(camera_id, feature, colour) if online else [],
             people_count=self._people_count(camera_id, online),
             inference_ms=round(result.inference_ms, 1) if result else None,
         )
@@ -774,201 +747,70 @@ class LiveStore(MockStore):
 
     # -- lost bag -----------------------------------------------------------
 
-    def search_lost(self, query: S.LostQuery) -> S.LostResult:
-        """Start a live search over the cameras the operator ticked.
+    def note_lost_interest(self, camera_id: str) -> None:
+        """A tile asked for a bag overlay, so that camera is worth looking at.
 
-        Returns at once with a `running` job. Nothing was running before this
-        call and nothing keeps running after the job ends, which is the whole
-        of what "on demand" means here.
+        This is the only thing that makes the bag model run. No poll, no work.
         """
-        from vg.infer.colour import KNOWN_COLOURS
+        if self.lost_watch is not None:
+            self.lost_watch.note_interest(camera_id)
 
-        # Checked here rather than on the wire type so the error can name the
-        # six. "Input should be a valid enumeration member" tells an operator
-        # nothing they can act on; a list of the colours does.
-        if query.colour and query.colour not in KNOWN_COLOURS:
-            raise ValueError(
-                f"'{query.colour}' is not a colour this can look for. "
-                f"Choose one of: {', '.join(KNOWN_COLOURS)}.")
+    def _bag_boxes(self, camera_id: str, colour: str | None = None) -> list[S.Box]:
+        """Possible bags, on the tiles. No identity, ever.
 
-        if self.lost_search_job is None:
-            return self._no_lost_search(query)
-        job = self.lost_search_job.start(query)
-        return self._lost_result(job)
+        `kind="object"` and `severity=WARN` are what `boxColor()` paints amber:
+        never green (a face), never blue (a body). `match=NONE` and no
+        `track_id` are not omissions - a bag has no identity to match and is
+        not tracked between frames.
 
-    def lost_search(self) -> S.LostResult | None:
-        """The running search, or the last one. None before any has been run."""
-        if self.lost_search_job is None:
-            return None
-        job = self.lost_search_job.current()
-        return None if job is None else self._lost_result(job)
-
-    def stop_lost_search(self) -> None:
-        if self.lost_search_job is not None:
-            self.lost_search_job.stop()
-
-    def _no_lost_search(self, query: S.LostQuery) -> S.LostResult:
-        """`failed`, never `done` with no hits.
-
-        "We searched and found nothing" and "we never searched" are different
-        answers, and only one of them should stop somebody looking for a
-        child's missing bag.
+        The label is the class name, so an operator can tell a rucksack from a
+        suitcase at a glance. It is never a person's name.
         """
-        _, reason = self._lost_state()
-        return S.LostResult(
-            job=S.SearchJob(
-                id="unavailable", state="failed", progress=0.0,
-                submitted_at=_instant(datetime.now(timezone.utc), self.clock),
-                error=reason or "Lost bag search is not running.",
-            ),
-            query=query, hits=[], cameras=[],
-        )
-
-    def _lost_result(self, job) -> S.LostResult:
-        """One job, as the page sees it.
-
-        Two things happen here that the job deliberately does not do for
-        itself: cameras get their names and areas from the live roster, and the
-        colour filter is applied. The job records every bag it saw; which of
-        them the operator asked about is a question about the query, not about
-        the search.
-        """
-        from vg.features.lostbag import LIMIT_SECONDS, matches_colour
-
-        now = datetime.now(timezone.utc)
-        elapsed = job.seconds_elapsed(now)
-        limit = getattr(self.lost_search_job, "limit_seconds", LIMIT_SECONDS)
-        wanted = (job.query.colour or None) if hasattr(job.query, "colour") else None
-
-        hits: list[S.LostHit] = []
-        views: list[S.CameraView] = []
-        hidden = 0
-        for camera_id in job.confirmed():
-            seen = job.hits[camera_id]
-            matching = [h for h in seen
-                        if wanted is None or matches_colour(h, wanted)]
-            if not matching:
-                # Found, and deliberately not shown. The count goes on screen:
-                # an operator who filtered by the wrong colour has to be able
-                # to tell that from having found nothing at all.
-                hidden += 1
-                continue
-            best = max(matching, key=lambda h: h.confidence)
-            last = max(matching, key=lambda h: h.at)
-            span = (last.at - min(h.at for h in matching)).total_seconds()
-            hits.append(S.LostHit(
-                camera_id=camera_id,
-                camera_name=self._lost_camera_name(camera_id),
-                at=_instant(last.at, self.clock),
-                confidence=max(0.0, min(1.0, best.confidence)),
-                note=f"Seen {len(matching)} times over {span:.0f} seconds",
-                box=self._bag_box(best),
-                # Nothing is recorded, so there is never a clip to offer.
-                clip=None,
-                colour=best.colour,
-                colours=sorted(best.colours),
-            ))
-            view = self.camera_view(camera_id, feature="lost")
-            if view is not None:
-                # The result's box, not the live overlay's. `_bag_boxes` only
-                # hands back hits younger than OVERLAY_HOLD_SECONDS, which is
-                # right for a picture of what is there *now* and wrong for a
-                # finished search: a minute after it ended the camera would
-                # still be pinned as the one that saw a bag, with nothing drawn
-                # on it to say where.
-                views.append(view.model_copy(update={"boxes": [self._bag_box(best)]}))
-
-        return S.LostResult(
-            job=S.SearchJob(
-                id=job.id,
-                state=job.state if job.state in
-                ("queued", "running", "done", "stopped", "failed") else "failed",
-                progress=max(0.0, min(1.0, elapsed / limit if limit else 1.0)),
-                submitted_at=_instant(job.started_at, self.clock),
-                # There are no clips. Reporting a count would be the precision
-                # rule broken in the one place somebody might believe it.
-                clips_searched=0, clips_total=0,
-                error=job.error,
-            ),
-            query=job.query,
-            hits=hits,
-            cameras=views,
-            cameras_checked=len(job.checked),
-            cameras_unavailable=[
-                S.UnavailableCamera(camera_id=u.camera_id,
-                                    camera_name=u.camera_name,
-                                    reason=u.reason)
-                for u in job.unavailable
-            ],
-            hidden_by_colour=hidden,
-            frames_checked=job.frames_checked,
-            seconds_limit=float(limit),
-            seconds_elapsed=round(elapsed, 1),
-        )
-
-    def _bag_box(self, hit) -> S.Box:
-        return S.Box(
-            x=max(0.0, min(1.0, hit.x)),
-            y=max(0.0, min(1.0, hit.y)),
-            w=max(0.0, min(1.0, hit.w)),
-            h=max(0.0, min(1.0, hit.h)),
-            label=hit.label.title(),
-            confidence=max(0.0, min(1.0, hit.confidence)),
-            kind="object",
-            severity=S.Severity.WARN,
-        )
-
-    def _lost_camera_name(self, camera_id: str) -> str:
-        """The live roster first, engine.yaml second - the `_area_of` lesson.
-
-        Not `_camera_name`: that one asks `config.camera()`, which only knows
-        the cameras in engine.yaml, so a camera an operator added through the
-        console comes back as its raw id. A search result is the wrong place to
-        show somebody "cam-3" for a camera they named themselves.
-        """
-        for config in self.registry.configs():
-            if config.id == camera_id:
-                return config.name
-        return self._camera_name(camera_id) or camera_id
+        if self.lost_watch is None:
+            return []
+        return [
+            S.Box(
+                x=max(0.0, min(1.0, hit.x)),
+                y=max(0.0, min(1.0, hit.y)),
+                w=max(0.0, min(1.0, hit.w)),
+                h=max(0.0, min(1.0, hit.h)),
+                label=hit.label.title(),
+                confidence=max(0.0, min(1.0, hit.confidence)),
+                kind="object",
+                severity=S.Severity.WARN,
+            )
+            for hit in self.lost_watch.boxes_on(camera_id, colour)
+        ]
 
     def _lost_state(self) -> tuple[S.DataState, str | None]:
-        """Whether a search could be run at all, and if not, why not.
-
-        Three failures, three sentences. "Unavailable" on its own leaves an
-        operator unable to tell a model that would not load from a site with no
-        camera switched on, and only one of those is theirs to fix.
-        """
-        if self.lost_search_job is None:
+        """Whether bags can be looked for at all, and if not, why not."""
+        if self.lost_watch is None:
             if self.lost_error:
                 return S.DataState.UNAVAILABLE, self.lost_error
             return (S.DataState.UNAVAILABLE,
-                    "Lost bag search is not running, so no camera can be "
-                    "searched.")
+                    "Bag detection is not running, so no camera can be "
+                    "checked for a bag.")
         return S.DataState.LIVE, None
 
     def _lost_stage(self) -> S.PipelineStage:
-        """Rule 8: a subsystem that failed to start says so in the UI.
-
-        The reason is the same sentence the capability gives, so the page and
-        System Health cannot disagree about whether a search is possible.
-        """
+        """Rule 8: a subsystem that failed to start says so in the UI."""
         state, reason = self._lost_state()
         if state is not S.DataState.LIVE:
             return S.PipelineStage(
-                key="search_lost", name="Lost bag search",
+                key="search_lost", name="Bag detection",
                 detail=reason or "Not running.",
                 healthy=False, severity=S.Severity.WARN, restartable=False,
             )
 
-        stats = self.lost_search_job.stats
-        detector = getattr(self.lost_search_job, "detector", None)
+        stats = self.lost_watch.stats
+        detector = getattr(self.lost_watch, "detector", None)
         version = getattr(detector, "version", "unknown")
         device = getattr(detector, "device", "unknown")
         cameras = stats["cameras"]
-        doing = (f"searching {cameras} camera{'' if cameras == 1 else 's'}"
-                 if stats["state"] == "running" else "idle")
+        doing = (f"watching {cameras} camera{'' if cameras == 1 else 's'}"
+                 if cameras else "idle - nobody is looking")
         return S.PipelineStage(
-            key="search_lost", name="Lost bag search",
+            key="search_lost", name="Bag detection",
             detail=f"{version} on {device} - {doing}",
             healthy=True, severity=S.Severity.INFO, restartable=False,
         )

@@ -264,7 +264,7 @@ export interface CountResult {
   cameras: CameraView[];
 }
 
-/* ---------- lost items ---------- */
+/* ---------- a job that runs and finishes ---------- */
 
 export interface SearchJob {
   id: string;
@@ -277,40 +277,6 @@ export interface SearchJob {
   clipsSearched: number;
   clipsTotal: number;
   error?: string | null;
-}
-
-export interface LostHit {
-  cameraId: string;
-  cameraName: string;
-  at: Instant;
-  confidence: number;
-  note?: string | null;
-  box?: Box | null;
-  /** Always null. Nothing is recorded, so there is never a clip to offer. */
-  clip?: Clip | null;
-  colour?: string | null;
-  /** The lenient set: what the colour filter matched against. A dark blue bag
-   *  looks black in poor light, so it answers to both. */
-  colours?: string[];
-}
-
-export interface UnavailableCamera {
-  cameraId: string;
-  cameraName: string;
-  reason: string;
-}
-
-export interface LostResult {
-  job: SearchJob;
-  query: { cameras: string[]; colour?: string | null; item?: string };
-  hits: LostHit[];
-  cameras: CameraView[];
-  camerasChecked: number;
-  camerasUnavailable: UnavailableCamera[];
-  hiddenByColour: number;
-  framesChecked: number;
-  secondsLimit: number;
-  secondsElapsed: number;
 }
 
 /* ---------- track ---------- */
