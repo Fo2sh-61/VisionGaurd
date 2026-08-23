@@ -3,7 +3,11 @@
 # What the system is. Secrets are NOT here — reference them as ${VAR} and put
 # the values in engine/.env (gitignored). See .env.example.
 
-site_name: Greenfield International School
+# The name of the site this engine watches — a school, a campus, a company,
+# whichever it is. Left blank on purpose: VisionGuard ships without a customer
+# baked into it. Fill it in per deployment and the console shows it under the
+# product name; leave it blank and the console shows nothing there.
+site_name:
 timezone: Africa/Cairo
 
 # School hours, in site-local time.
@@ -166,6 +170,21 @@ models:
     classes: [Handgun, Rifle, Shotgun, Knife, Kitchen knife, Dagger, Sword, Axe, Weapon]
     version: oiv7-baseline
 
+  # The owner's fine-tuned YOLO-World v2 medium (7 Aug 2026, 50 epochs). It has
+  # eleven classes; lost-bag search uses only backpack (0), handbag (4) and
+  # suitcase (5). The other eight - laptop, cup, cap and the rest - fire freely
+  # on an ordinary desk and are deliberately ignored, in the model call itself.
+  bags:
+    task: detect
+    weights: models/bagbest.pt
+    imgsz: 640
+    conf: 0.4
+    iou: 0.45
+    half: true
+    version: bags-v1-2026-08-07
+
+  # History. The zero-shot search model the Lost items page was first designed
+  # around; `bags` replaced it on 23 Aug 2026 and nothing loads this entry.
   search:
     task: detect
     weights: models/yolov8m-worldv2-search.pt

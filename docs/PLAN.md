@@ -7,7 +7,9 @@
 
 ## 1. What we're building
 
-A vision system for Greenfield International School: ~208 cameras answering operator questions about attendance, headcounts, restricted zones, weapons, lost items, and where a person went. Desktop console + phone app.
+A vision system for schools and organisations: a site of ~200 cameras answering operator questions about attendance, headcounts, restricted zones, weapons, lost items, and where a person went. Desktop console + phone app.
+
+It is not built for one customer. Every site-specific fact — the site's name, its cameras, its zones, its hours — is configuration, not code.
 
 **The architecture is sound and three features already run on real data.** What remains is four foundations, then a sequence of slot-fills.
 
@@ -48,7 +50,7 @@ Verified in code this cycle. These are why P0 and P1 come before any feature wor
 | FR-05 | Restricted-zone breaches with evidence clip | missing |
 | FR-06 | Weapon detection with mandatory human review | **partial** — knives detected, recorded and reviewed by a person; no alert fan-out until P9, and no gun detection |
 | FR-07 | Track a person; face and appearance kept distinct | partial |
-| FR-08 | Lost-item search over recorded footage | missing |
+| FR-08 | Lost-item search over recorded footage | **partial** — live search of chosen cameras on demand, shipped 23 Aug 2026. No search of recorded footage, because there is no recorded footage |
 | FR-09 | People directory, groups, person history | partial |
 | FR-10 | Truthful System Health with failure reasons | partial |
 | FR-11 | Server-enforced login and roles | **missing** |
@@ -168,6 +170,27 @@ activated; changing the face model warns it destroys every enrolment.
 
 Continuous recording + retention · index at ingest so search is a query not a rescan · job-based search API · integrate the owner's re-ID model · clip export for track.
 
+**Part built, 23 Aug 2026 — lost bag search.** The owner supplied `bagbest.pt`, so
+the half of this phase that does not need recording went in: an operator ticks
+areas or cameras, presses Search, and one thread looks at those cameras live for
+up to sixty seconds. A camera that saw a bag in **two or more frames** comes to the
+front of the grid, badged, with an amber box. Colour is a filter over what was
+found, matched leniently against a set rather than one name, and the page says how
+many it hid. Nothing runs when nobody is searching; idle cost is zero.
+
+**Not built, and the page no longer implies otherwise.** No continuous recording,
+so no clip to watch and no "missing since" period — both were removed from the
+page rather than left as buttons that could not work. No index at ingest: a search
+looks at live frames, not at history, so a bag that was taken before the search
+started cannot be found. No re-ID.
+
+**What it is honestly worth.** Accuracy on real bags is unmeasured — there is no
+clip with a bag in it. Accuracy on footage *without* one is measured and is not
+clean: 19 bag-class detections over 706 sampled frames of the no-bag clips, of
+which a black office chair accounts for most, held steadily enough that the
+two-frame rule cannot reject it (research D10). So a hit is presented as a
+**possible** bag for a person to look at, never as a finding.
+
 ### P8 — Scale to 208 · 2–3 wk + hardware
 
 Synthetic camera harness · staged benchmarks 1 → 8 → 32 → 104 → 208 · bounded worker pools replacing thread-per-camera (F5) · multi-process partitioning · sub-streams · UI pagination · decide Postgres **from measurement, not preference**.
@@ -212,9 +235,9 @@ One row is measured. The rest are still targets.
 | Zone breach → visible | ≤ 5 s | built (P4), not yet timed by hand |
 | Weapon detection → review queue | ≤ 2 s | built (P6); the confirm rule adds ~1 s by design, not yet timed end to end by hand |
 | Camera drops → NO SIGNAL shown | ≤ 2 s | not measured |
-| Lost-item search | ≤ 60 s | feature not built (P7) |
+| Lost bag search | ≤ 60 s | **built (P7), 23 Aug 2026** — the limit *is* 60 s and the job ends itself at it |
 
-**Measured 22 Aug 2026**, `python engine/tools/benchmark.py [--model weapons]`,
+**Measured 22–23 Aug 2026**, `python engine/tools/benchmark.py [--model weapons|bags]`,
 on an RTX 2080 Max-Q (8 GB, laptop) on CUDA, timed over 60 frames of the labelled
 walk-through clip:
 
@@ -222,11 +245,18 @@ walk-through clip:
 |---|---|---|---|
 | `yolov8s.pt` (person) | 17.7 ms | 22.3 ms | 54.5 frames/sec |
 | `knifebest.pt` (knife) | 15.8 ms | 17.4 ms | 61.4 frames/sec |
+| `bagbest.pt` (bags) | 25.4 ms | 28.1 ms | 39.2 frames/sec |
 
 The knife model costs the same as the person model, and it ran on that clip without
 a single detection — which is the right answer, because there is no knife in it.
 It is a **second** pass, but only on frames that had a person in them, so the sizing
 arithmetic below stays the person model's question.
+
+The bag model costs about 1.6× the person model and runs on the **whole** frame —
+there is no person gate, because a lost bag is precisely the one with nobody near
+it. It is absent from the scaling arithmetic below on purpose: it runs only while
+somebody is holding down a search, never continuously, so it adds nothing to the
+steady-state load. Idle cost is zero.
 
 Re-run it on the deployment workstation. This is a power-limited laptop GPU
 without TensorRT, so it is the floor, not the ceiling.

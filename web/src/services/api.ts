@@ -45,8 +45,8 @@ import type {
 import * as W from './wire';
 
 /** Which overlay a page wants on a camera. One camera, different questions. */
-export type CameraFeature = 'attendance' | 'track' | 'counting' | 'intrusion' | 'weapons';
-import { ApiError, SEARCH_TIMEOUT_MS, apiBase, assetUrl, del, get, patch, post, postFile, request, setSessionToken } from './http';
+export type CameraFeature = 'attendance' | 'track' | 'counting' | 'intrusion' | 'weapons' | 'lost';
+import { ApiError, apiBase, assetUrl, del, get, patch, post, postFile, request, setSessionToken } from './http';
 import type { Account } from '@/app/AuthContext';
 import type { Role, Tone } from '@/types';
 import {
@@ -409,40 +409,73 @@ export async function getWeaponCameras(): Promise<Camera[]> {
   return toCameras(await get<W.CameraView[]>('/weapons/cameras'));
 }
 
-/* ---------- lost items ---------- */
+/* ---------- lost items ----------
+ *
+ *  A live search, not a search of footage: the engine looks at the ticked
+ *  cameras for up to a minute and nothing is recorded. POST starts it and
+ *  returns at once, GET is polled once a second while it runs, DELETE stops
+ *  it. None of them needs the long timeout the old footage search had.
+ */
 
 export async function searchLostItem(query: LostQuery): Promise<LostResult> {
-  // Runs over stored footage, so it gets the long timeout. The UI's
-  // "Searching footage…" state covers it.
-  const result = await post<W.LostResult>(
-    '/lost-items/search',
-    {
-      item: query.item,
-      colour: query.colour === 'Any' ? null : query.colour,
-      area: query.area,
-      since: query.since,
-    },
-    undefined,
-    SEARCH_TIMEOUT_MS,
+  return toLostResult(
+    await post<W.LostResult>('/lost-items/search', {
+      cameras: query.cameras,
+      colour: query.colour ?? null,
+    }),
   );
+}
 
-  const label = `${query.colour === 'Any' ? '' : `${query.colour.toLowerCase()} `}${query.item.toLowerCase()}`;
+/** The running search, or the last one. `null` before any has been run. */
+export async function getLostSearch(): Promise<LostResult | null> {
+  try {
+    return toLostResult(await get<W.LostResult>('/lost-items/search'));
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return null;
+    throw err;
+  }
+}
+
+export async function stopLostSearch(): Promise<void> {
+  await del('/lost-items/search');
+}
+
+function toLostResult(result: W.LostResult): LostResult {
+  const areaOf = new Map(result.cameras.map((c) => [c.id, c.area ?? '']));
   const hits: LostHit[] = result.hits.map((h) => ({
+    cameraId: h.cameraId,
     camera: h.cameraName,
+    area: areaOf.get(h.cameraId) ?? '',
     time: formatTime(h.at),
-    confidence: Math.round(h.confidence * 100),
-    strong: h.confidence >= 0.8,
+    confidence: formatPercent(h.confidence),
     note: h.note ?? '',
+    colour: h.colour ?? undefined,
+    colours: h.colours ?? [],
   }));
 
+  const byCamera = new Map(hits.map((h) => [h.cameraId, h]));
+
   return {
-    label,
-    sub: `Searching for a ${label} · ${(query.area ?? '').toLowerCase()} · ${(query.since ?? '').toLowerCase()}`,
+    state: result.job.state,
     hits,
-    searched: result.job.state === 'done',
-    cameras: result.cameras.map((c, i) =>
-      toCamera(c, result.hits[i] ? `${Math.round(result.hits[i].confidence * 100)}% match · ${formatTime(result.hits[i].at)}` : undefined),
-    ),
+    cameras: result.cameras.map((c) => {
+      const hit = byCamera.get(c.id);
+      // The tile says when a bag was seen and what colour it looked, never
+      // that a bag *is* there: the model is not sure enough for that sentence
+      // and the operator is about to look at the picture anyway.
+      const looked = hit && hit.colours.length ? ` · looked ${hit.colours.join(' or ')}` : '';
+      return toCamera(c, hit ? `Bag seen · ${hit.time}${looked}` : undefined);
+    }),
+    camerasChecked: result.camerasChecked,
+    unavailable: result.camerasUnavailable.map((u) => ({
+      camera: u.cameraName,
+      reason: u.reason,
+    })),
+    hiddenByColour: result.hiddenByColour,
+    framesChecked: result.framesChecked,
+    secondsElapsed: result.secondsElapsed,
+    secondsLimit: result.secondsLimit,
+    error: result.job.error ?? undefined,
   };
 }
 

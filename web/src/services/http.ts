@@ -27,10 +27,10 @@
  *  another origin, and expect the live views to be blank if you do. */
 const BASE = (import.meta.env.VITE_API_BASE ?? '').replace(/\/$/, '');
 
-/** How long before we give up. Lost-item search runs over stored footage and is
- *  allowed a minute; everything else should be quick or is broken. */
+/** How long before we give up. Everything should be quick or is broken:
+ *  the lost-bag search that once needed ninety seconds now starts a job and
+ *  returns at once, so nothing is left that waits on a long answer. */
 const DEFAULT_TIMEOUT_MS = 15_000;
-export const SEARCH_TIMEOUT_MS = 90_000;
 
 /** The session token, held in memory for the life of the page.
  *

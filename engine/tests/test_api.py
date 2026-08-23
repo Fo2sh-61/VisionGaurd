@@ -251,6 +251,8 @@ class TestCoverage:
         ("POST", "/weapons/{id}/review"),   # (new) confirm/dismiss
         ("GET", "/weapons/cameras"),     # getWeaponCameras
         ("POST", "/lost-items/search"),  # searchLostItem
+        ("GET", "/lost-items/search"),  # getLostSearch
+        ("DELETE", "/lost-items/search"),  # stopLostSearch
         ("POST", "/track"),              # trackPerson + recordTrackSearch
         ("GET", "/audit"),
         ("GET", "/system/health"),       # getSystemHealth

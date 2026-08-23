@@ -35,13 +35,6 @@ export const CAPABILITIES: { capability: string; admin: boolean; it: boolean }[]
 
 /** The explainer on the Weapons page: what happens, in order, when something
  *  is spotted. The third step is the product's core safety claim. */
-/** Search vocabulary for Lost Items.
- *
- *  These mirror the prompts baked into `yolov8m-worldv2-search.pt` — see
- *  models/README.md. Adding an option here does nothing unless the model can
- *  actually detect it, so keep the two in step. */
-export const LOST_SINCE = ['Last hour', 'This morning', 'Today', 'Yesterday', 'Last 3 days'];
-
 /** Time-of-day presets on the Track a person page. */
 export const TRACK_WINDOWS = [
   { label: 'Whole school day', from: '07:00', to: '16:00' },

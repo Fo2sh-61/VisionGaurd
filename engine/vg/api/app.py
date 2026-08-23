@@ -252,6 +252,8 @@ async def lifespan(app: FastAPI):
     app.state.weapons_error: str | None = None
     app.state.weapons = None
     app.state.weapon_scenes = None
+    app.state.lost_error: str | None = None
+    app.state.lost = None
 
     if cfg is not None and os.getenv("VG_MOCK") != "1":
         from pathlib import Path
@@ -334,6 +336,9 @@ async def lifespan(app: FastAPI):
         ) = _start_weapons(
             cfg, registry, roster, getattr(people, "detector", None),
         )
+        # Lost bag search. Constructed, never started: nothing runs until
+        # somebody presses Search, which is what "on demand" has to cost.
+        app.state.lost, app.state.lost_error = _start_lost(cfg, registry, roster)
         # Where somebody has been. Written by whichever recognition tier saw
         # them, read by the Track page as one indexed query — which is the
         # whole reason the past-path question is instant.
@@ -384,11 +389,13 @@ async def lifespan(app: FastAPI):
             zones=app.state.zones,
             weapons=app.state.weapons,
             weapon_scenes=app.state.weapon_scenes,
+            lost=app.state.lost,
         )
         store.recognition_error = app.state.recognition_error
         store.people_error = app.state.people_error
         store.zones_error = app.state.zones_error
         store.weapons_error = app.state.weapons_error
+        store.lost_error = app.state.lost_error
         set_store(store)
 
         # The banner. A console showing invented attendance next to real camera
@@ -423,6 +430,12 @@ async def lifespan(app: FastAPI):
         if recorder is not None:
             recorder.stop_all()
 
+        # Not a worker: it has no `stop(actor)` signature and no permanent
+        # thread. If a search is running, ending it here joins that thread
+        # before the cameras it is reading go away underneath it.
+        search = getattr(app.state, "lost", None)
+        if search is not None:
+            search.stop()
         for worker in (
             # Knife detection first, then zones: stopping either closes any
             # running scene and releases its clip, so the log has no row
@@ -1149,6 +1162,56 @@ def _start_enrolment(cfg):
         return None, None, None, _reason(exc)
 
 
+def _start_lost(cfg, registry, roster):
+    """Lost bag search: built now, run only when somebody presses Search.
+
+    Unlike every other feature here this one is **constructed and not
+    started**. There is no thread and no model call until a POST arrives, which
+    is the whole of what "on demand" has to cost. `BagSearch` owns the thread
+    it makes then.
+
+    Takes no person detector, on purpose. Knives are looked for on people; a
+    lost bag is precisely the one with nobody near it, so the frame goes to the
+    model whole and no other feature has to be switched on for this to work
+    (rule 9).
+
+    Returns `(search, error)`. Every failure comes back as a sentence for the
+    page rather than an exception - a missing weights file on a fresh machine
+    must not take the engine down, and it must not be silent either (rule 8).
+    """
+    if not [c.id for c in roster if c.enabled]:
+        log.info("no enabled camera; lost bag search has nothing to search")
+        return None, "No camera is running, so there is nothing to search."
+
+    try:
+        from vg.features.lostbag import BagSearch
+        from vg.infer.bags import BagDetector
+
+        spec = cfg.models.get("bags")
+        if spec is None:
+            return None, "No 'bags' model is configured in engine.yaml."
+
+        detector = BagDetector(
+            weights=spec.weights,
+            device=spec.device,
+            imgsz=spec.imgsz,
+            conf=spec.conf,
+            iou=spec.iou,
+            half=spec.half,
+        )
+        return BagSearch(registry, detector, clock_for(cfg.timezone)), None
+    except FileNotFoundError as exc:
+        # The commonest case by far, and not a bug: a machine without the
+        # owner's weights. Say which file, and keep every other feature up.
+        log.warning("lost bag search is off: %s", exc)
+        _reraise_if_strict(exc, "lost bag search")
+        return None, f"Lost bag search failed to start ({exc})"
+    except Exception as exc:
+        log.exception("lost bag search failed to start")
+        _reraise_if_strict(exc, "lost bag search")
+        return None, f"Lost bag search failed to start ({_reason(exc)})"
+
+
 def _reason(exc: BaseException) -> str:
     """One line an operator can act on, not a traceback."""
     return f"{type(exc).__name__}: {exc}"
@@ -1457,7 +1520,7 @@ def _mount(app: FastAPI) -> None:
         store: StoreDep,
         feature: Annotated[
             str | None,
-            Query(pattern="^(attendance|track|counting|intrusion|weapons)$"),
+            Query(pattern="^(attendance|track|counting|intrusion|weapons|lost)$"),
         ] = None,
     ) -> S.CameraDetections:
         """Just the overlay geometry, nothing else.
@@ -1787,13 +1850,41 @@ def _mount(app: FastAPI) -> None:
     # ----------------------------------------------------------- lost items
     @app.post("/lost-items/search", response_model=S.LostResult, tags=["lost-items"])
     async def search_lost(query: S.LostQuery, store: StoreDep) -> S.LostResult:
-        """Retrospective search over stored footage. Budget: under a minute.
+        """Start a live search of the chosen cameras, and return at once.
 
-        Returns a completed job today. When this runs for real it becomes
-        POST -> job id -> poll/stream, which the UI's "Searching footage…"
-        state is already built for; `LostResult.job` carries the progress.
+        Replaces any search already running - results must never mix, and a
+        queue of searches for a missing bag is a queue nobody wants to wait in.
+
+        An empty camera list comes back 200 with `job.state = "failed"` and a
+        sentence, not a 422: there is nothing an error code helps somebody do
+        except tick a box. A camera id this engine does not know is named in
+        `camerasUnavailable` and the rest of the search still runs.
         """
-        return store.search_lost(query)
+        try:
+            return store.search_lost(query)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        except SubsystemUnavailable as exc:
+            raise HTTPException(503, str(exc)) from exc
+
+    @app.get("/lost-items/search", response_model=S.LostResult, tags=["lost-items"])
+    async def get_lost_search(store: StoreDep) -> S.LostResult:
+        """The running search, or the last one. Polled once a second."""
+        try:
+            result = store.lost_search()
+        except SubsystemUnavailable as exc:
+            raise HTTPException(503, str(exc)) from exc
+        if result is None:
+            raise HTTPException(404, "No search has been run.")
+        return result
+
+    @app.delete("/lost-items/search", status_code=204, tags=["lost-items"])
+    async def stop_lost_search(store: StoreDep) -> None:
+        """Stop the search, keeping its hits. Stopping nothing is not a failure."""
+        try:
+            store.stop_lost_search()
+        except SubsystemUnavailable as exc:
+            raise HTTPException(503, str(exc)) from exc
 
     # ----------------------------------------------------------------- track
     @app.post("/track", response_model=S.TrackResult, tags=["track"])

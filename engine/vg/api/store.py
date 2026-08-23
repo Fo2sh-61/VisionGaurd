@@ -22,9 +22,12 @@ from typing import Protocol
 
 from vg.api import schemas as S
 
-# Cairo. The demo fixtures are written in local school time.
+# Cairo. The demo fixtures are written in local site time.
 TZ_OFFSET_MINUTES = 180
-SCHOOL_NAME = "Greenfield International School"
+# No customer is baked into the product. A deployment sets `site_name` in
+# engine.yaml; until then there is no site to name, and the console says so by
+# showing nothing rather than someone else's name.
+SCHOOL_NAME = ""
 TODAY = date(2026, 7, 29)
 CAMERA_TOTAL = 208
 
@@ -115,6 +118,8 @@ class Store(Protocol):
     ) -> S.AttendanceResult: ...
     def count(self, place: str, window: str) -> S.CountResult: ...
     def search_lost(self, query: S.LostQuery) -> S.LostResult: ...
+    def lost_search(self) -> S.LostResult | None: ...
+    def stop_lost_search(self) -> None: ...
     def track(self, query: S.TrackQuery, actor: str) -> S.TrackResult: ...
 
     def path_skeleton(
@@ -566,23 +571,36 @@ class MockStore:
         hits = [
             S.LostHit(camera_id="l-lib", camera_name="Library - east",
                       at=at(13, 8), confidence=0.94,
-                      note="Left on a table, no owner nearby",
+                      note="Seen 14 times over 38 seconds",
                       box=box(0.55, 0.62, 0.12, 0.14, kind="object",
-                              confidence=0.94)),
+                              confidence=0.94),
+                      colour="black", colours=["black"]),
             S.LostHit(camera_id="l-corr", camera_name="Building A corridor",
                       at=at(12, 51), confidence=0.71,
-                      note="Carried, partially occluded"),
+                      note="Seen 3 times over 6 seconds",
+                      colour="black", colours=["black"]),
         ]
-        return S.LostResult(
+        # No clips exist even in demo mode, so the clip counters stay 0 — the
+        # fixture may be invented but it must not invent a *kind* of answer
+        # the real engine can never give.
+        self._last_lost = S.LostResult(
             job=S.SearchJob(id="job-1", state="done", progress=1.0,
-                            submitted_at=now(), clips_searched=284,
-                            clips_total=284),
+                            submitted_at=now()),
             query=query, hits=hits,
             cameras=[S.CameraView(id="l-lib", name="Library - east",
                                   captured_at=at(13, 8),
                                   boxes=[h.box for h in hits if h.box],
                                   snapshot_url="/cameras/l-lib/snapshot")],
+            cameras_checked=1, hidden_by_colour=0, frames_checked=0,
+            seconds_limit=60.0, seconds_elapsed=0.0,
         )
+        return self._last_lost
+
+    def lost_search(self) -> S.LostResult | None:
+        return getattr(self, "_last_lost", None)
+
+    def stop_lost_search(self) -> None:
+        """Demo mode has no thread to stop; stopping nothing is not a failure."""
 
     # -- track --------------------------------------------------------------
 
@@ -780,7 +798,7 @@ class MockStore:
         ("track", "Track a person"),
         ("breaches", "Restricted zones"),
         ("weapons", "Weapon detection"),
-        ("search_lost", "Lost item search"),
+        ("search_lost", "Lost bag search"),
         ("users", "Users and roles"),
         ("audit", "Audit trail"),
         ("attention", "Alerts"),
@@ -1005,7 +1023,7 @@ class MockStore:
         return [
             S.User(id="u1", name="Mohamed Fouad", email="mohamed61fouad@gmail.com",
                    role=S.Role.ADMIN, last_active=now()),
-            S.User(id="u2", name="Tarek Nassar", email="t.nassar@greenfield.edu.eg",
+            S.User(id="u2", name="Tarek Nassar", email="t.nassar@example.com",
                    role=S.Role.IT, last_active=at(8, 12)),
         ]
 

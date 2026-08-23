@@ -4,6 +4,7 @@ import type { CameraFeature } from '@/services/api';
 import { getCameraCounts } from '@/services/api';
 import { describeCount } from '@/services/format';
 import type { Camera } from '@/types';
+import { Badge } from './ui';
 import { CameraFrame } from './CameraFrame';
 import { CameraModal } from './CameraModal';
 
@@ -48,6 +49,7 @@ export function CamGrid({
   activeId,
   feature,
   tileOverlay = false,
+  pinned,
 }: {
   title: string;
   note?: string;
@@ -84,6 +86,15 @@ export function CamGrid({
    *  first. Requires `feature` - a tile overlay with no feature would draw
    *  the default face boxes, which carry names. */
   tileOverlay?: boolean;
+  /** Bring these cameras to the front, in this order, and badge them.
+   *
+   *  **The only prop that reorders the roster**, and it should stay the only
+   *  one. Every other page shows the cameras in roster order on purpose: an
+   *  operator learns where a tile lives and a grid that rearranged itself
+   *  between polls would make that impossible. A search result is the one case
+   *  where the order *is* the answer - the cameras that saw the bag are the
+   *  point, and burying them on page four of the pager would be. */
+  pinned?: string[];
 }) {
   const [open, setOpen] = useState<Camera | null>(null);
   const [search, setSearch] = useState('');
@@ -119,7 +130,18 @@ export function CamGrid({
     ? matching.slice(current * pageSize, current * pageSize + pageSize)
     : matching;
 
-  const refreshMs = tileRefreshMs(shown.length);
+  // Inside a memo: `counts` repolls every second, and re-sorting on each of
+  // those would make the tiles jump under the pointer.
+  const ordered = useMemo(() => {
+    if (!pinned?.length) return shown;
+    const rank = new Map(pinned.map((id, i) => [id, i]));
+    return [...shown].sort(
+      (a, b) => (rank.get(a.id) ?? Infinity) - (rank.get(b.id) ?? Infinity),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shown, pinned?.join(',')]);
+
+  const refreshMs = tileRefreshMs(ordered.length);
   const [counts, setCounts] = useState<Record<string, number | null>>({});
 
   // The camera payload is fetched once when the page runs its query, so the
@@ -154,7 +176,7 @@ export function CamGrid({
       className="camcard"
       onClick={() => pick(cam)}
       style={
-        cam.id === activeId
+        cam.id === activeId || pinned?.includes(cam.id)
           ? { outline: '2px solid var(--ac)', outlineOffset: 1 }
           : undefined
       }
@@ -181,6 +203,11 @@ export function CamGrid({
         <div style={{ fontSize: 11.5, color: 'var(--tx2)', marginTop: 1 }}>
           {cam.offline ? cam.status : describeCount(counts[cam.id], cam.status)}
         </div>
+        {pinned?.includes(cam.id) && (
+          <div style={{ marginTop: 4 }}>
+            <Badge tone="warn">Bag seen</Badge>
+          </div>
+        )}
       </div>
     </button>
   );
@@ -188,7 +215,7 @@ export function CamGrid({
   // Areas in the order their first camera appears, so the grid does not
   // reshuffle itself between polls.
   const areas: string[] = [];
-  for (const cam of shown) {
+  for (const cam of ordered) {
     const area = cam.area || UNPLACED;
     if (!areas.includes(area)) areas.push(area);
   }
@@ -263,11 +290,11 @@ export function CamGrid({
                 {area}
               </div>
               <div className="camgrid">
-                {shown.filter((c) => (c.area || UNPLACED) === area).map(tile)}
+                {ordered.filter((c) => (c.area || UNPLACED) === area).map(tile)}
               </div>
             </div>
           ))
-        : shown.length > 0 && <div className="camgrid">{shown.map(tile)}</div>}
+        : ordered.length > 0 && <div className="camgrid">{ordered.map(tile)}</div>}
 
       {pageSize && pages > 1 && (
         <div

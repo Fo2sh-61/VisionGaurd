@@ -99,7 +99,54 @@ generic `Weapon`. It is a genuinely trained closed-set model and worth scoring a
 the same golden clips if guns are ever brought into scope. Neither it nor the prompted
 model has been benchmarked — that is model-manager work, not part of knife detection.
 
-## The second custom model: appearance search
+## The second custom model: bags — `bagbest.pt`
+
+**What it is.** A YOLO-World v2 medium, fine-tuned from `yolov8m-worldv2.pt` on the
+owner's merged dataset: 7 Aug 2026, 50 epochs, 28.4 M parameters. Eleven classes with
+the text features baked in (`txt_feats (1, 11, 512)`) and the CLIP encoder stripped, so
+nothing needs a text encoder at run time. Own-validation mAP50 0.89, precision 0.90,
+recall 0.82 — across all eleven classes, not bags alone.
+
+**Eleven classes, three used:**
+
+> backpack (0) · laptop (1) · jacket (2) · key (3) · handbag (4) · suitcase (5) ·
+> cup (6) · book (7) · shoes (8) · cap (9) · glasses (10)
+
+Lost-bag search passes `classes=[0, 4, 5]` into `predict`, so the other eight never
+leave the detector. That is not tidiness. `laptop` fires on every desk in the building
+and `cup` on most of them, and a lost-property search that offers somebody a laptop
+they did not ask about is noise on a screen that must not have any. Verified on this
+machine that a `WorldModel` honours `classes=` the way a plain YOLO does.
+
+**It is a World checkpoint**, so `vg/infer/bags.py` sets `YOLO_AUTOINSTALL=false`
+*before* importing ultralytics — loading one otherwise triggers a dependency check that
+will try to pip-install CLIP mid-run.
+
+**Cost:** p50 25.4 ms, p95 28.1 ms, 39.2 frames/sec on the RTX 2080 Max-Q at FP16,
+imgsz 640 — about 1.6× the person model, on the whole frame with no person gate.
+
+**Accuracy on real bags is unmeasured.** There is no recorded clip with a bag in it.
+What is measured is the opposite: on the two clips that contain *no* bag, at the
+configured `conf 0.4`, it produced 19 bag-class detections over 706 sampled frames.
+Two modes, confirmed by eye (research D10):
+
+| Mode | What it is | Confidence |
+|---|---|---|
+| Motion blur | a bumped, blurred frame read as one `suitcase` covering 99.7 % of the picture | up to 0.88 |
+| Dark furniture | a **black office chair back** read as `suitcase` for 13 consecutive sampled frames | 0.55 – 0.88 |
+
+The first is rejected by a `MAX_BOX_FRACTION` of 0.6. The second is not rejectable by
+any threshold: it is stationary, and a lost bag is stationary by definition. So the
+product never claims a bag was found — it says *possible bag*, in amber, and a person
+looks.
+
+---
+
+## The third custom model: appearance search — history
+
+**Nothing loads this any more.** It was the model the Lost Items page was first designed
+around; `bagbest.pt` replaced it for that purpose on 23 Aug 2026, and the clothing half
+belongs to track-a-person, which does not use it either yet. Kept for the record.
 
 `yolov8m-worldv2-search.pt` (343 MB, saved 2026-05-09), 35 prompts:
 
@@ -108,13 +155,13 @@ model has been benchmarked — that is model-manager work, not part of knife det
 > sunglasses · mask · scarf · belt · tie · backpack · handbag · suitcase · umbrella ·
 > phone · bottle · book · laptop · cup · sports ball
 
-This serves two features at once:
+It was meant to serve two features at once:
 
-- **Lost items** — `backpack`, `handbag`, `suitcase`, `umbrella`, `phone`, `bottle`,
-  `book`, `laptop`, `cup` map directly onto the item dropdown on the Lost Items page.
-  Colour comes from a separate histogram step, not from the model.
+- ~~**Lost items**~~ — superseded. It was open-vocabulary and never trained on bags;
+  the owner supplied a trained replacement. The item dropdown it was designed for is
+  gone too: the page now asks *which cameras*, not *which kind of bag*.
 - **Track a person** — the clothing prompts describe what someone is wearing, which is
-  the appearance half of re-identification.
+  the appearance half of re-identification. Still unbuilt (P7).
 
 `hijab` in the list is a good sign: whoever built it was thinking about the actual student
 population, not a Western benchmark set.

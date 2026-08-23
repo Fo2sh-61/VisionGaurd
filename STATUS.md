@@ -1,6 +1,6 @@
 # VisionGuard — Status
 
-**Updated:** 20 Aug 2026 · **Commit:** `6b0479c` · Plan: `docs/PLAN.md` · Rules: `.specify/memory/constitution.md`
+**Updated:** 23 Aug 2026 · **Commit:** `e101db1` · Plan: `docs/PLAN.md` · Rules: `.specify/memory/constitution.md`
 
 ## Feature state
 
@@ -17,7 +17,7 @@
 | Track a person | **Real** — live: click a body and it is followed across cameras, named only after a sustained face, recorded one file per camera with the stop reason. Past: stops answer instantly from the anchor table, each with its evidence, and play back as 30s chunks off the footage/DVR archive. Sweeps refuse over a measured budget |
 | Restricted zones | **Real** — any camera can be marked restricted; its whole frame is the zone. Scenes are logged and recorded, last three clips kept per camera, log refreshes itself. No schedules |
 | Knife detection | **Real** (P6) — the owner's trained knife model runs on every enabled camera, but only on frames with a person in them and only for knives held by one. Three sightings over a second open one entry with one video; two seconds without a knife closes it and ends the video (owner set this, down from ten, after testing with a real knife — the cost is that a blink longer than two seconds splits one incident into two entries). Every entry waits for a person to press Confirm or False alarm, recorded against the signed-in account and audited before the write. Videos are kept 30 days, entries for ever. **No alerts fan out** — nothing is sent to anybody. **False-alarm rate is not zero**: a live loop of the recorded clip raised one 12.5 s entry at 0.76 on footage with no knife (roughly one per four loops). Accuracy on a real knife is unmeasured |
-| Lost items | **Fake** — model present, no worker, no tables. The page says so instead of showing an all-clear (P0-08) |
+| Lost bag | **Real** (P7) — on demand and live only. An operator ticks areas or cameras and presses Search; one thread looks at those cameras for up to 60 seconds and then stops itself. A camera that saw a bag in **two or more frames** comes to the front of the grid, badged, with an amber box; colour narrows what was found, matched leniently against a set rather than one name, and the page says how many it hid. **Nothing is recorded** — no clip, no still, no table, nothing to watch afterwards, and no search of the past. **Nothing is alerted.** Idle cost is zero: no thread and no model call until the button is pressed. **Accuracy on real bags is unmeasured** — there is no clip with a bag in it. On footage with *no* bag it is measurably not clean: 19 bag-class detections over 706 sampled frames, mostly a black office chair read as a suitcase at up to 0.88 and held long enough that the two-frame rule cannot reject it. So the page says *possible bag* and waits for a person to look |
 | Users, audit, notifications | **Auth is real** (P2) — argon2 accounts, server-enforced roles, sessions revocable. Audit still lives in RAM |
 | Mobile app | **Fake** — entirely fixtures, including random numbers |
 | Fights | **Removed from scope** — no model. Page, endpoints and mock methods all gone (P0-05) |
@@ -74,6 +74,7 @@ python engine/tools/create_user.py
 
 - **Re-ID model** + architecture + how it loads + Python version → blocks `.venv` and track
 - **A recorded clip with a knife in it** → the regression suite has 21 labelled ground-truth marks and not one knife, so knife accuracy on real footage is still unmeasured
+- **A recorded clip with a bag in it** → same gap on the other side: bag detection is proved not to fire on furniture-only footage but has never been shown to find a real bag. `python engine/tools/record.py` writes one
 - **Consent / lawful basis for biometrics of minors** → blocks deployment entirely
 - **Target hardware** → blocks the 208-camera plan
 - **Rotate the Kaggle key** that was in `models/knife detection/kaggle.json`. The folder and the file are gone from disk and were never in git, but a key that once sat in a working tree is a key to rotate
@@ -93,7 +94,7 @@ Tests: `.\dev.ps1 test` runs all four gates — pyflakes, pytest, smoke start, t
 
 No `.venv` yet — deliberately blocked on the re-ID handover. System Python 3.14 works: torch 2.11.0+cu128, CUDA true on an RTX 2080.
 
-**Gates verified 22 Aug 2026, all four green:** 804 passed, 6 skipped · pyflakes clean over `vg`, `tools` and `tests` · smoke start exit 0 · tsc clean. (Was 768 passed before knife detection; it added 36 tests.)
+**Gates verified 23 Aug 2026, all four green:** 841 passed, 6 skipped · pyflakes clean over `vg`, `tools` and `tests` · smoke start exit 0 · tsc clean. (Was 811 passed before lost bag search; it added 30 tests.)
 
 Also verified on a **fresh clone with no `engine/data/` and no model weights** — the condition CI runs in: 374 passed, 7 skipped. The extra skip is the model-weights check, which has nothing to check on a machine that has no weights.
 

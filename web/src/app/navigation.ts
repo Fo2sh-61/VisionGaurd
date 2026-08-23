@@ -41,7 +41,7 @@ export const HOME_ICON = ICON.home;
 export const NAV: NavEntry[] = [
   { id: 'attendance', path: '/attendance', label: 'Attendance', blurb: 'Who arrived, who’s missing', section: 'ask', icon: ICON.attendance },
   { id: 'counting', path: '/counting', label: 'People counting', blurb: 'How many, anywhere', section: 'ask', icon: ICON.counting },
-  { id: 'lost-items', path: '/lost-items', label: 'Lost bag', blurb: 'Search footage for it', section: 'ask', icon: ICON['lost-items'] },
+  { id: 'lost-items', path: '/lost-items', label: 'Lost bag', blurb: 'Look for it now', section: 'ask', icon: ICON['lost-items'] },
   { id: 'track', path: '/track', label: 'Track a person', blurb: 'Always logged', section: 'ask', icon: ICON.track },
 
   { id: 'intrusion', path: '/intrusion', label: 'Restricted zones', blurb: 'Areas that must stay empty', section: 'watch', icon: ICON.intrusion },

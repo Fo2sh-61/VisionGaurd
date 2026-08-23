@@ -268,9 +268,12 @@ export interface CountResult {
 
 export interface SearchJob {
   id: string;
-  state: 'queued' | 'running' | 'done' | 'failed';
+  /** `stopped` is a finished search that was cut short by hand or replaced by
+   *  a newer one. It keeps its hits - stopping is not undoing. */
+  state: 'queued' | 'running' | 'done' | 'stopped' | 'failed';
   progress: number;
   submittedAt: Instant;
+  /** Always 0. Nothing is recorded, so there are no clips to have searched. */
   clipsSearched: number;
   clipsTotal: number;
   error?: string | null;
@@ -283,14 +286,31 @@ export interface LostHit {
   confidence: number;
   note?: string | null;
   box?: Box | null;
+  /** Always null. Nothing is recorded, so there is never a clip to offer. */
   clip?: Clip | null;
+  colour?: string | null;
+  /** The lenient set: what the colour filter matched against. A dark blue bag
+   *  looks black in poor light, so it answers to both. */
+  colours?: string[];
+}
+
+export interface UnavailableCamera {
+  cameraId: string;
+  cameraName: string;
+  reason: string;
 }
 
 export interface LostResult {
   job: SearchJob;
-  query: { item: string; colour?: string | null; area?: string | null; since?: string | null };
+  query: { cameras: string[]; colour?: string | null; item?: string };
   hits: LostHit[];
   cameras: CameraView[];
+  camerasChecked: number;
+  camerasUnavailable: UnavailableCamera[];
+  hiddenByColour: number;
+  framesChecked: number;
+  secondsLimit: number;
+  secondsElapsed: number;
 }
 
 /* ---------- track ---------- */

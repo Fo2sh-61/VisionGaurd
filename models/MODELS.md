@@ -1,6 +1,6 @@
 # Model inventory
 
-Generated 2026-08-22T11:38:20+00:00 by `engine/tools/audit_models.py`. Do not hand-edit — regenerate after adding or replacing a weight file.
+Generated 2026-08-23T08:02:01+00:00 by `engine/tools/audit_models.py`. Do not hand-edit — regenerate after adding or replacing a weight file.
 
 20 files, 1.3 GB total.
 

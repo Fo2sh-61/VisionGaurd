@@ -530,14 +530,23 @@ class CountResult(Wire):
 
 
 # ---------------------------------------------------------------------------
-# lost items — job-based, it runs over stored footage
+# lost items — a live search of the cameras you tick, for up to a minute
 # ---------------------------------------------------------------------------
+# Nothing is recorded and nothing is stored: a search is a question asked now
+# and answered now. `clips_searched` / `clips_total` therefore stay 0 — there
+# are no clips, and saying otherwise would be the precision rule broken.
 
 class LostQuery(Wire):
-    item: str
+    """Which cameras to look at, and optionally which colour to keep.
+
+    `area` and `since` were removed on 23 Aug 2026: the console resolves areas
+    to camera ids itself, and there is no recorded footage for `since` to mean
+    anything. `item` keeps its default so demo mode still constructs one.
+    """
+
+    cameras: list[str] = Field(default_factory=list)
     colour: str | None = None
-    area: str | None = None
-    since: str | None = None
+    item: str = "bag"
 
 
 class LostHit(Wire):
@@ -548,17 +557,33 @@ class LostHit(Wire):
     note: str | None = None
     box: Box | None = None
     clip: Clip | None = None
+    #: the best colour name, and the lenient set the filter matches against —
+    #: a dark blue bag looks black in poor light, so it answers to both.
+    colour: str | None = None
+    colours: list[str] = Field(default_factory=list)
+
+
+class UnavailableCamera(Wire):
+    """A camera that was asked for but could not be looked at, and why.
+
+    Named rather than dropped: an operator who ticked a camera is owed an
+    answer about it, even when the answer is that it is switched off.
+    """
+
+    camera_id: str
+    camera_name: str
+    reason: str
 
 
 class SearchJob(Wire):
-    """POST returns one of these; the UI polls or streams until `done`.
+    """POST returns one of these; the console polls until it leaves `running`.
 
-    The Lost Items page already has a "Searching footage…" state built for
-    exactly this, and the budget is under a minute.
+    `stopped` is a finished search that was cut short by hand or replaced by
+    a newer one. It keeps its hits — stopping does not throw them away.
     """
 
     id: str
-    state: Literal["queued", "running", "done", "failed"]
+    state: Literal["queued", "running", "done", "stopped", "failed"]
     progress: Annotated[float, Field(ge=0.0, le=1.0)] = 0.0
     submitted_at: Instant
     clips_searched: int = 0
@@ -571,6 +596,13 @@ class LostResult(Wire):
     query: LostQuery
     hits: list[LostHit] = Field(default_factory=list)
     cameras: list[CameraView] = Field(default_factory=list)
+    #: what the page needs to say something true when `hits` is empty.
+    cameras_checked: int = 0
+    cameras_unavailable: list[UnavailableCamera] = Field(default_factory=list)
+    hidden_by_colour: int = 0
+    frames_checked: int = 0
+    seconds_limit: float = 60.0
+    seconds_elapsed: float = 0.0
 
 
 # ---------------------------------------------------------------------------

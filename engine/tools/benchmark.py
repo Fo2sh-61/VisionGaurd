@@ -75,7 +75,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--frames", type=int, default=60,
                         help="frames to time (default 60)")
     parser.add_argument("--cameras", type=int, default=TARGET_CAMERAS)
-    parser.add_argument("--model", choices=("person", "weapons"), default="person",
+    parser.add_argument("--model", choices=("person", "weapons", "bags"), default="person",
                         help="which model to time (default person)")
     args = parser.parse_args(argv)
 
@@ -85,6 +85,8 @@ def main(argv: list[str] | None = None) -> int:
     # the sizing arithmetic below stays the person model's question.
     if args.model == "weapons":
         from vg.infer.weapons import WeaponDetector as Detector
+    elif args.model == "bags":
+        from vg.infer.bags import BagDetector as Detector
     else:
         from vg.infer.persons import PersonDetector as Detector
 
@@ -107,7 +109,7 @@ def main(argv: list[str] | None = None) -> int:
     # `detect`. Both are one model pass - turning boxes into fractions is a
     # handful of floats and does not move the number.
     def run(frame):
-        if args.model == "weapons":
+        if args.model in ("weapons", "bags"):
             return detector.detect(frame)
         return detector.raw_boxes(frame)
 
@@ -131,7 +133,8 @@ def main(argv: list[str] | None = None) -> int:
     throughput = 1000.0 / mean
 
     print(f"  frames timed      {len(timings)}")
-    label = "knives detected" if args.model == "weapons" else "people detected"
+    label = {"weapons": "knives detected",
+             "bags": "bags detected"}.get(args.model, "people detected")
     print(f"  {label:<17} {found}")
     print(f"  p50               {p50:6.1f} ms")
     print(f"  p95               {p95:6.1f} ms   <- PLAN section 7 budget: 250 ms")
@@ -147,6 +150,16 @@ def main(argv: list[str] | None = None) -> int:
         # result.
         print("  The labelled clip contains no knife, so any detection above")
         print("  is a false positive rather than a hit.\n")
+
+    if args.model == "bags":
+        # Same for bags - and unlike knives, this one is known to fire. See
+        # research D10: a black office chair reads as `suitcase` at up to
+        # 0.88 and holds it for seconds, which the two-frame rule cannot
+        # catch. A count above zero here is expected, not a regression.
+        print("  The labelled clip contains no bag, so any detection above")
+        print("  is a false positive rather than a hit. Some are expected:")
+        print("  research D10 measured 19 over 706 sampled frames.")
+        print()
 
     print(f"  Scaling to {args.cameras} cameras, every camera detecting:")
     for hz in RATES:
