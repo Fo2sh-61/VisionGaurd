@@ -246,7 +246,7 @@ walk-through clip:
 |---|---|---|---|
 | `yolov8s.pt` (person) | 17.7 ms | 22.3 ms | 54.5 frames/sec |
 | `knifebest.pt` (knife) | 15.8 ms | 17.4 ms | 61.4 frames/sec |
-| `bagbest.pt` (bags) | 25.4 ms | 28.1 ms | 39.2 frames/sec |
+| `bagsearch.pt` (bags) | 27.9 ms | 30.9 ms | 35.3 frames/sec |
 
 The knife model costs the same as the person model, and it ran on that clip without
 a single detection — which is the right answer, because there is no knife in it.

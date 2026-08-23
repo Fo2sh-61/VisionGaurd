@@ -1,8 +1,8 @@
 # Model inventory
 
-Generated 2026-08-23T08:02:01+00:00 by `engine/tools/audit_models.py`. Do not hand-edit — regenerate after adding or replacing a weight file.
+Generated 2026-08-23T11:57:55+00:00 by `engine/tools/audit_models.py`. Do not hand-edit — regenerate after adding or replacing a weight file.
 
-20 files, 1.3 GB total.
+21 files, 1.3 GB total.
 
 ## Summary
 
@@ -19,6 +19,7 @@ Generated 2026-08-23T08:02:01+00:00 by `engine/tools/audit_models.py`. Do not ha
 | `yolov8s-pose.onnx` | 44.6 MB | onnx | 1 |  |
 | `yolov8s.onnx` | 42.8 MB | onnx | 80 |  |
 | `bagbest.pt` | 54.5 MB | pytorch | 11 |  |
+| `bagsearch.pt` | 54.4 MB | pytorch | 10 |  |
 | `knifebest.pt` | 21.5 MB | pytorch | 1 |  |
 | `yolo11m.pt` | 38.8 MB | pytorch | 80 |  |
 | `yolov8m-worldv2-school.pt` | 343.2 MB | pytorch | 18 |  |
@@ -198,6 +199,24 @@ person, bicycle, car, motorcycle, airplane, bus, train, truck, boat, traffic lig
 
 ```
 backpack, laptop, jacket, key, handbag, suitcase, cup, book, shoes, cap, glasses
+```
+
+</details>
+
+### `bagsearch.pt`
+
+- **size** 54.4 MB (57,083,659 bytes)
+- **modified** 2026-08-23T11:44:21+00:00
+- **sha256 (first 64 MB)** `f66b97b43f9d6f53`
+- **format** pytorch
+- **architecture** WorldModel
+- **parameters** 28,376,158
+- **open-vocab buffers** `{'txt_feats': '(1, 10, 512)', 'clip_model': 'NoneType'}`
+
+<details><summary>10 classes</summary>
+
+```
+person, bag, backpack, handbag, suitcase, duffel bag, shopping bag, tote bag, luggage, briefcase
 ```
 
 </details>

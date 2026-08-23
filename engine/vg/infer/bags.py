@@ -1,39 +1,44 @@
-"""Bag detection — the owner's trained model, on the GPU through ultralytics.
+"""Bag detection — a YOLO-World prompted with nine words for "bag".
 
-`models/bagbest.pt` is a **YOLO-World v2 medium, fine-tuned** from
-`yolov8m-worldv2.pt` on the owner's merged dataset: 7 Aug 2026, 50 epochs,
-28.4 M parameters. It carries eleven classes with the text features baked in
-(`txt_feats (1, 11, 512)`) and the CLIP encoder stripped, so nothing here needs
-a text encoder at run time. Own-validation mAP50 0.89, precision 0.90,
-recall 0.82 — across all eleven classes, not bags alone.
+`models/bagsearch.pt` is `yolov8m-worldv2.pt` with a fixed vocabulary baked in
+by the owner's `set_classes()` step, then stripped of its text encoder by
+`engine/tools/strip_clip.py`. It is **not** a trained model — nothing was
+fine-tuned into it. What it has is a well-chosen prompt list:
 
-**Three of eleven classes, filtered in the model call.** The full set is
-backpack, laptop, jacket, key, handbag, suitcase, cup, book, shoes, cap,
-glasses. Lost-bag search uses `backpack` (0), `handbag` (4) and `suitcase` (5)
-and passes `classes=[0, 4, 5]` into `predict`, so the other eight never leave
-the detector at all. That is not tidiness: `laptop` fires on every desk in the
-building, and a lost-property search that offers somebody a laptop they did not
-ask about is noise on the one screen that must not have any.
+    person · bag · backpack · handbag · suitcase · duffel bag ·
+    shopping bag · tote bag · luggage · briefcase
 
-Verified on this machine that a `WorldModel` honours `classes=` the same way a
-plain YOLO does — over 706 sampled frames of the two no-bag clips, the one
-frame where a non-bag class fired returned nothing through the filter.
+`person` is class 0 and is filtered out in the model call; the other nine are
+all treated as one thing, a bag. Whether an object is "a backpack" or "a duffel
+bag" is not a distinction worth surfacing to somebody looking for their bag —
+it is one bag either way, and merging them means a bag missed under one word can
+still be caught under another.
 
-**Its accuracy on real bags is unmeasured**: there is no recorded clip with a
-bag in it. What *is* measured, on footage with no bag, is that it produces
-false positives which persistence alone cannot rule out — a black office chair
-reads as `suitcase` at 0.88 for seconds at a time. See research D10. That is
-why a hit here is presented as *a possible bag* for a person to judge, and
-never as a finding.
+**Why this and not `bagbest.pt`.** `bagbest.pt` *is* fine-tuned — 50 epochs on
+the owner's merged dataset, 7 Aug 2026 — and it is worse here, measurably. On
+the two clips with no bag in them, at the configured confidence:
 
-Cost, measured on the RTX 2080 Max-Q with FP16, imgsz 640: **p50 28.1 ms,
-p95 30.9 ms** a frame — roughly twice the knife model. Affordable only because
-it runs while somebody is searching and not one millisecond longer.
+    bagbest.pt    17 false bags, incl. a black office chair read as a
+                  `suitcase` at up to 0.88, held for seconds at a time
+    bagsearch.pt   1 false bag
 
-**One instance, one thread today, but the lock stays.** `features/lostbag.py`
-runs a single loop, so nothing contends right now. The lock lives here anyway,
-inside `detect()`, for the reason it lives in `weapons.py`: a caller cannot
-forget what it does not have to remember.
+Nine ways to say "bag" beat three trained classes on this footage. `bagbest.pt`
+stays in `models/` and in `engine.yaml` history; nothing loads it.
+
+**The text encoder is gone and is not missed.** `set_classes()` converts the
+prompts to vectors once and saves them as `txt_feats (1, 10, 512)`; inference
+reads those. The encoder that did the converting is 300 MB that exists only to
+make the file need the `clip` package to unpickle. Stripping it was proved to
+change nothing: 252 boxes over 140 sampled frames, identical class, confidence
+and geometry on every one.
+
+**Accuracy on real bags is still unmeasured** — there is no recorded clip with a
+bag in it. A box is therefore *a possible bag*, drawn amber over a live picture
+somebody is looking at, never a claim that a bag is there.
+
+**One instance, many callers, so the lock lives here** — inside `detect()`
+rather than in the caller, for the reason it does in `weapons.py`: a caller
+cannot forget what it does not have to remember.
 
 Every box leaves here as a fraction of the original frame, per the geometry
 rule: pixels never cross the API.
@@ -59,12 +64,18 @@ log = logging.getLogger(__name__)
 os.environ.setdefault("YOLO_AUTOINSTALL", "false")
 
 REPO_DIR = Path(__file__).resolve().parents[3]
-DEFAULT_WEIGHTS = REPO_DIR / "models" / "bagbest.pt"
+DEFAULT_WEIGHTS = REPO_DIR / "models" / "bagsearch.pt"
 
-# Index -> name, for the three classes this feature is about. The index is the
-# model's own, so this doubles as the `classes=` argument; keeping one mapping
-# means the filter and the label can never disagree.
-BAG_CLASSES: dict[int, str] = {0: "backpack", 4: "handbag", 5: "suitcase"}
+# Class names that are not a bag. Everything else the checkpoint knows about is
+# treated as one, which is what lets the same code run two very differently
+# indexed checkpoints without a table to keep in step.
+#
+# Hard-coded indices were a trap: `bagbest.pt` numbers backpack/handbag/suitcase
+# 0/4/5, while `bagsearch.pt` puts `person` at 0 and nine bag words at 1..9.
+# The same literal `{0, 4, 5}` means "backpack, handbag, suitcase" in one file
+# and "person, suitcase, duffel bag" in the other, and nothing would have
+# complained - it would just have drawn boxes round people.
+NOT_A_BAG: frozenset[str] = frozenset({"person"})
 
 
 @dataclass(frozen=True)
@@ -116,6 +127,18 @@ class BagDetector:
         self.model = YOLO(str(self.weights))
         self.version = self.weights.stem
 
+        # Read the vocabulary off the checkpoint itself.
+        self.bag_classes: dict[int, str] = {
+            index: name
+            for index, name in self.model.names.items()
+            if name not in NOT_A_BAG
+        }
+        if not self.bag_classes:
+            raise ValueError(
+                f"{self.weights.name} knows no bag classes, only "
+                f"{sorted(self.model.names.values())}"
+            )
+
         self._lock = threading.Lock()
 
         if self.device == "cpu":
@@ -162,28 +185,30 @@ class BagDetector:
                 iou=self.iou,
                 half=self.half,
                 # The eight other classes never leave the model.
-                classes=list(BAG_CLASSES),
+                classes=list(self.bag_classes),
                 verbose=False,
             )
 
         if not results:
             return []
         return self.bags_from(
-            results[0].boxes.cpu(), width, height, min_confidence)
+            results[0].boxes.cpu(), width, height, min_confidence,
+            classes=self.bag_classes)
 
     @staticmethod
     def bags_from(boxes, width: int, height: int,
-                  min_confidence: float | None = None) -> list[DetectedBag]:
+                  min_confidence: float | None = None,
+                  classes: dict[int, str] | None = None) -> list[DetectedBag]:
         """Turn ultralytics boxes into fractions of the frame.
 
         Static and pure, like `WeaponDetector.weapons_from`: no model, no
         device, no lock. It is the half of detection that is safe to call from
         any thread.
 
-        A class index outside `BAG_CLASSES` is dropped rather than labelled
-        "bag". `classes=` in the model call already prevents it, and this is
-        the belt to that pair of braces — a mislabelled cup is worse than a
-        missing one.
+        A class index the checkpoint does not call a bag is dropped rather than
+        labelled "bag". `classes=` in the model call already prevents it, and
+        this is the belt to that pair of braces — a box round a person, labelled
+        "bag", is worse than no box at all.
         """
         if boxes is None:
             return []
@@ -194,7 +219,7 @@ class BagDetector:
             if min_confidence is not None and confidence < min_confidence:
                 continue
             class_id = int(box.cls[0]) if box.cls is not None else -1
-            label = BAG_CLASSES.get(class_id)
+            label = (classes or {}).get(class_id)
             if label is None:
                 continue
             x1, y1, x2, y2 = (float(v) for v in box.xyxy[0].tolist())

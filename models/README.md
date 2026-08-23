@@ -99,7 +99,50 @@ generic `Weapon`. It is a genuinely trained closed-set model and worth scoring a
 the same golden clips if guns are ever brought into scope. Neither it nor the prompted
 model has been benchmarked — that is model-manager work, not part of knife detection.
 
-## The second custom model: bags — `bagbest.pt`
+## The bag model in use: `bagsearch.pt`
+
+**Not a trained model.** It is stock `yolov8m-worldv2.pt` with ten words baked
+in by the owner's `set_classes()` step, then stripped of its CLIP text encoder
+by `engine/tools/strip_clip.py`:
+
+> person · bag · backpack · handbag · suitcase · duffel bag · shopping bag ·
+> tote bag · luggage · briefcase
+
+`person` is class 0 and is filtered out in the model call. The other nine are
+all treated as one thing — whether an object is "a backpack" or "a duffel bag"
+is not a distinction worth showing somebody looking for their bag, and merging
+them means a bag missed under one word is still caught under another.
+
+**Why this rather than the fine-tuned `bagbest.pt`.** Measured on the two clips
+that contain no bag, at the configured `conf 0.4`:
+
+| | false bags |
+|---|---|
+| `bagbest.pt` (fine-tuned, 11 classes) | **17** — incl. a black office chair read as `suitcase` at up to 0.88, held for seconds |
+| `bagsearch.pt` (10 prompts) | **1** |
+
+Nine ways to say "bag" beat three trained classes on this footage.
+
+**The stripped encoder.** `set_classes()` converts the prompts to vectors once
+and saves them as `txt_feats (1, 10, 512)`; inference reads those. The encoder
+that did the converting is ~300 MB whose only effect is to make the file need
+the `clip` package to unpickle — which this project will not install. Stripping
+it was proved to change nothing: 252 boxes over 140 sampled frames, identical
+class, confidence and geometry on every one. 360 MB → 57 MB.
+
+Rebuild it with:
+
+```
+python engine/tools/strip_clip.py "models/bag traker/models/yolov8m-worldv2-search-12ac1b92.pt" models/bagsearch.pt
+```
+
+Cost: p50 27.9 ms, p95 30.9 ms, 35 frames/sec on the RTX 2080 Max-Q at FP16,
+imgsz 640. Accuracy on real bags is still unmeasured — there is no clip with a
+bag left behind in it, only bags being carried.
+
+---
+
+## History: the fine-tuned model — `bagbest.pt`
 
 **What it is.** A YOLO-World v2 medium, fine-tuned from `yolov8m-worldv2.pt` on the
 owner's merged dataset: 7 Aug 2026, 50 epochs, 28.4 M parameters. Eleven classes with
