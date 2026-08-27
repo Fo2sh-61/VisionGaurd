@@ -1,21 +1,15 @@
 import { useRef, useState } from 'react';
 import { CamGrid } from '@/components/CamGrid';
-import { DeletePass } from '@/components/DeletePass';
-import { Plate } from '@/components/Plate';
+import { VehicleAlerts } from '@/components/VehicleAlerts';
 import { VehicleMovementsTab } from '@/components/VehicleMovements';
 import { VehicleReader } from '@/components/VehicleReader';
 import { VehicleRegisterTab } from '@/components/VehicleRegister';
-import { Badge, Card, DataNotice, Empty, LoadError, PageHeader } from '@/components/ui';
-import { getVehicleCameras, getVehiclePasses, getVehicleSummary } from '@/services/api';
-import { directionLabel, formatEventTime, plateStatusLabel, plateStatusTone } from '@/services/format';
-import type * as W from '@/services/wire';
+import { Card, DataNotice, PageHeader } from '@/components/ui';
+import { getVehicleCameras, getVehicleSummary } from '@/services/api';
 import type { Camera } from '@/types';
 import { useAccount } from '@/app/AuthContext';
 import { useCapability } from '@/app/CapabilityContext';
 import { useAsync } from '@/app/useAsync';
-
-/** A car passes in seconds. The list has to keep up with the barrier. */
-const PASS_REFRESH_MS = 2_000;
 
 /** The tiles change as cars pass, not as fast as the frames do. */
 const SUMMARY_REFRESH_MS = 3_000;
@@ -23,7 +17,6 @@ const SUMMARY_REFRESH_MS = 3_000;
 /** The camera roster changes when somebody edits it, not on its own. */
 const CAMERA_REFRESH_MS = 15_000;
 
-const NO_PASSES: W.VehiclePass[] = [];
 const NO_CAMERAS: Camera[] = [];
 
 type Tab = 'live' | 'movements' | 'register';
@@ -75,23 +68,18 @@ export function VehicleGate() {
   // An interface hint only. The server decides, and refuses a write from a
   // guard whatever this page draws.
   const isAdmin = useAccount().role === 'admin';
-  // Set when somebody clicks Register on an unregistered pass: the register
-  // form opens with the plate already filled in from the photograph. This is
-  // the fastest way to fill an empty register in the first week.
+  // Set when somebody acts on an unregistered car's alert: the register form
+  // opens with the plate already filled in from the read. With the pass list
+  // gone this is the only route from "a car nobody knows just drove in" to a
+  // register entry, which is why the alert carries the action rather than
+  // merely announcing the problem.
   const prefill = useRef<string | null>(null);
 
   const { data: summary } = useAsync(
     () => getVehicleSummary(), [], null, SUMMARY_REFRESH_MS);
   const { data: cameras } = useAsync(
     () => getVehicleCameras(), [], NO_CAMERAS, CAMERA_REFRESH_MS);
-  const {
-    data: passes, error, loading, reload: reloadPasses,
-  } = useAsync(() => getVehiclePasses({ limit: 12 }), [], NO_PASSES, PASS_REFRESH_MS);
 
-  // Nothing on this page may imply cars are being read unless they are. An
-  // empty list from a feature that never started is not "no cars today".
-  const running = capability?.state === 'live';
-  const notRunning = capability?.reason ?? 'Plate reading is not running.';
 
   // Only where a gate has both an entry and an exit camera. Without one, an
   // exit can never be matched to an entry, so "inside now" is not a number
@@ -128,6 +116,16 @@ export function VehicleGate() {
 
       {tab === 'live' && (
         <>
+          {/* Above everything, because these are the only things on the page
+              that are waiting for somebody to do something. */}
+          <VehicleAlerts
+            isAdmin={isAdmin}
+            onRegister={(alert) => {
+              prefill.current = alert.plateDisplay;
+              setTab('register');
+            }}
+          />
+
           <div style={{
             display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))',
             gap: 12, marginBottom: 14,
@@ -162,13 +160,30 @@ export function VehicleGate() {
               note="raised on the Home page"
               tone="bad"
             />
+            {/* Replaced "Needs review", which retired with the pass list —
+                weak reads are still recorded and still flagged, they simply
+                no longer have a list to be reviewed in. This answers a
+                question that stayed unanswerable: a gate camera that is down
+                is not reading plates, and every other tile looks perfectly
+                healthy while it happens. */}
             <Tile
-              label="Needs review"
-              value={summary?.needsReview ?? null}
-              note="weak reads, kept not discarded"
-              tone="warn"
+              label="Cameras reading"
+              value={summary?.camerasReading ?? null}
+              note={summary?.camerasTotal
+                ? `of ${summary.camerasTotal} gate camera${summary.camerasTotal === 1 ? '' : 's'}`
+                : 'no gate camera is configured'}
+              tone={summary && summary.camerasNote ? 'warn' : undefined}
             />
           </div>
+
+          {/* Which camera is down, and what it costs. Only when one is. */}
+          {summary?.camerasNote && (
+            <Card>
+              <div style={{ fontSize: 13.5, color: 'var(--am)', lineHeight: 1.5 }}>
+                {summary.camerasNote}
+              </div>
+            </Card>
+          )}
 
           {/* The reason the tiles are dashes, said once and in full rather
               than repeated under each one. */}
@@ -180,92 +195,13 @@ export function VehicleGate() {
             </Card>
           )}
 
-          <Card>
-            <div style={{ fontWeight: 700, fontSize: 19, letterSpacing: '-.01em' }}>
-              Passing now
-            </div>
-            <div style={{ fontSize: 13.5, color: 'var(--tx2)', margin: '2px 0 14px' }}>
-              {running
-                ? 'The last few reads, newest first. A plate is only recorded once three frames agree on it.'
-                : notRunning}
-            </div>
-
-            {error && <LoadError error={error} />}
-            {!error && !loading && passes.length === 0 && (
-              <Empty>
-                {running
-                  ? 'No car has passed yet today. Passes appear here within a '
-                    + 'few seconds of a car reaching the gate.'
-                  : notRunning}
-              </Empty>
-            )}
-
-            {passes.map((pass) => (
-              <div
-                key={pass.id}
-                className="row"
-                style={{
-                  gridTemplateColumns: '120px 1fr .8fr .6fr 1fr',
-                  gap: 14, alignItems: 'center', padding: '12px 0',
-                  borderTop: '1px solid var(--line)',
-                }}
-              >
-                <Plate display={pass.plateDisplay} />
-                <span style={{ minWidth: 0 }}>
-                  {/* Never blank. "Not in the register" is a fact about the
-                      car; an empty cell reads as data we failed to load. */}
-                  <span style={{ fontWeight: 600, fontSize: 14, display: 'block' }}>
-                    {pass.owner ?? 'Not in the register'}
-                  </span>
-                  <span style={{ fontSize: 12.5, color: 'var(--tx3)' }}>
-                    {pass.unit ?? '—'}
-                  </span>
-                </span>
-                <span style={{ fontSize: 13.5, color: 'var(--tx2)' }}>{pass.gateName}</span>
-                <span>
-                  <Badge tone="neutral">{directionLabel(pass.direction)}</Badge>
-                </span>
-                <span style={{
-                  display: 'flex', alignItems: 'center', gap: 10,
-                  justifyContent: 'flex-end', flexWrap: 'wrap',
-                }}>
-                  <Badge tone={plateStatusTone(pass.status)}>
-                    {plateStatusLabel(pass.status)}
-                  </Badge>
-                  {/* A weak read is kept, flagged, and shows its own numbers
-                      so a guard can judge rather than take a flag on faith. */}
-                  {pass.needsReview && (
-                    <span style={{ fontSize: 11, color: 'var(--am)' }}>
-                      needs review · {pass.confidence.toFixed(2)} over {pass.votes} frames
-                    </span>
-                  )}
-                  {/* The fastest way to fill an empty register: the plate
-                      is already read, so it should not have to be typed. */}
-                  {isAdmin && pass.status === 'unknown' && (
-                    <button
-                      type="button"
-                      className="linkbtn"
-                      onClick={() => {
-                        prefill.current = pass.plateDisplay;
-                        setTab('register');
-                      }}
-                    >
-                      Register
-                    </button>
-                  )}
-                  {/* Here as well as in the pass log, because this is where a
-                      nonsense read is seen first — a reflection, half a
-                      lorry, a plate that belongs to nobody. */}
-                  {isAdmin && (
-                    <DeletePass passId={pass.id} onDeleted={reloadPasses} />
-                  )}
-                  <span style={{ fontSize: 12.5, color: 'var(--tx3)', whiteSpace: 'nowrap' }}>
-                    {formatEventTime(pass.at)}
-                  </span>
-                </span>
-              </div>
-            ))}
-          </Card>
+          {/* The pass list that stood here is gone, and the engine still
+              records every pass exactly as before — the photograph, the
+              crop, the confidence, the votes and the review flag. What
+              changed is the console: the owner asked for it on 27 Aug
+              knowing the costs (P6-FR-052). Registering from a read now
+              lives on the alert above; the day's record lives in the
+              Movements export. */}
 
           {/* `feature="vehicles"` is what keeps names off this grid, and it
               is worth being precise about why. The overlay request carries

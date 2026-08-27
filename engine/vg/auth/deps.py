@@ -104,6 +104,25 @@ ADMIN_WRITE_PREFIXES: tuple[str, ...] = (
     "/vehicles",
 )
 
+#: Narrower than `ADMIN_WRITE_PREFIXES`, and checked first.
+#:
+#: **The only writes on this system a guard may make.** Everything under
+#: `/vehicles` is administrator-only to write, which is right for the register
+#: — a guard must not be able to un-blacklist a car. But clearing an alert is
+#: not changing the register: it is the person on duty saying "I have dealt
+#: with this", which is the entire purpose of an alert that waits for a human.
+#: Requiring an administrator would mean alerts pile up all shift at a gate
+#: staffed by guards, and an alert nobody can clear stops being read.
+#:
+#: The dismissal is audited and names the account, so "a guard did this" is
+#: recoverable. What a guard still cannot do is act on the alert: registering
+#: a car or renewing a permit are register writes and stay admin-only.
+#:
+#: Keep this list tiny, and never widen a prefix here to cover a sibling.
+OPERATOR_WRITE_PREFIXES: tuple[str, ...] = (
+    "/vehicles/alerts",
+)
+
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 
@@ -125,6 +144,13 @@ def requires_admin(method: str, path: str) -> bool:
            for p in ADMIN_PREFIXES):
         return True
     if method.upper() in SAFE_METHODS:
+        return False
+    # Checked BEFORE the admin-write rule, so the narrower prefix wins. The
+    # order is the whole mechanism: `/vehicles/alerts/...` also matches
+    # `/vehicles`, and testing the broader rule first would make this
+    # unreachable while still looking correct.
+    if any(normalised == p or normalised.startswith(p + "/")
+           for p in OPERATOR_WRITE_PREFIXES):
         return False
     return any(normalised == p or normalised.startswith(p + "/")
                for p in ADMIN_WRITE_PREFIXES)

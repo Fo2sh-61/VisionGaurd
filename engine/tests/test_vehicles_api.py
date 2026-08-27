@@ -858,3 +858,48 @@ class TestTheReaderCard:
         body = authed(bare_app, role="it").get("/vehicles/reader").json()
 
         assert body["votesNeeded"] >= 1
+
+
+class TestAlertsOverTheWire:
+    def test_a_guard_may_read_the_alerts(self, app, authed):
+        assert authed(app, role="it").get(
+            "/vehicles/alerts").status_code == 200
+
+    def test_an_anonymous_caller_may_not(self, app):
+        assert TestClient(app).get("/vehicles/alerts").status_code == 401
+
+    def test_nothing_running_is_an_empty_list_not_an_error(
+            self, bare_app, authed):
+        """Degradation is payload. The tiles' `reason` already carries the
+        words; the strip simply has nothing waiting for anybody."""
+        response = authed(bare_app, role="it").get("/vehicles/alerts")
+
+        assert response.status_code == 200
+        assert response.json() == []
+
+    def test_a_guard_may_dismiss(self, bare_app, authed):
+        """Not a 401 or 403. Whatever else happens to this request, the
+        permission layer must let a guard through — that is the carve-out."""
+        response = authed(bare_app, role="it").post(
+            "/vehicles/alerts/whatever/dismiss")
+
+        assert response.status_code not in (401, 403)
+
+    def test_an_anonymous_caller_may_not_dismiss(self, app):
+        assert TestClient(app).post(
+            "/vehicles/alerts/whatever/dismiss").status_code == 401
+
+    def test_a_guard_still_may_not_write_the_register(self, app, authed):
+        """The carve-out must not have widened to its siblings."""
+        response = authed(app, role="it").post(
+            "/vehicles/register", json={"plate": "بجد 1234"})
+
+        assert response.status_code == 403
+
+    def test_the_payload_is_camelcase(self, bare_app, authed):
+        """`GateAlert` carries facts the console turns into sentences, so the
+        field names are part of the contract."""
+        from vg.api import schemas as S
+
+        assert "plateDisplay" in S.GateAlert.model_json_schema()["properties"]
+        assert "nearMatchOwner" in S.GateAlert.model_json_schema()["properties"]

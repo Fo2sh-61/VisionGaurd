@@ -453,6 +453,25 @@ export async function getVehicleReader(): Promise<W.GateReaderNow> {
   return get<W.GateReaderNow>('/vehicles/reader');
 }
 
+/** Today's passes still waiting for a person. */
+export async function getVehicleAlerts(): Promise<W.GateAlert[]> {
+  return get<W.GateAlert[]>('/vehicles/alerts');
+}
+
+/** Clear one alert, under the name of whoever cleared it.
+ *
+ *  The one write under `/vehicles` a guard may make — the person at the gate
+ *  is a guard, and an alert only an admin can clear piles up all shift until
+ *  nobody reads it. `actionTaken` distinguishes "I dealt with it" from "not
+ *  worth acting on"; both are recorded, and neither can be undone. */
+export async function dismissVehicleAlert(
+  passId: string, actionTaken = false,
+): Promise<void> {
+  await post<{ ok: boolean }>(
+    `/vehicles/alerts/${encodeURIComponent(passId)}/dismiss`,
+    undefined, { action_taken: actionTaken });
+}
+
 /** The register. A guard may read it; only an admin may change it. */
 export async function getVehicleRegister(
   q = '', category = '',

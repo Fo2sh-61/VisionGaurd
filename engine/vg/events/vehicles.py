@@ -507,6 +507,76 @@ class VehicleStore:
             rows = self._conn.execute(" ".join(sql), params).fetchall()
         return [_to_pass(r) for r in rows]
 
+    # -- alerts -------------------------------------------------------------
+    #
+    # An alert is not a row. It is a today's pass whose status needs a person
+    # and which nobody has dismissed yet, so there is no alert lifecycle to
+    # drift out of step with the log it describes — the same argument that
+    # keeps visits derived rather than stored.
+
+    def dismissed_alerts(self, since: datetime | None = None) -> set[str]:
+        """Pass ids somebody has already dealt with."""
+        sql = ("SELECT a.pass_id FROM vehicle_alert_ack a"
+               " JOIN vehicle_pass p ON p.id = a.pass_id")
+        params: list = []
+        if since is not None:
+            sql += " WHERE p.at >= ?"
+            params.append(_iso(since))
+        with self._lock:
+            return {r["pass_id"]
+                    for r in self._conn.execute(sql, params).fetchall()}
+
+    def dismiss_alert(self, pass_id: str, by_who: str,
+                      action_taken: bool = False) -> bool:
+        """Record that a person dealt with this alert. False if already done.
+
+        **The audit entry is written by the caller, before this runs.** Same
+        order as `delete_pass`, for the same reason: the record of who did
+        something must not depend on the something having succeeded.
+
+        There is no undo. An acknowledgement that can be withdrawn is not an
+        acknowledgement, and nothing else in this product lets one be.
+        """
+        with self._lock:
+            exists = self._conn.execute(
+                "SELECT 1 FROM vehicle_pass WHERE id = ?",
+                (pass_id,)).fetchone()
+            if exists is None:
+                raise KeyError(pass_id)
+            already = self._conn.execute(
+                "SELECT 1 FROM vehicle_alert_ack WHERE pass_id = ?",
+                (pass_id,)).fetchone()
+            if already is not None:
+                return False
+            with self._conn:
+                self._conn.execute(
+                    "INSERT INTO vehicle_alert_ack (pass_id, by_who, at,"
+                    " action_taken) VALUES (?, ?, ?, ?)",
+                    (pass_id, by_who, _iso(_now()), int(bool(action_taken))))
+        return True
+
+    def near_matches(self, plate: str) -> list[Vehicle]:
+        """Registered cars within one misread of this plate.
+
+        Compared in Python rather than in SQL because the rule is
+        `platetext.same_plate` — the same one-edit test the frame voting uses,
+        so a near miss means the same thing in both places. The register is a
+        couple of thousand rows; this is a scan and it does not need to be
+        anything cleverer.
+
+        **The caller must refuse to suggest anything unless there is exactly
+        one.** Two candidates is a coin toss, and putting a wrong name against
+        a stranger's car is worse than saying nothing.
+        """
+        canonical = platetext.normalize(plate)
+        if not canonical:
+            return []
+        with self._lock:
+            rows = self._conn.execute("SELECT * FROM vehicle").fetchall()
+        return [_to_vehicle(r) for r in rows
+                if r["plate"] != canonical
+                and platetext.same_plate(canonical, r["plate"])]
+
     def pass_by_id(self, pass_id: str) -> VehiclePass | None:
         """One pass, by id. Indexed lookup rather than a scan of the log."""
         with self._lock:

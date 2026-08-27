@@ -2952,6 +2952,45 @@ def _mount(app: FastAPI) -> None:
                 vehicles.note_interest(camera)
         return store.vehicle_reader()
 
+    @app.get("/vehicles/alerts", response_model=list[S.GateAlert],
+             tags=["vehicles"])
+    async def vehicle_alerts(store: StoreDep) -> list[S.GateAlert]:
+        """Today's passes still waiting for a person, newest first.
+
+        Facts, not sentences: the console builds the wording from these
+        fields, because `format.ts` owns every rendered string.
+        """
+        return store.vehicle_alerts()
+
+    @app.post("/vehicles/alerts/{pass_id}/dismiss", tags=["vehicles"])
+    async def dismiss_alert(pass_id: str, store: StoreDep,
+                            user: auth_deps.CurrentUser,
+                            action_taken: bool = False) -> dict:
+        """Clear one alert, under the name of whoever cleared it.
+
+        **The one write under `/vehicles` a guard may make**, carved out by
+        path in `auth/deps.py`. The person standing at the gate is a guard,
+        and an alert that only an administrator can clear piles up all shift
+        until nobody reads it. What a guard still cannot do is act on it:
+        registering a car or renewing a permit are register writes and stay
+        administrator-only.
+
+        409, not 404, on a second dismissal: the alert existed and somebody
+        has already dealt with it, which is a different fact from "no such
+        pass" and reads differently to whoever hits it.
+        """
+        try:
+            cleared = store.dismiss_alert(pass_id, user.name, action_taken)
+        except SubsystemUnavailable as exc:
+            # "Nothing is running" is not the same answer as "not found", and
+            # neither is a 500. Rule 7: degradation is payload with a reason.
+            raise HTTPException(503, str(exc)) from exc
+        except KeyError:
+            raise HTTPException(404, f"no pass {pass_id!r}") from None
+        if not cleared:
+            raise HTTPException(409, "That alert has already been dismissed.")
+        return {"ok": True}
+
     @app.get("/vehicles/passes/{pass_id}/snapshot", tags=["vehicles"])
     async def vehicle_snapshot(pass_id: str, request: Request):
         """The photograph kept with one pass.

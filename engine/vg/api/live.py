@@ -1113,7 +1113,11 @@ class LiveStore(MockStore):
 
         counts = self.vehicle_store.counts_since(self._start_of_day())
         pairing = self._pairing_available()
+        reading, total, note = self._cameras_reading()
         return S.GateSummary(
+            cameras_reading=reading,
+            cameras_total=total,
+            cameras_note=note,
             entered=counts["entered"],
             left=counts["left"] if pairing else None,
             # Only when an exit camera exists to pair against.
@@ -1129,6 +1133,37 @@ class LiveStore(MockStore):
                 "No exit camera is configured, so no car can be matched to "
                 "its exit. Cars leaving are not being counted."),
         )
+
+    def _cameras_reading(self) -> tuple[int, int, str | None]:
+        """How many gate cameras are actually being read, of those configured.
+
+        A gate camera that is down is not reading plates, and the tile that
+        says "3 of 4" is the one place that is visible at a glance. The note
+        names which one and what it costs — an offline exit camera means cars
+        leaving that way are not counted, so "still inside" is an over-count
+        until it comes back, and an operator should be told that rather than
+        left to infer it from a figure that looks fine.
+        """
+        cameras = self._gate_cameras()
+        down: list[str] = []
+        for camera in cameras:
+            worker = self.registry.worker(camera.id) if self.registry else None
+            if worker is None or worker.status != "ok":
+                direction = camera.direction or "gate"
+                down.append(f"{camera.name} ({direction})")
+
+        if not down:
+            return len(cameras), len(cameras), None
+
+        missing = ", ".join(down)
+        exits = any("exit" in name for name in down)
+        note = (f"{missing} is offline, so plates are not being read there."
+                if len(down) == 1 else
+                f"{missing} are offline, so plates are not being read there.")
+        if exits:
+            note += (" Cars leaving that way are not being counted, so "
+                     "\"inside now\" is an over-count until it is back.")
+        return len(cameras) - len(down), len(cameras), note
 
     def _start_of_day(self) -> datetime:
         """Midnight, site-local, as UTC. The window every "today" count uses.
@@ -1343,6 +1378,88 @@ class LiveStore(MockStore):
                   f"{record.direction} at gate {record.gate}, "
                   f"read {record.confidence:.2f} over {record.votes} frames")
         return store.delete_pass(pass_id)
+
+    # -- alerts -------------------------------------------------------------
+
+    def vehicle_alerts(self) -> list[S.GateAlert]:
+        """Today's passes that are waiting for a person, newest first.
+
+        **Derived, never stored.** An alert is a pass whose status needs
+        somebody and which nobody has dismissed. Nothing here can fall out of
+        step with the log, because there is nothing here but the log.
+
+        Blacklist alerts appear on this page *and* keep raising their Home
+        attention item: two surfaces, one security record, acknowledged
+        independently. Unknown and expired stay here — Home is for things that
+        need somebody now, and an unregistered car is a data-entry job.
+        """
+        if self.vehicle_store is None:
+            return []
+
+        since = self._start_of_day()
+        dismissed = self.vehicle_store.dismissed_alerts(since)
+        pairing = self._pairing_available()
+        inside = ({v.plate for v in self.vehicle_store.inside(since)}
+                  if pairing else set())
+
+        out: list[S.GateAlert] = []
+        for record in self.vehicle_store.passes(limit=200, since=since):
+            if record.status == "known" or record.id in dismissed:
+                continue
+
+            near_display = near_owner = None
+            if record.status == "unknown":
+                candidates = self.vehicle_store.near_matches(record.plate)
+                # Exactly one, or nothing. Two candidates is a coin toss, and
+                # a wrong name against a stranger's car is worse than silence.
+                if len(candidates) == 1:
+                    near_display = candidates[0].plate_display
+                    near_owner = candidates[0].owner_name
+
+            expired_on = None
+            if record.status == "expired":
+                vehicle = self.vehicle_store.by_plate(record.plate)
+                expired_on = vehicle.valid_until if vehicle else None
+
+            out.append(S.GateAlert(
+                pass_id=record.id,
+                kind=record.status,
+                at=_instant(record.at, self.clock),
+                plate=record.plate,
+                plate_display=record.plate_display,
+                gate_name=self._gate_name(record.gate),
+                owner=record.owner_name,
+                permit_expired_on=expired_on,
+                near_match_display=near_display,
+                near_match_owner=near_owner,
+                # Only claimable where an exit camera exists to pair against.
+                # Without one, "and is still inside" is a guess.
+                inside=pairing and record.plate in inside,
+            ))
+        return out
+
+    def dismiss_alert(self, pass_id: str, actor: str,
+                      action_taken: bool = False) -> bool:
+        """Clear one alert, under the name of whoever cleared it.
+
+        **The audit entry goes first**, as everywhere else here: somebody
+        clearing an alert is a fact whether or not the write succeeds, and a
+        dismissal that left no trace would be indistinguishable from the alert
+        never having been raised.
+        """
+        store = self._need_register()
+        record = store.pass_by_id(pass_id)
+        if record is None:
+            # KeyError, not False. "No such pass" and "somebody already dealt
+            # with it" are different answers and the endpoint owes the caller
+            # different ones - 404 against 409. Collapsing them into one
+            # falsy return is how a second click reports the alert as missing.
+            raise KeyError(pass_id)
+        self._log(actor, "vehicle.alert.dismiss", record.plate,
+                  f"{record.status} at gate {record.gate}, "
+                  + ("resolved by acting on it" if action_taken
+                     else "dismissed without acting"))
+        return store.dismiss_alert(pass_id, actor, action_taken)
 
     def export_passes(self, actor: str, **filters) -> bytes:
         """The pass log as a spreadsheet.

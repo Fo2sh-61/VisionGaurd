@@ -170,6 +170,9 @@ class Store(Protocol):
     def vehicle_passes(self, **filters) -> list[S.VehiclePass]: ...
     def vehicle_cameras(self) -> list[S.CameraView]: ...
     def vehicle_reader(self) -> S.GateReaderNow: ...
+    def vehicle_alerts(self) -> list[S.GateAlert]: ...
+    def dismiss_alert(self, pass_id: str, actor: str,
+                      action_taken: bool = False) -> bool: ...
     def vehicle_register(self, query: str, category: str) -> list[S.RegisteredVehicle]: ...
     def add_vehicle(self, body: S.VehicleRegistration, actor: str) -> S.RegisteredVehicle: ...
     def edit_vehicle(self, vehicle_id: str, body: S.VehicleRegistration,
@@ -263,6 +266,14 @@ class MockStore:
             reason="Vehicle gate is not configured in this demo store, so "
                    "nothing is being read.",
         )
+
+    def vehicle_alerts(self) -> list[S.GateAlert]:
+        return []
+
+    def dismiss_alert(self, pass_id: str, actor: str,
+                      action_taken: bool = False) -> bool:
+        raise SubsystemUnavailable(
+            "The vehicle gate is not available in this demo store.")
 
     def vehicle_register(self, query: str = "",
                          category: str = "") -> list[S.RegisteredVehicle]:

@@ -13,6 +13,7 @@ import type {
   AttendanceStatus,
   Box as WireBox,
   CameraView,
+  GateAlert as WireGateAlert,
   Instant,
   MatchKind,
   Metric,
@@ -388,6 +389,74 @@ export function toDetectionBox(box: WireBox): DetectionBox {
  *  that is too far away, and this is how an operator sees that for
  *  themselves rather than being told the software is broken. */
 export const COMFORTABLE_PLATE_PX = 100;
+
+/* ---------- gate alerts ----------
+ *
+ *  The engine sends facts and this file writes the sentences, which is the
+ *  standing rule here — but on these three it is load-bearing rather than
+ *  tidy, because each sentence has a claim in it that must not be overstated.
+ */
+
+/** What an alert says, and what it must not say.
+ *
+ *  - **Blacklist** states plainly that nothing was stopped. The software has
+ *    no barrier to close, and an alert that merely shouted would let a reader
+ *    assume the car was held.
+ *  - **Unknown** is a question when there is a near match, never a statement.
+ *    One misread letter turns a colleague into a stranger, and the engine has
+ *    already refused to guess between two candidates — this must not undo
+ *    that by phrasing the one candidate as a fact.
+ *  - **Expired** is a lapsed permit, which is an administrative matter, not a
+ *    security one. It gets no alarming language. */
+export function alertMessage(alert: WireGateAlert): string {
+  const plate = alert.plateDisplay;
+  const where = alert.gateName;
+
+  if (alert.kind === 'blacklist') {
+    const who = alert.owner ? ` (${alert.owner})` : '';
+    const still = alert.inside ? ' and is still inside' : '';
+    return `Blacklisted car ${plate}${who} came in at ${where}${still}. `
+      + 'Nothing was stopped — the software has no barrier to close.';
+  }
+
+  if (alert.kind === 'expired') {
+    const who = alert.owner ?? 'This vehicle';
+    const when = alert.permitExpiredOn
+      ? ` ran out on ${formatShortDate(alert.permitExpiredOn)}`
+      : ' has expired';
+    const still = alert.inside ? ' The car is inside now.' : '';
+    return `${who}’s permit${when}. ${plate} passed ${where}.${still}`;
+  }
+
+  const guess = alert.nearMatchDisplay
+    ? ` — maybe ${alert.nearMatchDisplay}`
+      + `${alert.nearMatchOwner ? ` (${alert.nearMatchOwner})` : ''}?`
+      + ' One misread letter turns a colleague into a stranger.'
+    : '';
+  return `Unregistered car ${plate} at ${where}${guess}`;
+}
+
+/** The label on the button that clears an alert without acting on it. */
+export function alertDismissLabel(kind: WireGateAlert['kind']): string {
+  if (kind === 'blacklist') return 'I have dealt with it';
+  if (kind === 'expired') return 'Leave it expired';
+  return 'Just a one-off';
+}
+
+/** The action that resolves this alert, or null where the software has none.
+ *
+ *  **Blacklist deliberately has no action.** There is nothing the console can
+ *  do about a car that has already driven in, and a button that pretended
+ *  otherwise would be the dead control the constitution forbids. */
+export function alertAction(kind: WireGateAlert['kind']): string | null {
+  if (kind === 'unknown') return 'Add to the register';
+  if (kind === 'expired') return 'Renew the permit';
+  return null;
+}
+
+export function alertTone(kind: WireGateAlert['kind']): Tone {
+  return kind === 'blacklist' ? 'bad' : 'warn';
+}
 
 /** What colour to draw a plate's pixel width in.
  *
