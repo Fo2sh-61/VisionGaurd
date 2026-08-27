@@ -1,8 +1,8 @@
 # Model inventory
 
-Generated 2026-08-23T11:57:55+00:00 by `engine/tools/audit_models.py`. Do not hand-edit — regenerate after adding or replacing a weight file.
+Generated 2026-08-24T10:45:04+00:00 by `engine/tools/audit_models.py`. Do not hand-edit — regenerate after adding or replacing a weight file.
 
-21 files, 1.3 GB total.
+24 files, 1.6 GB total.
 
 ## Summary
 
@@ -12,6 +12,7 @@ Generated 2026-08-23T11:57:55+00:00 by `engine/tools/audit_models.py`. Do not ha
 | `yolov8m-worldv2-search-960.engine` | 55.9 MB | tensorrt | 35 | GPU/TRT-locked — rebuild on target |
 | `yolov8n-oiv7.engine` | 8.5 MB | tensorrt | 601 | GPU/TRT-locked — rebuild on target |
 | `yolov8s-480.engine` | 22.9 MB | tensorrt | 80 | GPU/TRT-locked — rebuild on target |
+| `yolov8s-640.engine` | 222.7 MB | tensorrt | 80 | GPU/TRT-locked — rebuild on target |
 | `yolov8s-pose-640.engine` | 24.2 MB | tensorrt | 1 | GPU/TRT-locked — rebuild on target |
 | `face_detection_yunet_2023mar.onnx` | 227.1 KB | onnx | — |  |
 | `face_recognition_sface_2021dec.onnx` | 36.9 MB | onnx | — |  |
@@ -20,7 +21,9 @@ Generated 2026-08-23T11:57:55+00:00 by `engine/tools/audit_models.py`. Do not ha
 | `yolov8s.onnx` | 42.8 MB | onnx | 80 |  |
 | `bagbest.pt` | 54.5 MB | pytorch | 11 |  |
 | `bagsearch.pt` | 54.4 MB | pytorch | 10 |  |
+| `char_detector.pt` | 38.5 MB | pytorch | 38 |  |
 | `knifebest.pt` | 21.5 MB | pytorch | 1 |  |
+| `plate_detector.pt` | 38.4 MB | pytorch | 1 |  |
 | `yolo11m.pt` | 38.8 MB | pytorch | 80 |  |
 | `yolov8m-worldv2-school.pt` | 343.2 MB | pytorch | 18 |  |
 | `yolov8m-worldv2-search.pt` | 343.2 MB | pytorch | 35 |  |
@@ -87,6 +90,22 @@ Accordion, Adhesive tape, Apple, Ceiling fan, Cello, Centipede, Chainsaw, Chair,
 - **sha256 (first 64 MB)** `c8e0ebea91bc77f8`
 - **format** tensorrt
 - **build metadata** `{'description': 'Ultralytics YOLOv8s model trained on coco.yaml', 'author': 'Ultralytics', 'date': '2026-05-14T09:06:49.896193', 'version': '8.4.46', 'license': 'AGPL-3.0 License (https://ultralytics.com/license)', 'docs': 'https://docs.ultralytics.com', 'stride': 32, 'task': 'detect', 'batch': 1, 'imgsz': [480, 480], 'args': {'data': None, 'batch': 1, 'fraction': 1.0, 'half': True, 'int8': False, 'dynamic': False, 'simplify': True, 'nms': False}, 'channels': 3, 'end2end': False}`
+
+<details><summary>80 classes</summary>
+
+```
+person, bicycle, fire hydrant, stop sign, parking meter, bench, bird, cat, dog, horse, sheep, cow, car, elephant, bear, zebra, giraffe, backpack, umbrella, handbag, tie, suitcase, frisbee, motorcycle, skis, snowboard, sports ball, kite, baseball bat, baseball glove, skateboard, surfboard, tennis racket, bottle, airplane, wine glass, cup, fork, knife, spoon, bowl, banana, apple, sandwich, orange, bus, broccoli, carrot, hot dog, pizza, donut, cake, chair, couch, potted plant, bed, train, dining table, toilet, tv, laptop, mouse, remote, keyboard, cell phone, microwave, oven, truck, toaster, sink, refrigerator, book, clock, vase, scissors, teddy bear, hair drier, toothbrush, boat, traffic light
+```
+
+</details>
+
+### `yolov8s-640.engine`
+
+- **size** 222.7 MB (233,504,327 bytes)
+- **modified** 2026-08-24T09:33:12+00:00
+- **sha256 (first 64 MB)** `4ca3e31d8d7888ac`
+- **format** tensorrt
+- **build metadata** `{'description': 'Ultralytics YOLOv8s model trained on coco.yaml', 'author': 'Ultralytics', 'date': '2026-08-24T12:31:32.540678+03:00', 'version': '8.4.127', 'license': 'AGPL-3.0 License (https://ultralytics.com/license)', 'docs': 'https://docs.ultralytics.com', 'stride': 32, 'task': 'detect', 'head': 'Detect', 'batch': 1, 'imgsz': [640, 640], 'args': {'data': None, 'batch': 1, 'fraction': 1.0, 'quantize': None, 'dynamic': False, 'simplify': True, 'opset': None, 'workspace': 4, 'nms': False}, 'channels': 3, 'end2end': False}`
 
 <details><summary>80 classes</summary>
 
@@ -166,9 +185,9 @@ person
 
 ### `yolov8s.onnx`
 
-- **size** 42.8 MB (44,869,868 bytes)
-- **modified** 2026-05-17T10:55:02+00:00
-- **sha256 (first 64 MB)** `023c2e8ab435bdf4`
+- **size** 42.8 MB (44,842,834 bytes)
+- **modified** 2026-08-24T09:31:34+00:00
+- **sha256 (first 64 MB)** `40e57cdf8ec3b8ce`
 - **format** onnx
 - **inputs** `{'images': [1, 3, 640, 640]}`
 - **outputs** `{'output0': [1, 84, 8400]}`
@@ -221,6 +240,27 @@ person, bag, backpack, handbag, suitcase, duffel bag, shopping bag, tote bag, lu
 
 </details>
 
+### `char_detector.pt`
+
+- **size** 38.5 MB (40,382,758 bytes)
+- **modified** 2026-08-24T10:44:33+00:00
+- **sha256 (first 64 MB)** `eb6ffb2cc0839785`
+- **format** pytorch
+- **architecture** DetectionModel
+- **parameters** 20,059,330
+- **date** 2024-10-17T15:42:09.494947
+- **version** 8.3.15
+- **train args** `{'data': '/ultralytics/ultralytics/cfg/datasets/coco.yaml', 'epochs': '600', 'imgsz': '640', 'batch': '128', 'model': 'yolo11m.yaml', 'task': 'detect', 'mode': 'train', 'device': '3'}`
+- **train metrics** `{'metrics/precision(B)': 0.7378, 'metrics/recall(B)': 0.6169, 'metrics/mAP50(B)': 0.6844, 'metrics/mAP50-95(B)': 0.5144, 'val/box_loss': 0.9051, 'val/cls_loss': 0.864, 'val/dfl_loss': 1.0449, 'fitness': 0.9798, 'lr/pg0': 0.0001, 'lr/pg1': 0.0001, 'lr/pg2': 0.0001, 'train/seg_loss': 1.8583, 'train/cls_loss': 0.7547, 'train/dfl_loss': 1.0318, 'train/box_loss': 0.8688}`
+
+<details><summary>38 classes</summary>
+
+```
+0, 1, 2, 3, 4, 5, 6, 7, 7aa, 8, 9, Taa, Thaa, ain, alif, baa, daad, daal, faa, ghayn, haa, jeem, kaaf, khaa, laam, meem, noon, qaaf, raa, saad, seen, sheen, taa, thaa, waw, yaa, zaal, zay
+```
+
+</details>
+
 ### `knifebest.pt`
 
 - **size** 21.5 MB (22,516,010 bytes)
@@ -238,6 +278,27 @@ person, bag, backpack, handbag, suitcase, duffel bag, shopping bag, tote bag, lu
 
 ```
 knife
+```
+
+</details>
+
+### `plate_detector.pt`
+
+- **size** 38.4 MB (40,311,178 bytes)
+- **modified** 2026-08-24T10:44:26+00:00
+- **sha256 (first 64 MB)** `b0459e237bd68e70`
+- **format** pytorch
+- **architecture** DetectionModel
+- **parameters** 20,030,803
+- **date** 2024-10-16T12:25:07.159663
+- **version** 8.3.13
+- **train args** `{'data': '/ultralytics/ultralytics/cfg/datasets/coco.yaml', 'epochs': '600', 'imgsz': '640', 'batch': '128', 'model': 'yolo11m.yaml', 'task': 'detect', 'mode': 'train', 'device': '3'}`
+- **train metrics** `{'metrics/precision(B)': 0.7378, 'metrics/recall(B)': 0.6169, 'metrics/mAP50(B)': 0.6844, 'metrics/mAP50-95(B)': 0.5144, 'val/box_loss': 0.9051, 'val/cls_loss': 0.864, 'val/dfl_loss': 1.0449, 'fitness': 0.9798, 'lr/pg0': 0.0001, 'lr/pg1': 0.0001, 'lr/pg2': 0.0001, 'train/seg_loss': 1.8583, 'train/cls_loss': 0.7547, 'train/dfl_loss': 1.0318, 'train/box_loss': 0.8688}`
+
+<details><summary>1 classes</summary>
+
+```
+car_plate
 ```
 
 </details>

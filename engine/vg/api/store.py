@@ -165,6 +165,23 @@ class Store(Protocol):
     def history(self, person: str) -> S.PersonHistory | None: ...
     def users(self) -> list[S.User]: ...
 
+    # -- vehicle gate --
+    def vehicle_summary(self) -> S.GateSummary: ...
+    def vehicle_passes(self, **filters) -> list[S.VehiclePass]: ...
+    def vehicle_cameras(self) -> list[S.CameraView]: ...
+    def vehicle_register(self, query: str, category: str) -> list[S.RegisteredVehicle]: ...
+    def add_vehicle(self, body: S.VehicleRegistration, actor: str) -> S.RegisteredVehicle: ...
+    def edit_vehicle(self, vehicle_id: str, body: S.VehicleRegistration,
+                     actor: str) -> S.RegisteredVehicle | None: ...
+    def remove_vehicle(self, vehicle_id: str, actor: str) -> bool: ...
+    def import_vehicles(self, filename: str, data: bytes,
+                        actor: str) -> S.VehicleImportResult: ...
+    def vehicle_gates(self) -> list[S.GateTotals]: ...
+    def vehicles_inside(self) -> list[S.VehicleVisit]: ...
+    def vehicle_visits(self) -> list[S.VehicleVisit]: ...
+    def delete_pass(self, pass_id: str, actor: str) -> bool: ...
+    def export_passes(self, actor: str, **filters) -> bytes: ...
+
     def attention(self) -> list[S.AttentionItem]: ...
     def acknowledge(self, item_id: str, actor: str) -> S.AttentionItem | None: ...
     def school_profile(self) -> S.SchoolProfile: ...
@@ -219,6 +236,63 @@ class MockStore:
         return []
 
     # -- site ---------------------------------------------------------------
+
+    # -- vehicle gate -------------------------------------------------------
+    #
+    # Deliberately empty rather than fixtured. The design file this feature
+    # was built from carries invented figures - 2,140 registered, 148 entered
+    # today - and a mock that served those would put them on screen in the one
+    # mode nobody expects to be lying to them differently. VG_MOCK=1 says the
+    # whole store is fixtures; this feature answers "nothing configured".
+
+    def vehicle_summary(self) -> S.GateSummary:
+        return S.GateSummary(
+            gates=0,
+            reason="Vehicle gate is not configured in this demo store.",
+        )
+
+    def vehicle_passes(self, **filters) -> list[S.VehiclePass]:
+        return []
+
+    def vehicle_cameras(self) -> list[S.CameraView]:
+        return []
+
+    def vehicle_register(self, query: str = "",
+                         category: str = "") -> list[S.RegisteredVehicle]:
+        return []
+
+    def add_vehicle(self, body, actor: str):
+        raise SubsystemUnavailable(
+            "The vehicle register is not available in this demo store.")
+
+    def edit_vehicle(self, vehicle_id: str, body, actor: str):
+        raise SubsystemUnavailable(
+            "The vehicle register is not available in this demo store.")
+
+    def remove_vehicle(self, vehicle_id: str, actor: str) -> bool:
+        raise SubsystemUnavailable(
+            "The vehicle register is not available in this demo store.")
+
+    def import_vehicles(self, filename: str, data: bytes, actor: str):
+        raise SubsystemUnavailable(
+            "The vehicle register is not available in this demo store.")
+
+    def vehicle_gates(self) -> list[S.GateTotals]:
+        return []
+
+    def vehicles_inside(self) -> list[S.VehicleVisit]:
+        return []
+
+    def vehicle_visits(self) -> list[S.VehicleVisit]:
+        return []
+
+    def delete_pass(self, pass_id: str, actor: str) -> bool:
+        raise SubsystemUnavailable(
+            "The vehicle log is not available in this demo store.")
+
+    def export_passes(self, actor: str, **filters) -> bytes:
+        raise SubsystemUnavailable(
+            "The vehicle log is not available in this demo store.")
 
     def site(self) -> S.SiteInfo:
         health = self.health()
@@ -765,6 +839,7 @@ class MockStore:
         ("breaches", "Restricted zones"),
         ("weapons", "Weapon detection"),
         ("search_lost", "Bag detection"),
+        ("vehicles", "Vehicle gate"),
         ("users", "Users and roles"),
         ("audit", "Audit trail"),
         ("attention", "Alerts"),

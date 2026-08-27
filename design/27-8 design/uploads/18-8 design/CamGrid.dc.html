@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<div style="background:var(--card,#fff);border-radius:14px;padding:20px;box-shadow:var(--sh,0 1px 3px rgba(30,42,36,.07));margin-top:14px;">
+  <div style="font-weight:700;font-size:15.5px;color:var(--tx,#1f2b26);">{{ title }}</div>
+  <div style="font-size:13px;color:var(--tx3,#8a968e);margin-top:2px;">{{ note }}</div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:12px;margin-top:14px;">
+    <sc-for list="{{ cams }}" as="c" hint-placeholder-count="3">
+      <div onClick="{{ c.open }}" style="border-radius:12px;overflow:hidden;background:#1d2420;cursor:pointer;border:1px solid var(--line,#e0e7e1);">
+        <div style="position:relative;height:128px;background:#20262a;overflow:hidden;">
+          <div style="position:absolute;inset:0;background:linear-gradient(#39434a 0%,#2b333a 46%,#232a2f 47%,#1b2124 100%);"></div>
+          <div style="position:absolute;left:50%;top:47%;width:150%;height:53%;transform:translateX(-50%);background-image:linear-gradient(90deg,rgba(255,255,255,.05) 1px,transparent 1px);background-size:9% 100%;"></div>
+          <div style="position:absolute;left:0;right:0;top:47%;height:1px;background:rgba(255,255,255,.12);"></div>
+          <div style="position:absolute;left:6%;top:14%;width:16%;height:33%;background:#2f383f;border:1px solid rgba(255,255,255,.07);"></div>
+          <div style="position:absolute;right:8%;top:11%;width:21%;height:36%;background:#333d45;border:1px solid rgba(255,255,255,.08);"></div>
+          <div style="position:absolute;right:11%;top:14%;width:15%;height:22%;background:rgba(188,208,222,.13);"></div>
+          <div style="position:absolute;left:38%;top:20%;width:12%;height:27%;background:#262e34;border:1px solid rgba(255,255,255,.06);"></div>
+          <div style="position:absolute;inset:0;box-shadow:inset 0 0 62px rgba(0,0,0,.55);"></div>
+          <div style="position:absolute;inset:0;background-image:repeating-linear-gradient(0deg,rgba(255,255,255,.022) 0 1px,transparent 1px 3px);"></div>
+          <sc-if value="{{ c.zoneOn }}" hint-placeholder-val="{{ false }}">
+            <div style="position:absolute;left:{{ c.zx }}%;top:{{ c.zy }}%;width:{{ c.zw }}%;height:{{ c.zh }}%;border:2px solid #dfa23f;background:rgba(223,162,63,.15);border-radius:4px;">
+              <span style="position:absolute;top:{{ c.zlt }};left:{{ c.zll }};font-size:10px;font-weight:700;color:#1d2420;background:#dfa23f;padding:1px 6px;border-radius:3px;">{{ c.zl }}</span>
+            </div>
+          </sc-if>
+          <sc-if value="{{ c.lineOn }}" hint-placeholder-val="{{ false }}">
+            <div style="position:absolute;left:8%;right:8%;top:{{ c.line }}%;border-top:2px dashed #5b9bd8;"></div>
+          </sc-if>
+          <sc-for list="{{ c.boxes }}" as="b" hint-placeholder-count="0">
+            <div style="position:absolute;left:{{ b.x }}%;top:{{ b.y }}%;width:{{ b.w }}%;height:{{ b.h }}%;border:2px solid {{ b.c }};border-radius:3px;box-shadow:0 0 0 1px rgba(0,0,0,.35);">
+              <div style="position:absolute;left:14%;top:2%;width:72%;height:26%;border-radius:50% 50% 46% 46%;background:rgba(255,255,255,.12);"></div>
+              <div style="position:absolute;left:4%;top:30%;width:92%;height:70%;border-radius:26% 26% 8% 8%;background:rgba(255,255,255,.09);"></div>
+              <sc-if value="{{ b.hasL }}" hint-placeholder-val="{{ false }}">
+                <span style="position:absolute;top:-18px;left:-2px;font-size:10px;font-weight:700;padding:1px 6px;border-radius:3px;white-space:nowrap;color:#fff;background:{{ b.c }};">{{ b.l }}</span>
+              </sc-if>
+            </div>
+          </sc-for>
+          <sc-if value="{{ c.on }}" hint-placeholder-val="{{ true }}">
+            <div style="position:absolute;top:8px;left:9px;display:flex;align-items:center;gap:5px;font-size:10.5px;color:#fff;font-weight:600;letter-spacing:.05em;">
+              <span style="width:6px;height:6px;border-radius:50%;background:#e5564a;animation:vg-pulse 1.6s infinite;"></span>LIVE
+            </div>
+          </sc-if>
+          <sc-if value="{{ c.off }}" hint-placeholder-val="{{ false }}">
+            <div style="position:absolute;inset:0;background:rgba(29,36,32,.74);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;">
+              <span style="color:#aab5ac;font-size:12px;font-weight:700;letter-spacing:.05em;">NO SIGNAL</span>
+              <span style="color:#77827a;font-size:11px;">showing last received frame</span>
+            </div>
+          </sc-if>
+          <div style="position:absolute;top:8px;right:9px;font-size:10.5px;color:#c3cdc5;font-family:ui-monospace,Menlo,monospace;">{{ c.time }}</div>
+        </div>
+        <div style="padding:9px 12px;background:var(--card,#fff);">
+          <div style="font-size:12.5px;font-weight:600;color:var(--tx,#1f2b26);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ c.n }}</div>
+          <div style="font-size:11.5px;color:var(--tx2,#57655d);margin-top:1px;">{{ c.s }}</div>
+        </div>
+      </div>
+    </sc-for>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:&quot;920px&quot;,&quot;height&quot;:&quot;340px&quot;},&quot;title&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;Cameras&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;note&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;cams&quot;:{&quot;editor&quot;:null,&quot;default&quot;:[],&quot;tsType&quot;:&quot;Array&lt;object&gt;&quot;}}"></script>
+</body>
+</html>

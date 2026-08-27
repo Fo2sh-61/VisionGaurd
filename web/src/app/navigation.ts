@@ -30,6 +30,8 @@ const ICON = {
   track: 'M3.5 14.5 C7 6.5 11 12.5 14.5 4',
   intrusion: 'M3.5 4.5 H14.5 V13.5 H3.5 Z M9 7.8 a1.2 1.2 0 1 0 .01 0',
   weapons: 'M5 15.5 V3 H13.5 L11 6 L13.5 9 H5',
+  // A car, from the side: roof line over a body, two wheels.
+  vehicles: 'M2.5 11 H15.5 M3.5 11 V8.5 L5.5 5.5 H12 L14.5 8.5 V11 M6 13 a1.3 1.3 0 1 0 .01 0 M12 13 a1.3 1.3 0 1 0 .01 0',
   system: 'M2.5 9.5 H6 L8 5 L10.5 13 L12.5 9.5 H15.5',
   people:
     'M6.2 3.5 a2.3 2.3 0 1 0 0.01 0 M2.8 14.5 c0-2.6 1.7-4 3.4-4 s3.4 1.4 3.4 4 M12.3 5.5 a2 2 0 1 0 0.01 0 M11.5 11.3 c1.9 .3 3.4 1.5 3.4 3.2',
@@ -46,6 +48,7 @@ export const NAV: NavEntry[] = [
 
   { id: 'intrusion', path: '/intrusion', label: 'Restricted zones', blurb: 'Areas that must stay empty', section: 'watch', icon: ICON.intrusion },
   { id: 'weapons', path: '/weapons', label: 'Knife detection', blurb: 'Human-reviewed, always', section: 'watch', icon: ICON.weapons },
+  { id: 'vehicles', path: '/vehicles', label: 'Vehicle gate', blurb: 'Cars in, cars out', section: 'watch', icon: ICON.vehicles },
 
   { id: 'people', path: '/people', label: 'People', blurb: 'Students, staff and groups', section: 'manage', icon: ICON.people },
   { id: 'system', path: '/system', label: 'System health & configuration', blurb: 'Cameras and recorders', section: 'manage', icon: ICON.system },

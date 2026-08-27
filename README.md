@@ -1,6 +1,8 @@
 # VisionGuard
 
-School campus vision system for Greenfield International School — a console that answers questions about campus activity (attendance, headcounts, restricted zones, weapons, lost items, where a person went) with the footage attached.
+A campus vision system for schools and organisations — a console that answers questions about activity on site (attendance, headcounts, restricted zones, weapons, lost items, where a person went) with the footage attached.
+
+It is not built for one customer. Each deployment names its own site, cameras and zones in `engine/engine.yaml`; the product ships with that name blank.
 
 ```
 engine/    Python FastAPI + OpenCV/YOLO backend — the vision engine and API

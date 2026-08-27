@@ -37,6 +37,11 @@ log = logging.getLogger(__name__)
 
 ROLES = ("admin", "it")
 
+#: The role an account gets when nobody chose one for it - self-registration
+#: through `POST /auth/register`. Never taken from the request body: a
+#: sign-up form that accepts a role is a sign-up form that hands out admin.
+SELF_SIGNUP_ROLE = "it"
+
 #: How long a session lasts without use. Short enough that an unattended
 #: console in a school office is not a standing door; long enough that an
 #: operator is not signing in during an incident.
@@ -64,6 +69,15 @@ CREATE TABLE IF NOT EXISTS session (
 
 CREATE INDEX IF NOT EXISTS idx_session_user ON session(user_id);
 """
+
+
+class EmailTaken(ValueError):
+    """That address already has an account.
+
+    A distinct type because the caller has to tell it apart from a typo in a
+    role name, and because the sign-up endpoint must answer it differently
+    from every other failure. The message is safe to show a user.
+    """
 
 
 @dataclass(frozen=True)
@@ -118,20 +132,36 @@ class UserStore:
     # -- users --------------------------------------------------------------
 
     def create_user(self, email: str, name: str, role: str, password: str) -> User:
-        """Add an account. Raises on a duplicate email or an unknown role."""
+        """Add an account.
+
+        Raises `EmailTaken` for a duplicate address, `ValueError` for an
+        unknown role, and `WeakPassword` for one that is too short. The
+        password is hashed before the row is written and is never held
+        anywhere else.
+        """
         if role not in ROLES:
             raise ValueError(f"unknown role: {role!r}; expected one of {ROLES}")
 
         user = User(id=secrets.token_hex(8), email=email.strip(), name=name.strip(),
                     role=role)
-        with self._lock:
-            self._conn.execute(
-                "INSERT INTO app_user (id, email, name, role, password_hash,"
-                " created_at) VALUES (?, ?, ?, ?, ?, ?)",
-                (user.id, user.email, user.name, user.role,
-                 hash_password(password), _now().isoformat()),
-            )
-            self._conn.commit()
+        # Hash first. It is the slow, throwing step, and doing it outside the
+        # lock keeps a sign-up storm from queueing behind ~50 ms of argon2
+        # each while holding the only connection.
+        password_hash = hash_password(password)
+        try:
+            with self._lock:
+                self._conn.execute(
+                    "INSERT INTO app_user (id, email, name, role, password_hash,"
+                    " created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                    (user.id, user.email, user.name, user.role,
+                     password_hash, _now().isoformat()),
+                )
+                self._conn.commit()
+        except sqlite3.IntegrityError as exc:
+            # UNIQUE COLLATE NOCASE on email. Checking first and inserting
+            # second would still race two simultaneous sign-ups; the
+            # constraint is the only answer that cannot be interleaved.
+            raise EmailTaken("That email already has an account.") from exc
         log.info("created %s account for %s", role, user.email)
         return user
 

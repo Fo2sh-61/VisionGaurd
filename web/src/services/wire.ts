@@ -38,7 +38,9 @@ export interface Box {
   h: number;
   label?: string | null;
   confidence?: number | null;
-  kind: 'person' | 'weapon' | 'object' | 'face' | 'match';
+  // `plate` is a car, never a person. It is its own kind so that no feature's
+  // colouring can reach it and no name can be painted beside it.
+  kind: 'person' | 'weapon' | 'object' | 'face' | 'match' | 'plate';
   match: MatchKind;
   severity: Severity;
   /** The appearance identity following this body. Holds across leaving the
@@ -843,4 +845,102 @@ export interface LoginResult {
   token: string;
   expiresAt: Instant;
   user: Account;
+}
+
+/** One car through one gate, once.
+ *
+ *  `owner` is null when the plate is not on the register — the console shows
+ *  "Not in the register", because an empty cell reads as missing data and
+ *  this is a fact, not a gap. */
+export interface VehiclePass {
+  id: string;
+  at: Instant;
+  plate: string;
+  plateDisplay: string;
+  gate: number;
+  gateName: string;
+  direction: string;
+  status: string;
+  confidence: number;
+  votes: number;
+  needsReview: boolean;
+  owner: string | null;
+  unit: string | null;
+  hasSnapshot: boolean;
+}
+
+export interface RegisteredVehicle {
+  id: string;
+  plate: string;
+  plateDisplay: string;
+  category: string;
+  owner: string | null;
+  phone: string | null;
+  unit: string | null;
+  carMake: string | null;
+  carColour: string | null;
+  validUntil: string | null;
+  notes: string | null;
+  expired: boolean;
+  lastSeen: Instant | null;
+}
+
+export interface VehicleRegistration {
+  plate: string;
+  category?: string;
+  owner?: string | null;
+  phone?: string | null;
+  unit?: string | null;
+  carMake?: string | null;
+  carColour?: string | null;
+  validUntil?: string | null;
+  notes?: string | null;
+}
+
+export interface GateTotals {
+  gate: number;
+  name: string;
+  entered: number;
+  left: number;
+  inside: number | null;
+  pairingAvailable: boolean;
+}
+
+export interface VehicleVisit {
+  plate: string;
+  plateDisplay: string;
+  entered: Instant;
+  entryGate: number;
+  leftAt: Instant | null;
+  exitGate: number | null;
+  minutes: number | null;
+  owner: string | null;
+  unit: string | null;
+  category: string | null;
+  inferred: boolean;
+}
+
+export interface VehicleImportResult {
+  added: number;
+  updated: number;
+  skippedDuplicates: number;
+  problems: string[];
+}
+
+/** The six Live tiles.
+ *
+ *  **Every count is nullable, and that is the design.** A tile with no number
+ *  renders `reason` instead. Zero is a measurement — "no car came through" —
+ *  and sending it for "we are not looking" is the untruth SC-010 forbids. */
+export interface GateSummary {
+  entered: number | null;
+  left: number | null;
+  inside: number | null;
+  unknown: number | null;
+  blacklist: number | null;
+  needsReview: number | null;
+  gates: number;
+  registered: number | null;
+  reason: string | null;
+  pairingAvailable: boolean;
 }

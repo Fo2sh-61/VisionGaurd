@@ -1,0 +1,23 @@
+# نماذج التعرّف — ثبّتها بعد أن يعمل النظام أساساً
+# Recognition models. Install AFTER the core system runs.
+#
+#     pip install -r requirements-ai.txt
+#
+# تحذير: هذا التنزيل كبير (عدة جيجابايت) لأن PyTorch يأتي معه.
+# Warning: this is a multi-GB download because PyTorch comes with it.
+
+-r requirements.txt
+
+ultralytics>=8.3                 # YOLO plate detection + character detection
+
+# قارئ عربي جاهز بدون تدريب — أبطأ وأقل دقة، لكنه يعمل من اليوم الأول.
+# Zero-training Arabic OCR. Slower and less accurate, but works on day one.
+# easyocr>=1.7
+
+# ── على Jetson فقط / Jetson only ─────────────────────────────────────────
+# لا تثبّت torch من pip على Jetson — استخدم عجلة JetPack من NVIDIA:
+#   https://developer.download.nvidia.com/compute/redist/jp/
+# ثم:  pip install ultralytics --no-deps
+#
+# On Jetson do NOT pip install torch — use NVIDIA's JetPack wheel, then:
+#   pip install ultralytics --no-deps

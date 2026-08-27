@@ -78,7 +78,11 @@ tracking:
   patrol_hz: 0.5
 
   identity:
-    score: 0.45          # cosine similarity the best match must reach
+    # Measured with engine/tools/calibrate_faces.py: the enrolled person
+    # scores 0.725-0.812 against themselves. 0.45 left the whole 0.45-0.72
+    # band open, and a stranger was named inside it. Re-run that tool after
+    # enrolling a real roll rather than trusting this number.
+    score: 0.60          # cosine similarity the best match must reach
     margin: 0.10         # how far clear of the runner-up
     matches: 3           # how many separate looks
     seconds: 1.5         # spread over at least this long
@@ -88,12 +92,36 @@ tracking:
     face_px: 80
 
   patrol:
+    # NOT raised with the identity tier above. A real corridor look scores
+    # ~0.44; a higher bar here means corridor cameras never anchor and
+    # "Track a person" stops working outside doorways. Patrol earns its
+    # lower bar through evidence - three looks, spread over seconds.
     score: 0.40
     margin: 0.07
     matches: 3
     seconds: 2.0
     gap_seconds: 0.4
     face_px: 80
+
+# ---------------------------------------------------------------------------
+# Vehicle gate — how long the same car is one arrival
+#
+# A repeated read of the same plate at the same camera inside this window is
+# one pass, not several. A car sits at a barrier for twenty seconds, so 60 is
+# comfortably clear of that: without it, every frame the car is read in
+# becomes another arrival and the log turns into noise.
+#
+# **Turn this down to 3 while testing with a plate in your hand.** Holding the
+# same plate up twice is exactly what the window is built to ignore, and at 60
+# the second attempt looks like the reader failing. 0 records every settled
+# read as its own pass.
+#
+# It does not affect reading. A plate in view is read, boxed and labelled on
+# the tile continuously whatever this says; the window only decides when a new
+# row is written.
+# ---------------------------------------------------------------------------
+vehicles:
+  dedupe_seconds: 60
 
 # ---------------------------------------------------------------------------
 # Archive — where recorded video comes from when somebody asks to watch a leg
@@ -197,6 +225,60 @@ models:
     conf: 0.25
     version: worldv2-search-2026-05-09
 
+  # Egyptian plates: letters and Indic digits, in a font no general OCR reads.
+  # Two models in a fixed order - find the plate, then read its characters -
+  # and the second only ever runs on a crop the first returned. Same gating
+  # that makes knife detection affordable.
+  #
+  # From the MIT-licensed ACLPR project, fine-tuned on the Egyptian EALPR set.
+  # Supplied by the owner; nothing here was sourced or trained.
+  # These two run EXACTLY as gate-anpr runs them, and every value below is
+  # matched to that project rather than to this file's usual defaults.
+  #
+  # The reason is measured, not cautious. Ported into this engine the same
+  # weights read plates that were close but wrong, and the differences were
+  # all in how the model was CALLED, not in the porting: this engine asked
+  # for FP16 and a TensorRT plan, and set NMS at 0.45 where ultralytics
+  # defaults to 0.7. A person detector has room for that. A model deciding
+  # which of 38 characters a twenty-pixel glyph is has less.
+  #
+  # Cost of matching: about 6 ms a frame on the plate detector, and the
+  # character model only ever runs on crops the detector returned, so the
+  # frames with no car in them cost nothing either way.
+  #
+  # Before changing any of these back, run:
+  #     python engine/tools/compare_plates.py --camera 0 --frames 20
+  # It reads the same frames four ways - theirs, ours at FP32, ours at FP16,
+  # ours on TensorRT - and names which change costs which reading.
+  plates:
+    task: detect
+    weights: models/plate_detector.pt
+    imgsz: 640
+    conf: 0.35                 # gate-anpr's min_detect_conf, exactly
+    iou: 0.7                   # ultralytics' default, which gate-anpr uses
+    half: false                # FP32, as trained
+    accelerate: false          # the .pt, not the TensorRT plan
+    classes: [car_plate]       # the model's only class
+    version: aclpr-plate-2026-08-24
+
+  # 38 classes: 10 digits + 28 Arabic letters, named as Latin transliterations
+  # (`alif`, `baa`, `7aa`) rather than Arabic glyphs. CHAR_GLYPHS in
+  # infer/plates.py is the map. A replacement model must follow the same names
+  # or emit Arabic directly.
+  plate_chars:
+    task: detect
+    weights: models/char_detector.pt
+    imgsz: 640
+    # Not used for the character pass: `infer/plates.py` calls this model at
+    # ALT_CONF (0.10) and filters at DETECT_CONF (0.25) afterwards, which is
+    # gate-anpr's two-tier rule - a weak box may only ever be an alternative
+    # reading of a character already found, never an extra character.
+    conf: 0.25
+    iou: 0.7                   # ultralytics' default, which gate-anpr uses
+    half: false                # FP32. This is the accuracy-critical model
+    accelerate: false          # the .pt, not the TensorRT plan
+    version: aclpr-chars-2026-08-24
+
   pose:
     task: pose
     weights: models/yolov8s-pose.pt
@@ -287,7 +369,15 @@ cameras:
     # `track` follows one person across cameras. On the webcam only for
     # now: it costs ~2 ms of CPU per frame on top of the person detector it
     # shares, and its rows are dense.
-    features: [attendance, counting, intrusion, track]
+    features: [attendance, counting, intrusion, track, vehicles]
+    # Gate 1, entry. One camera cannot honestly claim both directions - the
+    # Gate project's own docs call inferring direction from plate size
+    # "noticeably less reliable" - so a camera states what it watches and
+    # `direction: both` is rejected outright. Pairing an exit to an entry
+    # needs a second camera; until one exists the Movements tab says so
+    # rather than printing a figure it cannot compute.
+    gate: 1
+    direction: entry
     # The identity tier. `faces: true` says people look at this camera from
     # close enough to be identified, so it gets the recogniser at full rate
     # and the stricter `tracking.identity` bar. Every other camera is patrol.

@@ -15,6 +15,15 @@ close together, the system does not know which it is and must say so. A
 confident wrong name on an attendance register is worse than an absence — one
 gets corrected, the other gets believed.
 
+**The margin does nothing while only one person is enrolled**, and that is
+worth knowing rather than discovering. `match()` guards it with
+`len(ranked) > 1`, because with a gallery of one there is no runner-up to be
+close to. A one-person gallery therefore runs on the threshold alone — which
+is exactly how a stranger came to be named at the old 0.45 bar. The gate
+switches itself back on at the second enrolment; nothing needs changing for
+that to happen. Until then, the threshold is carrying both jobs, and
+`config.py` explains what it was measured against.
+
 **Model is recorded with every vector.** SFace and ArcFace embeddings are not
 comparable. Comparing them silently produces plausible-looking nonsense, so a
 mismatch is refused outright.

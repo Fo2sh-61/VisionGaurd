@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+{% block title %}الإعدادات{% endblock %}
+{% block body %}
+
+{% if msg %}<div class="flash ok">✓ {{ msg }}</div>{% endif %}
+{% if err %}<div class="flash err">✗ {{ err }}</div>{% endif %}
+
+<div class="panel">
+  <h2>🎥 الكاميرات والبوابات</h2>
+  <p class="muted" style="margin-top:0">
+    لكل كاميرا سؤالان يحددان معناها: <b>رقم البوابة</b> و<b>دخول أم خروج</b>.
+    التعديل هنا يُحفظ فورًا
+    {% if can_restart %}ويعيد تشغيل الكاميرات تلقائيًا{% else %}
+    ويحتاج إعادة تشغيل النظام{% endif %}.
+  </p>
+
+  {% for c in cameras %}
+  <form method="post" action="/settings/camera" class="camcard">
+    <input type="hidden" name="original_id" value="{{ c.id }}">
+    <div class="camhead">
+      <span class="dot {{ 'on' if c.id in running else 'off' }}"></span>
+      <b>{{ c.name }}</b>
+      <span class="muted">— بوابة {{ c.gate_number }} · {{ direction_ar[c.direction] }}</span>
+      <span class="muted" style="margin-inline-start:auto">
+        {{ 'تعمل الآن' if c.id in running else 'متوقفة' }}</span>
+    </div>
+
+    <div class="grid g2">
+      <div><label>الاسم الظاهر</label>
+        <input name="name" value="{{ c.name }}" required></div>
+      <div><label>المعرّف (بالإنجليزية، بدون مسافات)</label>
+        <input name="id" value="{{ c.id }}" required pattern="[A-Za-z0-9_\-]+"></div>
+      <div style="grid-column:1/-1"><label>مصدر الكاميرا (RTSP أو 0 للويب كام)</label>
+        <input name="source" value="{{ c.source }}" required></div>
+
+      <div class="hot"><label>★ رقم البوابة</label>
+        <input name="gate_number" type="number" min="1" value="{{ c.gate_number }}" required></div>
+      <div class="hot"><label>★ الاتجاه</label>
+        <select name="direction">
+          <option value="entry" {{ 'selected' if c.direction=='entry' }}>دخول — ENTRY</option>
+          <option value="exit"  {{ 'selected' if c.direction=='exit' }}>خروج — EXIT</option>
+          <option value="both"  {{ 'selected' if c.direction=='both' }}>الاثنان (أقل دقة)</option>
+        </select></div>
+
+      <div><label>لقطات في الثانية</label>
+        <input name="fps_limit" type="number" step="0.5" min="0.5" value="{{ c.fps_limit }}"></div>
+      <div><label>دوران الصورة</label>
+        <select name="rotate">
+          {% for r in [0, 90, 180, 270] %}
+          <option value="{{ r }}" {{ 'selected' if c.rotate==r }}>{{ r }}°</option>
+          {% endfor %}
+        </select></div>
+      <div><label>مفعّلة</label>
+        <select name="enabled">
+          <option value="1" {{ 'selected' if c.enabled }}>نعم</option>
+          <option value="" {{ 'selected' if not c.enabled }}>لا (متوقفة مؤقتًا)</option>
+        </select></div>
+    </div>
+
+    <details style="margin-top:10px">
+      <summary class="muted" style="cursor:pointer">
+        منطقة الاهتمام ROI — الجزء الذي تتوقف فيه السيارة (اختياري)</summary>
+      <div class="grid g4" style="margin-top:8px">
+        <div><label>x1</label><input name="roi_x1" type="number" step="0.01" min="0" max="1" value="{{ c.roi[0] }}"></div>
+        <div><label>y1</label><input name="roi_y1" type="number" step="0.01" min="0" max="1" value="{{ c.roi[1] }}"></div>
+        <div><label>x2</label><input name="roi_x2" type="number" step="0.01" min="0" max="1" value="{{ c.roi[2] }}"></div>
+        <div><label>y2</label><input name="roi_y2" type="number" step="0.01" min="0" max="1" value="{{ c.roi[3] }}"></div>
+      </div>
+      <div class="muted" style="font-size:12px;margin-top:6px">
+        نِسَب من ٠ إلى ١. الافتراضي 0,0,1,1 = الصورة كاملة. تضييقها يقلل
+        الحمل على المعالج ويمنع قراءة لوحات الشارع.
+      </div>
+    </details>
+
+    <div class="row" style="margin-top:12px">
+      <button type="submit">حفظ التعديلات</button>
+      <button type="button" class="btn-danger btn-sm"
+        onclick="if(confirm('حذف الكاميرا {{ c.name }}؟')) document.getElementById('del-{{ c.id }}').submit()">
+        حذف الكاميرا</button>
+    </div>
+  </form>
+  <form method="post" action="/settings/camera/{{ c.id }}/delete"
+        id="del-{{ c.id }}"></form>
+  {% endfor %}
+
+  {% if not cameras %}
+    <p class="muted">لا توجد كاميرات بعد — أضف واحدة أدناه.</p>
+  {% endif %}
+</div>
+
+<div class="panel">
+  <h2>➕ إضافة كاميرا جديدة</h2>
+  <form method="post" action="/settings/camera">
+    <div class="grid g2">
+      <div><label>الاسم الظاهر</label>
+        <input name="name" placeholder="البوابة الرئيسية - دخول" required></div>
+      <div><label>المعرّف (بالإنجليزية)</label>
+        <input name="id" placeholder="gate1_entry" required pattern="[A-Za-z0-9_\-]+"></div>
+      <div style="grid-column:1/-1"><label>مصدر الكاميرا</label>
+        <input name="source" required
+               placeholder="rtsp://admin:PASS@192.168.1.64:554/Streaming/Channels/101  أو  0"></div>
+      <div class="hot"><label>★ رقم البوابة</label>
+        <input name="gate_number" type="number" min="1" value="1" required></div>
+      <div class="hot"><label>★ الاتجاه</label>
+        <select name="direction">
+          <option value="entry">دخول — ENTRY</option>
+          <option value="exit">خروج — EXIT</option>
+          <option value="both">الاثنان (أقل دقة)</option>
+        </select></div>
+      <div><label>لقطات في الثانية</label>
+        <input name="fps_limit" type="number" step="0.5" value="8"></div>
+    </div>
+    <input type="hidden" name="enabled" value="1">
+    <div style="margin-top:14px"><button type="submit">إضافة الكاميرا</button></div>
+  </form>
+</div>
+
+<div class="panel">
+  <h2>⚙️ إعدادات عامة</h2>
+  <form method="post" action="/settings/site">
+    <div class="grid g2">
+      <div><label>اسم الموقع</label>
+        <input name="site_name" value="{{ cfg.site_name }}" required></div>
+      <div><label>تنبيه على السيارات غير المسجلة</label>
+        <select name="alert_on_unknown">
+          <option value="1" {{ 'selected' if cfg.alert_on_unknown }}>نعم</option>
+          <option value="" {{ 'selected' if not cfg.alert_on_unknown }}>لا</option>
+        </select></div>
+      <div><label>تنبيه على السيارات المحظورة</label>
+        <select name="alert_on_blacklist">
+          <option value="1" {{ 'selected' if cfg.alert_on_blacklist }}>نعم</option>
+          <option value="" {{ 'selected' if not cfg.alert_on_blacklist }}>لا</option>
+        </select></div>
+      <div><label>عرض البث المباشر في اللوحة</label>
+        <select name="live_view">
+          <option value="1" {{ 'selected' if cfg.live_view }}>نعم</option>
+          <option value="" {{ 'selected' if not cfg.live_view }}>لا (يوفّر معالجة)</option>
+        </select></div>
+      <div><label>حفظ صور اللوحات للتدريب لاحقًا</label>
+        <select name="collect_dataset">
+          <option value="1" {{ 'selected' if cfg.collect_dataset }}>نعم (موصى به)</option>
+          <option value="" {{ 'selected' if not cfg.collect_dataset }}>لا</option>
+        </select></div>
+      <div><label>عدد الإطارات المتفقة قبل التسجيل</label>
+        <input name="min_votes" type="number" min="1" max="15"
+               value="{{ cfg.recognition.min_votes }}"></div>
+      <div><label>أقل ثقة مقبولة (٠–١)</label>
+        <input name="min_accept_conf" type="number" step="0.05" min="0" max="1"
+               value="{{ cfg.recognition.min_accept_conf }}"></div>
+      <div><label>أقل ثقة لكشف اللوحة (٠–١)</label>
+        <input name="min_detect_conf" type="number" step="0.05" min="0" max="1"
+               value="{{ cfg.recognition.min_detect_conf }}"></div>
+      <div><label>منع تكرار نفس اللوحة (ثانية)</label>
+        <input name="dedupe_seconds" type="number" min="1"
+               value="{{ cfg.recognition.dedupe_seconds }}"></div>
+    </div>
+    <div style="margin-top:14px"><button type="submit">حفظ الإعدادات العامة</button></div>
+  </form>
+</div>
+
+<div class="panel">
+  <h2>🔄 التشغيل</h2>
+  <div class="row">
+    <form method="post" action="/settings/restart">
+      <button {{ '' if can_restart else 'disabled' }}>إعادة تشغيل الكاميرات</button>
+    </form>
+    <span class="muted" style="font-size:13px">
+      استخدمه إن توقفت كاميرا أو تغيّر عنوان الشبكة.
+    </span>
+  </div>
+  <table style="margin-top:14px">
+    <tr><td class="muted">ملف الإعدادات</td><td><code>config/cameras.yaml</code></td></tr>
+    <tr><td class="muted">مجلد البيانات</td><td><code>{{ data_dir }}</code></td></tr>
+    <tr><td class="muted">المنفذ</td><td><code>{{ cfg.web_port }}</code>
+      <span class="muted">— تغييره يحتاج تعديل الملف وإعادة تشغيل</span></td></tr>
+  </table>
+</div>
+{% endblock %}

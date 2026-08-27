@@ -192,6 +192,46 @@ which a black office chair accounts for most, held steadily enough that the
 two-frame rule cannot reject it (research D10). So a hit is presented as a
 **possible** bag for a person to look at, never as a finding.
 
+### Vehicle gate — **built 24 Aug 2026** · out of phase order, at the owner's request
+
+Not one of the ten phases. The owner supplied two trained plate models — a plate
+detector and a character reader, both on the Egyptian EALPR set — and asked for the
+gate ahead of the queue, so it was specified and built as `specs/006-vehicle-gate`.
+
+**Built.** A camera becomes a gate camera by being given a gate number and a
+direction in `engine.yaml`; `both` is refused, because one camera cannot tell you
+which way a car was going. Plates are read on those cameras only. **Nothing is
+recorded from one frame**: each frame casts a weighted vote — reading confidence ×
+plausibility × how big the plate was — readings within one edit merge instead of
+competing, and a car is written only when three frames agree. The same plate at the
+same camera inside sixty seconds is one pass, not twenty. Every pass keeps a
+photograph of the clearest frame and a crop of the plate; both are deleted at thirty
+days and the row is kept for good. A weak read is recorded and flagged for review
+rather than discarded.
+
+The register is a spreadsheet import or a form: plate, owner, unit, category, expiry.
+Plates are normalised, so a plate typed in English digits, imported in Arabic digits
+and read off a camera all land on one row — the database constraint decides, not a
+lookup. A pass reads as registered, not registered, blacklisted or permit expired,
+decided at the moment of the pass and never rewritten afterwards; blacklisting a car
+today does not change what yesterday's pass said. Only blacklist raises an attention
+item. A guard reads the register and the log; only an administrator changes them or
+exports the log, and the export writes its audit entry before it builds the file.
+
+**Not built, and the page says so rather than implying otherwise.** Nothing is
+blocked, actuated or opened — the software records, it does not gate. Nothing fans
+out: a blacklisted car raises an item on Home and sends no message to anybody.
+"Inside now" needs a gate with **both** an entry and an exit camera; with one
+camera the page states that no exit camera is configured instead of printing a
+figure, and a visit closed because the car was seen entering again is labelled an
+estimated exit, never an observed one.
+
+**Unmeasured.** Whether a plate held at a laptop webcam clears the 60-pixel floor,
+and the read accuracy on real Egyptian plates at real gate distances, are both
+measurements nobody has made yet. The models are trained on EALPR; this repo has no
+clip with a car in it, so the regression suite proves the voting, the storage, the
+permissions and every empty state — and proves nothing at all about accuracy.
+
 ### P8 — Scale to 208 · 2–3 wk + hardware
 
 Synthetic camera harness · staged benchmarks 1 → 8 → 32 → 104 → 208 · bounded worker pools replacing thread-per-camera (F5) · multi-process partitioning · sub-streams · UI pagination · decide Postgres **from measurement, not preference**.

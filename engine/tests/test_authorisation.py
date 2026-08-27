@@ -282,8 +282,18 @@ class TestRolesAreServerSide:
 class TestPublicListIsTight:
     """The allowlist is the whole attack surface. It should be hard to widen."""
 
-    def test_only_two_paths_are_public(self):
-        assert auth_deps.PUBLIC_PATHS == frozenset({"/healthz", "/auth/login"}), (
+    def test_only_the_three_agreed_paths_are_public(self):
+        """Three, and each one was argued for.
+
+        `/healthz` a load balancer cannot authenticate. `/auth/login` is how
+        a token is obtained. `/auth/register` is open sign-up - a product
+        decision taken knowingly, covered by `test_registration.py`, and the
+        only one here that could be removed without breaking anything
+        structural.
+        """
+        assert auth_deps.PUBLIC_PATHS == frozenset({
+            "/healthz", "/auth/login", "/auth/register",
+        }), (
             "adding a public path is a security decision - if it is deliberate, "
             "update this test and say why in the commit"
         )

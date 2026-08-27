@@ -22,7 +22,10 @@ import type {
   Zone,
 } from '@/types';
 
-export const SCHOOL_NAME = 'Greenfield International School';
+// No customer is baked into the product. A deployment sets the site name in
+// engine.yaml; until then there is no site to name, and the screens that would
+// show it render nothing rather than someone else's name.
+export const SCHOOL_NAME = '';
 export const TODAY_ISO = '2026-07-29';
 
 export const CAMERA_TOTAL: number = 208;
@@ -351,7 +354,7 @@ export function getPersonHistory(name: string): PersonHistory {
 /* ---------- account / settings ---------- */
 
 export const SCHOOL_PROFILE: SchoolProfile = {
-  name: 'Greenfield International School',
+  name: SCHOOL_NAME,
   hoursFrom: '07:30',
   hoursTo: '15:00',
   termFrom: '2025-09-01',

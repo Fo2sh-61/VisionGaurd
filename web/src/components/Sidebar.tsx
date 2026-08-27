@@ -19,7 +19,7 @@ function NavIcon({ d, active }: { d: string; active: boolean }) {
 }
 
 export function Sidebar() {
-  const schoolName = useSiteName();
+  const siteName = useSiteName();
   const account = useAccount();
   const { signOut } = useAuth();
 
@@ -32,7 +32,9 @@ export function Sidebar() {
         <Logo />
         <div>
           <div style={{ fontWeight: 700, fontSize: 15, letterSpacing: '-.01em' }}>VisionGuard AI</div>
-          <div style={{ fontSize: 11, color: 'var(--tx3)', lineHeight: 1.2 }}>{schoolName}</div>
+          {siteName && (
+            <div style={{ fontSize: 11, color: 'var(--tx3)', lineHeight: 1.2 }}>{siteName}</div>
+          )}
         </div>
       </div>
 

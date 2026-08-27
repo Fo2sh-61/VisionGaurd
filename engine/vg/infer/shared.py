@@ -37,10 +37,125 @@ threads are ever inside it, aligned or not.
 
 from __future__ import annotations
 
+import logging
+import os
 import threading
 from dataclasses import dataclass
+from pathlib import Path
 
 from vg.infer.persons import DetectedPerson, PersonDetector
+
+log = logging.getLogger(__name__)
+
+#: What `weights_to_load` reports back, and what System Health prints.
+TENSORRT = "TensorRT"
+UNACCELERATED = "PyTorch CUDA"
+
+
+def tensorrt_available() -> bool:
+    """Can this machine load a TensorRT engine at all?
+
+    **Importing `tensorrt` is not enough and the difference is not academic.**
+    On the cu13 build against a cu128 torch, `import tensorrt` succeeds,
+    `trt.Logger()` succeeds, and `trt.Builder()` segfaults - taking the whole
+    interpreter with it, so an export reports exit code 0 and produces no
+    file. The import is the cheap check that ultralytics itself performs; this
+    one only claims what it can see, and the build tool does the real probe.
+    """
+    try:
+        import tensorrt
+    except Exception:
+        return False
+    # Touch an attribute rather than bare-importing: an install whose native
+    # half is missing imports and then fails on first use.
+    return bool(getattr(tensorrt, "__version__", ""))
+
+
+def engine_path_for(weights: Path, imgsz: int) -> Path:
+    """Where the accelerated build for these weights and this size lives.
+
+    The size is **in the filename**, which is the whole trick. A TensorRT plan
+    has static shapes, so an engine built at 480 cannot serve a model
+    configured at 640 - and because the name carries the size, a 640 config
+    simply never names the 480 file. The rule that a wrong-size build must be
+    rejected needs no comparison logic; it enforces itself.
+
+    This is also the convention already on disk: `yolov8s-480.engine`,
+    `yolov8s-pose-640.engine`.
+    """
+    return weights.with_name(f"{weights.stem}-{imgsz}.engine")
+
+
+def weights_to_load(weights: Path, imgsz: int) -> tuple[Path, str]:
+    """The file a runner should actually open, and what to call that choice.
+
+    Prefers the accelerated build, falls back to the supplied weights **on the
+    GPU** - never to the processor. A missing engine is a slower product, not
+    a broken one, and P6-FR-033 requires the console to say which it is
+    running rather than leaving it to be discovered by timing a frame.
+
+    That is not hypothetical. This repo carried five engines that no
+    configuration referenced, loaded by a library that was not importable, one
+    of them built for the wrong input size - and nothing on any screen said
+    so. The product ran unaccelerated for months.
+    """
+    if os.getenv("VG_NO_TENSORRT") == "1":
+        # The lever for answering "is the engine costing accuracy?" without
+        # deleting a file that took ten minutes to build. A TensorRT plan is
+        # built at FP16 and its input size is fixed, so it is not bit-identical
+        # to the .pt it came from - and on a model that classifies single
+        # characters, "not identical" is a thing to be able to measure rather
+        # than argue about. `tools/compare_plates.py` sets this.
+        return weights, UNACCELERATED
+
+    engine = engine_path_for(weights, imgsz)
+    if not engine.exists():
+        return weights, UNACCELERATED
+    if not tensorrt_available():
+        log.warning(
+            "%s exists but tensorrt is not importable - running %s unaccelerated",
+            engine.name, weights.name,
+        )
+        return weights, UNACCELERATED
+    return engine, TENSORRT
+
+
+def load_model(weights: Path, imgsz: int, task: str = "detect",
+               accelerate: bool = True):
+    """Open the fastest form of these weights that actually loads.
+
+    Returns `(model, path, form)`. Tries the accelerated build first and falls
+    back to the supplied weights **on the GPU** if it will not open — which is
+    the third of the three states P6-FR-033 names, and the one a file-exists
+    check alone cannot catch. A plan built by a different library version, or
+    for a different GPU, exists and is still useless.
+
+    A failed engine load must never take the product down with it. Knife
+    detection going dark because somebody upgraded a driver would be a far
+    worse outcome than running six milliseconds slower.
+    """
+    from ultralytics import YOLO
+
+    if not accelerate:
+        # This model has asked to run as it was trained. `models/README.md`
+        # says why for the two that do.
+        return YOLO(str(weights)), weights, UNACCELERATED
+
+    chosen, form = weights_to_load(weights, imgsz)
+    if form is UNACCELERATED or chosen == weights:
+        return YOLO(str(weights)), weights, UNACCELERATED
+
+    try:
+        return YOLO(str(chosen), task=task), chosen, TENSORRT
+    except Exception as exc:
+        # Stale plan, wrong GPU, wrong library version. Say it once, loudly,
+        # and keep working - the console reports the form either way.
+        log.warning(
+            "%s exists but would not load (%s) - running %s unaccelerated. "
+            "Rebuild it with: python engine/tools/build_engines.py",
+            chosen.name, exc, weights.name,
+        )
+        return YOLO(str(weights)), weights, UNACCELERATED
 
 
 @dataclass
@@ -142,3 +257,12 @@ class SharedDetection:
     @property
     def weights(self):
         return self.detector.weights
+
+    @property
+    def form(self) -> str:
+        """TensorRT or PyTorch CUDA, from the detector actually loaded.
+
+        Forwarded like `device` and `version` for the same reason: a feature
+        must be able to say what it is running on without holding the model.
+        """
+        return getattr(self.detector, "form", UNACCELERATED)

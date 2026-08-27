@@ -37,7 +37,9 @@ export function Login() {
           <div style={{ fontWeight: 800, fontSize: 21, letterSpacing: '-.02em' }}>
             VisionGuard <span style={{ fontWeight: 500, color: 'var(--tx3)' }}>AI</span>
           </div>
-          <div style={{ fontSize: 13, color: 'var(--tx3)', textAlign: 'center' }}>{SCHOOL_NAME}</div>
+          {SCHOOL_NAME && (
+            <div style={{ fontSize: 13, color: 'var(--tx3)', textAlign: 'center' }}>{SCHOOL_NAME}</div>
+          )}
         </div>
 
         <div className="stack">

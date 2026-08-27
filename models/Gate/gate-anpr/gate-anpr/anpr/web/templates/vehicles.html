@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}السيارات المسجلة{% endblock %}
+{% block body %}
+
+{% if msg %}<div class="flash ok">{{ msg }}</div>{% endif %}
+{% if err %}<div class="flash err">{{ err }}</div>{% endif %}
+
+<div class="panel">
+  <h2>➕ إضافة سيارة</h2>
+  <form method="post" action="/vehicles/add">
+    <div class="grid g2">
+      <div><label>رقم اللوحة *</label>
+        <input name="plate" required placeholder="ب ج د ١٢٣٤"></div>
+      <div><label>اسم المالك</label><input name="owner_name"></div>
+      <div><label>رقم الهاتف</label><input name="phone"></div>
+      <div><label>الوحدة / الشقة</label><input name="unit"></div>
+      <div><label>الفئة</label><select name="category">
+        {% for k,v in categories.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}
+      </select></div>
+      <div><label>صالح حتى (للزوار)</label><input type="date" name="valid_until"></div>
+      <div><label>الماركة</label><input name="car_make"></div>
+      <div><label>اللون</label><input name="car_color"></div>
+    </div>
+    <div style="margin-top:10px"><label>ملاحظات</label><input name="notes"></div>
+    <div style="margin-top:14px"><button type="submit">حفظ السيارة</button></div>
+  </form>
+</div>
+
+<div class="panel">
+  <h2>📥 استيراد من ملف Excel / CSV</h2>
+  <p class="muted" style="margin-top:0">
+    نزّل النموذج، املأه ببيانات السيارات، ثم ارفعه هنا. الأعمدة المدعومة:
+    <code>plate, owner_name, phone, unit, category, car_make, car_color,
+    valid_until, notes</code> — أو أسماؤها بالعربية.
+  </p>
+  <div class="row">
+    <a class="btn btn-ghost" href="/vehicles/template.xlsx">⬇ تنزيل النموذج</a>
+    <form method="post" action="/vehicles/import" enctype="multipart/form-data"
+          class="row" style="flex:1">
+      <input type="file" name="file" accept=".xlsx,.xlsm,.csv" required
+             style="flex:1;min-width:200px">
+      <button type="submit">رفع واستيراد</button>
+    </form>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>السيارات المسجلة ({{ vehicles|length }})</h2>
+  <form method="get" class="row" style="margin-bottom:14px">
+    <div style="flex:1;min-width:180px"><label>بحث (لوحة / اسم / هاتف / وحدة)</label>
+      <input name="q" value="{{ q }}"></div>
+    <div><label>الفئة</label><select name="category">
+      <option value="">الكل</option>
+      {% for k,v in categories.items() %}<option value="{{ k }}"
+        {{ 'selected' if category==k }}>{{ v }}</option>{% endfor %}
+    </select></div>
+    <div><button type="submit">بحث</button></div>
+  </form>
+
+  <table>
+    <thead><tr>
+      <th>اللوحة</th><th>Latin</th><th>المالك</th><th>الهاتف</th><th>الوحدة</th>
+      <th>الفئة</th><th>السيارة</th><th>صالح حتى</th><th></th>
+    </tr></thead>
+    <tbody>
+      {% for v in vehicles %}
+      <tr>
+        <td><span class="plate sm">{{ pdisplay(v.plate) }}</span></td>
+        <td class="muted">{{ translit(v.plate) }}</td>
+        <td>{{ v.owner_name or '—' }}</td>
+        <td class="muted">{{ v.phone or '—' }}</td>
+        <td>{{ v.unit or '—' }}</td>
+        <td><span class="tag {{ 't-blacklist' if v.category=='blacklist' else 't-known' }}">
+          {{ categories.get(v.category, v.category) }}</span></td>
+        <td class="muted">{{ v.car_make or '' }} {{ v.car_color or '' }}</td>
+        <td class="muted">{{ v.valid_until or 'دائم' }}</td>
+        <td><form method="post" action="/vehicles/{{ v.id }}/delete"
+                  onsubmit="return confirm('حذف هذه السيارة؟')">
+            <button class="btn-danger btn-sm">حذف</button></form></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if not vehicles %}
+  <p class="muted">لا توجد سيارات مسجلة بعد. أضف واحدة أعلاه أو استورد ملف Excel.</p>
+  {% endif %}
+</div>
+{% endblock %}

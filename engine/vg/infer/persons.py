@@ -69,8 +69,6 @@ class PersonDetector:
         iou: float = 0.45,
         half: bool = True,
     ) -> None:
-        from ultralytics import YOLO
-
         self.weights = Path(weights or REPO_DIR / "models" / "yolov8s.pt")
         if not self.weights.is_file():
             raise FileNotFoundError(f"person weights not found: {self.weights}")
@@ -83,7 +81,13 @@ class PersonDetector:
         # detection, but only exists on the GPU.
         self.half = half and self.device != "cpu"
 
-        self.model = YOLO(str(self.weights))
+        # Prefer the TensorRT build when one has been made for this exact
+        # input size, and say which was loaded. `self.form` reaches System
+        # Health, so a lost acceleration is visible on a page rather than only
+        # as slowness (P6-FR-035).
+        from vg.infer.shared import load_model
+
+        self.model, self.loaded, self.form = load_model(self.weights, imgsz)
         self.version = self.weights.stem
 
         if self.device == "cpu":
@@ -104,8 +108,9 @@ class PersonDetector:
         started = time.perf_counter()
         self.detect(blank)
         log.info(
-            "person detector ready on %s (%s, warm-up %.0f ms)",
-            self.device, self.weights.name, (time.perf_counter() - started) * 1000,
+            "person detector ready on %s (%s, %s, warm-up %.0f ms)",
+            self.device, self.loaded.name, self.form,
+            (time.perf_counter() - started) * 1000,
         )
 
     def raw_boxes(self, image: np.ndarray):
@@ -123,7 +128,12 @@ class PersonDetector:
             imgsz=self.imgsz,
             conf=self.conf,
             iou=self.iou,
-            half=self.half,
+            # `quantize=` replaced `half=` in ultralytics 8.4.127. Passing
+            # `half` still works but logs a deprecation line **per inference
+            # call**, which on a live camera is thousands an hour - enough to
+            # bury a real error in the startup log, which is how this was
+            # found. 16 = FP16, 32 = FP32.
+            quantize=16 if self.half else 32,
             classes=[COCO_PERSON_CLASS],
             verbose=False,
         )
@@ -188,7 +198,11 @@ class PersonDetector:
         path = self.model.export(
             format="engine",
             imgsz=self.imgsz,
-            half=self.half,
+            # `quantize=` replaced `half=` in ultralytics 8.4.127, on export
+            # as well as on inference: `half` is no longer a configuration key
+            # at all, so passing it raises rather than building anything.
+            # 16 is half precision, 32 is full.
+            quantize=16 if self.half else 32,
             workspace=workspace_gb,
             device=0,
             verbose=False,

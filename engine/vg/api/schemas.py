@@ -222,6 +222,25 @@ class CameraView(Wire):
     faces: bool = False
 
 
+#: Every overlay a camera tile can ask for.
+#:
+#: **One list, in one place, and the endpoint's validation is built from it.**
+#: The `feature` query parameter used to carry its own hand-written regex, and
+#: `vehicles` was added to `LiveStore._boxes` without being added there - so
+#: every plate-box poll was refused with a 422 before it reached the engine
+#: and no gate camera ever drew a box. A feature whose overlay is rejected by
+#: the front door looks exactly like a feature that found nothing.
+#:
+#: Adding a branch to `_boxes` means adding its name here. `test_api.py`
+#: checks that, by reading `_boxes` itself.
+OVERLAY_FEATURES = (
+    "attendance", "track", "counting", "intrusion", "weapons", "lost",
+    "vehicles",
+)
+
+OVERLAY_FEATURE_PATTERN = f"^({'|'.join(OVERLAY_FEATURES)})$"
+
+
 class CameraDetections(Wire):
     """Everything that changes frame to frame, in one small payload.
 
@@ -1387,3 +1406,153 @@ class LoginResult(Wire):
     expires_at: Instant
     user: Account
 
+
+class RegisterRequest(Wire):
+    """What the sign-up form sends.
+
+    There is no `role` field, and `extra="forbid"` means adding one is a 422
+    rather than a promotion. The role is decided by the server
+    (`SELF_SIGNUP_ROLE`), because the alternative is a public form that hands
+    out administrator of a system holding face data for children.
+    """
+
+    name: str
+    email: str
+    password: str
+
+
+# ---------------------------------------------------------------------------
+# vehicle gate
+# ---------------------------------------------------------------------------
+
+class VehiclePass(Wire):
+    """One car through one gate, once.
+
+    `owner` is None when the plate is not on the register, and the console
+    shows "Not in the register" rather than an empty cell — a blank reads as
+    missing data, which this is not.
+    """
+
+    id: str
+    at: Instant
+    plate: str                      # canonical, for matching
+    plate_display: str              # as it appears on the car, RTL Arabic
+    gate: int
+    gate_name: str
+    direction: str                  # entry | exit
+    status: str                     # known | unknown | blacklist | expired
+    confidence: Confidence
+    votes: int                      # how many frames agreed
+    needs_review: bool
+    owner: str | None = None
+    unit: str | None = None
+    has_snapshot: bool = False
+
+
+class RegisteredVehicle(Wire):
+    """A car the school knows about."""
+
+    id: str
+    plate: str
+    plate_display: str
+    category: str                   # staff | visitor | vip | blacklist
+    owner: str | None = None
+    phone: str | None = None
+    unit: str | None = None
+    car_make: str | None = None
+    car_colour: str | None = None
+    valid_until: str | None = None  # ISO date; None = no expiry
+    notes: str | None = None
+    #: Computed at read time, never stored. A stored flag needs a nightly job
+    #: to stay true and is wrong between midnight and whenever it runs.
+    expired: bool = False
+    last_seen: Instant | None = None
+
+
+class VehicleRegistration(Wire):
+    """The write body. Only the plate is required; a gate log is filled in
+    over weeks, and refusing a row for a missing phone number is how a
+    register ends up half-entered on paper."""
+
+    plate: str
+    category: str = "visitor"
+    owner: str | None = None
+    phone: str | None = None
+    unit: str | None = None
+    car_make: str | None = None
+    car_colour: str | None = None
+    valid_until: str | None = None
+    notes: str | None = None
+
+
+class GateTotals(Wire):
+    """One gate's day.
+
+    `pairing_available` is false where no exit camera is configured, and
+    `inside` is then **absent** rather than zero — with nothing to pair
+    against, "0 inside" would be a number the engine cannot stand behind.
+    """
+
+    gate: int
+    name: str
+    entered: int
+    left: int
+    inside: int | None = None
+    pairing_available: bool = False
+
+
+class VehicleVisit(Wire):
+    """An entry and the exit it was paired with, if there was one.
+
+    `inferred` marks a visit closed because the car was seen entering again
+    rather than because an exit was observed. Reported, never presented as
+    observed.
+    """
+
+    plate: str
+    plate_display: str
+    entered: Instant
+    entry_gate: int
+    left_at: Instant | None = None
+    exit_gate: int | None = None
+    minutes: float | None = None
+    owner: str | None = None
+    unit: str | None = None
+    category: str | None = None
+    inferred: bool = False
+
+
+class VehicleImportResult(Wire):
+    """What an import actually did. Every refusal is named.
+
+    A silent partial import is the worst outcome: the office believes the list
+    is loaded and finds out at the gate.
+    """
+
+    added: int
+    updated: int
+    skipped_duplicates: int
+    problems: list[str] = []
+
+
+class GateSummary(Wire):
+    """The six Live tiles.
+
+    **Every count is optional, and that is the point.** A tile with no number
+    renders its reason instead — "no gate camera is configured", "plates are
+    not being read". Zero is a measurement; absent is an admission. Sending 0
+    for "we do not know" is exactly the untruth SC-010 exists to prevent.
+    """
+
+    entered: int | None = None
+    left: int | None = None
+    inside: int | None = None
+    unknown: int | None = None
+    blacklist: int | None = None
+    needs_review: int | None = None
+    gates: int = 0
+    registered: int | None = None
+    #: Why any of the above are absent. None when everything is measured.
+    reason: str | None = None
+    #: False where no exit camera exists, so `inside` cannot be computed.
+    pairing_available: bool = False

@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+data/
+runs/
+models/*.pt
+models/*.engine
+config/cameras.yaml

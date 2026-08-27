@@ -258,13 +258,88 @@ yolov8n-oiv7.engine
 ```
 
 A TensorRT plan is compiled against one GPU architecture and one TensorRT version.
-**None of these will load on the RTX 6000 Ada workstation.** They are also built by a
-*newer* ultralytics (8.4.46) than the one currently installed here (8.4.7), so they may
-not load reliably on this machine either.
+**None of these will load on the RTX 6000 Ada workstation.** They also predate the
+current toolchain, so treat all five as stale and rebuild.
 
 The rule: **`.pt` is the artifact, `.engine` is a build output.** Engines get rebuilt
 from the `.pt` on whatever machine will run them, as a deployment step. Never treat one
 as the thing you keep.
+
+---
+
+## The TensorRT toolchain that actually works here
+
+*Established 24 Aug 2026, by installing it. Every line below was a dead end before it
+was a solution, so it is written down rather than left to be rediscovered.*
+
+**The working combination on this laptop (RTX 2080 Max-Q, Python 3.14, torch
+2.11.0+cu128):**
+
+```bash
+pip install tensorrt_cu12_bindings tensorrt_cu12_libs   # the native library
+pip install tensorrt-cu12                               # the `import tensorrt` shim
+pip install "ultralytics>=8.4.127"                      # TensorRT 11 support
+```
+
+**Measured**, `yolov8s` at 640, batch 1, FP32, on this GPU. 100 iterations each after
+a 10-frame warm-up — a short run gives numbers that swing by 50% on a throttling
+Max-Q part, so do not trust a 20-iteration figure:
+
+| Form | p50 | p5 | p95 |
+|---|---|---|---|
+| `.pt` on CUDA | 18.3 ms | 16.9 | 20.9 |
+| TensorRT FP32 | **12.0 ms** | 11.4 | 12.8 |
+
+**1.52x on the median — and the spread matters as much as the median.** TensorRT holds
+11.4–12.8 ms where PyTorch swings 16.9–20.9. For a system whose whole promise is
+"what the camera sees now", predictable latency is worth more than the average.
+
+**Four traps, each of which cost real time:**
+
+1. **`pip install tensorrt` gives you the cu13 line, and it segfaults here.**
+   `import tensorrt` succeeds, `trt.Logger()` succeeds, and `trt.Builder()` dies with
+   SIGSEGV. Because a segfault kills the interpreter, an ultralytics export reports
+   **exit code 0 and produces no file** — it looks like it worked. Install the **cu12**
+   packages against a cu128 torch. The import succeeding proves nothing; **any check
+   that TensorRT works must construct a Builder.**
+
+2. **The component packages import as `tensorrt_bindings`, not `tensorrt`.**
+   ultralytics does `import tensorrt`, so the `tensorrt-cu12` shim is required on top.
+
+3. **TensorRT 10.x has no Python 3.14 wheels.** 10.13, 10.15, 10.16 and 11.0 were all
+   checked — cp314 has **11.1 and 11.2 only**. Pinning down to a 10.x is the natural
+   fix and it does not exist on this interpreter.
+
+4. **ultralytics 8.4.7 cannot export to TensorRT 11.** Its guard reads
+   `is_trt10 = major >= 10`, which is true for 11, so it takes the TensorRT-10 branch
+   and then calls `NetworkDefinitionCreationFlag.EXPLICIT_BATCH` and
+   `builder.platform_has_fast_fp16`, both removed in 11.x. 8.4.127 adds a real
+   `is_trt11` branch.
+
+**FP16 needs NVIDIA `modelopt` on TensorRT 11.** ultralytics routes 11.x FP16 through
+`modelopt.onnx.autocast`; without it the export raises `ModuleNotFoundError`. FP32
+needs nothing extra and already gives the 1.7x above. FP16 is unmeasured here.
+
+### What the ultralytics upgrade cost
+
+8.4.7 → 8.4.127 is 120 releases and drives person, knife, lost-bag and pose detection.
+Verified on the labelled clip via `engine/tools/benchmark.py`: **64 people detected
+before and after**, p50 18.6 → 19.4 ms. Detection is unchanged.
+
+Two things did change:
+
+- **ByteTrack's lost-track window.** `BYTETracker.__init__` dropped its `frame_rate`
+  argument and now uses `track_buffer` raw as `max_frames_lost` instead of scaling it
+  by `frame_rate / 30`. The pre-multiplied 180 in `infer/tracking.py` silently became
+  36 seconds at 5 Hz against the 6 intended — long enough for the next person through
+  a door to inherit an ID. `test_tracker_config.py` caught it; `track_buffer_for()`
+  fixes it. **`infer/tracking.py` now requires ultralytics >= 8.4.127.**
+- **`opencv-python` was pulled 4.x → 5.0.0** as a transitive dependency. YuNet and
+  SFace run through OpenCV's DNN module. `cv2.FaceDetectorYN` and
+  `cv2.FaceRecognizerSF` both still exist, but **face recognition against a real face
+  has not been confirmed since the upgrade.**
+
+Also: `half=` is deprecated in favour of `quantize=` and every runner still passes it.
 
 ---
 

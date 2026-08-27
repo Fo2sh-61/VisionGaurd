@@ -153,6 +153,11 @@ export function severityToNeutralTone(severity: Severity): Tone {
  *  relies on: green = face match, blue = appearance match, red = a threat. */
 export function boxColor(box: WireBox): BoxColor {
   if (box.severity === 'critical') return 'red';
+  // A plate is coloured by the REGISTER, never by recognition. It is above
+  // the face branch because `identifiedByFace` reads the label, and a plate's
+  // label is a plate - letting it fall through would paint a car green for
+  // looking like a name.
+  if (box.kind === 'plate') return box.severity === 'warn' ? 'amber' : 'green';
   if (box.match === 'face') return 'green';
   // A tracked body that a face has named is green too. The box is drawn
   // because clothing matched, so `match` stays APPEARANCE and would leave it
@@ -225,6 +230,55 @@ export function formatMetric(metric: Metric): Stat {
 export const formatMetrics = (metrics: Metric[]): Stat[] => metrics.map(formatMetric);
 
 /* ---------- attendance ---------- */
+
+/** What a pass reads as. The engine sends an enum; the sentence is built here.
+ *
+ *  "Not registered" rather than "Unknown": the car is perfectly well known to
+ *  the camera that photographed it, it is simply not on the school's list. */
+export function plateStatusLabel(status: string): string {
+  switch (status) {
+    case 'known': return 'Registered';
+    case 'unknown': return 'Not registered';
+    case 'blacklist': return 'Blacklisted';
+    case 'expired': return 'Permit expired';
+    default: return status;
+  }
+}
+
+export function plateStatusTone(status: string): Tone {
+  switch (status) {
+    case 'known': return 'good';
+    case 'blacklist': return 'bad';
+    case 'unknown':
+    case 'expired': return 'warn';
+    default: return 'neutral';
+  }
+}
+
+/** `entry` / `exit` as a guard would say it. */
+export function directionLabel(direction: string): string {
+  return direction === 'entry' ? 'In' : direction === 'exit' ? 'Out' : direction;
+}
+
+/** What a category means on a register row. */
+export function vehicleCategoryLabel(category: string): string {
+  switch (category) {
+    case 'staff': return 'Staff';
+    case 'visitor': return 'Visitor';
+    case 'vip': return 'VIP';
+    case 'blacklist': return 'Blacklisted';
+    default: return category;
+  }
+}
+
+export function vehicleCategoryTone(category: string): Tone {
+  switch (category) {
+    case 'staff': return 'good';
+    case 'visitor': return 'warn';
+    case 'blacklist': return 'bad';
+    default: return 'neutral';
+  }
+}
 
 export function attendanceLabel(status: AttendanceStatus): string {
   switch (status) {

@@ -38,6 +38,8 @@ from vg.api.store import (
     Store,
     SubsystemUnavailable,
 )
+from vg.auth.passwords import WeakPassword
+from vg.auth.store import SELF_SIGNUP_ROLE, EmailTaken
 
 log = logging.getLogger(__name__)
 
@@ -254,6 +256,9 @@ async def lifespan(app: FastAPI):
     app.state.weapon_scenes = None
     app.state.lost_error: str | None = None
     app.state.lost = None
+    app.state.vehicles_error: str | None = None
+    app.state.vehicles = None
+    app.state.vehicle_store = None
 
     if cfg is not None and os.getenv("VG_MOCK") != "1":
         from pathlib import Path
@@ -339,6 +344,15 @@ async def lifespan(app: FastAPI):
         # Bag detection. The thread starts but sleeps: work happens only
         # for cameras somebody is actually looking at.
         app.state.lost, app.state.lost_error = _start_lost(cfg, registry, roster)
+        # Vehicle gate. Its own two models, shared with nothing - a plate is
+        # not a person, so there is no person pass to reuse. The register
+        # comes up even when the cameras do not, because a school fills the
+        # vehicle list before the gate is wired.
+        (
+            app.state.vehicles,
+            app.state.vehicle_store,
+            app.state.vehicles_error,
+        ) = _start_vehicles(cfg, registry, roster)
         # Where somebody has been. Written by whichever recognition tier saw
         # them, read by the Track page as one indexed query — which is the
         # whole reason the past-path question is instant.
@@ -390,12 +404,15 @@ async def lifespan(app: FastAPI):
             weapons=app.state.weapons,
             weapon_scenes=app.state.weapon_scenes,
             lost=app.state.lost,
+            vehicles=app.state.vehicles,
+            vehicle_store=app.state.vehicle_store,
         )
         store.recognition_error = app.state.recognition_error
         store.people_error = app.state.people_error
         store.zones_error = app.state.zones_error
         store.weapons_error = app.state.weapons_error
         store.lost_error = app.state.lost_error
+        store.vehicles_error = app.state.vehicles_error
         set_store(store)
 
         # The banner. A console showing invented attendance next to real camera
@@ -436,6 +453,9 @@ async def lifespan(app: FastAPI):
         if watch is not None:
             watch.stop()
         for worker in (
+            # Plate reading before the cameras go: a settled plate mid-write
+            # would otherwise lose the row the voting already decided to keep.
+            getattr(app.state, "vehicles", None),
             # Knife detection first, then zones: stopping either closes any
             # running scene and releases its clip, so the log has no row
             # saying a knife is still in view and no half-written mp4 nobody
@@ -460,6 +480,10 @@ async def lifespan(app: FastAPI):
         anchor_store = getattr(app.state, "anchors", None)
         if anchor_store is not None:
             anchor_store.close()
+        # After the worker that writes into it, for the same reason.
+        vehicle_store = getattr(app.state, "vehicle_store", None)
+        if vehicle_store is not None:
+            vehicle_store.close_db()
 
 
 # Features that need to know where bodies are. Face recognition is
@@ -1120,6 +1144,127 @@ def _start_weapons(cfg, registry, roster, detector):
         return None, None, f"Knife detection failed to start ({_reason(exc)})"
 
 
+def _start_vehicles(cfg, registry, roster):
+    """Plate reading at the gate cameras, if any are configured.
+
+    Returns `(worker, store, reason)`. A missing weights file or an unset gate
+    is payload for the page, never an exception - a fresh machine without the
+    owner's plate models must not take the engine down, and must not be silent
+    about it either (rule 8).
+
+    **The register comes up even when the cameras do not.** Somebody fills the
+    vehicle list before the gate is wired, not after, so the store is opened
+    whatever the worker does.
+    """
+    from vg.events.vehicles import VehicleStore, save_pass_images
+
+    store = VehicleStore(_database(cfg))
+    # Plate images past their retention go now rather than waiting for a page
+    # load, so an engine nobody opens the console on still keeps the promise.
+    store.expire(datetime.now(timezone.utc)
+                 - timedelta(days=cfg.storage.clip_retention_days))
+
+    gates = [c for c in roster if c.enabled and c.is_gate]
+    if not gates:
+        return None, store, (
+            "No camera is set up as a gate, so no plates are being read. "
+            "A gate camera needs a gate number and a direction.")
+
+    try:
+        from vg.features.vehicles import VehiclesWorker
+        from vg.infer.plates import PlateReader
+
+        plates = cfg.models.get("plates")
+        chars = cfg.models.get("plate_chars")
+        if plates is None or chars is None:
+            return None, store, (
+                "The plate models are not configured in engine.yaml, so no "
+                "plate can be read.")
+
+        reader = PlateReader(
+            plate_weights=plates.weights,
+            char_weights=chars.weights,
+            device=plates.device,
+            imgsz=plates.imgsz,
+            conf=plates.conf,
+            iou=plates.iou,
+            half=plates.half,
+            # Both models, one answer: a reader whose detector is accelerated
+            # and whose character model is not is still one reader, and
+            # System Health has one row to describe it.
+            accelerate=plates.accelerate and chars.accelerate,
+        )
+
+        by_camera = {c.id: c for c in gates}
+        clock = clock_for(cfg.timezone)
+
+        # The last time old plate images were swept, so a machine nobody
+        # opens the console on still keeps the thirty-day promise. Hourly is
+        # far more often than needed to be correct and far too rare to cost
+        # anything; a list rather than a nonlocal because this is a closure
+        # over a camera thread.
+        last_sweep = [datetime.now(timezone.utc)]
+
+        def record(camera_id: str, read) -> None:
+            """One settled plate becomes one row. Called on a camera thread."""
+            camera = by_camera.get(camera_id)
+            if camera is None:
+                return
+            # The photograph first, so its path goes onto the row rather than
+            # being attached afterwards. It returns None on any failure - a
+            # picture that could not be written must not cost the pass.
+            snapshot, crop = save_pass_images(
+                cfg.storage.gate_images_dir, camera_id, read.first_seen,
+                read.plate, read.image, read.image_box)
+            store.record_pass(
+                at=read.first_seen,
+                camera_id=camera_id,
+                gate=camera.gate,
+                direction=camera.direction,
+                plate=read.plate,
+                confidence=read.confidence,
+                votes=read.votes,
+                needs_review=read.needs_review,
+                today=date.fromisoformat(clock.today()),
+                snapshot=snapshot,
+                plate_crop=crop,
+            )
+
+            now = datetime.now(timezone.utc)
+            if now - last_sweep[0] >= timedelta(hours=1):
+                last_sweep[0] = now
+                try:
+                    store.expire(
+                        now - timedelta(days=cfg.storage.clip_retention_days))
+                except Exception:  # noqa: BLE001 - reported, never raised
+                    log.exception("could not expire old gate images")
+
+        rate = min((c.fps for c in gates), default=4.0)
+        worker = VehiclesWorker(
+            registry.bus, reader, [c.id for c in gates],
+            on_pass=record, rate_hz=rate, boost_hz=12.0,
+            dedupe_seconds=cfg.vehicles.dedupe_seconds,
+        )
+        worker.start()
+        log.info(
+            "plate reading on %d gate camera(s) - %s on %s (%s), %.0f Hz idle, "
+            "%.0fs repeat window",
+            len(gates), reader.version, reader.device, reader.form, rate,
+            cfg.vehicles.dedupe_seconds,
+        )
+        return worker, store, None
+    except FileNotFoundError as exc:
+        # The commonest case, and not a bug: a machine without the owner's
+        # plate weights. Say which file, and keep every other feature up.
+        log.warning("plate reading is off: %s", exc)
+        _reraise_if_strict(exc, "plate reading")
+        return None, store, f"Plate reading failed to start ({exc})"
+    except Exception as exc:
+        log.exception("plate reading failed to start")
+        _reraise_if_strict(exc, "plate reading")
+        return None, store, f"Plate reading failed to start ({_reason(exc)})"
+
+
 def _start_enrolment(cfg):
     """The face model and gallery, built once and shared.
 
@@ -1323,6 +1468,94 @@ def create_app() -> FastAPI:
     return app
 
 
+# --------------------------------------------------------------------- sign-up
+#
+# Sign-up is open: anyone who can reach the console can create a working
+# account. That is a deliberate product decision, not an oversight, and these
+# three helpers are what keep it from being worse than it has to be.
+
+#: Longest values accepted from the sign-up form. Not a validation policy —
+#: a bound, so an unauthenticated endpoint cannot be used to write megabytes
+#: into the database one field at a time.
+MAX_NAME = 80
+MAX_EMAIL = 254  # RFC 5321's limit on an address
+
+#: New accounts one address can create in `SIGNUP_WINDOW_SECONDS`. Generous
+#: for a real person setting up a colleague, useless for filling the table.
+SIGNUP_LIMIT = 5
+SIGNUP_WINDOW_SECONDS = 3600
+
+
+class _SignupThrottle:
+    """Per-caller cap on account creation. In memory, and that is enough.
+
+    A restart forgets it, and a caller with many addresses walks around it.
+    Both are true, and neither is what this is for: it stops one script from
+    turning an open form into a million rows before anybody notices. Anything
+    stronger belongs in front of the engine, not inside it.
+    """
+
+    def __init__(self) -> None:
+        self._seen: dict[str, list[datetime]] = {}
+        self._lock = threading.Lock()
+
+    def allow(self, caller: str) -> bool:
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(seconds=SIGNUP_WINDOW_SECONDS)
+        with self._lock:
+            recent = [t for t in self._seen.get(caller, []) if t > cutoff]
+            if len(recent) >= SIGNUP_LIMIT:
+                self._seen[caller] = recent
+                return False
+            recent.append(now)
+            self._seen[caller] = recent
+            return True
+
+
+_signups = _SignupThrottle()
+
+
+def _looks_like_an_email(value: str) -> bool:
+    """The shape of an address, not a proof that it exists.
+
+    Nothing here delivers mail, so a regex that rejects valid addresses would
+    only lock real staff out. This catches the empty box and the typed name.
+    """
+    if len(value) > MAX_EMAIL or any(c.isspace() for c in value):
+        return False
+    local, _, domain = value.partition("@")
+    return bool(local) and bool(domain) and "." in domain and not domain.endswith(".")
+
+
+def _issue_session(store, user, response: Response) -> S.LoginResult:
+    """Start a session and dress it for the wire. One place, two callers.
+
+    The token goes in the body *and* as an HttpOnly cookie. The body is for
+    the API client; the cookie exists because the MJPEG camera streams are
+    loaded by `<img src=...>`, which cannot send an Authorization header.
+    Sign-in and sign-up must set it identically — a sign-up that returned a
+    token but no cookie would look like it worked and then show black
+    cameras.
+    """
+    token, expires = store.start_session(user)
+    response.set_cookie(
+        auth_deps.COOKIE_NAME, token,
+        httponly=True,      # page scripts cannot read it
+        samesite="strict",  # another site cannot ride it
+        max_age=int((expires - datetime.now(timezone.utc)).total_seconds()),
+        path="/",
+    )
+    return S.LoginResult(
+        token=token,
+        expires_at=S.Instant(
+            utc=expires,
+            tz_offset_minutes=getattr(get_store(), "_offset", 0),
+        ),
+        user=S.Account(id=user.id, name=user.name, email=user.email,
+                       role=user.role, initials=user.initials),
+    )
+
+
 def _mount(app: FastAPI) -> None:
     # ---------------------------------------------------------------- health
     @app.get("/healthz", tags=["meta"], summary="Liveness probe")
@@ -1361,24 +1594,70 @@ def _mount(app: FastAPI) -> None:
                         request.client.host if request.client else "?")
             raise HTTPException(status_code=401, detail="Email or password is wrong.")
 
-        token, expires = store.start_session(user)
-        response.set_cookie(
-            auth_deps.COOKIE_NAME, token,
-            httponly=True,      # page scripts cannot read it
-            samesite="strict",  # another site cannot ride it
-            max_age=int((expires - datetime.now(timezone.utc)).total_seconds()),
-            path="/",
-        )
         log.info("%s signed in", user.email)
-        return S.LoginResult(
-            token=token,
-            expires_at=S.Instant(
-                utc=expires,
-                tz_offset_minutes=getattr(get_store(), "_offset", 0),
-            ),
-            user=S.Account(id=user.id, name=user.name, email=user.email,
-                           role=user.role, initials=user.initials),
-        )
+        return _issue_session(store, user, response)
+
+    @app.post("/auth/register", tags=["auth"], summary="Create an account")
+    async def register(request: Request, body: S.RegisterRequest, response: Response):
+        """Open sign-up. Creates a working account and signs it in.
+
+        **This endpoint is reachable without a session, by anyone who can
+        reach the engine.** That is the shape that was asked for, so the
+        limits are what make it survivable:
+
+        * The role is always `SELF_SIGNUP_ROLE` ("it"), fixed here and never
+          read from the body. `RegisterRequest` forbids extra fields, so
+          sending `"role": "admin"` is a 422, not a promotion. Enrolment,
+          sources and user management stay behind `ADMIN_PREFIXES`.
+        * The password goes through the same argon2 path and the same
+          12-character floor as every other account. There is no weaker rule
+          for accounts made this way.
+        * `_SignupThrottle` caps how fast one caller can make accounts.
+
+        **The honest cost.** `/auth/login` refuses to say whether an address
+        exists; this endpoint has to, because telling somebody their sign-up
+        worked when it did not is the thing the constitution forbids outright.
+        So an open form is a way to test which addresses are registered. That
+        is the trade this design makes, and it is why the sign-up page says
+        the same thing in plain words.
+        """
+        store = getattr(request.app.state, "users", None)
+        if store is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Sign-up is unavailable. See System Health.",
+            )
+
+        caller = request.client.host if request.client else "?"
+        if not _signups.allow(caller):
+            log.warning("sign-up rate limit hit from %s", caller)
+            raise HTTPException(
+                status_code=429,
+                detail="Too many accounts created from here. Try again later.",
+            )
+
+        name = body.name.strip()
+        email = body.email.strip()
+        if not name or len(name) > MAX_NAME:
+            raise HTTPException(400, f"Enter a name, up to {MAX_NAME} characters.")
+        if not _looks_like_an_email(email):
+            raise HTTPException(400, "Enter a valid email address.")
+
+        try:
+            user = store.create_user(
+                email=email, name=name, role=SELF_SIGNUP_ROLE,
+                password=body.password,
+            )
+        except WeakPassword as weak:
+            # Its own message carries the length. Inventing one here would
+            # let the two drift apart the day the floor moves.
+            raise HTTPException(400, str(weak)) from weak
+        except EmailTaken as taken:
+            raise HTTPException(409, str(taken)) from taken
+
+        log.info("new %s account registered: %s (from %s)", user.role, user.email,
+                 caller)
+        return _issue_session(store, user, response)
 
     @app.post("/auth/logout", tags=["auth"], summary="Sign out")
     async def logout(request: Request, response: Response) -> dict:
@@ -1522,7 +1801,13 @@ def _mount(app: FastAPI) -> None:
         store: StoreDep,
         feature: Annotated[
             str | None,
-            Query(pattern="^(attendance|track|counting|intrusion|weapons|lost)$"),
+            # Built from the one list rather than typed out again. This
+            # shipped without `vehicles` in it, so every plate-box poll came
+            # back 422 and no gate tile ever drew a box - the feature's whole
+            # overlay, refused by a regex nobody remembered to extend.
+            # `test_api.py` pins the list against `_boxes` so the next
+            # feature cannot repeat it.
+            Query(pattern=S.OVERLAY_FEATURE_PATTERN),
         ] = None,
         colour: Annotated[str | None, Query()] = None,
     ) -> S.CameraDetections:
@@ -1553,7 +1838,11 @@ def _mount(app: FastAPI) -> None:
         # question about knives. `_boxes` sends weapons to `_knife_boxes` and
         # counting/intrusion to `_person_boxes`; neither reads a face.
         FACE_OVERLAYS = (None, "attendance", "track")
-        recogniser = request.app.state.recogniser
+        # `getattr`, like its three siblings below. `app.state` is filled in
+        # by the lifespan, so a bare attribute read turns "the engine has
+        # not finished starting" into an AttributeError and a 500 - a
+        # degradation answered with a 5xx, which is what rule 7 forbids.
+        recogniser = getattr(request.app.state, "recogniser", None)
         if feature in FACE_OVERLAYS and recogniser is not None:
             recogniser.note_interest(camera_id)
 
@@ -1566,6 +1855,15 @@ def _mount(app: FastAPI) -> None:
         weapons = getattr(request.app.state, "weapons", None)
         if feature == "weapons" and weapons is not None:
             weapons.note_interest(camera_id)
+
+        # A gate tile that only woke the face model would leave plate reading
+        # at the camera's idle rate - 5 Hz on the webcam - while somebody
+        # holds a plate up to it. Three frames have to agree before a pass is
+        # recorded, so five looks a second is the difference between reading
+        # a plate and appearing not to.
+        vehicles = getattr(request.app.state, "vehicles", None)
+        if feature == "vehicles" and vehicles is not None:
+            vehicles.note_interest(camera_id)
 
         # Bag detection runs for exactly the cameras somebody is looking at,
         # and this poll is what says so. No page open, no poll, no model call -
@@ -2596,6 +2894,227 @@ def _mount(app: FastAPI) -> None:
     async def get_users(store: StoreDep) -> list[S.User]:
         return store.users()
 
+    # --------------------------------------------------------- vehicle gate
+    #
+    # Everything under /vehicles is admin-WRITE by path (`auth/deps.py`), so
+    # a guard can read the register and the log and change neither. That is
+    # one line in one file rather than a decorator per endpoint, because the
+    # endpoint somebody forgets to decorate is the one that leaks.
+
+    @app.get("/vehicles/summary", response_model=S.GateSummary, tags=["vehicles"])
+    async def vehicle_summary(store: StoreDep) -> S.GateSummary:
+        """The Live tiles.
+
+        Always 200, including when nothing is running: the counts are
+        optional and `reason` carries the why. A tile with no number renders
+        that reason; a tile showing 0 would be claiming a measurement.
+        """
+        return store.vehicle_summary()
+
+    @app.get("/vehicles/passes", response_model=list[S.VehiclePass],
+             tags=["vehicles"])
+    async def vehicle_passes(
+        store: StoreDep,
+        limit: int = Query(100, ge=1, le=1000),
+        plate: str = "",
+        gate: int | None = None,
+        direction: str = "",
+        status: str = "",
+    ) -> list[S.VehiclePass]:
+        """The pass log, newest first."""
+        return store.vehicle_passes(limit=limit, plate=plate, gate=gate,
+                                    direction=direction, status=status)
+
+    @app.get("/vehicles/cameras", response_model=list[S.CameraView],
+             tags=["vehicles"])
+    async def vehicle_cameras(store: StoreDep) -> list[S.CameraView]:
+        """Gate cameras only. A camera with no gate number watches no gate."""
+        return store.vehicle_cameras()
+
+    @app.get("/vehicles/passes/{pass_id}/snapshot", tags=["vehicles"])
+    async def vehicle_snapshot(pass_id: str, request: Request):
+        """The photograph kept with one pass.
+
+        404 when the image has aged out at thirty days. **The pass itself
+        still exists** - the time, gate, plate and status are the record and
+        are kept for good, so this is "the photo is gone", never "the pass is
+        gone".
+        """
+        store = getattr(request.app.state, "vehicle_store", None)
+        if store is None:
+            raise HTTPException(503, "The vehicle log is not available.")
+
+        record = store.pass_by_id(pass_id)
+        if record is None:
+            raise HTTPException(404, f"no pass {pass_id!r}")
+        if not record.snapshot or not Path(record.snapshot).is_file():
+            raise HTTPException(
+                404, "The photograph for this pass has passed its retention "
+                     "and been deleted. The pass itself is kept.")
+        return FileResponse(record.snapshot, media_type="image/jpeg")
+
+    @app.get("/vehicles/register", response_model=list[S.RegisteredVehicle],
+             tags=["vehicles"])
+    async def vehicle_register(store: StoreDep, q: str = "",
+                               category: str = "") -> list[S.RegisteredVehicle]:
+        """The register. A guard may read it; only an admin may change it."""
+        return store.vehicle_register(q, category)
+
+    @app.get("/vehicles/template", tags=["vehicles"])
+    async def vehicle_template():
+        """The blank import template, with one example row.
+
+        A CSV rather than an .xlsx: Excel opens it, LibreOffice opens it, and
+        it needs no library to produce - so downloading the template works on
+        a machine where the importer itself would not.
+        """
+        from vg.events.vehicles import template_csv
+
+        return Response(
+            content=template_csv(),
+            media_type="text/csv",
+            headers={"Content-Disposition":
+                     "attachment; filename=vehicle-register-template.csv"},
+        )
+
+    @app.post("/vehicles/register", response_model=S.RegisteredVehicle,
+              status_code=201, tags=["vehicles"])
+    async def add_vehicle(body: S.VehicleRegistration,
+                          store: StoreDep, user: auth_deps.CurrentUser):
+        """Register a vehicle. 409 when that plate is already on the list."""
+        from vg.events.vehicles import PlateTaken
+
+        try:
+            return store.add_vehicle(body, user.name)
+        except PlateTaken as taken:
+            raise HTTPException(409, str(taken)) from taken
+        except ValueError as bad:
+            raise HTTPException(400, str(bad)) from bad
+
+    @app.patch("/vehicles/register/{vehicle_id}",
+               response_model=S.RegisteredVehicle, tags=["vehicles"])
+    async def edit_vehicle(vehicle_id: str, body: S.VehicleRegistration,
+                           store: StoreDep, user: auth_deps.CurrentUser):
+        """Change an entry. Applies from the car's next pass; recorded passes
+        are not altered."""
+        from vg.events.vehicles import PlateTaken
+
+        try:
+            updated = store.edit_vehicle(vehicle_id, body, user.name)
+        except PlateTaken as taken:
+            raise HTTPException(409, str(taken)) from taken
+        except ValueError as bad:
+            raise HTTPException(400, str(bad)) from bad
+        if updated is None:
+            raise HTTPException(404, f"no vehicle {vehicle_id!r}")
+        return updated
+
+    @app.delete("/vehicles/register/{vehicle_id}", tags=["vehicles"])
+    async def remove_vehicle(vehicle_id: str, store: StoreDep,
+                             user: auth_deps.CurrentUser) -> dict:
+        """Remove an entry. **The car's passes are kept.**
+
+        From its next pass it is logged as not registered. It still passes and
+        is still photographed - the software never blocks anything.
+        """
+        if not store.remove_vehicle(vehicle_id, user.name):
+            raise HTTPException(404, f"no vehicle {vehicle_id!r}")
+        return {"ok": True}
+
+    @app.post("/vehicles/import", response_model=S.VehicleImportResult,
+              tags=["vehicles"])
+    async def import_vehicles(store: StoreDep, user: auth_deps.CurrentUser,
+                              file: UploadFile = File(...)):
+        """Load a spreadsheet into the register.
+
+        Never partial-silent: the result names every rejected row and why, so
+        an office cannot believe a list is loaded and find out at the gate.
+        """
+        data = await file.read()
+        try:
+            return store.import_vehicles(file.filename or "upload.csv",
+                                         data, user.name)
+        except RuntimeError as exc:
+            # openpyxl absent. Say which format still works rather than 500.
+            raise HTTPException(400, str(exc)) from exc
+
+
+    @app.get("/vehicles/gates", response_model=list[S.GateTotals],
+             tags=["vehicles"])
+    async def vehicle_gates(store: StoreDep) -> list[S.GateTotals]:
+        """Today, gate by gate.
+
+        `pairingAvailable` is false for a gate with no exit camera, and
+        `inside` is then absent. The page says why instead of printing a
+        figure it cannot stand behind.
+        """
+        return store.vehicle_gates()
+
+    @app.get("/vehicles/inside", response_model=list[S.VehicleVisit],
+             tags=["vehicles"])
+    async def vehicles_inside(store: StoreDep) -> list[S.VehicleVisit]:
+        """Cars seen entering today and not seen leaving.
+
+        Derived from the passes, never stored, so it cannot drift out of step
+        with the log it is computed from.
+        """
+        return store.vehicles_inside()
+
+    @app.get("/vehicles/visits", response_model=list[S.VehicleVisit],
+             tags=["vehicles"])
+    async def vehicle_visits(store: StoreDep) -> list[S.VehicleVisit]:
+        """Today's completed visits. `inferred` marks an exit nobody saw."""
+        return store.vehicle_visits()
+
+    @app.delete("/vehicles/passes/{pass_id}", tags=["vehicles"])
+    async def delete_pass(pass_id: str, store: StoreDep,
+                          user: auth_deps.CurrentUser) -> dict:
+        """Remove one pass, its photograph and its plate crop.
+
+        Administrator only, by the same path rule as the rest of `/vehicles`:
+        a guard reads the gate log, an administrator changes it.
+
+        **Permanent.** "Inside now" and the visit list are computed from the
+        pass table, so a row kept hidden would go on answering questions after
+        somebody deleted it. The audit entry is written before the row goes
+        and cannot itself be deleted, which is how the log can lose a row
+        without the system losing the knowledge that it did.
+        """
+        if not store.delete_pass(pass_id, user.name):
+            raise HTTPException(404, f"no pass {pass_id!r}")
+        return {"ok": True}
+
+    @app.post("/vehicles/export", tags=["vehicles"], response_class=Response)
+    async def export_passes(
+        store: StoreDep,
+        user: auth_deps.CurrentUser,
+        limit: int = Query(5000, ge=1, le=50000),
+        plate: str = "",
+        gate: int | None = None,
+        direction: str = "",
+        status: str = "",
+    ) -> Response:
+        """The pass log as a spreadsheet.
+
+        A POST, deliberately. P6-FR-023 requires the audit entry to be
+        written before the file is handed over, and a GET that writes is a
+        GET that lies about being safe. `SAFE_METHODS` in `auth/deps.py` is
+        also what decides admin-write, so a GET export would have been
+        readable by a guard *and* unaudited.
+        """
+        body = store.export_passes(
+            user.name, limit=limit, plate=plate, gate=gate,
+            direction=direction, status=status)
+        stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        return Response(
+            content=body,
+            media_type="text/csv; charset=utf-8",
+            headers={
+                "Content-Disposition":
+                    f'attachment; filename="vehicle-passes-{stamp}.csv"',
+                "Access-Control-Expose-Headers": "Content-Disposition",
+            },
+        )
     # ------------------------------------------------------------- attention
     @app.get("/attention", response_model=list[S.AttentionItem], tags=["home"])
     async def get_attention(store: StoreDep) -> list[S.AttentionItem]:

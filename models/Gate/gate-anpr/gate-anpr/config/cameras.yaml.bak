@@ -1,0 +1,54 @@
+site_name: اختبار على اللابتوب
+timezone: Africa/Cairo
+web_host: 0.0.0.0
+web_port: 8080
+collect_dataset: true
+collect_max_per_day: 3000
+keep_snapshot_days: 90
+alert_on_unknown: true
+alert_on_blacklist: true
+live_view: true
+live_view_width: 900
+recognition:
+  plate_detector_weights: models/plate_detector.pt
+  char_detector_weights: models/char_detector.pt
+  ocr_backend: auto
+  detector_backend: auto
+  min_detect_conf: 0.35
+  min_votes: 2
+  min_accept_conf: 0.55
+  dedupe_seconds: 30
+  device: cuda
+cameras:
+- id: laptop_cam
+  name: كاميرا اللابتوب
+  source: '0'
+  gate_number: 5
+  direction: entry
+  enabled: true
+  roi:
+  - 0.0
+  - 0.0
+  - 1.0
+  - 1.0
+  min_plate_width_px: 0
+  rotate: 0
+  fps_limit: 16.0
+  reconnect_seconds: 5
+  capture_width: 1280
+  capture_height: 720
+- id: tt
+  name: tt
+  source: rtsp://admin:PASSWORD@192.168.1.64:554/Streaming/Channels/101
+  gate_number: 1
+  direction: entry
+  enabled: true
+  roi:
+  - 0.0
+  - 0.0
+  - 1.0
+  - 1.0
+  min_plate_width_px: 0
+  rotate: 0
+  fps_limit: 8.0
+  reconnect_seconds: 5

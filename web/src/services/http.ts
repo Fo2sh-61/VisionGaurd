@@ -226,6 +226,56 @@ export const postFile = <T>(path: string, file: Blob, filename = 'photo.jpg') =>
   return request<T>(path, { method: 'POST', body: form, timeoutMs: 30_000 });
 };
 
+/** Fetch a file the engine builds, and hand it to the browser to save.
+ *
+ *  `request()` cannot do this: it parses every reply as JSON, and a CSV is
+ *  not one. This carries the same session — the Authorization header **and**
+ *  the cookie — because a bare `fetch` sends neither to another origin, which
+ *  is a 401 the moment the engine is not being proxied. */
+export async function download(
+  path: string,
+  options: { method?: 'GET' | 'POST'; query?: RequestOptions['query']; fallbackName: string },
+): Promise<void> {
+  const headers: Record<string, string> = {};
+  if (sessionToken) headers.Authorization = `Bearer ${sessionToken}`;
+
+  const response = await fetch(buildUrl(path, options.query), {
+    method: options.method ?? 'GET',
+    headers: Object.keys(headers).length ? headers : undefined,
+    credentials: 'include',
+  });
+
+  if (!response.ok) {
+    let message = `Download failed (${response.status})`;
+    try {
+      const problem = await response.json();
+      if (typeof problem?.detail === 'string') message = problem.detail;
+    } catch {
+      /* a non-JSON error body is not worth failing over */
+    }
+    if (response.status === 401) {
+      sessionToken = null;
+      onUnauthorised?.();
+    }
+    throw new ApiError(message, response.status, response.status >= 500);
+  }
+
+  // Use the filename the engine chose, so the file is named after what is in
+  // it rather than after the endpoint.
+  const disposition = response.headers.get('Content-Disposition') ?? '';
+  const named = /filename="([^"]+)"/.exec(disposition)?.[1];
+  const href = URL.createObjectURL(await response.blob());
+
+  const link = document.createElement('a');
+  link.href = href;
+  link.download = named ?? options.fallbackName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  // Revoking immediately can cancel the download in some browsers.
+  setTimeout(() => URL.revokeObjectURL(href), 10_000);
+}
+
 /** Absolute URL for a snapshot, clip or stream path the engine handed back. */
 export function assetUrl(path: string | null | undefined): string | undefined {
   if (!path) return undefined;

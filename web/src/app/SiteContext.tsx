@@ -86,9 +86,13 @@ export function useSite(): SiteState {
   return context;
 }
 
-/** The school's name, or a neutral placeholder before it has loaded. */
+/**
+ * The site's name, or '' when nobody has set one. A deployment fills in
+ * `site_name` in engine.yaml; the product ships blank, so callers must render
+ * nothing rather than an empty line where a name would be.
+ */
 export function useSiteName(): string {
-  return useSite().site?.name ?? 'VisionGuard';
+  return useSite().site?.name?.trim() ?? '';
 }
 
 /** The school's today as an ISO date — the default for every date picker. */

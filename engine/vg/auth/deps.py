@@ -43,9 +43,18 @@ COOKIE_NAME = "vg_session"
 #: nothing about the site.
 #:
 #: `/auth/login` is how a token is obtained, so requiring one is circular.
+#:
+#: `/auth/register` is open sign-up, and it is the one entry here that is a
+#: product decision rather than a structural necessity. It creates a working
+#: account for anyone who can reach the console, always at `SELF_SIGNUP_ROLE`
+#: ("it") and never at "admin". Everything an administrator can do stays
+#: behind `ADMIN_PREFIXES`, so the worst a stranger gets is the read-only
+#: half of the product - which on this system still includes camera views.
+#: Closing it again is one line: delete it from this set.
 PUBLIC_PATHS: frozenset[str] = frozenset({
     "/healthz",
     "/auth/login",
+    "/auth/register",
 })
 
 #: Prefixes that are public. Kept separate from exact paths so a new route
@@ -89,6 +98,10 @@ ADMIN_WRITE_PREFIXES: tuple[str, ...] = (
     "/cameras",
     "/people",
     "/zones",
+    # A guard has to read the vehicle register to do their job — that is the
+    # whole point of the gate log. A guard must not be able to un-blacklist a
+    # car. One line decides both.
+    "/vehicles",
 )
 
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})

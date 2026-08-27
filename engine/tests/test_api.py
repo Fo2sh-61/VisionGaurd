@@ -12,6 +12,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+from vg.api import schemas as S
 from vg.api.app import app, create_app
 from vg.api.store import MockStore
 
@@ -290,3 +291,59 @@ class TestCoverage:
         spec = client.get("/openapi.json")
         assert spec.status_code == 200
         assert len(spec.json()["paths"]) >= len(self.REQUIRED) - 4
+
+
+class TestEveryOverlayIsAcceptedAtTheDoor:
+    """A feature's overlay refused by request validation looks exactly like a
+    feature that found nothing.
+
+    `vehicles` was added to `LiveStore._boxes` and not to the `feature`
+    parameter's pattern, so every plate-box poll came back `422` before it
+    reached the engine and no gate camera ever drew a box. The page looked
+    like a plate reader that could not read plates.
+
+    The pattern is now built from `S.OVERLAY_FEATURES`, and the last test here
+    reads `_boxes` itself so the two cannot drift apart again.
+    """
+
+    @pytest.mark.parametrize("feature", S.OVERLAY_FEATURES)
+    def test_the_endpoint_accepts_it(self, client, feature):
+        response = client.get(
+            f"/cameras/cam-laptop/detections?feature={feature}")
+
+        assert response.status_code != 422, (
+            f"{feature!r} is a real overlay and the door refused it")
+        assert response.status_code == 200
+
+    def test_no_feature_at_all_is_still_allowed(self, client):
+        """The plain grid asks for no feature and gets faces."""
+        assert client.get(
+            "/cameras/cam-laptop/detections").status_code == 200
+
+    def test_something_invented_is_still_refused(self, client):
+        assert client.get(
+            "/cameras/cam-laptop/detections?feature=nonsense"
+        ).status_code == 422
+
+    def test_every_branch_in_boxes_is_a_listed_feature(self):
+        """The guard against the next feature repeating this.
+
+        `_boxes` dispatches on string literals. Every one of them has to be a
+        name the endpoint will accept, or that branch is unreachable from the
+        console.
+        """
+        import inspect
+        import re
+
+        from vg.api.live import LiveStore
+
+        source = inspect.getsource(LiveStore._boxes)
+        named = set(re.findall(r"""feature == ["']([a-z]+)["']""", source))
+        for group in re.findall(r"""feature in \(([^)]*)\)""", source):
+            named |= set(re.findall(r"""["']([a-z]+)["']""", group))
+
+        assert named, "no dispatch literals found - has _boxes been rewritten?"
+        missing = sorted(named - set(S.OVERLAY_FEATURES))
+        assert not missing, (
+            f"_boxes draws {missing} and the endpoint would refuse them - "
+            f"add them to S.OVERLAY_FEATURES")

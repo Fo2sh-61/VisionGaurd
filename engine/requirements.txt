@@ -9,8 +9,21 @@
 # Verified working on Python 3.14 as of Aug 2026.
 
 # --- inference -------------------------------------------------------------
-ultralytics>=8.4.7          # YOLOv8/11 + YOLO-World + built-in ByteTrack
-opencv-python>=4.13         # decode, drawing, YuNet/SFace via cv2.FaceDetectorYN
+# LOWER BOUND IS LOAD-BEARING. 8.4.127 is the first release that can export to
+# TensorRT 11.x, which is the only TensorRT line with Python 3.14 wheels. It
+# also changed BYTETracker: `frame_rate` was dropped from __init__ and
+# `track_buffer` is now raw frames, which `infer/tracking.py` depends on. An
+# older version silently gives a lost-track window frame_rate/30 of the one
+# asked for. See models/README.md.
+ultralytics>=8.4.127        # YOLOv8/11 + YOLO-World + built-in ByteTrack
+# UPPER BOUND IS LOAD-BEARING. OpenCV 5.0's rewritten DNN graph engine ignores
+# setPreferableTarget - it logs "Targets are not supported by the new graph
+# engine for now" and YuNet/SFace silently run on a path nobody chose. Face
+# recognition quality dropped measurably. `>=4.13` alone let pip take 5.0.0.93
+# as a transitive dependency of an ultralytics upgrade. Do not remove the <5
+# without re-running the face checks in specs/006-vehicle-gate/quickstart.md.
+opencv-python>=4.13,<5      # decode, drawing, YuNet/SFace via cv2.FaceDetectorYN
+openpyxl>=3.1               # the vehicle register imports .xlsx; CSV is stdlib
 numpy>=1.26
 lap>=0.5                    # Hungarian assignment, required by ByteTrack
 

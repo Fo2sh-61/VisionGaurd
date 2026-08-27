@@ -312,6 +312,7 @@ export type ToolId =
   | 'counting'
   | 'intrusion'
   | 'weapons'
+  | 'vehicles'
   | 'lost-items'
   | 'track'
   | 'system'

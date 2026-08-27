@@ -71,7 +71,8 @@ export function Account() {
         <div>
           <div style={{ fontWeight: 600, fontSize: 16 }}>{account.name}</div>
           <div style={{ fontSize: 13, color: 'var(--tx3)' }}>
-            {account.role === 'admin' ? 'Administrator' : 'IT'} · {SCHOOL_NAME}
+            {account.role === 'admin' ? 'Administrator' : 'IT'}
+            {SCHOOL_NAME && ` · ${SCHOOL_NAME}`}
           </div>
         </div>
       </div>

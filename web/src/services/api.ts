@@ -42,8 +42,8 @@ import type {
 import * as W from './wire';
 
 /** Which overlay a page wants on a camera. One camera, different questions. */
-export type CameraFeature = 'attendance' | 'track' | 'counting' | 'intrusion' | 'weapons' | 'lost';
-import { ApiError, apiBase, assetUrl, del, get, patch, post, postFile, request, setSessionToken } from './http';
+export type CameraFeature = 'attendance' | 'track' | 'counting' | 'intrusion' | 'weapons' | 'lost' | 'vehicles';
+import { ApiError, apiBase, assetUrl, del, download, get, patch, post, postFile, request, setSessionToken } from './http';
 import type { Account } from '@/app/AuthContext';
 import type { Role, Tone } from '@/types';
 import {
@@ -405,6 +405,123 @@ export async function reviewWeapon(
 /** CHANGED: was synchronous. */
 export async function getWeaponCameras(): Promise<Camera[]> {
   return toCameras(await get<W.CameraView[]>('/weapons/cameras'));
+}
+
+/* ---------- vehicle gate ---------- */
+
+/** The six Live tiles.
+ *
+ *  Counts arrive nullable on purpose. A null is not "zero we could not
+ *  fetch" — it is the engine declining to claim a measurement it did not
+ *  make, and `reason` says which. The page renders the reason, never a 0. */
+export async function getVehicleSummary(): Promise<W.GateSummary> {
+  return get<W.GateSummary>('/vehicles/summary');
+}
+
+export async function getVehiclePasses(
+  filters: {
+    limit?: number; plate?: string; gate?: number;
+    direction?: string; status?: string;
+  } = {},
+): Promise<W.VehiclePass[]> {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined && value !== '' && value !== null) {
+      query.set(key, String(value));
+    }
+  }
+  const suffix = query.toString();
+  return get<W.VehiclePass[]>(`/vehicles/passes${suffix ? `?${suffix}` : ''}`);
+}
+
+/** Gate cameras only. A camera with no gate number is not watching a gate. */
+export async function getVehicleCameras(): Promise<Camera[]> {
+  return toCameras(await get<W.CameraView[]>('/vehicles/cameras'));
+}
+
+/** The register. A guard may read it; only an admin may change it. */
+export async function getVehicleRegister(
+  q = '', category = '',
+): Promise<W.RegisteredVehicle[]> {
+  const query = new URLSearchParams();
+  if (q) query.set('q', q);
+  if (category && category !== 'all') query.set('category', category);
+  const suffix = query.toString();
+  return get<W.RegisteredVehicle[]>(`/vehicles/register${suffix ? `?${suffix}` : ''}`);
+}
+
+export async function addVehicle(
+  body: W.VehicleRegistration,
+): Promise<W.RegisteredVehicle> {
+  return post<W.RegisteredVehicle>('/vehicles/register', body);
+}
+
+export async function editVehicle(
+  id: string, body: W.VehicleRegistration,
+): Promise<W.RegisteredVehicle> {
+  return patch<W.RegisteredVehicle>(`/vehicles/register/${encodeURIComponent(id)}`, body);
+}
+
+/** Remove an entry. The car's PASSES are kept — see the confirmation text. */
+export async function removeVehicle(id: string): Promise<void> {
+  await del<{ ok: boolean }>(`/vehicles/register/${encodeURIComponent(id)}`);
+}
+
+export async function importVehicles(file: File): Promise<W.VehicleImportResult> {
+  // `postFile` sets the multipart body and a 30s timeout — a two-thousand-row
+  // spreadsheet is slower than a normal request and must not be cut off
+  // half-loaded, which would be the partial import nobody can see.
+  return postFile<W.VehicleImportResult>('/vehicles/import', file, file.name);
+}
+
+/** Today, gate by gate.
+ *
+ *  An empty list is not "no gates" — it is the engine declining to total up
+ *  what it is not watching. `getVehicleSummary().reason` has the words. */
+export async function getVehicleGates(): Promise<W.GateTotals[]> {
+  return get<W.GateTotals[]>('/vehicles/gates');
+}
+
+/** Cars seen entering today and not seen leaving.
+ *
+ *  Derived from the passes on every request, never stored, so it cannot drift
+ *  out of step with the log it is computed from. */
+export async function getVehiclesInside(): Promise<W.VehicleVisit[]> {
+  return get<W.VehicleVisit[]>('/vehicles/inside');
+}
+
+/** Today's completed visits. `inferred` marks an exit nobody actually saw. */
+export async function getVehicleVisits(): Promise<W.VehicleVisit[]> {
+  return get<W.VehicleVisit[]>('/vehicles/visits');
+}
+
+/** Remove one pass from the log, with its photograph and plate crop.
+ *
+ *  Permanent, and administrator only. "Inside now" is computed from the pass
+ *  table, so a row that stayed hidden would keep answering after somebody
+ *  deleted it — which is why the engine deletes rather than flags. The audit
+ *  entry is written before the row goes and cannot itself be deleted. */
+export async function deleteVehiclePass(id: string): Promise<void> {
+  await del<{ ok: boolean }>(`/vehicles/passes/${encodeURIComponent(id)}`);
+}
+
+/** Download the pass log as a CSV.
+ *
+ *  A POST, and not by accident. The engine writes the audit entry before it
+ *  builds the file, and a GET that writes is a GET that lies about being
+ *  safe. It is also why only an administrator can call it. */
+export async function exportVehiclePasses(
+  filters: { plate?: string; gate?: number; direction?: string; status?: string } = {},
+): Promise<void> {
+  const query: Record<string, string> = {};
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined && value !== '' && value !== null) query[key] = String(value);
+  }
+  await download('/vehicles/export', {
+    method: 'POST',
+    query,
+    fallbackName: 'vehicle-passes.csv',
+  });
 }
 
 /* ---------- track a person ----------
@@ -976,6 +1093,21 @@ export const getDeliveryTargets = () => get<W.DeliveryTarget[]>('/settings/deliv
  *  kept the role there and believed it. */
 export async function signIn(email: string, password: string): Promise<Account> {
   const result = await post<W.LoginResult>('/auth/login', { email, password });
+  setSessionToken(result.token);
+  return toAccount(result.user);
+}
+
+/** Create an account and sign it straight in.
+ *
+ *  Sign-up is open — anyone who can reach the console can do this. The engine
+ *  fixes the role at `it`; this file does not send one and could not raise it
+ *  if it tried, because the wire type forbids the field. The response is the
+ *  same shape as a sign-in, cookie included, so nothing downstream has to
+ *  know which door the session came through. */
+export async function register(
+  name: string, email: string, password: string,
+): Promise<Account> {
+  const result = await post<W.LoginResult>('/auth/register', { name, email, password });
   setSessionToken(result.token);
   return toAccount(result.user);
 }

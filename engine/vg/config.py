@@ -175,6 +175,11 @@ def _parse_time(raw: Any, where: str) -> dtime | None:
 # cameras and zones
 # ---------------------------------------------------------------------------
 
+#: The only directions a gate camera may claim. `both` is deliberately absent
+#: - see `CameraConfig.direction`.
+GATE_DIRECTIONS: tuple[str, ...] = ("entry", "exit")
+
+
 @dataclass(frozen=True)
 class CameraConfig:
     id: str
@@ -197,6 +202,34 @@ class CameraConfig:
     # next. Empty falls back to the rest of the same `area`.
     neighbours: tuple[str, ...] = ()
 
+    # Which gate this camera watches, and which way it looks. Both None
+    # unless set, so every camera that existed before Vehicle gate parses
+    # unchanged and no other feature notices these exist.
+    #
+    # `direction` accepts `entry` or `exit`, NEVER `both`. A camera states
+    # what it sees. Inferring direction from whether a plate grows or shrinks
+    # in frame is a guess, and the gate-anpr project this technique came from
+    # calls it "noticeably less reliable" in its own documentation. Here that
+    # guess would decide whether a car is recorded as arriving or leaving,
+    # which is the whole point of the feature.
+    gate: int | None = None
+    direction: str | None = None
+
+    @property
+    def is_gate(self) -> bool:
+        """Is this camera actually usable as a gate camera?
+
+        All three or none. A camera carrying `vehicles` but no gate number
+        cannot label its passes, and a gate number without `vehicles` reads
+        like a configured gate that silently watches nothing. `parse` refuses
+        both half-states rather than running one.
+        """
+        return (
+            self.gate is not None
+            and self.direction is not None
+            and "vehicles" in self.features
+        )
+
     @classmethod
     def parse(cls, raw: dict[str, Any], where: str) -> "CameraConfig":
         for required in ("id", "name", "source"):
@@ -211,6 +244,44 @@ class CameraConfig:
         if not 0 < fps <= 60:
             raise ConfigError(f"{where}.fps: expected 0 < fps <= 60, got {fps}")
 
+        gate = raw.get("gate")
+        if gate is not None:
+            gate = int(gate)
+            if gate < 1:
+                raise ConfigError(
+                    f"{where}.gate: expected a positive number, got {gate}")
+
+        direction = raw.get("direction")
+        if direction is not None:
+            direction = str(direction).strip().lower()
+            if direction not in GATE_DIRECTIONS:
+                # `both` is the tempting one and is refused on purpose - see
+                # the field comment. Naming it here saves the next person
+                # working out why their config was rejected.
+                extra = (
+                    " - one camera per direction; a single camera guessing "
+                    "from plate size is not accurate enough to record"
+                    if direction == "both" else ""
+                )
+                raise ConfigError(
+                    f"{where}.direction: expected one of {GATE_DIRECTIONS}, "
+                    f"got {direction!r}{extra}"
+                )
+
+        features = tuple(raw.get("features", ()))
+        has_gate = gate is not None and direction is not None
+        if "vehicles" in features and not has_gate:
+            raise ConfigError(
+                f"{where}: has 'vehicles' in features but no gate/direction - "
+                "a pass cannot be recorded without knowing which gate it "
+                "passed and which way it was going"
+            )
+        if has_gate and "vehicles" not in features:
+            raise ConfigError(
+                f"{where}: has gate/direction but no 'vehicles' in features - "
+                "that reads like a configured gate watching nothing"
+            )
+
         return cls(
             id=str(raw["id"]),
             name=str(raw["name"]),
@@ -219,10 +290,12 @@ class CameraConfig:
             area=str(raw.get("area", "Unassigned")),
             fps=fps,
             enabled=bool(raw.get("enabled", True)),
-            features=tuple(raw.get("features", ())),
+            features=features,
             rotate=rotate,
             faces=bool(raw.get("faces", False)),
             neighbours=tuple(str(n) for n in raw.get("neighbours", ())),
+            gate=gate,
+            direction=direction,
         )
 
     def redacted_source(self) -> str:
@@ -343,6 +416,14 @@ class ModelConfig:
     classes: tuple[str, ...] = ()
     device: str = "auto"
     half: bool = True
+    #: Use the TensorRT build beside these weights when one exists.
+    #:
+    #: Per model, and false is a real answer. A plan is compiled at a fixed
+    #: input size and, with `half`, at FP16 — so it is close to the weights it
+    #: came from but not identical. A person detector has room for that. A
+    #: model that decides which of 38 characters a 20-pixel glyph is has less,
+    #: and the difference shows up as a plate that is nearly right.
+    accelerate: bool = True
     version: str = "unversioned"
 
     @classmethod
@@ -368,6 +449,7 @@ class ModelConfig:
             classes=tuple(raw.get("classes", ())),
             device=str(raw.get("device", "auto")),
             half=bool(raw.get("half", True)),
+            accelerate=bool(raw.get("accelerate", True)),
             version=str(raw.get("version", "unversioned")),
         )
 
@@ -458,6 +540,18 @@ class StorageConfig:
         """
         return self.clips_dir / "weapons"
 
+    @property
+    def gate_images_dir(self) -> Path:
+        """Where the photograph and plate crop of each gate pass land.
+
+        A subfolder for the same reason the two clip folders are: it is the
+        boundary the retention sweep works inside, so it can delete by age
+        without ever touching a file an operator put there by hand. Stills,
+        not video — a pass is a moment, and thirty days of gate video is a
+        different product.
+        """
+        return self.clips_dir / "gate"
+
 
 # ---------------------------------------------------------------------------
 # tracking: the bar for a name, and the patrol tier
@@ -495,7 +589,18 @@ class AnchorGates:
     """
 
     #: cosine similarity the best match must reach.
-    score: float = 0.45
+    #:
+    #: **Measured, not chosen.** `calibrate_faces.py` on the enrolled gallery
+    #: gives genuine scores of median 0.812, 5th percentile 0.732, min 0.725 —
+    #: so 0.45 accepted anything from 0.45 upward while the real person never
+    #: scored below 0.72. A stranger was named in that gap, which is the worst
+    #: failure this system has. 0.60 keeps 0.12 of headroom below the genuine
+    #: floor, because those figures come from enrolment stills and a live
+    #: 80px frame scores lower than a photograph.
+    #:
+    #: Re-measure after enrolling a real roll; do not carry this number to a
+    #: different camera or a different population on faith.
+    score: float = 0.60
     #: how far clear of the runner-up the best match must be. Wider than the
     #: gallery's own margin: matching is an observation, naming is a claim.
     margin: float = 0.10
@@ -568,6 +673,16 @@ class AnchorGates:
 #: and the owner's call was not to make it so hard that a corridor never
 #: anchors at all. The evidence requirement carries the weight the raw score
 #: gives up.
+#: **Deliberately NOT raised with the identity tier.** When identity went
+#: 0.45 -> 0.60 after a stranger was named, patrol was moved to 0.55 by the
+#: same reasoning — and `test_track_page.py` refused it. A real corridor look
+#: scores about 0.44, so a 0.55 patrol bar means corridor cameras never anchor
+#: and "Track a person" stops working everywhere except doorways. Fixing one
+#: feature by silently deleting another is not a fix.
+#:
+#: What keeps a patrol anchor honest is not the raw score, it is the evidence:
+#: three separate looks, two seconds apart, with real gaps between them. That
+#: is why this bar can be lower than the doorway one without being a guess.
 PATROL_GATES = AnchorGates(
     score=0.40, margin=0.07, matches=3, seconds=2.0, gap_seconds=0.4
 )
@@ -612,6 +727,45 @@ class TrackingConfig:
                 raw.get("patrol"), f"{where}.patrol", PATROL_GATES
             ),
         )
+
+
+@dataclass(frozen=True)
+class VehiclesConfig:
+    """How long the same car is one arrival rather than several.
+
+    P6-FR-006 says a repeated read of the same plate at the same camera
+    inside a **configured** window is one pass. This is that window, and it
+    was a hardcoded constant until somebody testing with a plate in their
+    hand found the gate log ignoring them for a minute with nothing on screen
+    to say why.
+
+    A car sits at a barrier for twenty seconds, so the default is comfortably
+    longer than that: without it, every frame the car is read in becomes
+    another arrival and the log turns into noise. Testing wants a much
+    smaller number - two or three seconds - and that is the whole reason this
+    is in the file rather than in the code.
+
+    It does not affect *reading*. A plate in view is read, boxed and labelled
+    on the tile continuously whatever this is set to; the window only decides
+    when a new **row** is written.
+    """
+
+    dedupe_seconds: float = 60.0
+
+    @classmethod
+    def parse(cls, raw: dict[str, Any] | None, where: str) -> "VehiclesConfig":
+        raw = raw or {}
+        unknown = sorted(set(raw) - {"dedupe_seconds"})
+        if unknown:
+            raise ConfigError(f"{where}: unknown key(s) {unknown}")
+
+        seconds = float(raw.get("dedupe_seconds", 60.0))
+        if not 0 <= seconds <= 3600:
+            raise ConfigError(
+                f"{where}.dedupe_seconds: expected 0 <= seconds <= 3600, got "
+                f"{seconds}. 0 records every settled read as its own pass."
+            )
+        return cls(dedupe_seconds=seconds)
 
 
 ArchiveBackend = Literal["dvr", "footage"]
@@ -721,6 +875,8 @@ class EngineConfig:
     # Where recorded video is fetched from. Defaults to slicing local footage,
     # so a site with no DVR configured still has a working archive.
     archive: ArchiveConfig = field(default_factory=ArchiveConfig)
+    # How long the same plate at the same gate camera is one arrival.
+    vehicles: VehiclesConfig = field(default_factory=VehiclesConfig)
 
     def camera(self, camera_id: str) -> CameraConfig | None:
         return next((c for c in self.cameras if c.id == camera_id), None)
@@ -831,7 +987,10 @@ def load(path: Path | str | None = None) -> EngineConfig:
     store_raw = raw.get("storage") or {}
 
     return EngineConfig(
-        site_name=str(raw.get("site_name", "VisionGuard")),
+        # Blank is a real answer: no site named. `or ""` also catches the
+        # key being present but empty, which YAML reads as None — str(None)
+        # would put the word "None" in the console's title bar.
+        site_name=str(raw.get("site_name") or "").strip(),
         timezone=str(raw.get("timezone", "UTC")),
         hours=HoursConfig.parse(raw.get("hours"), "hours"),
         api=ApiConfig(
@@ -860,6 +1019,7 @@ def load(path: Path | str | None = None) -> EngineConfig:
         models=models,
         tracking=TrackingConfig.parse(raw.get("tracking"), "tracking"),
         archive=archive,
+        vehicles=VehiclesConfig.parse(raw.get("vehicles"), "vehicles"),
     )
 
 

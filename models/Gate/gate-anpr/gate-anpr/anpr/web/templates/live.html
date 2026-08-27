@@ -1,0 +1,297 @@
+{% extends "base.html" %}
+{% block title %}المباشر{% endblock %}
+{% block body %}
+
+<div id="newflash"></div>
+
+<div class="cards">
+  <div class="card info"><div class="n" id="s-entries">{{ stats.entries }}</div>
+    <div class="l">دخول اليوم</div></div>
+  <div class="card"><div class="n" id="s-exits">{{ stats.exits }}</div>
+    <div class="l">خروج اليوم</div></div>
+  <div class="card ok"><div class="n" id="s-inside">{{ stats.inside }}</div>
+    <div class="l">بالداخل الآن</div></div>
+  <div class="card warn"><div class="n" id="s-unknown">{{ stats.unknown }}</div>
+    <div class="l">غير مسجلة</div></div>
+  <div class="card danger"><div class="n" id="s-black">{{ stats.blacklist }}</div>
+    <div class="l">محظورة</div></div>
+  <div class="card"><div class="n" id="s-low">{{ stats.low_conf }}</div>
+    <div class="l">قراءات تحتاج مراجعة</div></div>
+</div>
+
+<div class="panel" id="alerts-panel" {% if not alerts %}style="display:none"{% endif %}>
+  <h2>🔔 التنبيهات
+    <button class="btn-ghost btn-sm" style="float:left"
+            onclick="ackAll()">تأكيد الكل</button></h2>
+  <div id="alerts">
+    {% for a in alerts %}
+    <div class="alert {{ a.level }}" data-id="{{ a.id }}">
+      <span>{{ '🚨' if a.level=='danger' else ('⚠️' if a.level=='warning' else 'ℹ️') }}</span>
+      <span class="msg">{{ a.message }}</span>
+      <span class="t">{{ a.ts[11:19] }}</span>
+      <button class="btn-ghost btn-sm" onclick="ack({{ a.id }})">تم</button>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="panel">
+  <h2>📷 الكاميرات المباشرة</h2>
+  <div class="feeds">
+    {% for c in cams_cfg.values() %}
+      {% set st = (cameras | selectattr('camera_id','equalto',c.id) | list) %}
+      <div class="feed">
+        <div class="feed-head">
+          <span class="dot {{ 'on' if st and st[0].online else 'off' }}"></span>
+          <b>{{ c.name }}</b>
+          <span class="muted">بوابة {{ c.gate_number }} — {{ direction_ar[c.direction] }}
+          {% if st and st[0].fps %}· {{ st[0].fps }} لقطة/ث{% endif %}</span>
+        </div>
+        {% if live_enabled %}
+          <img class="feed-img" data-cam="{{ c.id }}" src="/stream/{{ c.id }}"
+               alt="{{ c.name }}">
+          <div class="feed-off" style="display:none">
+            انقطع البث — تتم إعادة المحاولة تلقائيًا…
+          </div>
+        {% else %}
+          <div class="feed-off">البث المباشر مُعطَّل في الإعدادات (live_view)</div>
+        {% endif %}
+      </div>
+    {% endfor %}
+    {% if not cams_cfg %}
+      <div class="muted">لا توجد كاميرات مُعدّة. شغّل: python run.py setup</div>
+    {% endif %}
+  </div>
+  <div class="muted" style="font-size:12px;margin-top:8px">
+    الرقم على المربع = عرض اللوحة بالبكسل، يساعدك عند توجيه الكاميرا.
+    <span style="color:var(--ok)">الأخضر</span> = حجم مريح للقراءة ·
+    <span style="color:var(--warn)">البرتقالي</span> = أصغر، تُقرأ أيضًا لكن
+    بثقة أقل. لا يوجد حد أدنى يُرفض عنده — الحجم يؤثر على الوزن فقط.
+  </div>
+</div>
+
+<div class="panel">
+  <h2>🔍 ما يقرأه النظام الآن
+    <span class="muted" style="font-size:12px;font-weight:400">
+      — يظهر كل محاولة قراءة، حتى غير المؤكدة</span></h2>
+  <div id="reader-info" class="muted" style="font-size:12px;margin-bottom:8px"></div>
+  <table id="reader-tbl">
+    <thead><tr>
+      <th>الوقت</th><th>ما قرأه</th><th>ثقة</th><th>منطقية</th>
+      <th>عرض اللوحة</th><th>المرشّح الحالي</th><th>الأصوات</th>
+    </tr></thead>
+    <tbody></tbody>
+  </table>
+  <p class="muted" id="reader-empty" style="font-size:12px">
+    لا توجد محاولات بعد. ضع لوحة أمام الكاميرا.
+  </p>
+  <div class="muted" style="font-size:12px;margin-top:8px">
+    إن كان "ما قرأه" فارغًا دائمًا فالقارئ لا يستطيع قراءة اللوحة —
+    وهذا حدّ easyocr، يُحل بنموذج مدرَّب.
+    وإن كان يقرأ نصًا مختلفًا كل مرة فلن تجتمع الأصوات المطلوبة،
+    ولن يُسجَّل الحدث.
+  </div>
+</div>
+
+<div class="panel">
+  <h2>الحركة المباشرة</h2>
+  <table>
+    <thead><tr>
+      <th>الوقت</th><th>اللوحة</th><th>البوابة</th><th>الاتجاه</th>
+      <th>الحالة</th><th>المالك</th><th>الوحدة</th><th>الثقة</th>
+      <th>الصورة</th><th></th>
+    </tr></thead>
+    <tbody id="rows">
+      {% for e in events %}
+      <tr class="{{ 'lowconf' if e.low_confidence }}" data-id="{{ e.id }}">
+        <td class="muted">{{ e.ts[11:19] }}</td>
+        <td><span class="plate">{{ pdisplay(e.plate) }}</span>
+            <div class="muted" style="font-size:11px">{{ translit(e.plate) }}</div></td>
+        <td>{{ e.gate_number }}</td>
+        <td><span class="tag t-{{ e.direction }}">{{ direction_ar[e.direction] }}</span></td>
+        <td><span class="tag t-{{ e.status }}">{{ status_ar[e.status] }}</span></td>
+        <td>{{ e.owner_name or '—' }}</td>
+        <td>{{ e.unit or '—' }}</td>
+        <td class="muted">{{ '%.0f'|format(e.confidence*100) }}%</td>
+        <td>{% if e.plate_crop %}
+            <img class="thumb" src="/shot/{{ e.id }}/crop"
+                 onclick="showShot({{ e.id }})">{% endif %}</td>
+        <td>{% if e.status == 'unknown' %}
+            <button class="btn-sm" onclick="openReg({{ e.id }},'{{ e.plate }}')">
+              تسجيل</button>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if not events %}
+  <p class="muted">لا توجد حركة بعد. شغّل الكاميرات وستظهر السيارات هنا مباشرة.</p>
+  {% endif %}
+</div>
+
+<dialog id="regDlg">
+  <h2 style="margin-top:0">تسجيل سيارة جديدة</h2>
+  <form method="post" id="regForm">
+    <div class="grid g2">
+      <div><label>رقم اللوحة</label><input name="plate" id="regPlate" required></div>
+      <div><label>اسم المالك</label><input name="owner_name"></div>
+      <div><label>رقم الهاتف</label><input name="phone"></div>
+      <div><label>الوحدة / الشقة</label><input name="unit"></div>
+      <div><label>الفئة</label><select name="category">
+        {% for k,v in categories.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}
+      </select></div>
+      <div><label>صالح حتى (اختياري)</label><input name="valid_until" type="date"></div>
+      <div><label>الماركة</label><input name="car_make"></div>
+      <div><label>اللون</label><input name="car_color"></div>
+    </div>
+    <div style="margin-top:8px"><label>ملاحظات</label><input name="notes"></div>
+    <div class="row" style="margin-top:16px;justify-content:flex-start">
+      <button type="submit">حفظ</button>
+      <button type="button" class="btn-ghost"
+              onclick="regDlg.close()">إلغاء</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="snapDlg" style="max-width:90vw">
+  <img id="snapImg" style="max-width:100%;border-radius:8px">
+  <div style="margin-top:12px"><button class="btn-ghost"
+      onclick="snapDlg.close()">إغلاق</button></div>
+</dialog>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let lastId = {{ events[0].id if events else 0 }};
+const beep = new AudioContext();
+function ping(freq=880){
+  try{
+    const o=beep.createOscillator(), g=beep.createGain();
+    o.connect(g); g.connect(beep.destination);
+    o.frequency.value=freq; g.gain.value=0.05;
+    o.start(); o.stop(beep.currentTime+0.18);
+  }catch(e){}
+}
+function openReg(id, plate){
+  document.getElementById('regForm').action = '/events/'+id+'/register';
+  document.getElementById('regPlate').value = plate;
+  regDlg.showModal();
+}
+function showShot(id){
+  document.getElementById('snapImg').src = '/shot/' + id + '/full';
+  snapDlg.showModal();
+}
+async function ack(id){
+  await fetch('/alerts/'+id+'/ack',{method:'POST'});
+  document.querySelector('.alert[data-id="'+id+'"]')?.remove();
+}
+async function ackAll(){
+  await fetch('/alerts/ack_all',{method:'POST'});
+  document.getElementById('alerts').innerHTML='';
+  document.getElementById('alerts-panel').style.display='none';
+}
+const tagDir={entry:'دخول',exit:'خروج'};
+function rowHtml(e){
+  return `<tr class="${e.low_confidence?'lowconf':''}" data-id="${e.id}"
+            style="animation:none;background:rgba(62,166,255,.12)">
+    <td class="muted">${e.ts.slice(11,19)}</td>
+    <td><span class="plate">${e.plate_display}</span>
+        <div class="muted" style="font-size:11px">${e.plate_latin}</div></td>
+    <td>${e.gate_number}</td>
+    <td><span class="tag t-${e.direction}">${e.direction_ar}</span></td>
+    <td><span class="tag t-${e.status}">${e.status_ar}</span></td>
+    <td>${e.owner_name||'—'}</td><td>${e.unit||'—'}</td>
+    <td class="muted">${Math.round(e.confidence*100)}%</td>
+    <td>${e.plate_crop?`<img class="thumb" src="/shot/${e.id}/crop"
+         onclick="showShot(${e.id})">`:''}</td>
+    <td>${e.status==='unknown'?`<button class="btn-sm"
+         onclick="openReg(${e.id},'${e.plate}')">تسجيل</button>`:''}</td></tr>`;
+}
+function flash(e){
+  const box=document.getElementById('newflash');
+  const cls=e.status==='blacklist'?'danger':(e.status==='unknown'?'warning':'ok');
+  box.innerHTML=`<div style="font-size:13px" class="muted">
+      بوابة ${e.gate_number} — ${e.direction_ar}</div>
+    <div class="plate" style="margin:6px 0">${e.plate_display}</div>
+    <span class="tag t-${e.status}">${e.status_ar}</span>
+    ${e.owner_name?'<div style="margin-top:6px">'+e.owner_name+'</div>':''}`;
+  box.style.display='block';
+  clearTimeout(box._t);
+  box._t=setTimeout(()=>box.style.display='none',6000);
+  ping(e.status==='known'?880:(e.status==='blacklist'?220:440));
+}
+async function poll(){
+  try{
+    const r = await fetch('/api/live?after='+lastId);
+    const d = await r.json();
+    if(d.events.length){
+      const tb=document.getElementById('rows');
+      d.events.slice().reverse().forEach(e=>{
+        tb.insertAdjacentHTML('afterbegin', rowHtml(e));
+        flash(e);
+      });
+      while(tb.rows.length>60) tb.deleteRow(-1);
+      lastId=d.last_id;
+    }
+    const s=d.stats;
+    s_entries.textContent=s.entries; s_exits.textContent=s.exits;
+    s_inside.textContent=s.inside;   s_unknown.textContent=s.unknown;
+    s_black.textContent=s.blacklist; s_low.textContent=s.low_conf;
+    const ap=document.getElementById('alerts-panel');
+    const ab=document.getElementById('alerts');
+    if(d.alerts.length){
+      ap.style.display='';
+      ab.innerHTML=d.alerts.map(a=>`<div class="alert ${a.level}" data-id="${a.id}">
+        <span>${a.level==='danger'?'🚨':(a.level==='warning'?'⚠️':'ℹ️')}</span>
+        <span class="msg">${a.message}</span>
+        <span class="t">${a.ts.slice(11,19)}</span>
+        <button class="btn-ghost btn-sm" onclick="ack(${a.id})">تم</button></div>`).join('');
+    } else { ap.style.display='none'; }
+  }catch(e){ /* keep polling */ }
+}
+async function pollReader(){
+  try{
+    const cams = await (await fetch('/api/reader')).json();
+    const tb = document.querySelector('#reader-tbl tbody');
+    const rows = [];
+    let info = [];
+    cams.forEach(c => {
+      info.push(`${c.name}: قارئ <b>${c.backend}</b> · كاشف <b>${c.detector}</b>`
+                + (c.ocr_ms ? ` · ${c.ocr_ms} ملي/قراءة` : ''));
+      c.attempts.forEach(a => rows.push(`<tr>
+        <td class="muted">${a.at}</td>
+        <td>${a.display ? '<span class="plate sm">'+a.display+'</span>'
+                        : '<span style="color:var(--danger)">لم يقرأ شيئًا</span>'}</td>
+        <td class="muted">${a.conf}</td>
+        <td class="muted">${a.plausible}</td>
+        <td class="muted">${a.width_px}px</td>
+        <td>${a.leader ? '<span class="plate sm">'+a.leader+'</span>' : '—'}</td>
+        <td class="muted">${a.votes}/${a.needed}</td></tr>`));
+    });
+    document.getElementById('reader-info').innerHTML = info.join(' &nbsp;|&nbsp; ');
+    tb.innerHTML = rows.join('');
+    document.getElementById('reader-empty').style.display = rows.length ? 'none' : '';
+  }catch(e){}
+}
+setInterval(pollReader, 1500); pollReader();
+
+setInterval(poll, 2000);
+
+// A dropped MJPEG connection leaves a broken image that never recovers on its
+// own. Reconnect automatically so a brief hiccup — or the page being opened
+// while the cameras are still starting — does not need a manual refresh.
+document.querySelectorAll('img.feed-img').forEach(img => {
+  const placeholder = img.nextElementSibling;
+  img.addEventListener('error', () => {
+    img.style.display = 'none';
+    if (placeholder) placeholder.style.display = 'block';
+    setTimeout(() => {
+      img.src = '/stream/' + img.dataset.cam + '?r=' + Date.now();
+    }, 4000);
+  });
+  img.addEventListener('load', () => {
+    img.style.display = '';
+    if (placeholder) placeholder.style.display = 'none';
+  });
+});
+</script>
+{% endblock %}

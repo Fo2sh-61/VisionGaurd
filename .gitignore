@@ -73,10 +73,6 @@ models/knife detection/*.mp4
 .claude-flow/
 .claude/proven-config.json
 .claude/.proven-config-version
-[INFO] Recording command outcome: cd
-
-[OK] Command outcome recorded
-
 # Roboflow training scripts. Removed from the repo and purged from history:
 # three of them had a live API key typed into the source. The files are still
 # on disk because they are yours; this stops `git add -A` putting the key back.
@@ -85,3 +81,29 @@ models/knife detection/train_knife_model_kaggle_colab.py
 models/knife detection/train_knife_model_merged.py
 models/knife detection/train_knife_model_v2_combined.py
 models/knife detection/train_knife_model_v3_custom.py
+
+# --- owner-supplied datasets (added 27 Aug 2026) ---------------------------
+# 204 MB of EALPR plate photos, supplied by the owner for evaluation.
+# plate_truth.csv is the EXCEPTION: the human-confirmed read truth is
+# evidence and must be versioned.
+Egyptian Car Plates dataset/
+!Egyptian Car Plates dataset/plate_truth.csv
+
+# 2.2 GB of bag-tracker material - tracked out of band, like the weights.
+models/bag traker/
+
+# The gate-anpr reference project is tracked for its SOURCE - it is what
+# infer/plates.py was ported from and what tools/compare_plates.py runs
+# against. Its copies of the two plate weights are not: they are the same
+# files as models/plate_detector.pt and models/char_detector.pt.
+models/Gate/**/*.pt
+
+# --- stray shell-redirect litter at the repo root (27 Aug 2026) ------------
+# Accidents from redirected commands ('> $OUT', '> 118'). The files are
+# still on disk because they are yours; this only keeps them out of git.
+/$OUT
+/$TMP_LOG
+/.=.swp
+/[0-9]
+/[0-9][0-9]
+/[0-9][0-9][0-9]

@@ -32,8 +32,8 @@ const API_PATHS = [
   '/attendance', '/attention', '/audit', '/auth', '/breaches', '/cameras',
   '/count', '/docs', '/enrolment', '/groups', '/healthz', '/intrusion',
   '/lost-items', '/openapi.json', '/path', '/people', '/redoc', '/settings',
-  '/site', '/sources', '/system', '/track', '/tracking', '/users', '/weapons',
-  '/zones',
+  '/site', '/sources', '/system', '/track', '/tracking', '/users', '/vehicles',
+  '/weapons', '/zones',
 ];
 
 export default defineConfig({

@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}السجل{% endblock %}
+{% block body %}
+
+<div class="panel">
+  <h2>بحث في السجل</h2>
+  <form method="get" class="row">
+    <div style="flex:1;min-width:150px"><label>رقم اللوحة</label>
+      <input name="plate" value="{{ filters.plate }}" placeholder="ب ج د ١٢٣٤"></div>
+    <div><label>البوابة</label><select name="gate">
+      <option value="">الكل</option>
+      {% for g in gates %}<option value="{{ g }}"
+        {{ 'selected' if filters.gate|string == g|string }}>{{ g }}</option>{% endfor %}
+    </select></div>
+    <div><label>الاتجاه</label><select name="direction">
+      <option value="">الكل</option>
+      <option value="entry" {{ 'selected' if filters.direction=='entry' }}>دخول</option>
+      <option value="exit"  {{ 'selected' if filters.direction=='exit' }}>خروج</option>
+    </select></div>
+    <div><label>الحالة</label><select name="status">
+      <option value="">الكل</option>
+      {% for k,v in status_ar.items() %}<option value="{{ k }}"
+        {{ 'selected' if filters.status==k }}>{{ v }}</option>{% endfor %}
+    </select></div>
+    <div><label>من</label><input type="date" name="date_from" value="{{ filters.date_from }}"></div>
+    <div><label>إلى</label><input type="date" name="date_to" value="{{ filters.date_to }}"></div>
+    <div><button type="submit">بحث</button></div>
+    <div><a class="btn btn-ghost" href="/export/events.csv?gate={{ filters.gate }}&status={{ filters.status }}&date_from={{ filters.date_from }}&date_to={{ filters.date_to }}">تصدير Excel</a></div>
+  </form>
+</div>
+
+<div class="panel">
+  <table>
+    <thead><tr>
+      <th>التاريخ والوقت</th><th>اللوحة</th><th>البوابة</th><th>الاتجاه</th>
+      <th>الحالة</th><th>المالك</th><th>الوحدة</th><th>الثقة</th>
+      <th>الكاميرا</th><th>الصورة</th><th>تصحيح</th>
+    </tr></thead>
+    <tbody>
+      {% for e in events %}
+      <tr class="{{ 'lowconf' if e.low_confidence }}">
+        <td class="muted">{{ e.ts.replace('T',' ')[:19] }}</td>
+        <td><span class="plate sm">{{ pdisplay(e.plate) }}</span>
+          {% if e.corrected_from %}<div class="muted" style="font-size:11px">
+            صُحّحت من {{ pdisplay(e.corrected_from) }}</div>{% endif %}</td>
+        <td>{{ e.gate_number }}</td>
+        <td><span class="tag t-{{ e.direction }}">{{ direction_ar[e.direction] }}</span></td>
+        <td><span class="tag t-{{ e.status }}">{{ status_ar[e.status] }}</span></td>
+        <td>{{ e.owner_name or '—' }}</td>
+        <td>{{ e.unit or '—' }}</td>
+        <td class="muted">{{ '%.0f'|format(e.confidence*100) }}%
+          {% if e.votes %}<span style="font-size:11px">({{ e.votes }})</span>{% endif %}</td>
+        <td class="muted" style="font-size:12px">{{ e.camera_id }}</td>
+        <td>{% if e.plate_crop %}<img class="thumb" src="/snap/{{ e.plate_crop }}"
+              onclick="showSnap('{{ e.snapshot }}')">{% endif %}</td>
+        <td>
+          <form method="post" action="/events/{{ e.id }}/correct" class="row"
+                style="gap:4px;flex-wrap:nowrap">
+            <input name="plate" value="{{ e.plate }}" style="width:110px;padding:4px 6px">
+            <button class="btn-sm">حفظ</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if not events %}<p class="muted">لا توجد نتائج.</p>{% endif %}
+
+  <div class="row" style="margin-top:14px;justify-content:center">
+    {% if page_no > 1 %}
+      <a class="btn btn-ghost" href="?page={{ page_no-1 }}&plate={{ filters.plate }}&gate={{ filters.gate }}&status={{ filters.status }}&direction={{ filters.direction }}">السابق</a>
+    {% endif %}
+    <span class="muted" style="padding:8px">صفحة {{ page_no }}</span>
+    {% if has_next %}
+      <a class="btn btn-ghost" href="?page={{ page_no+1 }}&plate={{ filters.plate }}&gate={{ filters.gate }}&status={{ filters.status }}&direction={{ filters.direction }}">التالي</a>
+    {% endif %}
+  </div>
+</div>
+
+<dialog id="snapDlg" style="max-width:90vw">
+  <img id="snapImg" style="max-width:100%;border-radius:8px">
+  <div style="margin-top:12px"><button class="btn-ghost" onclick="snapDlg.close()">إغلاق</button></div>
+</dialog>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function showSnap(p){
+  if(!p||p==='None') return;
+  document.getElementById('snapImg').src='/snap/'+p;
+  snapDlg.showModal();
+}
+</script>
+{% endblock %}
