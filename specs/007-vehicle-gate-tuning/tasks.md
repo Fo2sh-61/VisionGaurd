@@ -25,9 +25,9 @@ description: "Task list for Vehicle Gate Accuracy & Redesign"
 
 **Purpose**: Protect the uncommitted work and confirm the dataset is what the plan assumes.
 
-- [ ] T001 Put the uncommitted vehicle-gate work on a branch and commit it before editing anything — `git status` shows ~95 modified/untracked entries and `git show HEAD:engine/vg/api/live.py` has no `_plate_boxes`, so the entire vehicle-gate engine exists only in the working tree. Exclude the stray root litter named in `STATUS.md` housekeeping (`$OUT`, `$TMP_LOG`, `.=.swp`, bare numeric files) from the commit.
-- [ ] T002 [P] Add `Egyptian Car Plates dataset/` to `.gitignore` (2,085 JPEGs, owner-supplied, not repo content) but **not** `Egyptian Car Plates dataset/plate_truth.csv` — the confirmed-truth file is evidence and must be versioned. Create `specs/007-vehicle-gate-tuning/evidence/.gitkeep`.
-- [ ] T003 [P] Verify the dataset pairing in a throwaway check: `Vehicles/*.jpg|JPG|jpeg` (2,085 images) against `Vehicles Labeling/<stem>.txt` (2,088 labels) — record the unmatched stems in `specs/007-vehicle-gate-tuning/evidence/dataset-inventory.md`, including that label folders are spelled `EALPR Vechicles dataset` and `Vehicles Labeling` (sic) and that every path needs quoting for the spaces.
+- [X] T001 Put the uncommitted vehicle-gate work on a branch and commit it before editing anything — `git status` shows ~95 modified/untracked entries and `git show HEAD:engine/vg/api/live.py` has no `_plate_boxes`, so the entire vehicle-gate engine exists only in the working tree. Exclude the stray root litter named in `STATUS.md` housekeeping (`$OUT`, `$TMP_LOG`, `.=.swp`, bare numeric files) from the commit.
+- [X] T002 [P] Add `Egyptian Car Plates dataset/` to `.gitignore` (2,085 JPEGs, owner-supplied, not repo content) but **not** `Egyptian Car Plates dataset/plate_truth.csv` — the confirmed-truth file is evidence and must be versioned. Create `specs/007-vehicle-gate-tuning/evidence/.gitkeep`.
+- [X] T003 [P] Verify the dataset pairing in a throwaway check: `Vehicles/*.jpg|JPG|jpeg` (2,085 images) against `Vehicles Labeling/<stem>.txt` (2,088 labels) — record the unmatched stems in `specs/007-vehicle-gate-tuning/evidence/dataset-inventory.md`, including that label folders are spelled `EALPR Vechicles dataset` and `Vehicles Labeling` (sic) and that every path needs quoting for the spaces.
 
 **Checkpoint**: work is safe, dataset shape is known and written down.
 
@@ -39,10 +39,10 @@ description: "Task list for Vehicle Gate Accuracy & Redesign"
 
 **⚠️ CRITICAL**: No user story work begins until this phase completes. These tasks touch files that several stories edit; running them once up front is what keeps the stories parallel afterwards.
 
-- [ ] T004 Add the new wire types to `engine/vg/api/schemas.py` beside the existing vehicle cluster (search `class VehiclePass`): `ReaderAttempt`, `GateReaderCamera`, `GateReaderNow`, `GateAlert`, `TrafficHour` — field-for-field per [data-model.md](./data-model.md) §"Wire types". Subclass `Wire` (snake_case in, camelCase out, `extra="forbid"`); use `Instant` for times and `Confidence` for 0..1 values.
-- [ ] T005 Extend the two changed wire types in `engine/vg/api/schemas.py`: `GateSummary` gains `cameras_reading`, `cameras_total`, `cameras_note` (all optional — absent is an admission, per its own docstring); `VehicleVisit` gains `entry_pass_id`, `exit_pass_id`, `entry_has_snapshot`, `exit_has_snapshot`. Keep `needs_review` on `GateSummary` — the export still uses it even though no tile renders it. (Same file as T004 — sequential, not parallel.)
-- [ ] T006 [P] Mirror all new and changed wire types in `web/src/services/wire.ts` in camelCase, matching the engine field-for-field.
-- [ ] T007 [P] Append the two new tables to the `SCHEMA` string in `engine/vg/events/vehicles.py` (search for the existing `CREATE TABLE IF NOT EXISTS vehicle_pass`): `vehicle_alert_ack` and `vehicle_import_run`, columns exactly per [data-model.md](./data-model.md) §"Database". `CREATE TABLE IF NOT EXISTS` so existing databases migrate on open.
+- [X] T004 Add the new wire types to `engine/vg/api/schemas.py` beside the existing vehicle cluster (search `class VehiclePass`): `ReaderAttempt`, `GateReaderCamera`, `GateReaderNow`, `GateAlert`, `TrafficHour` — field-for-field per [data-model.md](./data-model.md) §"Wire types". Subclass `Wire` (snake_case in, camelCase out, `extra="forbid"`); use `Instant` for times and `Confidence` for 0..1 values.
+- [X] T005 Extend the two changed wire types in `engine/vg/api/schemas.py`: `GateSummary` gains `cameras_reading`, `cameras_total`, `cameras_note` (all optional — absent is an admission, per its own docstring); `VehicleVisit` gains `entry_pass_id`, `exit_pass_id`, `entry_has_snapshot`, `exit_has_snapshot`. Keep `needs_review` on `GateSummary` — the export still uses it even though no tile renders it. (Same file as T004 — sequential, not parallel.)
+- [X] T006 [P] Mirror all new and changed wire types in `web/src/services/wire.ts` in camelCase, matching the engine field-for-field.
+- [X] T007 [P] Append the two new tables to the `SCHEMA` string in `engine/vg/events/vehicles.py` (search for the existing `CREATE TABLE IF NOT EXISTS vehicle_pass`): `vehicle_alert_ack` and `vehicle_import_run`, columns exactly per [data-model.md](./data-model.md) §"Database". `CREATE TABLE IF NOT EXISTS` so existing databases migrate on open.
 
 **Checkpoint**: shared contracts exist; US1–US5 can now proceed in parallel.
 

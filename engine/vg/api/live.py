@@ -409,6 +409,11 @@ class LiveStore(MockStore):
                 confidence=max(0.0, min(1.0, read.confidence)),
                 kind="plate",
                 severity=severity,
+                # Pixels, deliberately, beside the fractions above. This is
+                # the aiming aid: it tells an operator whether the camera is
+                # close enough, which is the one accuracy problem no amount of
+                # software fixes. `read.box.w` is already source-frame pixels.
+                plate_width_px=width,
             ))
         return boxes
 

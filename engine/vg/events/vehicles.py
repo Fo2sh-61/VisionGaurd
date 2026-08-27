@@ -93,6 +93,45 @@ CREATE TABLE IF NOT EXISTS vehicle_pass (
 CREATE INDEX IF NOT EXISTS ix_pass_at    ON vehicle_pass(at DESC);
 CREATE INDEX IF NOT EXISTS ix_pass_plate ON vehicle_pass(plate, at DESC);
 CREATE INDEX IF NOT EXISTS ix_pass_gate  ON vehicle_pass(gate, at DESC);
+
+-- A dismissed alert. **Alerts themselves are never stored**: one exists while
+-- a qualifying pass of today has no row here, which is why there is no alert
+-- lifecycle to drift out of step with the log it describes.
+--
+-- The dismissal IS stored, because it is a record — "recorded too, under your
+-- name" is a promise the page makes, and RAM would forget it at the next
+-- restart. The audit entry is written BEFORE this row, and there is no delete
+-- path: an acknowledgement cannot be taken back, here or anywhere else.
+--
+-- CASCADE, unlike vehicle_pass above, and for the opposite reason: this row
+-- describes a pass rather than preserving one, so when an administrator
+-- deletes a pass its dismissal has nothing left to be about.
+CREATE TABLE IF NOT EXISTS vehicle_alert_ack (
+    pass_id       TEXT PRIMARY KEY REFERENCES vehicle_pass(id) ON DELETE CASCADE,
+    by_who        TEXT NOT NULL,
+    at            TEXT NOT NULL,
+    -- 1 when the resolving action was taken (registered / renewed), 0 for a
+    -- bare dismissal. The difference is worth keeping: "I dealt with it" and
+    -- "not worth acting on" are different answers to the same alert.
+    action_taken  INTEGER NOT NULL DEFAULT 0
+);
+
+-- What the register tab's "last import" line is allowed to say.
+--
+-- The design draws "Last import: 2,140 rows · 6 skipped · 12 Aug". That is
+-- either a fact or it is absent (P6-FR-053), and the audit log cannot be the
+-- source because it still lives in RAM until P3. So the importer records its
+-- own run, inside the same transaction as the rows it wrote.
+CREATE TABLE IF NOT EXISTS vehicle_import_run (
+    id            TEXT PRIMARY KEY,
+    at            TEXT NOT NULL,
+    added         INTEGER NOT NULL,
+    updated       INTEGER NOT NULL DEFAULT 0,
+    skipped       INTEGER NOT NULL,
+    rejected      INTEGER NOT NULL,
+    by_who        TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_import_at ON vehicle_import_run(at DESC);
 """
 
 

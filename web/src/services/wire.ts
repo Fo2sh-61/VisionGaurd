@@ -918,6 +918,14 @@ export interface VehicleVisit {
   unit: string | null;
   category: string | null;
   inferred: boolean;
+  /** The passes this visit was derived from, so a row can show its evidence.
+   *  The snapshot flags are separate from the ids because an image is deleted
+   *  at thirty days while its pass row is kept for ever — false means "no
+   *  picture to show", never "no such pass". */
+  entryPassId: string | null;
+  exitPassId: string | null;
+  entryHasSnapshot: boolean;
+  exitHasSnapshot: boolean;
 }
 
 export interface VehicleImportResult {
@@ -943,4 +951,82 @@ export interface GateSummary {
   registered: number | null;
   reason: string | null;
   pairingAvailable: boolean;
+  /** How many gate cameras are actually being read, of those configured.
+   *  All three are null — not zero — when plate reading is not running:
+   *  `reason` carries that case, and "0 of 0" would read as a measurement of
+   *  a system that is not looking. */
+  camerasReading: number | null;
+  camerasTotal: number | null;
+  camerasNote: string | null;
+}
+
+/** One go at reading a plate, including the ones that came to nothing.
+ *
+ *  `display` empty means the reader found a plate and read no characters from
+ *  it. Render that as words — a blank cell reads as data we failed to load.
+ *  `confidence` and `plausibility` are null on such a read: there is no
+ *  reading to be confident about. */
+export interface ReaderAttempt {
+  at: Instant;
+  cameraId: string;
+  cameraName: string;
+  display: string;
+  confidence: number | null;
+  plausibility: number | null;
+  /** Plate width in pixels of the source frame. The aiming aid. */
+  widthPx: number;
+  leaderDisplay: string | null;
+  votes: number;
+  votesNeeded: number;
+}
+
+/** Which models are actually reading at one gate camera, and how fast.
+ *  The names are what is loaded, never what was configured — a model that
+ *  fell back off its accelerated build says so here. `readMs` is null until
+ *  the first read; 0 would claim a timing nobody took. */
+export interface GateReaderCamera {
+  cameraId: string;
+  cameraName: string;
+  gate: number;
+  direction: string;
+  finder: string;
+  reader: string;
+  form: string;
+  readMs: number | null;
+}
+
+export interface GateReaderNow {
+  cameras: GateReaderCamera[];
+  attempts: ReaderAttempt[];
+  votesNeeded: number;
+  /** Set when plate reading is not running — render this instead of a table. */
+  reason: string | null;
+}
+
+/** A pass waiting for a person to deal with it.
+ *
+ *  There is deliberately no `message`: the engine sends facts and `format.ts`
+ *  writes the sentences. `nearMatch*` is filled only when exactly one
+ *  registered plate is within one edit — phrase it as a question, never as a
+ *  claim that the two are the same car. */
+export interface GateAlert {
+  passId: string;
+  kind: 'unknown' | 'blacklist' | 'expired';
+  at: Instant;
+  plate: string;
+  plateDisplay: string;
+  gateName: string;
+  owner: string | null;
+  permitExpiredOn: string | null;
+  nearMatchDisplay: string | null;
+  nearMatchOwner: string | null;
+  inside: boolean;
+  dismissable: boolean;
+}
+
+/** One hour of one day at the gates. In above the line, out below it. */
+export interface TrafficHour {
+  hour: number;
+  entered: number;
+  left: number;
 }

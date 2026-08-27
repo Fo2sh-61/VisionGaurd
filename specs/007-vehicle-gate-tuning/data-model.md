@@ -9,10 +9,18 @@ vehicle_pass, derived visits) is unchanged.
 
 | Column | Type | Notes |
 |---|---|---|
-| `pass_id` | TEXT PRIMARY KEY | The pass whose alert was dismissed. One alert per pass, so one row per dismissal. |
-| `by` | TEXT NOT NULL | Account name. "Recorded under your name." |
+| `pass_id` | TEXT PRIMARY KEY | The pass whose alert was dismissed, `REFERENCES vehicle_pass(id) ON DELETE CASCADE`. One alert per pass, so one row per dismissal. |
+| `by_who` | TEXT NOT NULL | Account name. "Recorded under your name." |
 | `at` | TEXT NOT NULL | ISO instant of the dismissal. |
 | `action_taken` | INTEGER NOT NULL | 1 when the resolving action was used (register / renew), 0 for a bare dismissal. |
+
+**As built (27 Aug), two deviations from the above as first drafted:** the
+column is `by_who`, not `by` — `by` sits close enough to `GROUP BY` / `ORDER BY`
+to be worth not finding out about later. And the foreign key CASCADEs, unlike
+`vehicle_pass.vehicle_id` which is `SET NULL`: that column exists to *preserve*
+history when a car leaves the register, whereas this row only *describes* a
+pass, so when an administrator deletes a pass its dismissal has nothing left to
+be about.
 
 Rules: the audit entry is written **before** this row (the `_log`-first idiom).
 No delete path — a dismissal cannot be undone, matching acknowledgements
@@ -25,8 +33,13 @@ elsewhere. An alert *exists* iff a today's pass has status `unknown`,
 |---|---|---|
 | `id` | TEXT PRIMARY KEY | |
 | `at` | TEXT NOT NULL | When the import ran. |
-| `added` / `skipped` / `rejected` | INTEGER NOT NULL | Exactly the numbers the importer already reports. |
-| `by` | TEXT NOT NULL | The administrator who ran it. |
+| `added` / `updated` / `skipped` / `rejected` | INTEGER NOT NULL | Exactly the numbers the importer already reports. |
+| `by_who` | TEXT NOT NULL | The administrator who ran it. |
+
+**As built**: `updated` was added after checking `VehicleImportResult`, which
+already reports `added`, `updated`, `skipped_duplicates` and `problems` — the
+table records what the importer actually produces rather than a subset of it.
+`by_who` for the same reason as above.
 
 Inserted in the same transaction as the import. The register card reads the
 newest row; no row → no line.

@@ -161,7 +161,17 @@ class Box(Wire):
     h: Fraction
     label: str | None = None
     confidence: Confidence | None = None
-    kind: Literal["person", "weapon", "object", "face", "match"] = "person"
+    #: What this box IS, which decides how the console colours it.
+    #:
+    #: `"plate"` was missing here until 27 Aug and gate tiles had never once
+    #: drawn a box because of it: `_plate_boxes` built one, this literal
+    #: refused it, and the whole detections response raised — so a plate in
+    #: view took the overlay down rather than appearing on it. The console
+    #: half had been right all along (`boxColor()` has had its plate branch
+    #: since the feature shipped). Widen this only with a test that ends at a
+    #: validated `CameraView`; see `tests/test_vehicle_overlay.py` for why the
+    #: near end of the path is not enough.
+    kind: Literal["person", "weapon", "object", "face", "match", "plate"] = "person"
     match: MatchKind = MatchKind.NONE
     severity: Severity = Severity.INFO
     # The appearance identity following this body, e.g. "p7". Survives leaving
@@ -169,6 +179,14 @@ class Box(Wire):
     # point of tracking — so it has to reach the screen, not stop at the
     # database. None when the camera is not being tracked.
     track_id: str | None = None
+    #: How wide this plate is, in pixels of the source frame. Plate boxes only.
+    #:
+    #: Display information rather than geometry, which is why it sits beside
+    #: the fractions instead of replacing them. The console needs it to tell
+    #: an operator whether a plate is big enough to read, and a fraction
+    #: cannot answer that without the capture resolution — which the console
+    #: does not have and should not have to learn.
+    plate_width_px: int | None = None
 
 
 class Point(Wire):
@@ -1520,6 +1538,18 @@ class VehicleVisit(Wire):
     unit: str | None = None
     category: str | None = None
     inferred: bool = False
+    #: The passes this visit was derived from, so a row can show the
+    #: photograph that proves it. The console links these straight at
+    #: `/vehicles/passes/{id}/snapshot` rather than the images being copied
+    #: anywhere - one store of pass images, one retention rule.
+    #:
+    #: The `has_snapshot` flags are separate from the ids because an image is
+    #: deleted at thirty days while its pass row is kept for ever. False means
+    #: "no picture to show", never "no such pass".
+    entry_pass_id: str | None = None
+    exit_pass_id: str | None = None
+    entry_has_snapshot: bool = False
+    exit_has_snapshot: bool = False
 
 
 class VehicleImportResult(Wire):
@@ -1556,3 +1586,123 @@ class GateSummary(Wire):
     reason: str | None = None
     #: False where no exit camera exists, so `inside` cannot be computed.
     pairing_available: bool = False
+    #: How many gate cameras are actually being read, of those configured.
+    #:
+    #: The tile this feeds replaced "Needs review", which retired with the
+    #: pass list. `needs_review` above stays on the wire because the export
+    #: still reports it - a weak read is still flagged, it just no longer has
+    #: a tile. All three of these are absent, not zero, when plate reading is
+    #: not running at all: `reason` already carries that case, and "0 of 0"
+    #: would read as a measurement of a system that is not looking.
+    cameras_reading: int | None = None
+    cameras_total: int | None = None
+    #: Which camera is not being read and why. None when all of them are.
+    cameras_note: str | None = None
+
+
+class ReaderAttempt(Wire):
+    """One go at reading a plate, including the ones that came to nothing.
+
+    **This is the diagnostic surface, so a failure has to be as visible as a
+    success.** `display` empty means the reader found a plate and read no
+    characters from it; the console renders that as words, never as a blank
+    cell, because a blank reads as "we failed to load this row".
+
+    `confidence` and `plausibility` are absent rather than zero on a read that
+    produced nothing - there is no reading to be confident about.
+
+    Not stored anywhere. This is a live window onto a worker that is running
+    because somebody is watching it.
+    """
+
+    at: Instant
+    camera_id: str
+    camera_name: str
+    #: The plate as it would appear on the car. Empty = read nothing.
+    display: str = ""
+    confidence: Confidence | None = None
+    plausibility: Confidence | None = None
+    #: How wide the plate was, in pixels of the source frame. The aiming aid.
+    width_px: int = 0
+    #: What this car's vote is currently leaning towards, and how far along.
+    leader_display: str | None = None
+    votes: int = 0
+    votes_needed: int = 0
+
+
+class GateReaderCamera(Wire):
+    """Which models are actually reading at one gate camera, and how fast.
+
+    **The names are what is loaded, never what was configured.** A model that
+    fell back from its accelerated build to the supplied weights says so here,
+    on the page where its work shows, rather than only on System Health.
+
+    `read_ms` is None until the first read - a camera nobody has driven past
+    has no timing, and 0 ms would claim one.
+    """
+
+    camera_id: str
+    camera_name: str
+    gate: int
+    direction: str                  # entry | exit
+    finder: str                     # the plate detector actually loaded
+    reader: str                     # the character model actually loaded
+    form: str                       # TensorRT | PyTorch CUDA
+    read_ms: float | None = None
+
+
+class GateReaderNow(Wire):
+    """Everything the "what the reader is seeing now" card needs, in one poll.
+
+    `reason` set means plate reading is not running, and the card renders that
+    sentence instead of an empty table - the same wording the tiles use, from
+    the same place, so the page never gives two accounts of one situation.
+    """
+
+    cameras: list[GateReaderCamera] = Field(default_factory=list)
+    attempts: list[ReaderAttempt] = Field(default_factory=list)
+    votes_needed: int = 0
+    reason: str | None = None
+
+
+class GateAlert(Wire):
+    """A pass that is waiting for a person to deal with it.
+
+    **Derived from the pass, never stored.** An alert exists while a
+    qualifying pass of today has no dismissal against it; there is no alert
+    lifecycle to drift out of step with the log.
+
+    **The engine sends facts and the console writes the sentences** (rule:
+    `format.ts` owns every rendered string). So there is no `message` field
+    here - there are the things a message would need to be true.
+
+    `near_match_*` is filled only when exactly one registered plate is within
+    one edit of an unread-as-registered plate. Zero candidates or several and
+    it stays empty, because a guess between two cars puts a wrong name against
+    a stranger. The console must phrase it as a question; this is never a
+    claim that the two are the same car, and nothing is merged or rewritten.
+    """
+
+    pass_id: str
+    kind: str                       # unknown | blacklist | expired
+    at: Instant
+    plate: str                      # canonical, for matching
+    plate_display: str              # as it appears on the car
+    gate_name: str
+    owner: str | None = None
+    #: For `expired`: the ISO date the permit ran out.
+    permit_expired_on: str | None = None
+    near_match_display: str | None = None
+    near_match_owner: str | None = None
+    #: True only where pairing is available and the car has no exit yet, so
+    #: "and is still inside" can be said without guessing.
+    inside: bool = False
+    dismissable: bool = True
+
+
+class TrafficHour(Wire):
+    """One hour of one day at the gates. In above the line, out below it."""
+
+    hour: int                       # 0..23, site local
+    entered: int
+    left: int
