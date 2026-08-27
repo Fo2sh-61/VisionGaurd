@@ -3,6 +3,7 @@ import { CamGrid } from '@/components/CamGrid';
 import { DeletePass } from '@/components/DeletePass';
 import { Plate } from '@/components/Plate';
 import { VehicleMovementsTab } from '@/components/VehicleMovements';
+import { VehicleReader } from '@/components/VehicleReader';
 import { VehicleRegisterTab } from '@/components/VehicleRegister';
 import { Badge, Card, DataNotice, Empty, LoadError, PageHeader } from '@/components/ui';
 import { getVehicleCameras, getVehiclePasses, getVehicleSummary } from '@/services/api';
@@ -278,7 +279,7 @@ export function VehicleGate() {
               where the poll would otherwise fall through to faces. */}
           <CamGrid
             title="Gate cameras"
-            note="One camera per direction at each gate — that is what makes entry and exit a fact rather than a guess from plate size. Green = registered, amber = not registered, red = blacklisted."
+            note="One camera per direction at each gate — that is what makes entry and exit a fact rather than a guess from plate size. Green = registered, amber = not registered, red = blacklisted. The number beside each box is the plate's width in pixels: 100px or more is a comfortable read, below that still reads with less confidence. Nothing is rejected for being small — width only changes the weight of that frame's vote."
             cameras={cameras}
             feature="vehicles"
             tileOverlay
@@ -287,6 +288,11 @@ export function VehicleGate() {
             // heading would imply plates are being read from it.
             only
           />
+
+          {/* Under the cameras, deliberately: it explains what the boxes above
+              are doing, and it is the only place a read that FAILED shows up
+              at all — the pass log holds successes by construction. */}
+          <VehicleReader />
         </>
       )}
 

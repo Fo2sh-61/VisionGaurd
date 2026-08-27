@@ -169,6 +169,7 @@ class Store(Protocol):
     def vehicle_summary(self) -> S.GateSummary: ...
     def vehicle_passes(self, **filters) -> list[S.VehiclePass]: ...
     def vehicle_cameras(self) -> list[S.CameraView]: ...
+    def vehicle_reader(self) -> S.GateReaderNow: ...
     def vehicle_register(self, query: str, category: str) -> list[S.RegisteredVehicle]: ...
     def add_vehicle(self, body: S.VehicleRegistration, actor: str) -> S.RegisteredVehicle: ...
     def edit_vehicle(self, vehicle_id: str, body: S.VehicleRegistration,
@@ -256,6 +257,12 @@ class MockStore:
 
     def vehicle_cameras(self) -> list[S.CameraView]:
         return []
+
+    def vehicle_reader(self) -> S.GateReaderNow:
+        return S.GateReaderNow(
+            reason="Vehicle gate is not configured in this demo store, so "
+                   "nothing is being read.",
+        )
 
     def vehicle_register(self, query: str = "",
                          category: str = "") -> list[S.RegisteredVehicle]:

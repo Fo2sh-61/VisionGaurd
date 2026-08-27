@@ -31,6 +31,7 @@ from vg.api.store import (
     NothingThere,
     SubsystemUnavailable,
 )
+from vg.features.vehicles import MIN_VOTES
 from vg.ingest.archive import ArchiveUnavailable, QueueFull
 from vg.features.tracking import (
     AlreadyFollowing as FollowExists,
@@ -1185,6 +1186,67 @@ class LiveStore(MockStore):
                 out.append(view)
         return out
 
+    def vehicle_reader(self) -> S.GateReaderNow:
+        """What the reader is seeing now — every attempt, not just the wins.
+
+        **The pass log cannot answer the question this does.** It contains
+        successes by construction, so a gate that records nothing produces an
+        empty log whether the camera is too far away, the model is failing, or
+        nothing is running at all. Those need different fixes and this is the
+        only place they look different.
+
+        Deliberately assembled per request rather than pushed: the attempts
+        already exist as a by-product of a worker that is running anyway, so
+        this costs a dictionary lookup, and it stops entirely when the last
+        person closes the page.
+        """
+        state, reason = self._vehicles_state()
+        if state is not S.DataState.LIVE or self.vehicles_worker is None:
+            # No cameras and no attempts, with the sentence that explains it.
+            # The card renders `reason` in place of the table; an empty table
+            # would read as "the reader is looking and finding nothing".
+            return S.GateReaderNow(votes_needed=MIN_VOTES, reason=reason)
+
+        worker = self.vehicles_worker
+        reader = getattr(worker, "reader", None)
+        cameras: list[S.GateReaderCamera] = []
+        attempts: list[S.ReaderAttempt] = []
+
+        for camera in self._gate_cameras():
+            cameras.append(S.GateReaderCamera(
+                camera_id=camera.id,
+                camera_name=camera.name,
+                gate=camera.gate,
+                direction=camera.direction,
+                # What is LOADED, never what was configured. A model that fell
+                # back off its accelerated build says so here, on the page
+                # where its work shows, rather than only on System Health.
+                finder=getattr(reader, "plates_loaded", None)
+                and reader.plates_loaded.stem or "unknown",
+                reader=getattr(reader, "chars_loaded", None)
+                and reader.chars_loaded.stem or "unknown",
+                form=getattr(reader, "form", "unknown"),
+                read_ms=worker.read_ms(camera.id),
+            ))
+            for attempt in worker.attempts_on(camera.id):
+                attempts.append(S.ReaderAttempt(
+                    at=_instant(attempt.at, self.clock),
+                    camera_id=attempt.camera_id,
+                    camera_name=camera.name,
+                    display=attempt.display,
+                    confidence=attempt.confidence,
+                    plausibility=attempt.plausibility,
+                    width_px=attempt.width_px,
+                    leader_display=attempt.leader_display,
+                    votes=attempt.votes,
+                    votes_needed=MIN_VOTES,
+                ))
+
+        # Newest first across every gate, so two cameras read as one stream of
+        # what just happened rather than one camera's history then another's.
+        attempts.sort(key=lambda a: a.at.utc, reverse=True)
+        return S.GateReaderNow(cameras=cameras, attempts=attempts,
+                               votes_needed=MIN_VOTES)
 
     # -- movements ----------------------------------------------------------
 

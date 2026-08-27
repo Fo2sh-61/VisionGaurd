@@ -46,6 +46,11 @@ export interface Box {
   /** The appearance identity following this body. Holds across leaving the
    *  frame and across cameras — with or without a face ever being seen. */
   trackId?: string | null;
+  /** How wide this plate is, in pixels of the source frame. Plate boxes only.
+   *  Display information, not geometry: a fraction cannot say whether a plate
+   *  is big enough to read without the capture resolution, which we do not
+   *  have. See `plateWidthTone`. */
+  plateWidthPx?: number | null;
 }
 
 export interface Point {

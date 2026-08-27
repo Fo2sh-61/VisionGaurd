@@ -439,6 +439,20 @@ export async function getVehicleCameras(): Promise<Camera[]> {
   return toCameras(await get<W.CameraView[]>('/vehicles/cameras'));
 }
 
+/** Every read attempt, including the ones that came to nothing.
+ *
+ *  The pass log holds successes by construction, so it cannot tell a camera
+ *  that is too far away from a model that is failing from a subsystem that
+ *  never started. This can, which is why it is worth a poll of its own.
+ *
+ *  Polling this also *boosts* the reader, the same way a tile overlay poll
+ *  does — so watching the card is what makes the reader run fast enough for
+ *  three frames to agree. Stop polling and it goes back to idle within
+ *  seconds. */
+export async function getVehicleReader(): Promise<W.GateReaderNow> {
+  return get<W.GateReaderNow>('/vehicles/reader');
+}
+
 /** The register. A guard may read it; only an admin may change it. */
 export async function getVehicleRegister(
   q = '', category = '',

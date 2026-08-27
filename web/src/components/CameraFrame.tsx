@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useSite } from '@/app/SiteContext';
 import type { CameraFeature } from '@/services/api';
 import { getCameraDetections } from '@/services/api';
-import { siteClock } from '@/services/format';
+import { plateWidthTone, siteClock } from '@/services/format';
 import type { PictureRect } from '@/services/frame';
 import { pictureRect } from '@/services/frame';
 import type { BoxColor, Camera, DetectionBox } from '@/types';
@@ -404,6 +404,33 @@ export function CameraFrame({
                 ) : (
                   b.label
                 )}
+              </span>
+            )}
+
+            {/* The aiming aid, on plate boxes only.
+
+                Sits outside the box to its right rather than in the label,
+                because it answers a different question: the label says what
+                was read, this says whether the camera is close enough to
+                read it at all. Green clears the comfortable line, amber
+                still reads with less confidence — it is never a rejection. */}
+            {b.plateWidthPx !== undefined && (
+              <span
+                style={{
+                  position: 'absolute',
+                  left: '100%',
+                  top: 0,
+                  marginLeft: 4,
+                  fontSize: s.labelFont,
+                  fontWeight: 700,
+                  fontFamily: 'ui-monospace, Menlo, monospace',
+                  color: BOX_COLOR[plateWidthTone(b.plateWidthPx)],
+                  textShadow: '0 1px 3px rgba(0,0,0,.8)',
+                  whiteSpace: 'nowrap',
+                  pointerEvents: 'none',
+                }}
+              >
+                {b.plateWidthPx}px
               </span>
             )}
           </div>

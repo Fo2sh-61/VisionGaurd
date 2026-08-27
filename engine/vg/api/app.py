@@ -2931,6 +2931,27 @@ def _mount(app: FastAPI) -> None:
         """Gate cameras only. A camera with no gate number watches no gate."""
         return store.vehicle_cameras()
 
+    @app.get("/vehicles/reader", response_model=S.GateReaderNow,
+             tags=["vehicles"])
+    async def vehicle_reader(store: StoreDep, request: Request) -> S.GateReaderNow:
+        """Every read attempt, including the ones that came to nothing.
+
+        Readable by any signed-in user: this is the tool for working out
+        whether a gate is failing because of the camera, the model, or a
+        stopped subsystem, and the person standing at the gate is a guard.
+
+        **Boosts the reader, exactly like a tile overlay poll does.** Without
+        it the card sits at the camera's idle rate while somebody watches it
+        and three-frames-to-agree never happens - the same failure that made
+        plates unreadable from the tiles until 24 Aug. Nothing else here
+        wakes plate reading up, so this call has to.
+        """
+        vehicles = getattr(request.app.state, "vehicles", None)
+        if vehicles is not None:
+            for camera in getattr(vehicles, "cameras", ()):
+                vehicles.note_interest(camera)
+        return store.vehicle_reader()
+
     @app.get("/vehicles/passes/{pass_id}/snapshot", tags=["vehicles"])
     async def vehicle_snapshot(pass_id: str, request: Request):
         """The photograph kept with one pass.

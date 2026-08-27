@@ -37,6 +37,10 @@ export interface DetectionBox {
   label?: string;
   /** Appearance identity, e.g. "p7". Present only on tracked cameras. */
   trackId?: string;
+  /** Plate width in source-frame pixels — the aiming aid, on gate cameras
+   *  only. Drawn beside the box, coloured by whether it clears the
+   *  comfortable-read line. Absent on every other kind of box. */
+  plateWidthPx?: number;
 }
 
 /** A restricted-area polygon drawn on the frame (percentages). */

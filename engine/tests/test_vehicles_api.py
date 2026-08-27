@@ -808,3 +808,53 @@ class TestDeletingOnePass:
         authed(application).delete(f"/vehicles/passes/{first.id}")
 
         assert [p.plate for p in vehicles.passes()] == ["سصط 9876"]
+
+
+class TestTheReaderCard:
+    """`/vehicles/reader` — the diagnostic surface.
+
+    This endpoint exists to tell three failures apart that all look identical
+    in the pass log, because the pass log contains successes by construction:
+    the camera is too far away, the model is failing, or nothing is running.
+    """
+
+    def test_a_guard_may_watch_the_reader(self, app, authed):
+        """The person standing at the gate is a guard, and this is the tool
+        for working out why the gate is not reading."""
+        client = authed(app, role="it")
+
+        assert client.get("/vehicles/reader").status_code == 200
+
+    def test_an_anonymous_caller_may_not(self, app):
+        assert TestClient(app).get("/vehicles/reader").status_code == 401
+
+    def test_nothing_running_is_a_200_with_a_reason(self, bare_app, authed):
+        """Degradation is payload, never a 5xx. Rule 7.
+
+        And the reason has to be *there*: an empty table with no sentence
+        reads as "the reader is looking and finding nothing", which is the
+        opposite of what is happening.
+        """
+        body = authed(bare_app, role="it").get("/vehicles/reader").json()
+
+        assert body["reason"]
+        assert body["cameras"] == []
+        assert body["attempts"] == []
+
+    def test_the_demo_store_says_it_is_a_demo_store(self, app, authed):
+        body = authed(app, role="it").get("/vehicles/reader").json()
+
+        assert body["reason"]
+        assert body["attempts"] == []
+
+    def test_the_payload_is_camelcase_as_the_console_expects(self, app, authed):
+        body = authed(app, role="it").get("/vehicles/reader").json()
+
+        assert "votesNeeded" in body
+        assert "votes_needed" not in body
+
+    def test_the_vote_bar_is_always_stated(self, bare_app, authed):
+        """The card renders "2/3". Without the 3 it renders "2/0"."""
+        body = authed(bare_app, role="it").get("/vehicles/reader").json()
+
+        assert body["votesNeeded"] >= 1

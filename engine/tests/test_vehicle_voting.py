@@ -29,8 +29,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from vg import platetext  # noqa: E402
 from vg.features.vehicles import (  # noqa: E402
     DEDUPE_SECONDS,
+    KEEP_ATTEMPTS,
     LOST_FRAMES,
     MIN_VOTES,
     REVIEW_BELOW,
@@ -487,3 +489,102 @@ class TestTheRepeatWindowIsConfigured:
         from vg import config as vgconfig
 
         assert vgconfig.load().vehicles.dedupe_seconds > 0
+
+
+# ---------------------------------------------------------------------------
+# what the console's reader card is shown
+# ---------------------------------------------------------------------------
+
+class TestEveryAttemptIsKept:
+    """The failures are the point of this feed.
+
+    A reader that returns nothing and one that returns something different
+    every frame are different problems with different fixes — the camera's
+    placement against the model itself — and neither is visible in the pass
+    log, which by design contains only successes.
+    """
+
+    def test_one_attempt_per_read(self):
+        _, w = run([[read("بجد 1234")], [read("بجد 1234")]])
+
+        assert len(w.attempts_on("gate1")) == 2
+
+    def test_newest_first(self):
+        _, w = run([[read("بجد 1234")], [read("سنر 582", x1=400)]])
+
+        assert w.attempts_on("gate1")[0].display == platetext.display("سنر 582")
+
+    def test_a_read_that_found_nothing_still_appears(self):
+        """`display` empty is the row that says "read nothing" on screen.
+
+        Dropping it would leave the card blank on exactly the footage an
+        operator most needs to look at.
+        """
+        _, w = run([[read("")]])
+
+        attempt = w.attempts_on("gate1")[0]
+        assert attempt.display == ""
+        assert attempt.width_px == 120
+
+    def test_a_read_that_found_nothing_claims_no_confidence(self):
+        """None, not 0.0. Zero is a measurement; there was nothing to measure."""
+        _, w = run([[read("")]])
+
+        attempt = w.attempts_on("gate1")[0]
+        assert attempt.confidence is None
+        assert attempt.plausibility is None
+
+    def test_a_plate_too_small_to_read_is_recorded_as_an_attempt(self):
+        """The most common reason a gate records nothing, and invisible
+        everywhere else by definition."""
+        narrow = MIN_PLATE_WIDTH_PX - 10
+        _, w = run([[read("بجد 1234", width=narrow)]])
+
+        attempts = w.attempts_on("gate1")
+        assert len(attempts) == 1
+        assert attempts[0].width_px == narrow
+
+    def test_the_leader_and_votes_travel_with_the_attempt(self):
+        """This is what lets somebody watch three frames agree."""
+        _, w = run([[read("بجد 1234")], [read("بجد 1234")], [read("بجد 1234")]])
+
+        assert [a.votes for a in reversed(w.attempts_on("gate1"))] == [1, 2, 3]
+        assert w.attempts_on("gate1")[0].leader_display == platetext.display(
+            "بجد 1234")
+
+    def test_the_time_comes_from_the_frame_not_the_clock(self):
+        """Same rule as everything else recorded here: the timestamps match
+        the video rather than however busy the machine was."""
+        _, w = run([[read("بجد 1234")]])
+
+        assert w.attempts_on("gate1")[0].at == START
+
+    def test_the_window_is_bounded(self):
+        """A live window, not a log. The pass table is the record."""
+        _, w = run([[read("بجد 1234")] for _ in range(KEEP_ATTEMPTS + 8)])
+
+        assert len(w.attempts_on("gate1")) == KEEP_ATTEMPTS
+
+    def test_a_camera_nobody_has_read_has_no_attempts(self):
+        _, w = run([[read("بجد 1234")]])
+
+        assert w.attempts_on("some-other-camera") == []
+
+
+class TestHowLongAReadTakes:
+    def test_no_timing_before_the_first_read(self):
+        """None, never 0.0 — a camera nobody has driven past has no timing."""
+        w = worker([])
+
+        assert w.read_ms("gate1") is None
+
+    def test_a_timing_appears_after_a_read(self):
+        _, w = run([[read("بجد 1234")]])
+
+        assert w.read_ms("gate1") is not None
+        assert w.read_ms("gate1") >= 0.0
+
+    def test_timing_is_per_camera(self):
+        _, w = run([[read("بجد 1234")]])
+
+        assert w.read_ms("some-other-camera") is None

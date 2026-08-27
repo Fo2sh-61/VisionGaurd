@@ -30,6 +30,8 @@ There is no threading in this file. `FeatureWorker` owns it.
 from __future__ import annotations
 
 import logging
+import time
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
@@ -79,6 +81,47 @@ LOST_FRAMES = 8
 
 #: Overlap at which two boxes are the same car between frames.
 IOU_SAME_CAR = 0.25
+
+#: How many recent attempts to keep per camera, for the console's reader card.
+#:
+#: A window, not a log. Enough to watch three frames agree — which is the
+#: whole point of showing it — and small enough that it is obviously not a
+#: record of anything. The pass table is the record.
+KEEP_ATTEMPTS = 12
+
+#: Weight of the newest read in the rolling per-read timing.
+#:
+#: An average over all time would go on describing the warm-up minutes after
+#: the machine settled; an instant reading jitters too much to be read off a
+#: screen. This lands between the two.
+READ_MS_ALPHA = 0.2
+
+
+@dataclass(frozen=True)
+class ReadAttempt:
+    """One go at reading a plate, including the ones that came to nothing.
+
+    **The failures are the point.** A reader that returns nothing and a reader
+    that returns something different every frame are different problems with
+    different fixes - the first is the camera's placement, the second is the
+    model - and neither is visible from the pass log, which by design only
+    ever contains successes. This is the only place the difference shows.
+
+    `display` empty means a plate was found and no characters were read from
+    it. `confidence` and `plausibility` are None there rather than 0.0: there
+    is no reading to be confident about.
+    """
+
+    at: datetime
+    camera_id: str
+    display: str
+    confidence: float | None
+    plausibility: float | None
+    width_px: int
+    #: What this car's vote is leaning towards after this frame, and how far
+    #: along it is. None/0 for a plate too small to have joined a track.
+    leader_display: str | None
+    votes: int
 
 
 def vote_weight(confidence: float, plausibility: float, plate_width: int) -> float:
@@ -221,12 +264,25 @@ class VehiclesWorker(FeatureWorker[VehiclesResult]):
         self._tracks: dict[str, list[_Track]] = {}
         # (camera id, plate) -> when it was last recorded, for de-duplication
         self._recent: dict[tuple[str, str], datetime] = {}
+        # camera id -> the last few read attempts, for the console's reader
+        # card. Bounded, never persisted, and written on the worker thread
+        # that produced them - the same thread `analyse` runs on.
+        self._attempts: dict[str, deque[ReadAttempt]] = {}
+        # camera id -> rolling milliseconds per read. Absent until the first.
+        self._read_ms: dict[str, float] = {}
 
     # -- one frame ----------------------------------------------------------
 
     def analyse(self, frame: Frame) -> VehiclesResult:
         now = frame.captured_at
+        # `perf_counter` here and `frame.captured_at` everywhere else, on
+        # purpose: this measures how long the machine took, which is a
+        # property of the machine, while everything recorded about the car is
+        # a property of the video and must come from the frame.
+        started = time.perf_counter()
         reads = self.reader.read_frame(frame.image)
+        self._note_read_ms(frame.camera_id,
+                           (time.perf_counter() - started) * 1000.0)
         tracks = self._tracks.setdefault(frame.camera_id, [])
 
         for track in tracks:
@@ -240,6 +296,12 @@ class VehiclesWorker(FeatureWorker[VehiclesResult]):
                 # operator should be told to move the camera rather than left
                 # wondering why nothing is recorded.
                 too_small = True
+                # Recorded as an attempt even so. A plate too small to read is
+                # the single most common reason a gate records nothing, and it
+                # is invisible in the pass log by definition - so this row,
+                # with its width in amber, is the only place an operator can
+                # see that the camera rather than the software is the problem.
+                self._note_attempt(frame.camera_id, now, read, None)
                 continue
 
             track = self._match(tracks, read.box)
@@ -259,6 +321,10 @@ class VehiclesWorker(FeatureWorker[VehiclesResult]):
                 track.best_image = frame.image
                 track.best_box = read.box
 
+            # After the vote, so the leader shown beside this attempt is the
+            # one this frame helped decide rather than the one before it.
+            self._note_attempt(frame.camera_id, now, read, track)
+
         passes = tuple(self._settle(frame.camera_id, tracks, now))
         self._tracks[frame.camera_id] = [
             t for t in tracks if t.misses <= LOST_FRAMES]
@@ -267,6 +333,31 @@ class VehiclesWorker(FeatureWorker[VehiclesResult]):
                               too_small=too_small)
 
     # -- helpers ------------------------------------------------------------
+
+    def _note_read_ms(self, camera_id: str, elapsed_ms: float) -> None:
+        previous = self._read_ms.get(camera_id)
+        self._read_ms[camera_id] = elapsed_ms if previous is None else (
+            READ_MS_ALPHA * elapsed_ms + (1 - READ_MS_ALPHA) * previous)
+
+    def _note_attempt(self, camera_id: str, now: datetime, read: PlateRead,
+                      track: _Track | None) -> None:
+        """Keep one read for the console to show. Newest last."""
+        leader_text, _, votes = track.leader if track else ("", 0.0, 0)
+        read_something = bool(read.text)
+        self._attempts.setdefault(
+            camera_id, deque(maxlen=KEEP_ATTEMPTS)
+        ).append(ReadAttempt(
+            at=now,
+            camera_id=camera_id,
+            display=platetext.display(read.text) if read_something else "",
+            # None rather than 0.0 on a read that produced nothing: zero is a
+            # measurement, and there is nothing here to have measured.
+            confidence=read.confidence if read_something else None,
+            plausibility=read.plausibility if read_something else None,
+            width_px=max(read.box.w, 0),
+            leader_display=platetext.display(leader_text) or None,
+            votes=votes,
+        ))
 
     @staticmethod
     def _match(tracks: list[_Track], box: PlateBox) -> _Track | None:
@@ -344,3 +435,26 @@ class VehiclesWorker(FeatureWorker[VehiclesResult]):
         """
         result = self.result(camera_id)
         return list(result.payload.reads) if result else []
+
+    def attempts_on(self, camera_id: str) -> list[ReadAttempt]:
+        """The last few read attempts on this camera, newest first.
+
+        **Deliberately not subject to `plates_on`'s staleness rule**, and the
+        difference matters. A box drawn from a four-second-old result would
+        claim the plate is on screen now, which is a lie about the picture.
+        An attempt is stamped with the moment it happened and is presented as
+        history, so keeping it after the car has gone is the honest thing —
+        it is exactly what somebody watching the reader wants to look at.
+
+        Empty for a camera this worker does not serve, which is the same
+        answer as "nothing has been read yet" and reads correctly either way.
+        """
+        return list(reversed(self._attempts.get(camera_id, ())))
+
+    def read_ms(self, camera_id: str) -> float | None:
+        """Rolling milliseconds per read, or None before the first one.
+
+        None, never 0.0: a camera nobody has driven past has no timing, and
+        "0 ms" would claim one that nobody took.
+        """
+        return self._read_ms.get(camera_id)

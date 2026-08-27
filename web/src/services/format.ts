@@ -376,7 +376,27 @@ export function toDetectionBox(box: WireBox): DetectionBox {
     // the label carries the name alone. Without one, nothing changes.
     label: box.trackId ? (box.label ?? undefined) : label,
     trackId: box.trackId ?? undefined,
+    plateWidthPx: box.plateWidthPx ?? undefined,
   };
+}
+
+/** Below this a plate still reads, with less confidence in the result.
+ *
+ *  Not a threshold and not a rejection: nothing is discarded for being small,
+ *  and width only changes the weight of that frame's vote. It is an aiming
+ *  aid — the one accuracy problem no amount of software fixes is a camera
+ *  that is too far away, and this is how an operator sees that for
+ *  themselves rather than being told the software is broken. */
+export const COMFORTABLE_PLATE_PX = 100;
+
+/** What colour to draw a plate's pixel width in.
+ *
+ *  Two outcomes, never four: a width is comfortable or it is not. Returning
+ *  the whole `BoxColor` union would invite a caller to handle a red that
+ *  cannot happen — and red on this number would say "rejected", which is
+ *  exactly what a small plate is not. */
+export function plateWidthTone(widthPx: number): 'green' | 'amber' {
+  return widthPx >= COMFORTABLE_PLATE_PX ? 'green' : 'amber';
 }
 
 /** Collapse a polygon to the bounding box the current renderer draws.
