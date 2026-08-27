@@ -297,6 +297,13 @@ class Score:
         self.judged_wide = 0
         self.exact_wide = 0
         self.failures: list[tuple[str, str, str]] = []
+        #: image name -> what this config read on it, canonical.
+        #:
+        #: Kept so the configurations can be compared to **each other**, which
+        #: is the one fidelity question that needs no ground truth at all: if
+        #: gate-anpr and our port read the same 2,000 photos the same way,
+        #: the port is faithful, whether or not either of them is right.
+        self.texts: dict[str, str] = {}
 
     @property
     def recall(self) -> float:
@@ -341,6 +348,14 @@ def evaluate(read, pairs, truth: dict[str, str], config: str,
         score.extra += extra
         score.widths.extend(b[2] - b[0] for b in want)
 
+        # Recorded whether or not there is truth to grade against — the
+        # config-against-config comparison depends only on this.
+        if matched:
+            from vg import platetext
+            best = matched[0][1]
+            score.texts[image_path.name] = platetext.normalize(
+                next((t for b, t, _ in got if b == best), ""))
+
         true_text = truth.get(image_path.name)
         if not true_text:
             continue
@@ -379,6 +394,24 @@ def evaluate(read, pairs, truth: dict[str, str], config: str,
 # reporting
 # ---------------------------------------------------------------------------
 
+def agreement(a: Score, b: Score) -> tuple[int, int, list[tuple[str, str, str]]]:
+    """How often two configurations read the same photo the same way.
+
+    **The one fidelity question that needs no ground truth.** If gate-anpr and
+    our port read two thousand photos identically then the port is faithful —
+    whether or not either of them is *right* is a separate question, and the
+    one that needs the owner's truth file.
+
+    Returns `(agreed, compared, disagreements)`. Only images both configs
+    found a plate in are compared; a detection difference is a different
+    measurement and is already reported above.
+    """
+    shared = sorted(set(a.texts) & set(b.texts))
+    differ = [(name, a.texts[name], b.texts[name]) for name in shared
+              if a.texts[name] != b.texts[name]]
+    return len(shared) - len(differ), len(shared), differ
+
+
 HONESTY = (
     "**What this number is not.** This dataset is what the supplied models "
     "were trained on, so a score here measures whether our pipeline "
@@ -413,6 +446,42 @@ def report(scores: list[Score], dataset: Path, truth_path: Path | None,
         lines.append(
             f"| {s.config} | {s.images} | {s.plates} | {s.found} | {s.missed} "
             f"| {s.extra} | {s.recall:.1%} | {s.precision:.1%} |")
+
+    if len(scores) > 1:
+        from vg import platetext
+
+        lines += [
+            "",
+            "## Do the configurations read the same photo the same way?",
+            "",
+            "Needs no ground truth. A tie between `theirs` and `fp32` means "
+            "our port is faithful — not that either is right, which is a "
+            "different question and the one the truth file answers.",
+            "",
+            "| Pair | Compared | Agree | Rate |",
+            "|---|---|---|---|",
+        ]
+        pairs = [(scores[i], scores[j])
+                 for i in range(len(scores)) for j in range(i + 1, len(scores))]
+        for left, right in pairs:
+            agreed, compared, _ = agreement(left, right)
+            rate = f"{agreed / compared:.1%}" if compared else "-"
+            lines.append(f"| {left.config} vs {right.config} | {compared} "
+                         f"| {agreed} | {rate} |")
+
+        for left, right in pairs:
+            _, _, differ = agreement(left, right)
+            if not differ:
+                continue
+            lines += ["", f"### Where {left.config} and {right.config} differ",
+                      "", f"| Image | {left.config} | {right.config} |",
+                      "|---|---|---|"]
+            for name, one, two in differ[:40]:
+                lines.append(
+                    f"| {name} | {platetext.transliterate(one) or '(nothing)'} "
+                    f"| {platetext.transliterate(two) or '(nothing)'} |")
+            if len(differ) > 40:
+                lines.append(f"| ... | {len(differ) - 40} more | |")
 
     if any(s.judged for s in scores):
         lines += [
@@ -615,6 +684,14 @@ def main() -> int:
         return 1
 
     print_summary(scores)
+    if len(scores) > 1:
+        print("\nreading the same photo the same way:")
+        for i in range(len(scores)):
+            for j in range(i + 1, len(scores)):
+                agreed, compared, _ = agreement(scores[i], scores[j])
+                rate = f"{agreed / compared:.1%}" if compared else "-"
+                print(f"  {scores[i].config:>6} vs {scores[j].config:<6} "
+                      f"{agreed}/{compared}  {rate}")
     written = report(scores, dataset, truth_path if truth else None,
                      Path(args.out))
     print(f"\nwritten: {written}")

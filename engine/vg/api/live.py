@@ -1180,6 +1180,47 @@ class LiveStore(MockStore):
         return local_midnight - timedelta(
             minutes=self.clock.offset_minutes(local_midnight))
 
+    def _day_bounds(self, day: str = "") -> tuple[datetime, datetime]:
+        """Site-local midnight to midnight for one day, as UTC.
+
+        Empty `day` means today, which is what every caller wanted before any
+        day could be picked. A malformed date raises `ValueError` and the
+        endpoint turns that into a 422 — silently falling back to today would
+        answer a question nobody asked, and the operator would read yesterday's
+        chart believing it was Tuesday's.
+        """
+        start = self._start_of_day()
+        if day:
+            wanted = date.fromisoformat(day)
+            local_midnight = datetime(wanted.year, wanted.month, wanted.day,
+                                      tzinfo=timezone.utc)
+            start = local_midnight - timedelta(
+                minutes=self.clock.offset_minutes(local_midnight))
+        return start, start + timedelta(days=1)
+
+    def vehicle_traffic(self, day: str = "") -> list[S.TrafficHour]:
+        """One day's entries and exits by hour — the chart on Movements.
+
+        Hours with nothing in them are absent rather than zero. A flat bar at
+        3am is noise, and an empty list is the honest shape of a day when
+        nothing drove through.
+        """
+        if self.vehicle_store is None:
+            return []
+        since, until = self._day_bounds(day)
+        # The store groups on the stored UTC hour; the site may be hours from
+        # UTC, so the shift happens here — same rule as every other rendered
+        # time on this page.
+        offset = self.clock.offset_minutes(since) // 60
+        merged: dict[int, dict] = {}
+        for row in self.vehicle_store.hourly(since, until):
+            hour = (row["hour"] + offset) % 24
+            slot = merged.setdefault(hour, {"entered": 0, "left": 0})
+            slot["entered"] += row["entered"]
+            slot["left"] += row["left"]
+        return [S.TrafficHour(hour=h, entered=v["entered"], left=v["left"])
+                for h, v in sorted(merged.items())]
+
     def vehicle_passes(self, **filters) -> list[S.VehiclePass]:
         """The pass log, newest first."""
         if self.vehicle_store is None:
@@ -1294,13 +1335,17 @@ class LiveStore(MockStore):
             left_at=_instant(visit.left_at, self.clock),
             exit_gate=visit.exit_gate,
             minutes=visit.minutes(now),
+            entry_pass_id=visit.entry_pass_id,
+            exit_pass_id=visit.exit_pass_id,
+            entry_has_snapshot=visit.entry_has_snapshot,
+            exit_has_snapshot=visit.exit_has_snapshot,
             owner=visit.owner_name,
             unit=visit.unit,
             category=visit.category,
             inferred=visit.inferred,
         )
 
-    def vehicle_gates(self) -> list[S.GateTotals]:
+    def vehicle_gates(self, day: str = "") -> list[S.GateTotals]:
         """Today, gate by gate.
 
         Every configured gate appears, including one nothing drove through:
@@ -1318,7 +1363,7 @@ class LiveStore(MockStore):
             return []
 
         counted = {row["gate"]: row
-                   for row in self.vehicle_store.gates(self._start_of_day())}
+                   for row in self.vehicle_store.gates(*self._day_bounds(day))}
         directions = self._gate_directions()
 
         out: list[S.GateTotals] = []
@@ -1343,7 +1388,7 @@ class LiveStore(MockStore):
         return [self._to_wire_visit(v, now)
                 for v in self.vehicle_store.inside(self._start_of_day())]
 
-    def vehicle_visits(self) -> list[S.VehicleVisit]:
+    def vehicle_visits(self, day: str = "") -> list[S.VehicleVisit]:
         """Today's completed visits, newest first.
 
         A visit closed by the car being seen entering *again* comes back with
@@ -1354,7 +1399,7 @@ class LiveStore(MockStore):
             return []
         now = datetime.now(timezone.utc)
         return [self._to_wire_visit(v, now)
-                for v in self.vehicle_store.visits(self._start_of_day())
+                for v in self.vehicle_store.visits(*self._day_bounds(day))
                 if not v.inside]
 
     def delete_pass(self, pass_id: str, actor: str) -> bool:
@@ -1479,6 +1524,17 @@ class LiveStore(MockStore):
                   or "no filter")
 
         limit = int(applied.pop("limit", 5000) or 5000)
+        # `day` is the console's word for it; the store takes a window.
+        #
+        # This runs AFTER the audit entry, which is deliberate and not an
+        # oversight: somebody asking for an export is a fact whether or not
+        # the file was ever built, so even a request that fails validation
+        # leaves a trace that it was made. `_day_bounds` raises ValueError on
+        # a bad date and the endpoint turns that into a 422.
+        day = applied.pop("day", "")
+        if day:
+            since, until = self._day_bounds(day)
+            applied["since"], applied["until"] = since, until
         records = store.passes(limit=limit, **applied)
 
         buffer = _io.StringIO()
@@ -1595,6 +1651,19 @@ class LiveStore(MockStore):
                   record.owner_name or "no owner recorded")
         return store.remove(vehicle_id)
 
+    def last_import(self) -> S.VehicleImportRun | None:
+        """The most recent register import, or None if there has never been one."""
+        if self.vehicle_store is None:
+            return None
+        run = self.vehicle_store.last_import_run()
+        if run is None:
+            return None
+        return S.VehicleImportRun(
+            at=_instant(run["at"], self.clock), added=run["added"],
+            updated=run["updated"], skipped=run["skipped"],
+            rejected=run["rejected"], by_who=run["by_who"],
+        )
+
     def import_vehicles(self, filename: str, data: bytes,
                         actor: str) -> S.VehicleImportResult:
         """Load a spreadsheet. Every refused row comes back with its reason."""
@@ -1608,7 +1677,7 @@ class LiveStore(MockStore):
         else:
             rows = ve.read_csv(data)
 
-        result = store.import_rows(rows)
+        result = store.import_rows(rows, by_who=actor)
         return S.VehicleImportResult(
             added=result["added"], updated=result["updated"],
             skipped_duplicates=result["skipped_duplicates"],

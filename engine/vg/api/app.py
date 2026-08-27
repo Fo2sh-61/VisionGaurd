@@ -2952,6 +2952,31 @@ def _mount(app: FastAPI) -> None:
                 vehicles.note_interest(camera)
         return store.vehicle_reader()
 
+    def _for_day(method, day: str):
+        """Call a day-scoped store method, turning a bad date into a 422.
+
+        **Never falls back to today.** A malformed date that quietly returned
+        today's figures would answer a question nobody asked, and the operator
+        would read Tuesday's chart believing it was the day they picked.
+        """
+        try:
+            return method(day)
+        except ValueError:
+            raise HTTPException(
+                422, f"{day!r} is not a date. Use YYYY-MM-DD.") from None
+
+    @app.get("/vehicles/traffic", response_model=list[S.TrafficHour],
+             tags=["vehicles"])
+    async def vehicle_traffic(store: StoreDep,
+                              day: str = "") -> list[S.TrafficHour]:
+        """One day's entries and exits by hour — the Movements chart.
+
+        Hours with nothing in them are absent rather than zero, and a day
+        nothing drove through is an empty list. A row of flat bars would be a
+        drawing of data that does not exist.
+        """
+        return _for_day(store.vehicle_traffic, day)
+
     @app.get("/vehicles/alerts", response_model=list[S.GateAlert],
              tags=["vehicles"])
     async def vehicle_alerts(store: StoreDep) -> list[S.GateAlert]:
@@ -3081,6 +3106,21 @@ def _mount(app: FastAPI) -> None:
             raise HTTPException(404, f"no vehicle {vehicle_id!r}")
         return {"ok": True}
 
+    @app.get("/vehicles/import/last", response_model=S.VehicleImportRun,
+             tags=["vehicles"])
+    async def last_import(store: StoreDep) -> S.VehicleImportRun:
+        """The most recent register import.
+
+        **404 when nobody has ever imported anything**, and that is the point:
+        the console then shows no "last import" line at all rather than a row
+        of zeros. "0 rows imported" reads as a failed import rather than as an
+        import that never happened.
+        """
+        run = store.last_import()
+        if run is None:
+            raise HTTPException(404, "Nothing has been imported yet.")
+        return run
+
     @app.post("/vehicles/import", response_model=S.VehicleImportResult,
               tags=["vehicles"])
     async def import_vehicles(store: StoreDep, user: auth_deps.CurrentUser,
@@ -3101,14 +3141,15 @@ def _mount(app: FastAPI) -> None:
 
     @app.get("/vehicles/gates", response_model=list[S.GateTotals],
              tags=["vehicles"])
-    async def vehicle_gates(store: StoreDep) -> list[S.GateTotals]:
+    async def vehicle_gates(store: StoreDep,
+                            day: str = "") -> list[S.GateTotals]:
         """Today, gate by gate.
 
         `pairingAvailable` is false for a gate with no exit camera, and
         `inside` is then absent. The page says why instead of printing a
         figure it cannot stand behind.
         """
-        return store.vehicle_gates()
+        return _for_day(store.vehicle_gates, day)
 
     @app.get("/vehicles/inside", response_model=list[S.VehicleVisit],
              tags=["vehicles"])
@@ -3122,9 +3163,10 @@ def _mount(app: FastAPI) -> None:
 
     @app.get("/vehicles/visits", response_model=list[S.VehicleVisit],
              tags=["vehicles"])
-    async def vehicle_visits(store: StoreDep) -> list[S.VehicleVisit]:
+    async def vehicle_visits(store: StoreDep,
+                             day: str = "") -> list[S.VehicleVisit]:
         """Today's completed visits. `inferred` marks an exit nobody saw."""
-        return store.vehicle_visits()
+        return _for_day(store.vehicle_visits, day)
 
     @app.delete("/vehicles/passes/{pass_id}", tags=["vehicles"])
     async def delete_pass(pass_id: str, store: StoreDep,
@@ -3153,6 +3195,7 @@ def _mount(app: FastAPI) -> None:
         gate: int | None = None,
         direction: str = "",
         status: str = "",
+        day: str = "",
     ) -> Response:
         """The pass log as a spreadsheet.
 
@@ -3162,9 +3205,13 @@ def _mount(app: FastAPI) -> None:
         also what decides admin-write, so a GET export would have been
         readable by a guard *and* unaudited.
         """
-        body = store.export_passes(
-            user.name, limit=limit, plate=plate, gate=gate,
-            direction=direction, status=status)
+        try:
+            body = store.export_passes(
+                user.name, limit=limit, plate=plate, gate=gate,
+                direction=direction, status=status, day=day)
+        except ValueError:
+            raise HTTPException(
+                422, f"{day!r} is not a date. Use YYYY-MM-DD.") from None
         stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         return Response(
             content=body,

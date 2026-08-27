@@ -1565,6 +1565,24 @@ class VehicleImportResult(Wire):
     problems: list[str] = []
 
 
+class VehicleImportRun(Wire):
+    """The most recent register import, for the "last import" line.
+
+    The design draws "Last import: 2,140 rows · 6 skipped · 12 Aug". That is
+    either a fact or the line is absent - so this endpoint returns 404 on a
+    database nobody has ever imported into, and the console shows nothing
+    rather than a row of zeros. "0 rows imported" reads as a failed import
+    rather than as an import that never happened.
+    """
+
+    at: Instant
+    added: int
+    updated: int
+    skipped: int
+    rejected: int
+    by_who: str = ""
+
+
 class GateSummary(Wire):
     """The six Live tiles.
 

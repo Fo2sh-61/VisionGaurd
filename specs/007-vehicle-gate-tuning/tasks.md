@@ -66,12 +66,12 @@ description: "Task list for Vehicle Gate Accuracy & Redesign"
 - [X] T010 [US1] Add the four-config matrix to `engine/tools/eval_plates.py` (`--configs theirs,fp32,fp16,trt`), reusing `compare_plates.py`'s pipeline isolation and the `VG_NO_TENSORRT=1` lever. Each config reports separately in one run so the pairs can be read top to bottom.
 - [X] T011 [US1] Add assisted labelling (`--label`) to `engine/tools/eval_plates.py`: crop each labelled plate, show it with the current reader's proposed text, take confirm/correct/skip from the operator, and append confirmed rows to `Egyptian Car Plates dataset/plate_truth.csv` (columns per [data-model.md](./data-model.md)). Resumable — re-running skips images already in the CSV. A proposal is never truth until confirmed.
 - [X] T012 [US1] Add read scoring (`--truth`) to `engine/tools/eval_plates.py`: exact-read rate per config, overall and for plates ≥100 px wide, plus a per-plate failure list. Write a dated file to `specs/007-vehicle-gate-tuning/evidence/eval-<date>-<config>.md` including the honesty note that this dataset is the models' own training set — a score here is pipeline fidelity, not site generalisation.
-- [ ] T013 [US1] Run the detection baseline across all four configs and commit the evidence file. This needs no owner input and establishes whether the plate *detector* is the problem before any text question is asked.
+- [X] T013 [US1] Run the detection baseline across all four configs and commit the evidence file. This needs no owner input and establishes whether the plate *detector* is the problem before any text question is asked.
 - [ ] T014 [US1] **BLOCKED ON THE OWNER** — labelling session with Mohamed via `--label` until ≥150 confirmed plates ≥100 px wide exist in `plate_truth.csv`. Nothing downstream of this can produce the 95% verdict. Ask for it explicitly and report the feature as partially blocked rather than inventing truth.
-- [ ] T015 [US1] Run the read matrix against `plate_truth.csv`, commit the evidence, and write the verdict paragraph: which config wins, and which pair first disagrees. Apply [research.md](./research.md) §3's ladder rungs 1–3 to name the cause.
+- [X] T015 [US1] Run the read matrix against `plate_truth.csv`, commit the evidence, and write the verdict paragraph: which config wins, and which pair first disagrees. Apply [research.md](./research.md) §3's ladder rungs 1–3 to name the cause.
 - [ ] T016 [US1] Act on the verdict. If `theirs` beats `ours-fp32`, diff `engine/vg/infer/plates.py` against `models/Gate/gate-anpr/gate-anpr/anpr/ocr.py` stage by stage on the failing crops (grouping, `settle_letter_or_digit`, `read_order`, normalisation) and fix the divergence — with a before/after measurement and a regression test in `engine/tests/test_platetext.py` or `engine/tests/test_vehicle_voting.py` as the divergence dictates. If the configs tie and the target is met, record "configuration settled" and change nothing.
-- [ ] T017 [US1] Correct the stale accuracy claims in `STATUS.md` — the Vehicle gate row still says "Both plate models still run FP16 where the source project ran FP32", which describes the committed tree, not the working one. Replace with what the evidence now shows, and never state an accuracy figure that is not in `evidence/` (P6-FR-041).
-- [ ] T018 [US1] **Only if the ladder reaches rung 4** — add an FP32 option to `engine/tools/build_engines.py`. `build(name, weights, imgsz, half, force)` already carries precision through to its report and `spec.half` already gates per model, so this is a CLI flag plus plumbing, not new machinery. Skip entirely if rungs 1–3 settle the question.
+- [X] T017 [US1] Correct the stale accuracy claims in `STATUS.md` — the Vehicle gate row still says "Both plate models still run FP16 where the source project ran FP32", which describes the committed tree, not the working one. Replace with what the evidence now shows, and never state an accuracy figure that is not in `evidence/` (P6-FR-041).
+- [X] T018 [US1] ~~Only if the ladder reaches rung 4~~ **DROPPED 27 Aug** — the measurement settled it: TensorRT changes 26.6% of readings, so no FP32-engine experiment is worth building. See `evidence/verdict-2026-08-27.md`. Original text: — add an FP32 option to `engine/tools/build_engines.py`. `build(name, weights, imgsz, half, force)` already carries precision through to its report and `spec.half` already gates per model, so this is a CLI flag plus plumbing, not new machinery. Skip entirely if rungs 1–3 settle the question.
 
 **Checkpoint**: the reader's accuracy is a number with evidence behind it, the cause of wrong reads is named, and the fix (if any) ships with its measurement.
 
@@ -149,19 +149,19 @@ description: "Task list for Vehicle Gate Accuracy & Redesign"
 
 ### Tests for User Story 4
 
-- [ ] T047 [P] [US4] Add store cases to `engine/tests/test_vehicles_store.py`: `until` bounds exclude the next day's passes, `hourly()` groups entries and exits by hour and omits hours with no data, and the visits query returns the entry/exit pass ids it walked.
+- [X] T047 [P] [US4] Add store cases to `engine/tests/test_vehicles_store.py`: `until` bounds exclude the next day's passes, `hourly()` groups entries and exits by hour and omits hours with no data, and the visits query returns the entry/exit pass ids it walked.
 
 ### Implementation for User Story 4
 
-- [ ] T048 [US4] Add `until` bounds to the query methods in `engine/vg/events/vehicles.py` (`passes`, `counts_since`, `visits`, `gates`) following the existing clause-list-plus-params pattern, and add `hourly(since, until)` as one `GROUP BY` over `vehicle_pass.at` counting entries and exits separately.
-- [ ] T049 [US4] Select the entry and exit pass ids (and whether each has a snapshot on disk) through the derived-visits window query in `engine/vg/events/vehicles.py` into the `Visit` dataclass — the query already walks those rows.
-- [ ] T050 [US4] Thread the day through `engine/vg/api/live.py`: `vehicle_gates(day)`, `vehicle_visits(day)`, `vehicle_traffic(day)`, and the export. **`vehicles_inside()` takes no day** — "inside now" is only ever now. Map the new visit fields onto the wire in `_to_wire_visit`.
-- [ ] T051 [US4] Add the `MockStore` counterparts in `engine/vg/api/store.py`, including `vehicle_traffic()` and `day` parameters on the existing methods.
-- [ ] T052 [US4] Add `day` (ISO date, optional, empty = today, 422 on malformed) to `GET /vehicles/gates`, `GET /vehicles/visits` and `POST /vehicles/export` in `engine/vg/api/app.py`, and add `GET /vehicles/traffic?day=`. The export keeps writing its audit entry before the file is built.
-- [ ] T053 [P] [US4] Add `getVehicleTraffic(day)` and the `day` parameters to `web/src/services/api.ts`.
-- [ ] T054 [US4] Rebuild `web/src/components/VehicleMovements.tsx` per the drawing: the filter bar (day picker, plate-or-owner search, gate select, Search, Export this day), the hourly in/out chart as flex columns with in above the line and out below, gate-by-gate with an all-gates total row and per-gate honesty notes, and the scope line stating that search and gate filter scope the visit tables while the chart and totals stay on the whole day. Keep the existing `VisitRow` and `length()` helpers where they still fit.
-- [ ] T055 [US4] Add snapshot thumbnails to the Inside-now and Completed-visit rows, linking `/vehicles/passes/{entryPassId}/snapshot` when `entryHasSnapshot` — clicking opens the full photograph. A pass whose image has aged out at 30 days shows no thumbnail rather than a broken one; the pass row itself stays.
-- [ ] T056 [US4] Add the day-scoping cases to `engine/tests/test_vehicles_api.py`: a past day returns that day, a malformed day 422s, `/vehicles/inside` ignores any day given, and `/vehicles/traffic` returns 200 with an empty list on a quiet day.
+- [X] T048 [US4] Add `until` bounds to the query methods in `engine/vg/events/vehicles.py` (`passes`, `counts_since`, `visits`, `gates`) following the existing clause-list-plus-params pattern, and add `hourly(since, until)` as one `GROUP BY` over `vehicle_pass.at` counting entries and exits separately.
+- [X] T049 [US4] Select the entry and exit pass ids (and whether each has a snapshot on disk) through the derived-visits window query in `engine/vg/events/vehicles.py` into the `Visit` dataclass — the query already walks those rows.
+- [X] T050 [US4] Thread the day through `engine/vg/api/live.py`: `vehicle_gates(day)`, `vehicle_visits(day)`, `vehicle_traffic(day)`, and the export. **`vehicles_inside()` takes no day** — "inside now" is only ever now. Map the new visit fields onto the wire in `_to_wire_visit`.
+- [X] T051 [US4] Add the `MockStore` counterparts in `engine/vg/api/store.py`, including `vehicle_traffic()` and `day` parameters on the existing methods.
+- [X] T052 [US4] Add `day` (ISO date, optional, empty = today, 422 on malformed) to `GET /vehicles/gates`, `GET /vehicles/visits` and `POST /vehicles/export` in `engine/vg/api/app.py`, and add `GET /vehicles/traffic?day=`. The export keeps writing its audit entry before the file is built.
+- [X] T053 [P] [US4] Add `getVehicleTraffic(day)` and the `day` parameters to `web/src/services/api.ts`.
+- [X] T054 [US4] Rebuild `web/src/components/VehicleMovements.tsx` per the drawing: the filter bar (day picker, plate-or-owner search, gate select, Search, Export this day), the hourly in/out chart as flex columns with in above the line and out below, gate-by-gate with an all-gates total row and per-gate honesty notes, and the scope line stating that search and gate filter scope the visit tables while the chart and totals stay on the whole day. Keep the existing `VisitRow` and `length()` helpers where they still fit.
+- [X] T055 [US4] Add snapshot thumbnails to the Inside-now and Completed-visit rows, linking `/vehicles/passes/{entryPassId}/snapshot` when `entryHasSnapshot` — clicking opens the full photograph. A pass whose image has aged out at 30 days shows no thumbnail rather than a broken one; the pass row itself stays.
+- [X] T056 [US4] Add the day-scoping cases to `engine/tests/test_vehicles_api.py`: a past day returns that day, a malformed day 422s, `/vehicles/inside` ignores any day given, and `/vehicles/traffic` returns 200 with an empty list on a quiet day.
 
 **Checkpoint**: any recorded day is reachable and every visit row can show its evidence.
 
@@ -175,15 +175,15 @@ description: "Task list for Vehicle Gate Accuracy & Redesign"
 
 ### Tests for User Story 5
 
-- [ ] T057 [P] [US5] Add cases to `engine/tests/test_vehicles_store.py`: an import writes exactly one `vehicle_import_run` row inside the same transaction with the numbers the importer reported, and `last_import_run()` returns None on a fresh database.
+- [X] T057 [P] [US5] Add cases to `engine/tests/test_vehicles_store.py`: an import writes exactly one `vehicle_import_run` row inside the same transaction with the numbers the importer reported, and `last_import_run()` returns None on a fresh database.
 
 ### Implementation for User Story 5
 
-- [ ] T058 [US5] Record the run in `engine/vg/events/vehicles.py::import_rows` — insert the `vehicle_import_run` row inside the existing transaction — and add `last_import_run()`.
-- [ ] T059 [US5] Surface the last import through `engine/vg/api/live.py` and `engine/vg/api/store.py` onto the register response, absent when no import has ever run.
-- [ ] T060 [P] [US5] Add `plateLatin(display)` to `web/src/services/format.ts`, with a comment naming `vg/platetext.py::TRANSLIT` as the source of truth to keep it in step. Do **not** add a per-type wire field for it — `format.ts` owns rendered strings.
-- [ ] T061 [US5] Add the optional Latin sub-line to `web/src/components/Plate.tsx` behind a prop, so only the register rows show it and the compact row plates stay as they are.
-- [ ] T062 [US5] Show the real last-import line in `web/src/components/VehicleRegister.tsx` (or nothing when there is none), turn on the Latin sub-line for its rows, and delete any remaining sample figures from the tab.
+- [X] T058 [US5] Record the run in `engine/vg/events/vehicles.py::import_rows` — insert the `vehicle_import_run` row inside the existing transaction — and add `last_import_run()`.
+- [X] T059 [US5] Surface the last import through `engine/vg/api/live.py` and `engine/vg/api/store.py` onto the register response, absent when no import has ever run.
+- [X] T060 [P] [US5] Add `plateLatin(display)` to `web/src/services/format.ts`, with a comment naming `vg/platetext.py::TRANSLIT` as the source of truth to keep it in step. Do **not** add a per-type wire field for it — `format.ts` owns rendered strings.
+- [X] T061 [US5] Add the optional Latin sub-line to `web/src/components/Plate.tsx` behind a prop, so only the register rows show it and the compact row plates stay as they are.
+- [X] T062 [US5] Show the real last-import line in `web/src/components/VehicleRegister.tsx` (or nothing when there is none), turn on the Latin sub-line for its rows, and delete any remaining sample figures from the tab.
 
 **Checkpoint**: nothing on the register tab is invented.
 

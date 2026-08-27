@@ -226,11 +226,56 @@ camera the page states that no exit camera is configured instead of printing a
 figure, and a visit closed because the car was seen entering again is labelled an
 estimated exit, never an observed one.
 
-**Unmeasured.** Whether a plate held at a laptop webcam clears the 60-pixel floor,
-and the read accuracy on real Egyptian plates at real gate distances, are both
-measurements nobody has made yet. The models are trained on EALPR; this repo has no
-clip with a car in it, so the regression suite proves the voting, the storage, the
-permissions and every empty state — and proves nothing at all about accuracy.
+**Measured on 27 Aug**, against the owner's EALPR set — 2,086 photos, 2,142
+plates, via `engine/tools/eval_plates.py`. Three results settle three arguments.
+Plate **detection** is 99.8% recall. Our **port is faithful**: gate-anpr's own
+code and ours at FP32 read all 2,086 photos identically, 100.0%, so the software
+is not the cause of a wrong number. And the two accelerations reverted on 24 Aug
+were costing far more than anyone guessed — FP16 changes 6.7% of readings and the
+TensorRT plan changes **26.6%**, one in four, on a model that classifies single
+characters. Both stay off permanently and the plate models run the `.pt` at FP32.
+
+**Still unmeasured, and it is the half that matters.** That dataset is what the
+models were trained on, so it proves pipeline fidelity and predicts nothing about
+the school's gate. Read accuracy on real plates needs a human-confirmed truth file
+(`eval_plates.py --label`, waiting on Mohamed) and site captures. Until both
+exist, no screen may state an accuracy figure. Evidence and the full verdict:
+`specs/007-vehicle-gate-tuning/evidence/`.
+
+### Vehicle gate, second pass — **27 Aug 2026** · `specs/007-vehicle-gate-tuning`
+
+The owner reported plates coming back wrong, supplied the EALPR dataset, and asked
+for the redesigned Vehicles screen. Three strands, and one of them was a bug nobody
+had found.
+
+**Gate tiles had never once drawn a plate box.** The 24 Aug fix repaired the overlay
+*request*; the response failed one layer down, because `kind="plate"` was missing
+from the wire contract's `Box.kind` literal — so a plate in view took the whole
+detections response down rather than appearing on it. The console half had been
+right since the feature shipped. Fixed, and pinned by a test that ends at a
+validated `CameraView`, because a test that stops at the box proves nothing about
+screens. Boxes now also carry the plate's width in pixels: the aiming aid, green at
+100px and above, amber below, and never a rejection.
+
+**The reader is now observable.** "What the reader is seeing now" lists every read
+attempt including the failures, with confidence, plausibility, width, the leading
+candidate and votes-out-of-three. The pass log cannot answer what this answers — it
+holds successes by construction, so a gate recording nothing looks identical whether
+the camera is too far away, the model is failing, or nothing started.
+
+**Alerts wait for a person** at the top of the Live tab — blacklisted, unregistered,
+expired permit. Derived from passes, never stored; only the dismissal is a row, and
+it is audited first and cannot be undone. A dismissal is per pass, not per car.
+Dismissing is the one write under `/vehicles` a guard may make.
+
+**The pass list is gone from the console**, at the owner's request and with the
+costs accepted: registering from a read moved onto the alert, and the day's record
+lives in the export. Recording is untouched. Movements gained a day picker, an
+hourly chart, and snapshot thumbnails on every visit row.
+
+**Waiting on the owner:** a labelling session (`eval_plates.py --label`) to produce
+the confirmed-truth file, and site captures. Those are what turn "our port is
+faithful" into "and it reads real plates correctly".
 
 ### P8 — Scale to 208 · 2–3 wk + hardware
 

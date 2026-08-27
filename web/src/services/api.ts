@@ -511,21 +511,61 @@ export async function importVehicles(file: File): Promise<W.VehicleImportResult>
  *
  *  An empty list is not "no gates" — it is the engine declining to total up
  *  what it is not watching. `getVehicleSummary().reason` has the words. */
-export async function getVehicleGates(): Promise<W.GateTotals[]> {
-  return get<W.GateTotals[]>('/vehicles/gates');
+export async function getVehicleGates(day = ''): Promise<W.GateTotals[]> {
+  return get<W.GateTotals[]>(`/vehicles/gates${day ? `?day=${day}` : ''}`);
+}
+
+/** One day's entries and exits by hour — the traffic chart.
+ *
+ *  Hours with nothing in them are absent rather than zero, and a day nothing
+ *  drove through is an empty list. A row of flat bars would be a drawing of
+ *  data that does not exist. */
+export async function getVehicleTraffic(day = ''): Promise<W.TrafficHour[]> {
+  return get<W.TrafficHour[]>(`/vehicles/traffic${day ? `?day=${day}` : ''}`);
 }
 
 /** Cars seen entering today and not seen leaving.
  *
  *  Derived from the passes on every request, never stored, so it cannot drift
- *  out of step with the log it is computed from. */
+ *  out of step with the log it is computed from.
+ *
+ *  **Takes no day, deliberately.** "Inside now" is only ever now — asking it
+ *  about last Tuesday is asking who was inside at a moment that has passed,
+ *  which the pass log cannot answer and this must not pretend to. */
 export async function getVehiclesInside(): Promise<W.VehicleVisit[]> {
   return get<W.VehicleVisit[]>('/vehicles/inside');
 }
 
 /** Today's completed visits. `inferred` marks an exit nobody actually saw. */
-export async function getVehicleVisits(): Promise<W.VehicleVisit[]> {
-  return get<W.VehicleVisit[]>('/vehicles/visits');
+export async function getVehicleVisits(day = ''): Promise<W.VehicleVisit[]> {
+  return get<W.VehicleVisit[]>(`/vehicles/visits${day ? `?day=${day}` : ''}`);
+}
+
+/** The photograph kept with one pass, for a visit row's thumbnail.
+ *
+ *  404 once the image has aged out at thirty days — the pass itself is kept
+ *  for ever, so the row stays and only the picture goes. Call this only where
+ *  the visit says it has one. */
+export function vehiclePassSnapshotUrl(passId: string): string {
+  // `assetUrl` is nullable because it takes paths the engine may not have
+  // sent. This path is built here from an id the caller already has, so it
+  // always exists — the `?? ''` is unreachable and only satisfies the type.
+  return assetUrl(`/vehicles/passes/${encodeURIComponent(passId)}/snapshot`) ?? '';
+}
+
+/** The most recent register import, or null if there has never been one.
+ *
+ *  404 from the engine means "nobody has ever imported anything", which is a
+ *  fact about a fresh register rather than a failure — so it comes back as
+ *  null and the console draws no line at all. A row of zeros would read as a
+ *  failed import rather than as an import that never happened. */
+export async function getVehicleLastImport(): Promise<W.VehicleImportRun | null> {
+  try {
+    return await get<W.VehicleImportRun>('/vehicles/import/last');
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return null;
+    throw err;
+  }
 }
 
 /** Remove one pass from the log, with its photograph and plate crop.
@@ -544,7 +584,10 @@ export async function deleteVehiclePass(id: string): Promise<void> {
  *  builds the file, and a GET that writes is a GET that lies about being
  *  safe. It is also why only an administrator can call it. */
 export async function exportVehiclePasses(
-  filters: { plate?: string; gate?: number; direction?: string; status?: string } = {},
+  filters: {
+    plate?: string; gate?: number; direction?: string; status?: string;
+    day?: string;
+  } = {},
 ): Promise<void> {
   const query: Record<string, string> = {};
   for (const [key, value] of Object.entries(filters)) {

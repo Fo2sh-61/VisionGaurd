@@ -1029,6 +1029,19 @@ export interface GateAlert {
   dismissable: boolean;
 }
 
+/** The most recent register import — the "last import" line.
+ *
+ *  Absent (null from `getVehicleLastImport`) when nobody has ever imported
+ *  anything, and the console then shows no line rather than a row of zeros. */
+export interface VehicleImportRun {
+  at: Instant;
+  added: number;
+  updated: number;
+  skipped: number;
+  rejected: number;
+  byWho: string;
+}
+
 /** One hour of one day at the gates. In above the line, out below it. */
 export interface TrafficHour {
   hour: number;

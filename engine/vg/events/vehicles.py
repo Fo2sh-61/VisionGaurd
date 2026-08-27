@@ -218,6 +218,17 @@ class Visit:
     #: True when the visit was closed by the car being seen entering again
     #: rather than by an observed exit. Reported, never presented as observed.
     inferred: bool = False
+    #: The passes this visit was derived from, so a row can show the
+    #: photograph that proves it. The images stay where they are — one store,
+    #: one retention rule — and the console links at them by pass id.
+    #:
+    #: `*_has_snapshot` is separate from the id because an image is deleted at
+    #: thirty days while its pass row is kept for ever. False means "no
+    #: picture to show", never "no such pass".
+    entry_pass_id: str | None = None
+    exit_pass_id: str | None = None
+    entry_has_snapshot: bool = False
+    exit_has_snapshot: bool = False
 
     def minutes(self, now: datetime) -> float:
         end = self.left_at or now
@@ -473,6 +484,7 @@ class VehicleStore:
         direction: str = "",
         status: str = "",
         since: datetime | None = None,
+        until: datetime | None = None,
     ) -> list[VehiclePass]:
         """The pass log, newest first, filtered."""
         sql = [
@@ -497,6 +509,9 @@ class VehicleStore:
         if since is not None:
             where.append("p.at >= ?")
             params.append(_iso(since))
+        if until is not None:
+            where.append("p.at < ?")
+            params.append(_iso(until))
 
         if where:
             sql.append("WHERE " + " AND ".join(where))
@@ -636,7 +651,8 @@ class VehicleStore:
 
     # -- visits, derived ----------------------------------------------------
 
-    def visits(self, since: datetime | None = None) -> list[Visit]:
+    def visits(self, since: datetime | None = None,
+               until: datetime | None = None) -> list[Visit]:
         """Entries paired with the exit that followed them, computed.
 
         `LEAD` over each plate's passes in time order. An entry whose next
@@ -652,9 +668,16 @@ class VehicleStore:
             WITH ordered AS (
               SELECT p.plate, p.plate_display, p.at, p.direction, p.gate,
                      p.vehicle_id,
+                     -- The pass ids come through the same window that
+                     -- already walks these rows, so a visit can point at the
+                     -- photographs that prove it without a second query.
+                     p.id              AS entry_id,
+                     p.snapshot        AS entry_snapshot,
                      LEAD(p.at)        OVER w AS next_at,
                      LEAD(p.direction) OVER w AS next_direction,
-                     LEAD(p.gate)      OVER w AS next_gate
+                     LEAD(p.gate)      OVER w AS next_gate,
+                     LEAD(p.id)        OVER w AS next_id,
+                     LEAD(p.snapshot)  OVER w AS next_snapshot
               FROM vehicle_pass p
               WINDOW w AS (PARTITION BY p.plate ORDER BY p.at)
             )
@@ -666,6 +689,13 @@ class VehicleStore:
         if since is not None:
             sql += " AND o.at >= ?"
             params.append(_iso(since))
+        if until is not None:
+            # Bounded on the ENTRY, so a day's visits are the cars that came
+            # in that day. A visit that ran past midnight still belongs to the
+            # day it started, which is how somebody asking "what happened on
+            # Tuesday" means it.
+            sql += " AND o.at < ?"
+            params.append(_iso(until))
         sql += " ORDER BY o.at DESC"
 
         with self._lock:
@@ -682,19 +712,56 @@ class VehicleStore:
                 exit_gate=row["next_gate"] if exited else None,
                 owner_name=row["owner_name"], unit=row["unit"],
                 category=row["category"], inferred=closed_by_reentry,
+                entry_pass_id=row["entry_id"],
+                entry_has_snapshot=bool(row["entry_snapshot"]),
+                # Only for an observed exit. A visit closed by the car being
+                # seen entering again has no exit photograph, because nobody
+                # ever saw it leave — offering the re-entry's picture as the
+                # exit would be presenting an inference as an observation.
+                exit_pass_id=row["next_id"] if exited else None,
+                exit_has_snapshot=bool(row["next_snapshot"]) if exited else False,
             ))
         return out
 
-    def inside(self, since: datetime | None = None) -> list[Visit]:
-        return [v for v in self.visits(since) if v.inside]
+    def inside(self, since: datetime | None = None,
+               until: datetime | None = None) -> list[Visit]:
+        return [v for v in self.visits(since, until) if v.inside]
 
-    def gates(self, since: datetime) -> list[dict]:
-        """Per gate: how many in, how many out, how many still inside."""
+    def hourly(self, since: datetime, until: datetime) -> list[dict]:
+        """Entries and exits by hour of the day, for the traffic chart.
+
+        Grouped in SQL on the stored ISO string's hour field, which is UTC —
+        the caller shifts to site local, the same way every other rendered
+        time on this page is shifted. Only hours that have something in them
+        appear: a bar of height zero at 3am is noise, and an empty list is the
+        honest answer for a day nothing happened.
+        """
         with self._lock:
             rows = self._conn.execute(
-                "SELECT gate, direction, COUNT(*) AS n FROM vehicle_pass"
-                " WHERE at >= ? GROUP BY gate, direction", (_iso(since),)
-            ).fetchall()
+                "SELECT substr(at, 12, 2) AS hour, direction, COUNT(*) AS n"
+                " FROM vehicle_pass WHERE at >= ? AND at < ?"
+                " GROUP BY hour, direction ORDER BY hour",
+                (_iso(since), _iso(until))).fetchall()
+
+        by_hour: dict[int, dict] = {}
+        for row in rows:
+            slot = by_hour.setdefault(
+                int(row["hour"]), {"hour": int(row["hour"]),
+                                   "entered": 0, "left": 0})
+            slot["entered" if row["direction"] == "entry" else "left"] += row["n"]
+        return [by_hour[h] for h in sorted(by_hour)]
+
+    def gates(self, since: datetime, until: datetime | None = None) -> list[dict]:
+        """Per gate: how many in, how many out, how many still inside."""
+        sql = ("SELECT gate, direction, COUNT(*) AS n FROM vehicle_pass"
+               " WHERE at >= ?")
+        params: list = [_iso(since)]
+        if until is not None:
+            sql += " AND at < ?"
+            params.append(_iso(until))
+        sql += " GROUP BY gate, direction"
+        with self._lock:
+            rows = self._conn.execute(sql, params).fetchall()
 
         totals: dict[int, dict] = {}
         for row in rows:
@@ -741,12 +808,17 @@ class VehicleStore:
 
     # -- import -------------------------------------------------------------
 
-    def import_rows(self, rows: list[dict]) -> dict:
+    def import_rows(self, rows: list[dict], by_who: str = "") -> dict:
         """Load a list of register rows. Reports every one it refused.
 
         A silent partial import is the worst outcome: the office believes the
         list is loaded and finds out at the gate. Every rejection carries its
         reason and its row number.
+
+        **The run is recorded**, because the register tab shows a "last
+        import" line and that line is either a fact or it is absent
+        (P6-FR-053). The audit log cannot be the source — it still lives in
+        RAM until P3, so it would forget at the next restart.
         """
         added = updated = skipped = 0
         problems: list[str] = []
@@ -785,8 +857,32 @@ class VehicleStore:
             except (ValueError, PlateTaken) as exc:
                 problems.append(f"row {number}: {exc}")
 
+        with self._lock, self._conn:
+            self._conn.execute(
+                "INSERT INTO vehicle_import_run (id, at, added, updated,"
+                " skipped, rejected, by_who) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (uuid.uuid4().hex, _iso(_now()), added, updated, skipped,
+                 len(problems), by_who))
+
         return {"added": added, "updated": updated,
                 "skipped_duplicates": skipped, "problems": problems}
+
+    def last_import_run(self) -> dict | None:
+        """The most recent import, or None if nobody has ever run one.
+
+        None is the honest answer on a fresh database, and the console shows
+        no line at all rather than a row of zeros — "0 rows imported" reads as
+        a failed import rather than as an import that never happened.
+        """
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM vehicle_import_run ORDER BY at DESC LIMIT 1"
+            ).fetchone()
+        if row is None:
+            return None
+        return {"at": _parse(row["at"]), "added": row["added"],
+                "updated": row["updated"], "skipped": row["skipped"],
+                "rejected": row["rejected"], "by_who": row["by_who"]}
 
 
 # --- spreadsheets ----------------------------------------------------------

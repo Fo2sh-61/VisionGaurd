@@ -390,6 +390,31 @@ export function toDetectionBox(box: WireBox): DetectionBox {
  *  themselves rather than being told the software is broken. */
 export const COMFORTABLE_PLATE_PX = 100;
 
+/** An Egyptian plate in Latin letters: "ب ج د ١٢٣٤" -> "B G D 1234".
+ *
+ *  For the register table, where the guard reads Arabic but an exported
+ *  report or a Latin keyboard search may not.
+ *
+ *  **The source of truth is `vg/platetext.py::TRANSLIT`** and this must track
+ *  it. It is duplicated here rather than sent per row because `format.ts`
+ *  owns rendered strings — a `latin` field on every wire type would be the
+ *  engine writing display text for one screen. If the two ever disagree, the
+ *  Python is right. */
+const TRANSLIT: Record<string, string> = {
+  'ا': 'A', 'ب': 'B', 'ج': 'G', 'د': 'D', 'ر': 'R', 'س': 'S',
+  'ص': 'C', 'ط': 'T', 'ع': 'E', 'ف': 'F', 'ق': 'K', 'ل': 'L',
+  'م': 'M', 'ن': 'N', 'ه': 'H', 'و': 'W', 'ى': 'Y', 'ي': 'Y',
+  'ك': 'K', 'ح': 'H', 'ز': 'Z', 'ت': 'T', 'ث': 'S', 'ش': 'S',
+  'خ': 'KH', 'ذ': 'Z', 'ض': 'D', 'ظ': 'Z', 'غ': 'GH',
+  '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4',
+  '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9',
+};
+
+export function plateLatin(display: string): string {
+  if (!display) return '';
+  return [...display].map((ch) => TRANSLIT[ch] ?? ch).join('');
+}
+
 /* ---------- gate alerts ----------
  *
  *  The engine sends facts and this file writes the sentences, which is the

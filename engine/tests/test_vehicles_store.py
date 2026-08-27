@@ -646,3 +646,174 @@ class TestThePassIsPhotographed:
         kept = store.pass_by_id(record.id)
         assert kept is not None, "the row outlives its images, always"
         assert kept.has_snapshot is False
+
+
+# ---------------------------------------------------------------------------
+# any recorded day, not just today
+# ---------------------------------------------------------------------------
+
+class TestADayIsAWindow:
+    """Movements can be asked about any day that has passes in it.
+
+    Every one of these queries took a `since` and ran to the end of time,
+    which is right for "today" and wrong for "Tuesday" — a day picker over an
+    unbounded query shows Tuesday *and everything after it*.
+    """
+
+    def test_a_later_day_is_outside_the_window(self, store):
+        a_pass(store, at=NOON)
+        a_pass(store, plate=OTHER, at=NOON + timedelta(days=1))
+
+        day = store.passes(since=NOON - timedelta(hours=12),
+                           until=NOON + timedelta(hours=12))
+
+        assert len(day) == 1
+
+    def test_an_earlier_day_is_outside_the_window(self, store):
+        a_pass(store, at=NOON - timedelta(days=1))
+        a_pass(store, plate=OTHER, at=NOON)
+
+        day = store.passes(since=NOON - timedelta(hours=1),
+                           until=NOON + timedelta(hours=1))
+
+        assert len(day) == 1
+
+    def test_the_window_excludes_its_upper_bound(self, store):
+        """Midnight belongs to the day that is starting, not the one ending —
+        otherwise two consecutive days both claim the same pass."""
+        a_pass(store, at=NOON)
+
+        assert store.passes(since=NOON - timedelta(hours=1), until=NOON) == []
+        assert len(store.passes(since=NOON,
+                                until=NOON + timedelta(hours=1))) == 1
+
+    def test_visits_are_bounded_by_when_the_car_came_in(self, store):
+        """A visit that ran past midnight belongs to the day it started, which
+        is what somebody asking "what happened on Tuesday" means."""
+        a_pass(store, at=NOON)
+        a_pass(store, at=NOON + timedelta(hours=14), direction="exit")
+
+        visits = store.visits(since=NOON - timedelta(hours=12),
+                              until=NOON + timedelta(hours=12))
+
+        assert len(visits) == 1
+        assert visits[0].left_at is not None
+
+    def test_gates_are_bounded_too(self, store):
+        a_pass(store, at=NOON)
+        a_pass(store, plate=OTHER, at=NOON + timedelta(days=2))
+
+        rows = store.gates(NOON - timedelta(hours=1),
+                           NOON + timedelta(hours=1))
+
+        assert sum(r["entered"] for r in rows) == 1
+
+
+class TestTheTrafficChart:
+    def test_entries_and_exits_are_counted_separately(self, store):
+        a_pass(store, at=NOON)
+        a_pass(store, at=NOON + timedelta(minutes=20), direction="exit")
+
+        hours = store.hourly(NOON - timedelta(hours=1),
+                             NOON + timedelta(hours=2))
+
+        assert sum(h["entered"] for h in hours) == 1
+        assert sum(h["left"] for h in hours) == 1
+
+    def test_an_hour_with_nothing_in_it_is_absent_not_zero(self, store):
+        """A flat bar at 3am is a drawing of data that does not exist."""
+        a_pass(store, at=NOON)
+
+        hours = store.hourly(NOON - timedelta(hours=6),
+                             NOON + timedelta(hours=6))
+
+        assert len(hours) == 1
+
+    def test_a_quiet_day_is_an_empty_list(self, store):
+        assert store.hourly(NOON, NOON + timedelta(hours=1)) == []
+
+    def test_hours_come_back_in_order(self, store):
+        a_pass(store, at=NOON + timedelta(hours=3))
+        a_pass(store, plate=OTHER, at=NOON)
+
+        hours = store.hourly(NOON - timedelta(hours=1),
+                             NOON + timedelta(hours=6))
+
+        assert [h["hour"] for h in hours] == sorted(h["hour"] for h in hours)
+
+
+class TestAVisitCarriesItsEvidence:
+    """Each row can show the photograph that proves it — by pointing at the
+    pass that holds it, never by copying the image anywhere."""
+
+    def test_the_entry_pass_id_comes_through(self, store):
+        entry = a_pass(store, at=NOON)
+
+        assert store.visits()[0].entry_pass_id == entry.id
+
+    def test_the_exit_pass_id_comes_through(self, store):
+        a_pass(store, at=NOON)
+        exit_pass = a_pass(store, at=NOON + timedelta(hours=1),
+                           direction="exit")
+
+        assert store.visits()[0].exit_pass_id == exit_pass.id
+
+    def test_an_inferred_exit_offers_no_exit_photograph(self, store):
+        """A visit closed because the car was seen entering AGAIN has no exit
+        picture — nobody watched it leave. Handing over the re-entry's
+        photograph would present an inference as an observation."""
+        a_pass(store, at=NOON)
+        a_pass(store, at=NOON + timedelta(hours=2))
+
+        visit = next(v for v in store.visits() if v.inferred)
+        assert visit.exit_pass_id is None
+        assert visit.exit_has_snapshot is False
+
+    def test_no_photograph_means_no_thumbnail_not_a_broken_one(self, store):
+        """These passes were recorded without images, which is the normal
+        state after thirty days — the row is kept, the picture is not."""
+        a_pass(store, at=NOON)
+
+        assert store.visits()[0].entry_has_snapshot is False
+
+
+class TestTheLastImportLine:
+    """The register tab draws "Last import: 2,140 rows · 6 skipped · 12 Aug".
+
+    That line is either a fact or it is absent. The audit log cannot be the
+    source — it still lives in RAM until P3 and would forget at the next
+    restart — so the importer records its own run.
+    """
+
+    def test_a_fresh_register_has_never_imported_anything(self, store):
+        """None, not a row of zeros. "0 rows imported" reads as a failed
+        import rather than as an import that never happened."""
+        assert store.last_import_run() is None
+
+    def test_an_import_records_what_it_did(self, store):
+        store.import_rows([
+            {"plate": "ب ج د 1234", "owner_name": "Mohamed Fouad"},
+            {"plate": "س ص ط 9876", "owner_name": "Sara Ibrahim"},
+        ], by_who="Mohamed Fouad")
+
+        run = store.last_import_run()
+        assert run["added"] == 2
+        assert run["by_who"] == "Mohamed Fouad"
+
+    def test_the_numbers_match_what_the_importer_reported(self, store):
+        result = store.import_rows([
+            {"plate": "ب ج د 1234"},
+            {"plate": "ب ج د 1234"},          # the same car twice
+            {"plate": "not a plate at all"},   # rejected
+        ], by_who="Sara Ibrahim")
+
+        run = store.last_import_run()
+        assert run["added"] == result["added"]
+        assert run["skipped"] == result["skipped_duplicates"]
+        assert run["rejected"] == len(result["problems"])
+
+    def test_the_latest_run_is_the_one_reported(self, store):
+        store.import_rows([{"plate": "ب ج د 1234"}], by_who="First")
+        store.import_rows([{"plate": "س ص ط 9876"}], by_who="Second")
+
+        assert store.last_import_run()["by_who"] == "Second"

@@ -17,21 +17,29 @@
  *    console's rendering disagree with the photograph beside it.
  */
 
+import { plateLatin } from '@/services/format';
+
 interface PlateProps {
   /** The display form — Arabic letters, Indic digits. From the engine. */
   display: string;
   /** Smaller variant for dense rows. */
   compact?: boolean;
+  /** Show the Latin transliteration underneath.
+   *
+   *  Off by default and on only in the register table. The guard reads the
+   *  Arabic; the Latin line is for an exported report and for searching from
+   *  a keyboard that has no Arabic on it. On a dense live row it is noise. */
+  latin?: boolean;
 }
 
-export function Plate({ display, compact = false }: PlateProps) {
+export function Plate({ display, compact = false, latin = false }: PlateProps) {
   if (!display) {
     // A pass whose plate could not be read still happened, and the row still
     // has to render. An em-dash says "not read" without implying a value.
     return <span style={{ color: 'var(--tx3)', fontSize: 13 }}>—</span>;
   }
 
-  return (
+  const chip = (
     <span
       style={{
         display: 'inline-flex',
@@ -73,6 +81,20 @@ export function Plate({ display, compact = false }: PlateProps) {
         }}
       >
         {display}
+      </span>
+    </span>
+  );
+
+  if (!latin) return chip;
+
+  return (
+    <span style={{ display: 'inline-block' }}>
+      {chip}
+      <span style={{
+        display: 'block', fontSize: 11, color: 'var(--tx3)', marginTop: 2,
+        fontFamily: 'ui-monospace, Menlo, monospace', letterSpacing: '.02em',
+      }}>
+        {plateLatin(display)}
       </span>
     </span>
   );

@@ -19,10 +19,13 @@ import { type MutableRefObject, useEffect, useState } from 'react';
 import { Plate } from '@/components/Plate';
 import { Badge, Card, Empty, LoadError, Select } from '@/components/ui';
 import {
-  addVehicle, editVehicle, getVehicleRegister, importVehicles, removeVehicle,
+  addVehicle, editVehicle, getVehicleLastImport, getVehicleRegister,
+  importVehicles, removeVehicle,
 } from '@/services/api';
 import { apiBase } from '@/services/http';
-import { vehicleCategoryLabel, vehicleCategoryTone } from '@/services/format';
+import {
+  formatEventTime, vehicleCategoryLabel, vehicleCategoryTone,
+} from '@/services/format';
 import type * as W from '@/services/wire';
 import { useAsync } from '@/app/useAsync';
 
@@ -59,6 +62,11 @@ export function VehicleRegisterTab({ isAdmin, prefillPlate }: {
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [imported, setImported] = useState<W.VehicleImportResult | null>(null);
+  // The last import that actually ran, from the database. The design
+  // draws "Last import: 2,140 rows · 6 skipped · 12 Aug" — that line is
+  // either a fact or it is absent, and on a fresh register it is absent.
+  const { data: lastImport, reload: reloadLastImport } =
+    useAsync(() => getVehicleLastImport(), [], null);
 
   const {
     data: vehicles, error, loading, reload,
@@ -118,6 +126,7 @@ export function VehicleRegisterTab({ isAdmin, prefillPlate }: {
     setImported(null);
     try {
       setImported(await importVehicles(file));
+      reloadLastImport();
       reload();
     } catch (err) {
       setProblem(err instanceof Error ? err.message : 'That file was not loaded.');
@@ -197,6 +206,20 @@ export function VehicleRegisterTab({ isAdmin, prefillPlate }: {
                 }}
               />
             </label>
+
+            {/* A fact or nothing. "0 rows imported" reads as a failed import
+                rather than as an import that never happened, so a register
+                nobody has ever imported into shows no line at all. */}
+            {lastImport && (
+              <span style={{ fontSize: 12.5, color: 'var(--tx3)' }}>
+                Last import: {lastImport.added.toLocaleString()} added
+                {lastImport.skipped > 0
+                  && ` · ${lastImport.skipped.toLocaleString()} already on the list`}
+                {lastImport.rejected > 0
+                  && ` · ${lastImport.rejected.toLocaleString()} rejected`}
+                {' · '}{formatEventTime(lastImport.at)}
+              </span>
+            )}
           </div>
 
           {/* Never a bare count. Every rejected row is named, because an
@@ -380,7 +403,7 @@ export function VehicleRegisterTab({ isAdmin, prefillPlate }: {
                 borderTop: '1px solid var(--line)',
               }}
             >
-              <Plate display={vehicle.plateDisplay} compact />
+              <Plate display={vehicle.plateDisplay} compact latin />
               <span style={{ minWidth: 0 }}>
                 <span style={{ fontWeight: 600, fontSize: 14, display: 'block' }}>
                   {vehicle.owner ?? 'No owner recorded'}

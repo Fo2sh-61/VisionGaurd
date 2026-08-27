@@ -1,10 +1,10 @@
-/** The Movements tab: who came in, who is still here, and the full log.
+/** The Movements tab: what happened on a day, and who is here now.
  *
  *  Split out of `VehicleGate.tsx` for the same reason the register was — one
  *  page holding three tabs' worth of filter state is how a search box on one
  *  tab ends up narrowing a list on another.
  *
- *  Two things here are load-bearing rather than cosmetic:
+ *  Four things here are load-bearing rather than cosmetic:
  *
  *  - **"Inside now" needs an exit camera, and says so when there is none.**
  *    With entries only, every car that ever drove in is still "inside" for
@@ -15,20 +15,23 @@
  *    closed because the car was seen entering *again* is marked estimated.
  *    The car did leave; the engine did not watch it go, and the difference
  *    matters to anybody using this to answer "is that car still here?".
+ *  - **"Inside now" ignores the day picker.** Now is only ever now. Asking who
+ *    was inside last Tuesday is asking about a moment that has passed, which
+ *    the pass log cannot answer and this must not pretend to.
+ *  - **The day scopes the tables; the search scopes them further.** The chart
+ *    and the gate totals stay on the whole picked day, because a chart that
+ *    silently redrew itself around a search would be a different question
+ *    wearing the same title. The scope line says which is which.
  */
 
 import { useState } from 'react';
 import { Plate } from '@/components/Plate';
 import { Badge, Card, CardHeader, Empty, LoadError } from '@/components/ui';
-import { DeletePass } from '@/components/DeletePass';
 import {
-  exportVehiclePasses, getVehicleGates, getVehiclePasses, getVehicleVisits,
-  getVehiclesInside,
+  exportVehiclePasses, getVehicleGates, getVehicleTraffic, getVehicleVisits,
+  getVehiclesInside, vehiclePassSnapshotUrl,
 } from '@/services/api';
-import {
-  directionLabel, formatDuration, formatEventTime, formatTime,
-  plateStatusLabel, plateStatusTone,
-} from '@/services/format';
+import { formatDuration, formatTime } from '@/services/format';
 import type * as W from '@/services/wire';
 import { useAsync } from '@/app/useAsync';
 
@@ -38,21 +41,7 @@ const MOVEMENT_REFRESH_MS = 5_000;
 
 const NO_GATES: W.GateTotals[] = [];
 const NO_VISITS: W.VehicleVisit[] = [];
-const NO_PASSES: W.VehiclePass[] = [];
-
-const DIRECTIONS: [string, string][] = [
-  ['', 'In and out'],
-  ['entry', 'In only'],
-  ['exit', 'Out only'],
-];
-
-const STATUSES: [string, string][] = [
-  ['', 'Any status'],
-  ['known', 'Registered'],
-  ['unknown', 'Not registered'],
-  ['blacklist', 'Blacklisted'],
-  ['expired', 'Permit expired'],
-];
+const NO_HOURS: W.TrafficHour[] = [];
 
 const inputStyle = {
   height: 40, border: '1px solid var(--line)', borderRadius: 10,
@@ -66,6 +55,107 @@ function length(minutes: number | null): string {
   return minutes === null ? '—' : formatDuration(minutes * 60);
 }
 
+/** "8am" · "12pm" — the hour labels under the traffic chart. */
+function hourLabel(hour: number): string {
+  if (hour === 0) return '12a';
+  if (hour === 12) return '12p';
+  return hour < 12 ? `${hour}a` : `${hour - 12}p`;
+}
+
+/** The photograph kept with a pass, as a thumbnail that opens the full frame.
+ *
+ *  Only rendered where the visit says the image still exists. A pass row is
+ *  kept for ever and its picture is deleted at thirty days, so a thumbnail
+ *  drawn on faith would become a broken image on every old row. */
+function Shot({ passId, hasSnapshot, label }: {
+  passId: string | null;
+  hasSnapshot: boolean;
+  label: string;
+}) {
+  if (!passId || !hasSnapshot) {
+    return (
+      <span style={{
+        display: 'block', width: 56, height: 38, borderRadius: 5,
+        border: '1px dashed var(--line)',
+      }} />
+    );
+  }
+  const href = vehiclePassSnapshotUrl(passId);
+  return (
+    <a href={href} target="_blank" rel="noreferrer" title={label}>
+      <img
+        src={href}
+        alt={label}
+        loading="lazy"
+        style={{
+          display: 'block', width: 56, height: 38, objectFit: 'cover',
+          borderRadius: 5, border: '1px solid var(--line)', cursor: 'pointer',
+        }}
+      />
+    </a>
+  );
+}
+
+/** In above the line, out below it.
+ *
+ *  Bars are drawn only for hours that have something in them. A flat bar at
+ *  3am would be a drawing of data that does not exist. */
+function TrafficChart({ hours }: { hours: W.TrafficHour[] }) {
+  const tallest = Math.max(1, ...hours.map((h) => Math.max(h.entered, h.left)));
+
+  return (
+    <>
+      <div style={{ display: 'flex', alignItems: 'stretch', gap: 4, height: 170 }}>
+        {hours.map((h) => (
+          <div
+            key={h.hour}
+            title={`${hourLabel(h.hour)} — ${h.entered} in, ${h.left} out`}
+            style={{
+              flex: 1, display: 'flex', flexDirection: 'column',
+              alignItems: 'center', justifyContent: 'flex-end', gap: 2,
+            }}
+          >
+            <div style={{
+              flex: 1, display: 'flex', flexDirection: 'column',
+              justifyContent: 'flex-end', width: '100%',
+            }}>
+              <div style={{
+                width: '100%', background: 'var(--ac)', borderRadius: '3px 3px 0 0',
+                height: `${Math.round((h.entered / tallest) * 100)}%`,
+              }} />
+            </div>
+            <div style={{
+              flex: 1, display: 'flex', flexDirection: 'column',
+              justifyContent: 'flex-start', width: '100%',
+            }}>
+              <div style={{
+                width: '100%', background: 'var(--tx3)', borderRadius: '0 0 3px 3px',
+                height: `${Math.round((h.left / tallest) * 100)}%`,
+              }} />
+            </div>
+            <div style={{
+              fontSize: 10, color: 'var(--tx3)',
+              fontFamily: 'ui-monospace, Menlo, monospace',
+            }}>
+              {hourLabel(h.hour)}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: 18, marginTop: 14, fontSize: 12.5, color: 'var(--tx2)' }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ width: 11, height: 11, borderRadius: 3, background: 'var(--ac)' }} />
+          In
+        </span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ width: 11, height: 11, borderRadius: 3, background: 'var(--tx3)' }} />
+          Out
+        </span>
+      </div>
+    </>
+  );
+}
+
 function VisitRow({ visit, showLeft }: {
   visit: W.VehicleVisit;
   showLeft: boolean;
@@ -74,11 +164,18 @@ function VisitRow({ visit, showLeft }: {
     <div
       className="row"
       style={{
-        gridTemplateColumns: showLeft ? '120px 1fr .8fr .8fr .9fr' : '120px 1fr .8fr .9fr',
+        gridTemplateColumns: showLeft
+          ? '68px 120px 1fr .8fr .8fr .9fr'
+          : '68px 120px 1fr .8fr .9fr',
         gap: 14, alignItems: 'center', padding: '12px 0',
         borderTop: '1px solid var(--line)',
       }}
     >
+      <Shot
+        passId={visit.entryPassId}
+        hasSnapshot={visit.entryHasSnapshot}
+        label={`${visit.plateDisplay} arriving`}
+      />
       <Plate display={visit.plateDisplay} />
       <span style={{ minWidth: 0 }}>
         <span style={{ fontWeight: 600, fontSize: 14, display: 'block' }}>
@@ -123,42 +220,58 @@ export function VehicleMovementsTab({ isAdmin, summary }: {
   isAdmin: boolean;
   summary: W.GateSummary | null;
 }) {
-  const [plate, setPlate] = useState('');
-  const [direction, setDirection] = useState('');
-  const [status, setStatus] = useState('');
+  // Empty means today. Kept empty rather than filled with today's date so the
+  // engine decides what "today" is — the site's midnight, not the browser's.
+  const [day, setDay] = useState('');
+  const [query, setQuery] = useState('');
   const [gate, setGate] = useState('');
   const [exporting, setExporting] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
 
   const { data: gates } = useAsync(
-    () => getVehicleGates(), [], NO_GATES, MOVEMENT_REFRESH_MS);
+    () => getVehicleGates(day), [day], NO_GATES, MOVEMENT_REFRESH_MS);
+  const { data: hours } = useAsync(
+    () => getVehicleTraffic(day), [day], NO_HOURS, MOVEMENT_REFRESH_MS);
   const { data: inside, error: insideError } = useAsync(
     () => getVehiclesInside(), [], NO_VISITS, MOVEMENT_REFRESH_MS);
   const { data: visits } = useAsync(
-    () => getVehicleVisits(), [], NO_VISITS, MOVEMENT_REFRESH_MS);
-  const {
-    data: passes, error: logError, loading, reload: reloadLog,
-  } = useAsync(
-    () => getVehiclePasses({
-      limit: 200,
-      plate,
-      direction,
-      status,
-      gate: gate ? Number(gate) : undefined,
-    }),
-    [plate, direction, status, gate], NO_PASSES);
+    () => getVehicleVisits(day), [day], NO_VISITS, MOVEMENT_REFRESH_MS);
 
   // Where no gate has both an entry and an exit camera, nothing can be paired
   // and the answer to "who is inside" is a sentence, not a number.
   const paired = summary?.pairingAvailable ?? false;
   const notReading = summary?.reason ?? null;
 
+  const needle = query.trim().toLowerCase();
+  const matches = (visit: W.VehicleVisit) =>
+    (!gate || String(visit.entryGate) === gate)
+    && (!needle
+      || visit.plateDisplay.includes(query.trim())
+      || (visit.owner ?? '').toLowerCase().includes(needle));
+
+  const insideShown = inside.filter(matches);
+  const visitsShown = visits.filter(matches);
+  const filtering = Boolean(needle || gate);
+
+  // **One unpairable gate makes the total unknowable, not smaller.** Summing
+  // the gates that can be paired and printing that as "all gates" would be a
+  // partial sum wearing the name of a total — the reader has no way to tell
+  // it is missing a gate, and it is wrong in the reassuring direction.
+  const everyGatePairs = gates.length > 0 && gates.every((r) => r.inside !== null);
+  const totals = {
+    entered: gates.reduce((n, r) => n + r.entered, 0),
+    left: gates.reduce((n, r) => n + r.left, 0),
+    inside: everyGatePairs
+      ? gates.reduce((n, r) => n + (r.inside ?? 0), 0)
+      : null,
+  };
+
   async function download() {
     setExporting(true);
     setProblem(null);
     try {
       await exportVehiclePasses({
-        plate, direction, status, gate: gate ? Number(gate) : undefined,
+        day, gate: gate ? Number(gate) : undefined,
       });
     } catch (err) {
       setProblem(err instanceof Error ? err.message : 'The export did not run.');
@@ -170,15 +283,109 @@ export function VehicleMovementsTab({ isAdmin, summary }: {
   return (
     <>
       <Card>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--tx2)' }}>
+              Day
+            </span>
+            <input
+              type="date"
+              value={day}
+              onChange={(e) => setDay(e.target.value)}
+              style={inputStyle}
+            />
+          </label>
+
+          <label style={{
+            display: 'flex', flexDirection: 'column', gap: 6, flex: 1, minWidth: 190,
+          }}>
+            <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--tx2)' }}>
+              Plate or owner
+            </span>
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="ب ج د ١٢٣٤ or a name"
+              style={inputStyle}
+            />
+          </label>
+
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--tx2)' }}>
+              Gate
+            </span>
+            <select
+              value={gate}
+              onChange={(e) => setGate(e.target.value)}
+              style={inputStyle}
+            >
+              <option value="">All gates</option>
+              {gates.map((row) => (
+                <option key={row.gate} value={String(row.gate)}>{row.name}</option>
+              ))}
+            </select>
+          </label>
+
+          {/* Admin only, and audited before the file is built. A guard reads
+              the gate log; taking a copy of it away is a different act. */}
+          {isAdmin && (
+            <button
+              type="button"
+              className="chip-btn chip-btn--on"
+              onClick={() => { void download(); }}
+              disabled={exporting}
+              style={{ height: 40, padding: '0 18px', borderRadius: 10 }}
+            >
+              {exporting ? 'Preparing…' : 'Export this day'}
+            </button>
+          )}
+        </div>
+
+        {problem && (
+          <div style={{ fontSize: 13, color: 'var(--rd)', marginTop: 10 }}>
+            {problem}
+          </div>
+        )}
+
+        {/* Which numbers the filters moved and which they did not. Without
+            this line a filtered visit list beside unfiltered totals reads as
+            an arithmetic error. */}
+        <div style={{ fontSize: 13, color: 'var(--tx3)', marginTop: 12 }}>
+          {filtering
+            ? `Filtered — ${insideShown.length} inside, ${visitsShown.length} `
+              + 'completed visits. The chart and the gate totals stay on the '
+              + 'whole day.'
+            : day
+              ? 'Everything below is that day, except “inside now”, which is '
+                + 'always now.'
+              : 'Everything below is today.'}
+        </div>
+      </Card>
+
+      <Card>
         <CardHeader
-          title="Today, gate by gate"
-          sub="Counted from the passes recorded since midnight at the school."
+          title="Traffic through the day"
+          sub="In above the line, out below it. Only hours something happened in are drawn."
+        />
+        {hours.length === 0 ? (
+          <Empty>
+            {notReading ?? 'Nothing passed a gate on this day.'}
+          </Empty>
+        ) : (
+          <TrafficChart hours={hours} />
+        )}
+      </Card>
+
+      <Card>
+        <CardHeader
+          title="Gate by gate"
+          sub="Counted from the passes recorded at each gate."
         />
 
         {gates.length === 0 && (
           <Empty>
             {notReading
-              ?? 'No gate has recorded anything today. Totals appear here as '
+              ?? 'No gate recorded anything on this day. Totals appear here as '
                 + 'cars pass.'}
           </Empty>
         )}
@@ -231,12 +438,31 @@ export function VehicleMovementsTab({ isAdmin, summary }: {
             </div>
           ))}
         </div>
+
+        {gates.length > 1 && (
+          <div style={{
+            display: 'flex', gap: 24, alignItems: 'baseline', marginTop: 16,
+            paddingTop: 14, borderTop: '2px solid var(--line)', fontSize: 14,
+          }}>
+            <span style={{ fontWeight: 700 }}>All gates</span>
+            <span><b>{totals.entered}</b> in</span>
+            <span><b>{totals.left}</b> out</span>
+            <span>
+              {/* One gate without an exit camera makes the total unknowable,
+                  not smaller — so it is a dash, not a partial sum. */}
+              <b style={{ color: totals.inside === null ? 'var(--tx3)' : 'var(--ac)' }}>
+                {totals.inside === null ? '—' : totals.inside}
+              </b>
+              {' '}inside
+            </span>
+          </div>
+        )}
       </Card>
 
       <Card>
         <CardHeader
           title="Inside now"
-          sub="Cars seen coming in today with no exit recorded since."
+          sub="Cars seen coming in with no exit recorded since. Always now, whichever day is picked above."
         />
 
         {insideError && <LoadError error={insideError} />}
@@ -253,14 +479,16 @@ export function VehicleMovementsTab({ isAdmin, summary }: {
           </Empty>
         )}
 
-        {paired && inside.length === 0 && !insideError && (
+        {paired && insideShown.length === 0 && !insideError && (
           <Empty>
-            {notReading ?? 'No car is inside. Every car that came in today has '
-              + 'been seen leaving.'}
+            {filtering
+              ? 'No car inside matches that search.'
+              : notReading ?? 'No car is inside. Every car that came in today '
+                + 'has been seen leaving.'}
           </Empty>
         )}
 
-        {paired && inside.map((visit) => (
+        {paired && insideShown.map((visit) => (
           <VisitRow key={`${visit.plate}-${visit.entered.utc}`} visit={visit}
                     showLeft={false} />
         ))}
@@ -269,148 +497,20 @@ export function VehicleMovementsTab({ isAdmin, summary }: {
       <Card>
         <CardHeader
           title="Completed visits"
-          sub="Came in and left again today. An exit the cameras never saw is marked estimated."
+          sub="Came in and left again. An exit the cameras never saw is marked estimated."
         />
 
-        {visits.length === 0 && (
+        {visitsShown.length === 0 && (
           <Empty>
-            {notReading ?? 'No visit has been completed today.'}
+            {filtering
+              ? 'No completed visit matches that search.'
+              : notReading ?? 'No visit was completed on this day.'}
           </Empty>
         )}
 
-        {visits.map((visit) => (
+        {visitsShown.map((visit) => (
           <VisitRow key={`${visit.plate}-${visit.entered.utc}`} visit={visit}
                     showLeft />
-        ))}
-      </Card>
-
-      <Card>
-        <CardHeader
-          title="Pass log"
-          sub={isAdmin
-            ? 'Every read, newest first. A weak read is kept and flagged rather than dropped, so a guard can judge it. Delete removes a pass and its photograph for good — the audit entry stays.'
-            : 'Every read, newest first. A weak read is kept and flagged rather than dropped, so a guard can judge it.'}
-        />
-
-        <div style={{
-          display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center',
-          marginBottom: 14,
-        }}>
-          <input
-            value={plate}
-            placeholder="Plate"
-            onChange={(e) => setPlate(e.target.value)}
-            style={{ ...inputStyle, width: 150 }}
-          />
-          <input
-            value={gate}
-            placeholder="Gate"
-            inputMode="numeric"
-            onChange={(e) => setGate(e.target.value.replace(/[^0-9]/g, ''))}
-            style={{ ...inputStyle, width: 90 }}
-          />
-          <select
-            value={direction}
-            onChange={(e) => setDirection(e.target.value)}
-            style={inputStyle}
-          >
-            {DIRECTIONS.map(([value, label]) => (
-              <option key={value} value={value}>{label}</option>
-            ))}
-          </select>
-          <select
-            value={status}
-            onChange={(e) => setStatus(e.target.value)}
-            style={inputStyle}
-          >
-            {STATUSES.map(([value, label]) => (
-              <option key={value} value={value}>{label}</option>
-            ))}
-          </select>
-
-          {/* Administrator only, and not as a courtesy: the export is a POST
-              because the engine writes the audit entry before it builds the
-              file, and the same path rule that guards the register guards
-              this. A guard reading the log on screen is the job; taking a
-              copy of it away is a decision with a name against it. */}
-          {isAdmin && (
-            <button
-              type="button"
-              disabled={exporting}
-              onClick={() => void download()}
-              style={{
-                height: 40, padding: '0 18px', border: 'none', borderRadius: 10,
-                background: 'var(--ac)', color: 'var(--on-ac)', fontWeight: 600,
-                fontSize: 13.5, cursor: exporting ? 'not-allowed' : 'pointer',
-                opacity: exporting ? 0.6 : 1, marginLeft: 'auto',
-              }}
-            >
-              {exporting ? 'Preparing…' : 'Export what is shown'}
-            </button>
-          )}
-        </div>
-
-        {problem && (
-          <div style={{ fontSize: 13, color: 'var(--rd)', marginBottom: 10 }}>
-            {problem}
-          </div>
-        )}
-
-        {logError && <LoadError error={logError} />}
-
-        {!logError && !loading && passes.length === 0 && (
-          <Empty>
-            {plate || direction || status || gate
-              ? 'No pass matches those filters. Clear one and try again.'
-              : notReading ?? 'No car has passed a gate today.'}
-          </Empty>
-        )}
-
-        {passes.map((pass) => (
-          <div
-            key={pass.id}
-            className="row"
-            style={{
-              gridTemplateColumns: '120px 1fr .8fr .5fr .9fr',
-              gap: 14, alignItems: 'center', padding: '11px 0',
-              borderTop: '1px solid var(--line)',
-            }}
-          >
-            <Plate display={pass.plateDisplay} />
-            <span style={{ minWidth: 0 }}>
-              <span style={{ fontWeight: 600, fontSize: 14, display: 'block' }}>
-                {pass.owner ?? 'Not in the register'}
-              </span>
-              <span style={{ fontSize: 12.5, color: 'var(--tx3)' }}>
-                {pass.unit ?? '—'}
-              </span>
-            </span>
-            <span style={{ fontSize: 13.5, color: 'var(--tx2)' }}>{pass.gateName}</span>
-            <span>
-              <Badge tone="neutral">{directionLabel(pass.direction)}</Badge>
-            </span>
-            <span style={{
-              display: 'flex', alignItems: 'center', gap: 10,
-              justifyContent: 'flex-end', flexWrap: 'wrap',
-            }}>
-              <Badge tone={plateStatusTone(pass.status)}>
-                {plateStatusLabel(pass.status)}
-              </Badge>
-              {pass.needsReview && (
-                <span style={{ fontSize: 11, color: 'var(--am)' }}>
-                  needs review · {pass.confidence.toFixed(2)} over {pass.votes} frames
-                </span>
-              )}
-
-              {isAdmin && (
-                <DeletePass passId={pass.id} onDeleted={reloadLog} />
-              )}
-
-              <span style={{ fontSize: 12.5, color: 'var(--tx3)', whiteSpace: 'nowrap' }}>
-                {formatEventTime(pass.at)}
-              </span>
-            </span>
-          </div>
         ))}
       </Card>
     </>

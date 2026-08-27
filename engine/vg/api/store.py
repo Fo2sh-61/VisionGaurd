@@ -180,9 +180,11 @@ class Store(Protocol):
     def remove_vehicle(self, vehicle_id: str, actor: str) -> bool: ...
     def import_vehicles(self, filename: str, data: bytes,
                         actor: str) -> S.VehicleImportResult: ...
-    def vehicle_gates(self) -> list[S.GateTotals]: ...
+    def vehicle_gates(self, day: str = "") -> list[S.GateTotals]: ...
     def vehicles_inside(self) -> list[S.VehicleVisit]: ...
-    def vehicle_visits(self) -> list[S.VehicleVisit]: ...
+    def vehicle_visits(self, day: str = "") -> list[S.VehicleVisit]: ...
+    def vehicle_traffic(self, day: str = "") -> list[S.TrafficHour]: ...
+    def last_import(self) -> S.VehicleImportRun | None: ...
     def delete_pass(self, pass_id: str, actor: str) -> bool: ...
     def export_passes(self, actor: str, **filters) -> bytes: ...
 
@@ -295,14 +297,22 @@ class MockStore:
         raise SubsystemUnavailable(
             "The vehicle register is not available in this demo store.")
 
-    def vehicle_gates(self) -> list[S.GateTotals]:
+    def vehicle_gates(self, day: str = "") -> list[S.GateTotals]:
         return []
 
     def vehicles_inside(self) -> list[S.VehicleVisit]:
         return []
 
-    def vehicle_visits(self) -> list[S.VehicleVisit]:
+    def vehicle_visits(self, day: str = "") -> list[S.VehicleVisit]:
         return []
+
+    def vehicle_traffic(self, day: str = "") -> list[S.TrafficHour]:
+        return []
+
+    def last_import(self) -> S.VehicleImportRun | None:
+        # Nobody has imported anything into a demo store, and saying so is
+        # more useful than inventing the design file's "2,140 rows".
+        return None
 
     def delete_pass(self, pass_id: str, actor: str) -> bool:
         raise SubsystemUnavailable(

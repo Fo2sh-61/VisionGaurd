@@ -903,3 +903,49 @@ class TestAlertsOverTheWire:
 
         assert "plateDisplay" in S.GateAlert.model_json_schema()["properties"]
         assert "nearMatchOwner" in S.GateAlert.model_json_schema()["properties"]
+
+
+class TestAskingAboutADay:
+    """Movements can be asked about any recorded day, not only today."""
+
+    DAY_SCOPED = ("/vehicles/gates", "/vehicles/visits", "/vehicles/traffic")
+
+    @pytest.mark.parametrize("path", DAY_SCOPED)
+    def test_a_day_is_accepted(self, bare_app, authed, path):
+        response = authed(bare_app, role="it").get(f"{path}?day=2026-08-24")
+
+        assert response.status_code == 200
+
+    @pytest.mark.parametrize("path", DAY_SCOPED)
+    def test_no_day_still_means_today(self, bare_app, authed, path):
+        assert authed(bare_app, role="it").get(path).status_code == 200
+
+    @pytest.mark.parametrize("path", DAY_SCOPED)
+    def test_a_malformed_day_is_refused(self, gate_app, authed, path):
+        """422, never a quiet fallback to today.
+
+        Falling back would answer a question nobody asked, and the operator
+        would read today's chart believing it was the day they picked.
+        """
+        application, _, _ = gate_app
+        response = authed(application, role="it").get(
+            f"{path}?day=last-tuesday")
+
+        assert response.status_code == 422
+
+    def test_inside_now_takes_no_day(self, gate_app, authed):
+        """"Inside now" is only ever now. A day here would be asking who was
+        inside at a moment that has passed, which the pass log cannot say."""
+        application, _, _ = gate_app
+        response = authed(application, role="it").get(
+            "/vehicles/inside?day=last-tuesday")
+
+        assert response.status_code == 200
+
+    def test_a_quiet_day_is_an_empty_chart_not_an_error(self, gate_app, authed):
+        application, _, _ = gate_app
+        response = authed(application, role="it").get(
+            "/vehicles/traffic?day=2001-01-01")
+
+        assert response.status_code == 200
+        assert response.json() == []

@@ -4,7 +4,7 @@ import { VehicleAlerts } from '@/components/VehicleAlerts';
 import { VehicleMovementsTab } from '@/components/VehicleMovements';
 import { VehicleReader } from '@/components/VehicleReader';
 import { VehicleRegisterTab } from '@/components/VehicleRegister';
-import { Card, DataNotice, PageHeader } from '@/components/ui';
+import { Card, DataNotice, Empty, LoadError, PageHeader } from '@/components/ui';
 import { getVehicleCameras, getVehicleSummary } from '@/services/api';
 import type { Camera } from '@/types';
 import { useAccount } from '@/app/AuthContext';
@@ -75,9 +75,9 @@ export function VehicleGate() {
   // merely announcing the problem.
   const prefill = useRef<string | null>(null);
 
-  const { data: summary } = useAsync(
+  const { data: summary, error: summaryError } = useAsync(
     () => getVehicleSummary(), [], null, SUMMARY_REFRESH_MS);
-  const { data: cameras } = useAsync(
+  const { data: cameras, error: camerasError, loading: camerasLoading } = useAsync(
     () => getVehicleCameras(), [], NO_CAMERAS, CAMERA_REFRESH_MS);
 
 
@@ -125,6 +125,12 @@ export function VehicleGate() {
               setTab('register');
             }}
           />
+
+          {/* A request that threw must not leave six dashes on screen: a
+              dash means "the engine declined to claim a number", and a failed
+              fetch means "we do not know whether it would have". Those read
+              identically and are not the same thing. */}
+          {summaryError && <LoadError error={summaryError} />}
 
           <div style={{
             display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))',
@@ -192,6 +198,22 @@ export function VehicleGate() {
               <div style={{ fontSize: 13.5, color: 'var(--tx2)', lineHeight: 1.5 }}>
                 {summary.reason}
               </div>
+            </Card>
+          )}
+
+          {camerasError && <LoadError error={camerasError} />}
+
+          {/* No gate camera at all is the state every deployment starts in,
+              and an empty grid under a "Gate cameras" heading reads as a
+              loading failure. Say which it is. */}
+          {!camerasError && !camerasLoading && cameras.length === 0 && (
+            <Card>
+              <Empty>
+                No camera is set up as a gate, so no plate is being read. A
+                gate camera needs a gate number and a direction in
+                <code style={{ margin: '0 4px' }}>engine.yaml</code>
+                before anything appears here.
+              </Empty>
             </Card>
           )}
 
