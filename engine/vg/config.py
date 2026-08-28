@@ -752,10 +752,32 @@ class VehiclesConfig:
 
     dedupe_seconds: float = 60.0
 
+    #: The same window, for a plate that is **nearly** the same.
+    #:
+    #: **Why this is short, and separate.** The reader wobbles by a character:
+    #: a car whose plate is briefly hidden loses its track, is picked up again
+    #: and can settle one character off, producing a second row for one car.
+    #: Matching loosely fixes that - and introduces a worse mistake, because
+    #: two genuinely different cars whose plates differ by one character would
+    #: be collapsed into one row and the second car would go unrecorded. A
+    #: blacklisted car disappearing is far worse than a duplicate.
+    #:
+    #: Time is what separates the two, which is the whole reason this value
+    #: exists. A track dies after `LOST_FRAMES` and needs three more agreeing
+    #: frames to settle, so a re-acquired car returns within about two to four
+    #: seconds. A genuinely different car has to physically drive up, which is
+    #: ten seconds at the very least. Five sits comfortably between the two.
+    #:
+    #: Raise it and duplicates vanish while the risk of swallowing a real car
+    #: grows. Set it to 0 to switch loose matching off entirely and de-duplicate
+    #: on the exact plate only, which is what this did before 28 Aug 2026.
+    near_dedupe_seconds: float = 5.0
+
     @classmethod
     def parse(cls, raw: dict[str, Any] | None, where: str) -> "VehiclesConfig":
         raw = raw or {}
-        unknown = sorted(set(raw) - {"dedupe_seconds"})
+        known = {"dedupe_seconds", "near_dedupe_seconds"}
+        unknown = sorted(set(raw) - known)
         if unknown:
             raise ConfigError(f"{where}: unknown key(s) {unknown}")
 
@@ -765,7 +787,25 @@ class VehiclesConfig:
                 f"{where}.dedupe_seconds: expected 0 <= seconds <= 3600, got "
                 f"{seconds}. 0 records every settled read as its own pass."
             )
-        return cls(dedupe_seconds=seconds)
+
+        near = float(raw.get("near_dedupe_seconds", 5.0))
+        if not 0 <= near <= 3600:
+            raise ConfigError(
+                f"{where}.near_dedupe_seconds: expected 0 <= seconds <= 3600, "
+                f"got {near}. 0 turns loose matching off."
+            )
+        if near > seconds:
+            # Loose matching inside a window wider than the exact one would
+            # mean a near miss is de-duplicated for longer than an exact hit,
+            # which is backwards: the weaker evidence would get the stronger
+            # benefit of the doubt.
+            raise ConfigError(
+                f"{where}.near_dedupe_seconds ({near}) must not exceed "
+                f"dedupe_seconds ({seconds}). A nearly-matching plate is "
+                f"weaker evidence than an exact one and cannot be trusted for "
+                f"longer."
+            )
+        return cls(dedupe_seconds=seconds, near_dedupe_seconds=near)
 
 
 ArchiveBackend = Literal["dvr", "footage"]

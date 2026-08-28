@@ -123,6 +123,21 @@ tracking:
 vehicles:
   dedupe_seconds: 60
 
+  # The same window for a plate that is only NEARLY the same.
+  #
+  # The reader wobbles by a character, so a car whose plate is briefly
+  # hidden can be picked up again and settle one character off - two
+  # rows for one car. Matching loosely fixes that and risks something
+  # worse: two different cars whose plates differ by one character
+  # would collapse into one row and the second car would go
+  # unrecorded. A blacklisted car vanishing is worse than a duplicate.
+  #
+  # Time separates them. A re-acquired car returns within two to four
+  # seconds; a genuinely different car has to drive up, which is ten
+  # at least. Five sits between. Set to 0 to match on the exact plate
+  # only, which is what this did before 28 Aug 2026.
+  near_dedupe_seconds: 5
+
 # ---------------------------------------------------------------------------
 # Archive — where recorded video comes from when somebody asks to watch a leg
 #

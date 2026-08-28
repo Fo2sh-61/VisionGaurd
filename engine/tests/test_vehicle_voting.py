@@ -33,6 +33,7 @@ from vg import platetext  # noqa: E402
 from vg.features.vehicles import (  # noqa: E402
     DEDUPE_SECONDS,
     KEEP_ATTEMPTS,
+    NEAR_DEDUPE_SECONDS,
     LOST_FRAMES,
     MIN_VOTES,
     REVIEW_BELOW,
@@ -77,13 +78,15 @@ def frame(at: datetime, sequence: int = 0) -> Frame:
 
 
 def worker(script: list[list[PlateRead]], recorded: list | None = None,
-           dedupe_seconds: float = DEDUPE_SECONDS):
+           dedupe_seconds: float = DEDUPE_SECONDS,
+           near_dedupe_seconds: float = NEAR_DEDUPE_SECONDS):
     """A worker that never starts a thread. `analyse` is called directly."""
     passes = recorded if recorded is not None else []
     return VehiclesWorker(
         bus=None, reader=FakeReader(script), cameras=[],
         on_pass=lambda camera_id, record: passes.append((camera_id, record)),
         dedupe_seconds=dedupe_seconds,
+        near_dedupe_seconds=near_dedupe_seconds,
     )
 
 
@@ -588,3 +591,147 @@ class TestHowLongAReadTakes:
         _, w = run([[read("بجد 1234")]])
 
         assert w.read_ms("some-other-camera") is None
+
+
+# ---------------------------------------------------------------------------
+# one car, one row — at a real barrier
+# ---------------------------------------------------------------------------
+
+def settle(w, plate, at, seconds=0.25, frames=3, x1=100):
+    """Feed enough agreeing frames to settle one plate. Returns the new time."""
+    for _ in range(frames):
+        w.reader.script.append([read(plate, x1=x1)])
+        w.analyse(frame(at))
+        at += timedelta(seconds=seconds)
+    return at
+
+
+class TestACarThatSitsAtTheBarrier:
+    """The gate is not a motorway. A car arrives, **stops**, and a guard
+    checks it — for twenty seconds or two minutes, and nobody can say which
+    in advance. Every test here is a shape a fixed timer gets wrong.
+    """
+
+    def test_a_car_in_view_for_longer_than_the_window_is_one_row(self):
+        """The failure a plain timer cannot avoid.
+
+        `dedupe_seconds` is 60. This car is being read for 90 seconds, so a
+        timer measured from when the pass was WRITTEN expires while the car is
+        still sitting there and writes it down again.
+        """
+        recorded = []
+        w = worker([], recorded, dedupe_seconds=60.0)
+        at = settle(w, "بجد 1234", START)
+        for _ in range(90):                       # a minute and a half of it
+            w.reader.script.append([read("بجد 1234")])
+            w.analyse(frame(at))
+            at += timedelta(seconds=1)
+
+        assert len(recorded) == 1
+
+    def test_a_guard_standing_in_front_of_the_plate_does_not_add_a_row(self):
+        """`LOST_FRAMES` is 8, which is under a second at the boosted rate —
+        a guard stepping in front of the bumper kills the track. The car is
+        then re-acquired as a new one, and only the de-dup stops a second
+        row."""
+        recorded = []
+        w = worker([], recorded, dedupe_seconds=60.0)
+        at = settle(w, "بجد 1234", START)
+
+        for _ in range(LOST_FRAMES + 4):          # plate hidden; track dies
+            w.reader.script.append([])
+            w.analyse(frame(at))
+            at += timedelta(seconds=0.25)
+
+        settle(w, "بجد 1234", at)                 # he steps away, re-acquired
+
+        assert len(recorded) == 1
+
+    def test_and_the_reader_wobbling_while_he_does_it_does_not_either(self):
+        """The two problems together, which is what actually happens: the
+        track dies AND the re-read lands one character off."""
+        recorded = []
+        w = worker([], recorded, dedupe_seconds=60.0, near_dedupe_seconds=5.0)
+        at = settle(w, "بجد 1234", START)
+
+        for _ in range(LOST_FRAMES + 4):
+            w.reader.script.append([])
+            w.analyse(frame(at))
+            at += timedelta(seconds=0.25)
+
+        settle(w, "بجد 1235", at)                 # one digit out
+
+        assert len(recorded) == 1
+
+    def test_a_different_car_is_still_its_own_row(self):
+        """The whole risk of matching loosely. This must never merge."""
+        recorded = []
+        w = worker([], recorded, dedupe_seconds=60.0, near_dedupe_seconds=5.0)
+        at = settle(w, "بجد 1234", START)
+        at += timedelta(seconds=30)               # the first car drives off
+        settle(w, "سنر 582", at, x1=400)
+
+        assert len(recorded) == 2
+
+    def test_a_similar_plate_much_later_is_a_different_car(self):
+        """**The case Mohamed asked about.** Two cars whose plates differ by
+        one character must not collapse into one row.
+
+        Time is what tells them apart: a re-acquired car comes back within a
+        few seconds, a real one has to drive up. Past `near_dedupe_seconds`
+        the benefit of the doubt is withdrawn, because losing a car is worse
+        than logging a duplicate.
+        """
+        recorded = []
+        w = worker([], recorded, dedupe_seconds=60.0, near_dedupe_seconds=5.0)
+        at = settle(w, "بجد 1234", START)
+        at += timedelta(seconds=30)               # well past the near window
+        settle(w, "بجد 1235", at, x1=400)         # a genuinely different car
+
+        assert len(recorded) == 2
+
+    def test_the_same_car_returning_much_later_is_a_new_arrival(self):
+        """It left and came back. That is two arrivals, and the log says so.
+
+        The empty frames matter: a camera keeps sending them while the gate is
+        clear, and that is what ages the track out. Jumping the clock without
+        them leaves the old track alive and tests nothing.
+        """
+        recorded = []
+        w = worker([], recorded, dedupe_seconds=60.0)
+        at = settle(w, "بجد 1234", START)
+
+        for _ in range(LOST_FRAMES + 4):          # the car drives away
+            w.reader.script.append([])
+            w.analyse(frame(at))
+            at += timedelta(seconds=0.25)
+
+        at += timedelta(seconds=120)              # two minutes of empty gate
+        settle(w, "بجد 1234", at)
+
+        assert len(recorded) == 2
+
+    def test_loose_matching_can_be_switched_off(self):
+        """0 restores the exact-plate-only behaviour, for anyone who would
+        rather have the duplicates than the risk."""
+        recorded = []
+        w = worker([], recorded, dedupe_seconds=60.0, near_dedupe_seconds=0.0)
+        at = settle(w, "بجد 1234", START)
+        for _ in range(LOST_FRAMES + 4):
+            w.reader.script.append([])
+            w.analyse(frame(at))
+            at += timedelta(seconds=0.25)
+        settle(w, "بجد 1235", at)
+
+        assert len(recorded) == 2
+
+    def test_the_recent_table_does_not_grow_for_ever(self):
+        """A gate runs for months. Nothing else prunes this."""
+        recorded = []
+        w = worker([], recorded, dedupe_seconds=1.0, near_dedupe_seconds=0.0)
+        at = START
+        for i in range(12):
+            at = settle(w, f"بجد {1000 + i}", at, x1=100 + i * 5)
+            at += timedelta(seconds=5)            # each one expires
+
+        assert len(w._recent) < 12

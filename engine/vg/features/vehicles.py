@@ -76,6 +76,10 @@ REVIEW_BELOW = 0.55
 #: them for a minute with nothing on screen to say why.
 DEDUPE_SECONDS = 60.0
 
+#: The same window for a plate that is only NEARLY the same. Deliberately
+#: much shorter — see `_seen_recently`, where the reasoning lives.
+NEAR_DEDUPE_SECONDS = 5.0
+
 #: How many frames a track survives without being seen before it is finished.
 LOST_FRAMES = 8
 
@@ -255,11 +259,13 @@ class VehiclesWorker(FeatureWorker[VehiclesResult]):
         rate_hz: float = 4.0,
         boost_hz: float = 12.0,
         dedupe_seconds: float = DEDUPE_SECONDS,
+        near_dedupe_seconds: float = NEAR_DEDUPE_SECONDS,
     ) -> None:
         super().__init__("vehicles", bus, cameras, rate_hz, boost_hz)
         self.reader = reader
         self.on_pass = on_pass
         self.dedupe_seconds = float(dedupe_seconds)
+        self.near_dedupe_seconds = float(near_dedupe_seconds)
         # camera id -> tracks currently in view
         self._tracks: dict[str, list[_Track]] = {}
         # (camera id, plate) -> when it was last recorded, for de-duplication
@@ -320,6 +326,11 @@ class VehiclesWorker(FeatureWorker[VehiclesResult]):
             if track.best_image is None or read.confidence >= track.best_confidence:
                 track.best_image = frame.image
                 track.best_box = read.box
+
+            # **A car still in front of the camera is still the same
+            # arrival.** This is what makes the gate survive a real barrier,
+            # where a car stops and a guard checks it: see `_still_here`.
+            self._still_here(frame.camera_id, read.text, now)
 
             # After the vote, so the leader shown beside this attempt is the
             # one this frame helped decide rather than the one before it.
@@ -416,13 +427,100 @@ class VehiclesWorker(FeatureWorker[VehiclesResult]):
                     log.exception("could not record a gate pass on %s", camera_id)
         return out
 
+    def _matches_recent(self, plate: str, seen_plate: str,
+                        age: timedelta) -> bool:
+        """Is this read the car recorded under `seen_plate`?
+
+        **One rule, used by both the refresh and the check**, because two
+        definitions of "the same car" in one file is how the log ended up with
+        duplicates in the first place: the voting merged near matches and the
+        de-duplication did not.
+
+        Exact text counts for the whole window. A near match counts only for
+        `near_dedupe_seconds`, because weaker evidence gets the benefit of the
+        doubt for less time — see `_seen_recently`.
+        """
+        if seen_plate == plate:
+            return True
+        if self.near_dedupe_seconds <= 0:
+            return False
+        return (age <= timedelta(seconds=self.near_dedupe_seconds)
+                and platetext.same_plate(plate, seen_plate))
+
+    def _still_here(self, camera_id: str, plate: str, now: datetime) -> None:
+        """This plate is on screen right now, so its arrival is not over.
+
+        **Why a timer alone cannot work at a real gate.** A car arrives,
+        stops, and a guard checks it — for twenty seconds, or two minutes, and
+        nobody can say which in advance. While the plate stays visible the
+        track holds and no second pass is written, whatever the timer says.
+        But the track dies after `LOST_FRAMES` consecutive misses, which is
+        under a second at the boosted rate: a guard stepping in front of the
+        bumper is enough. The car is re-acquired as a new car and written down
+        again.
+
+        So the clock restarts from **the last time this plate was seen**
+        rather than from when it was recorded. A car at the barrier keeps
+        pushing its own expiry forward for as long as it is there, and only
+        counts down once it has actually gone. "How long might a car sit
+        there?" stops being a number anybody has to guess.
+
+        **An expired entry is never revived.** Once the gap since the last
+        sighting exceeds the window, that arrival is over; the car coming back
+        is a new arrival and gets its own row. Refreshing a dead entry would
+        mean a car that left and returned an hour later was silently folded
+        into the morning's record.
+
+        **Only ever refreshes, never adds.** Adding would let one misread
+        frame suppress a real car that arrived moments afterwards.
+        """
+        if not plate:
+            return
+        window = timedelta(seconds=self.dedupe_seconds)
+        for key, last in self._recent.items():
+            if key[0] != camera_id:
+                continue
+            age = now - last
+            if age <= window and self._matches_recent(plate, key[1], age):
+                self._recent[key] = now
+
     def _seen_recently(self, camera_id: str, plate: str, now: datetime) -> bool:
-        last = self._recent.get((camera_id, plate))
-        if last is None:
-            return False
-        if now - last > timedelta(seconds=self.dedupe_seconds):
-            return False
-        return True
+        """Has this car already been written down here, moments ago?
+
+        **Two tiers, because the two possible mistakes are not equally bad.**
+
+        Recording one car twice is untidy: the counts inflate and nothing is
+        lost. Recording two cars once loses a car — and if it were the
+        blacklisted one, it vanishes with nobody told. So the looser the
+        match, the shorter it may be trusted for.
+
+            exact same plate    -> one car, for the full `dedupe_seconds`
+            one character out   -> one car, but only for `near_dedupe_seconds`
+
+        The loose tier exists because the reader wobbles: a plate briefly
+        hidden loses its track, is picked up again, and can settle a character
+        off — two rows, one car. Matching only on the exact string never
+        caught that, which is what the log did before 28 Aug 2026.
+
+        The loose tier is *short* because time is what tells the two cases
+        apart. A re-acquired car comes back in two to four seconds; a
+        genuinely different car has to drive up, which is ten seconds at
+        least. Past the short window a near miss is assumed to be a different
+        car and is recorded — the safe way to be wrong.
+
+        Prunes as it scans: `_recent` is only ever added to otherwise, and a
+        gate runs for months.
+        """
+        window = timedelta(seconds=self.dedupe_seconds)
+        seen = False
+        for key in list(self._recent):
+            age = now - self._recent[key]
+            if age > window:
+                del self._recent[key]
+                continue
+            if not seen and key[0] == camera_id:
+                seen = self._matches_recent(plate, key[1], age)
+        return seen
 
     # -- what the API asks for ---------------------------------------------
 

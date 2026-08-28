@@ -1244,6 +1244,7 @@ def _start_vehicles(cfg, registry, roster):
             registry.bus, reader, [c.id for c in gates],
             on_pass=record, rate_hz=rate, boost_hz=12.0,
             dedupe_seconds=cfg.vehicles.dedupe_seconds,
+            near_dedupe_seconds=cfg.vehicles.near_dedupe_seconds,
         )
         worker.start()
         log.info(
