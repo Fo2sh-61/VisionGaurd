@@ -1224,9 +1224,11 @@ class LiveStore(MockStore):
         if self.vehicle_store is None:
             return []
         limit = int(filters.pop("limit", 100) or 100)
-        records = self.vehicle_store.passes(limit=limit, **{
-            k: v for k, v in filters.items() if v not in (None, "")
-        })
+        day = filters.pop("day", "")
+        applied = {k: v for k, v in filters.items() if v not in (None, "")}
+        if day:
+            applied["since"], applied["until"] = self._day_bounds(day)
+        records = self.vehicle_store.passes(limit=limit, **applied)
         return [self._to_wire_pass(p) for p in records]
 
     def _to_wire_pass(self, record) -> S.VehiclePass:

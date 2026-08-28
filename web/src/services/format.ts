@@ -364,6 +364,25 @@ export function toDetectionBox(box: WireBox): DetectionBox {
  *  themselves rather than being told the software is broken. */
 export const COMFORTABLE_PLATE_PX = 100;
 
+/** "Registered" · "Not registered" · "Blacklisted" · "Permit expired" */
+export function plateStatusLabel(status: string): string {
+  if (status === 'known') return 'Registered';
+  if (status === 'blacklist') return 'Blacklisted';
+  if (status === 'expired') return 'Permit expired';
+  return 'Not registered';
+}
+
+export function plateStatusTone(status: string): Tone {
+  if (status === 'known') return 'good';
+  if (status === 'blacklist') return 'bad';
+  return 'warn';
+}
+
+/** Which way the camera watching this gate is pointed. */
+export function directionLabel(direction: string): string {
+  return direction === 'exit' ? 'Out' : 'In';
+}
+
 /** An Egyptian plate in Latin letters: "ب ج د ١٢٣٤" -> "B G D 1234".
  *
  *  For the register table, where the guard reads Arabic but an exported

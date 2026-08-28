@@ -196,6 +196,19 @@ Numbering continues the vehicle-gate series from `specs/006-vehicle-gate`
   export. Recording itself is unchanged: every pass is still written with its
   photograph, crop, confidence, votes and review flag, and the export still returns
   all of it.
+- **P6-FR-055**: The console MUST show every recorded pass — photograph,
+  plate, time, gate, direction and status — with an administrator able to
+  remove one in a single click. **This reverses the console half of
+  P6-FR-052**, at the owner's request on 28 Aug 2026 and for a reason the
+  original decision did not anticipate: "Inside now" and the visit tables are
+  derived from *pairing* an entry with an exit, so a gate with one camera has
+  nothing to pair against and correctly refuses to print a figure. With the
+  pass list also gone, a gate that had recorded nine cars showed none of them
+  anywhere. A page that hides real recorded data is as dishonest as one that
+  invents it. Recording, retention, permissions and the audit entry are all
+  unchanged; only the display returns, and smaller — the confidence and vote
+  counts stay behind the reader card's Details toggle.
+
 - **P6-FR-053**: The Registered vehicles tab MUST match the drawing where it does
   not already: the Latin transliteration line under each plate, and an import card
   whose "last import" line states the real most recent import — rows added, rows

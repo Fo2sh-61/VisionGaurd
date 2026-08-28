@@ -2921,10 +2921,16 @@ def _mount(app: FastAPI) -> None:
         gate: int | None = None,
         direction: str = "",
         status: str = "",
+        day: str = "",
     ) -> list[S.VehiclePass]:
         """The pass log, newest first."""
-        return store.vehicle_passes(limit=limit, plate=plate, gate=gate,
-                                    direction=direction, status=status)
+        try:
+            return store.vehicle_passes(limit=limit, plate=plate, gate=gate,
+                                        direction=direction, status=status,
+                                        day=day)
+        except ValueError:
+            raise HTTPException(
+                422, f"{day!r} is not a date. Use YYYY-MM-DD.") from None
 
     @app.get("/vehicles/cameras", response_model=list[S.CameraView],
              tags=["vehicles"])

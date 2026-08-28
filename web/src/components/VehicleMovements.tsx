@@ -26,6 +26,7 @@
 
 import { useState } from 'react';
 import { Plate } from '@/components/Plate';
+import { VehiclePassesCard } from '@/components/VehiclePasses';
 import { Badge, Card, CardHeader, Empty, LoadError } from '@/components/ui';
 import {
   exportVehiclePasses, getVehicleGates, getVehicleTraffic, getVehicleVisits,
@@ -361,6 +362,11 @@ export function VehicleMovementsTab({ isAdmin, summary }: {
               : 'Everything below is today.'}
         </div>
       </Card>
+
+      {/* First, because on a gate with one camera this is the ONLY place a
+          recorded car appears: everything below needs an exit camera to pair
+          against and correctly refuses to guess without one. */}
+      <VehiclePassesCard isAdmin={isAdmin} day={day} />
 
       <Card>
         <CardHeader

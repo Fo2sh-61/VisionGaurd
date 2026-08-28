@@ -419,6 +419,38 @@ export async function getVehicleSummary(): Promise<W.GateSummary> {
 }
 
 
+/** Every pass recorded, newest first.
+ *
+ *  Back on the console after 28 Aug. Removing the list left an entry-only
+ *  gate with nowhere at all to see its own recorded cars — "inside now" needs
+ *  an exit camera to pair against, so on a single-camera gate it can only
+ *  print the reason it cannot answer. */
+export async function getVehiclePasses(
+  filters: {
+    limit?: number; plate?: string; gate?: number;
+    direction?: string; status?: string; day?: string;
+  } = {},
+): Promise<W.VehiclePass[]> {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined && value !== '' && value !== null) {
+      query.set(key, String(value));
+    }
+  }
+  const suffix = query.toString();
+  return get<W.VehiclePass[]>(`/vehicles/passes${suffix ? `?${suffix}` : ''}`);
+}
+
+/** Remove one pass, with its photograph and plate crop. Administrator only.
+ *
+ *  Permanent — "inside now" and the visit lists are computed from the pass
+ *  table, so a row kept hidden would go on answering questions after somebody
+ *  deleted it. The audit entry is written before the row goes and cannot
+ *  itself be deleted. */
+export async function deleteVehiclePass(id: string): Promise<void> {
+  await del<{ ok: boolean }>(`/vehicles/passes/${encodeURIComponent(id)}`);
+}
+
 /** Gate cameras only. A camera with no gate number is not watching a gate. */
 export async function getVehicleCameras(): Promise<Camera[]> {
   return toCameras(await get<W.CameraView[]>('/vehicles/cameras'));
