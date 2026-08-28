@@ -987,3 +987,71 @@ class TestTheLivePlateShot:
         assert "readingDisplay" in fields
         assert "readingVotes" in fields
         assert "hasCrop" in fields
+
+
+class TestCorrectingAPlateOverTheWire:
+    def test_an_admin_may_correct(self, gate_app, authed):
+        application, vehicles, _ = gate_app
+        record = _pass(vehicles, plate="بجد 9999")
+
+        response = authed(application).patch(
+            f"/vehicles/passes/{record.id}/plate", json={"plate": "بجد 1234"})
+
+        assert response.status_code == 200
+        assert response.json()["correctedBy"]
+
+    def test_a_guard_may_not(self, gate_app, authed):
+        """Rewriting what the log says a car was is a bigger act than
+        clearing an alert, and stays on the admin side of the line."""
+        application, vehicles, _ = gate_app
+        record = _pass(vehicles, plate="بجد 9999")
+
+        response = authed(application, role="it").patch(
+            f"/vehicles/passes/{record.id}/plate", json={"plate": "بجد 1234"})
+
+        assert response.status_code == 403
+
+    def test_an_unreadable_plate_is_refused_with_a_reason(self, gate_app, authed):
+        application, vehicles, _ = gate_app
+        record = _pass(vehicles, plate="بجد 9999")
+
+        response = authed(application).patch(
+            f"/vehicles/passes/{record.id}/plate", json={"plate": "   "})
+
+        assert response.status_code == 422
+        assert response.json()["detail"]
+
+    def test_a_row_that_is_gone_is_a_404(self, gate_app, authed):
+        application, _, _ = gate_app
+
+        assert authed(application).patch(
+            "/vehicles/passes/nope/plate",
+            json={"plate": "بجد 1234"}).status_code == 404
+
+
+class TestTheCorrectionPickerKnowsWhatIsConfused:
+    """The picker offers the characters this model actually mixes up, which
+    is measured data — so it is served, never copied into the console."""
+
+    def test_a_guard_may_read_the_alphabet(self, app, authed):
+        assert authed(app, role="it").get(
+            "/vehicles/alphabet").status_code == 200
+
+    def test_it_names_the_pairs_the_reader_confuses(self, app, authed):
+        body = authed(app, role="it").get("/vehicles/alphabet").json()
+
+        # `ب` and `ت` differ by dots and the reader genuinely swaps them.
+        assert "ت" in body["confusions"]["ب"]
+        # A letter shaped like a digit — the classic Egyptian-plate trap.
+        assert "4" in body["confusions"]["ع"]
+
+    def test_confusions_go_both_ways(self, app, authed):
+        """Whichever one the reader produced, the other must be offered."""
+        body = authed(app, role="it").get("/vehicles/alphabet").json()
+
+        assert "ب" in body["confusions"]["ت"]
+
+    def test_the_common_letters_are_a_subset_of_the_allowed_ones(self, app, authed):
+        body = authed(app, role="it").get("/vehicles/alphabet").json()
+
+        assert set(body["commonLetters"]) <= set(body["letters"])

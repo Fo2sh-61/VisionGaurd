@@ -1465,6 +1465,10 @@ class VehiclePass(Wire):
     owner: str | None = None
     unit: str | None = None
     has_snapshot: bool = False
+    #: Who typed this plate in by hand, if anybody. None is the reader's own
+    #: answer. Shown on the row so a corrected reading is visibly a person's
+    #: judgement rather than the model's, and so nobody re-corrects it.
+    corrected_by: str | None = None
 
 
 class RegisteredVehicle(Wire):
@@ -1485,6 +1489,33 @@ class RegisteredVehicle(Wire):
     #: to stay true and is wrong between midnight and whenever it runs.
     expired: bool = False
     last_seen: Instant | None = None
+
+
+class PlateCorrection(Wire):
+    """A plate somebody typed in after looking at the photograph."""
+
+    plate: str
+
+
+class PlateAlphabet(Wire):
+    """What a plate may contain, and what the reader mixes up.
+
+    Served rather than mirrored in TypeScript because the confusion table is
+    **measured** — it lists the pairs the character model actually returns for
+    one another, and it will change when the model does. A copy in the console
+    would drift, and the drift would show up as a correction picker that fails
+    to offer the one character the reader was likely to have got wrong.
+    """
+
+    #: Every letter the reader may output.
+    letters: list[str] = Field(default_factory=list)
+    #: The narrower set public sources agree is actually issued. Offered
+    #: first in a picker; the rest stay reachable.
+    common_letters: list[str] = Field(default_factory=list)
+    digits: list[str] = Field(default_factory=list)
+    #: character -> the characters it is genuinely confused with, commonest
+    #: first. One tap fixes the overwhelmingly likely mistake.
+    confusions: dict[str, list[str]] = Field(default_factory=dict)
 
 
 class VehicleRegistration(Wire):
@@ -1675,8 +1706,18 @@ class GateReaderCamera(Wire):
     #: can be fetched; the console shows the picture beside the answer, so a
     #: person judges the two together rather than taking either on faith.
     reading_display: str | None = None
+    #: The same reading in canonical form — letters, space, ASCII digits.
+    #: The display form is spaced and carries Indic digits, which is right for
+    #: reading off a screen and wrong for feeding an editor; parsing it back
+    #: in the console would be a second implementation of `normalize`.
+    reading_plate: str | None = None
     reading_votes: int = 0
     has_crop: bool = False
+    #: The row this car was filed as, once it has been. None while the votes
+    #: are still gathering. Carrying it is what lets somebody correct the
+    #: reading from here — the same row the pass list would correct, never a
+    #: second one.
+    reading_pass_id: str | None = None
 
 
 class GateReaderNow(Wire):

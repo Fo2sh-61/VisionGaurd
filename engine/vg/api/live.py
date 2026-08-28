@@ -1247,6 +1247,7 @@ class LiveStore(MockStore):
             owner=record.owner_name,
             unit=record.unit,
             has_snapshot=record.has_snapshot,
+            corrected_by=record.corrected_by,
         )
 
     def vehicle_cameras(self) -> list[S.CameraView]:
@@ -1307,6 +1308,8 @@ class LiveStore(MockStore):
                 reading_display=reading[1] if reading else None,
                 reading_votes=reading[2] if reading else 0,
                 has_crop=reading is not None,
+                reading_pass_id=reading[4] if reading else None,
+                reading_plate=reading[5] if reading else None,
             ))
             for attempt in worker.attempts_on(camera.id):
                 attempts.append(S.ReaderAttempt(
@@ -1440,6 +1443,42 @@ class LiveStore(MockStore):
                   f"{record.direction} at gate {record.gate}, "
                   f"read {record.confidence:.2f} over {record.votes} frames")
         return store.delete_pass(pass_id)
+
+    def plate_alphabet(self) -> S.PlateAlphabet:
+        """What a plate may contain, and what the reader mixes up.
+
+        Straight from `platetext`, so the console's correction picker offers
+        exactly the characters this model is measured to confuse rather than a
+        copy that drifts the day the model changes.
+        """
+        confusions: dict[str, list[str]] = {}
+        for a, b in platetext.CONFUSIONS:
+            confusions.setdefault(a, []).append(b)
+            confusions.setdefault(b, []).append(a)
+        return S.PlateAlphabet(
+            letters=list(platetext.LETTERS),
+            common_letters=list(platetext.STRICT_LETTERS),
+            digits=list("0123456789"),
+            confusions=confusions,
+        )
+
+    def correct_plate(self, pass_id: str, plate: str,
+                      actor: str) -> S.VehiclePass | None:
+        """Somebody looked at the photograph and typed what it says.
+
+        Audited before the write, like every other change here — and the
+        entry names **both** plates, because "who changed this and from what"
+        is the whole question anybody will ask of it later.
+        """
+        store = self._need_register()
+        record = store.pass_by_id(pass_id)
+        if record is None:
+            return None
+        self._log(actor, "vehicle.pass.correct", record.plate,
+                  f"read as {platetext.transliterate(record.plate)}, "
+                  f"corrected to {platetext.transliterate(platetext.normalize(plate))}")
+        updated = store.set_plate(pass_id, plate, actor, self._site_today())
+        return self._to_wire_pass(updated) if updated else None
 
     # -- alerts -------------------------------------------------------------
 

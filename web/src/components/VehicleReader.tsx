@@ -1,7 +1,10 @@
 import { useState } from 'react';
 import { Card, Empty, LoadError } from '@/components/ui';
 import { Plate } from '@/components/Plate';
-import { getVehicleReader, vehicleCropUrl } from '@/services/api';
+import { PlateEditor } from '@/components/PlateEditor';
+import {
+  correctVehiclePlate, getVehicleReader, vehicleCropUrl,
+} from '@/services/api';
 import { COMFORTABLE_PLATE_PX, formatTime, plateWidthTone } from '@/services/format';
 import type * as W from '@/services/wire';
 import { useAsync } from '@/app/useAsync';
@@ -39,12 +42,57 @@ function Measured({ value }: { value: number | null }) {
  *  judge is the picture beside the settled answer: if those two agree, the
  *  gate is right, and no confidence score adds anything to that.
  */
-function CameraNow({ camera, bust, votesNeeded }: {
+function CameraNow({ camera, bust, votesNeeded, isAdmin, onCorrected }: {
   camera: W.GateReaderCamera;
   bust: number;
   votesNeeded: number;
+  isAdmin: boolean;
+  onCorrected: () => void;
 }) {
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
   const agreed = votesNeeded > 0 && camera.readingVotes >= votesNeeded;
+  // Only once the row exists. Before that there is nothing to correct — the
+  // votes are still gathering and the reader may yet get there on its own.
+  const fixable = isAdmin && Boolean(camera.readingPassId);
+
+  async function save(plate: string) {
+    if (!camera.readingPassId) return;
+    setSaving(true);
+    try {
+      await correctVehiclePlate(camera.readingPassId, plate);
+      setEditing(false);
+      onCorrected();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (editing && camera.readingPassId) {
+    return (
+      <div style={{
+        border: '1px solid var(--ac)', borderRadius: 12, padding: 14,
+        display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap',
+      }}>
+        {camera.hasCrop && (
+          <img
+            src={vehicleCropUrl(camera.cameraId, bust)}
+            alt="the plate being read"
+            style={{
+              height: 54, maxWidth: 200, objectFit: 'contain', borderRadius: 4,
+              border: '1px solid var(--line)', background: '#fff',
+            }}
+          />
+        )}
+        <PlateEditor
+          plate={camera.readingPlate ?? ''}
+          busy={saving}
+          onCancel={() => setEditing(false)}
+          onSave={(plate) => { void save(plate); }}
+        />
+      </div>
+    );
+  }
 
   return (
     <div style={{
@@ -92,6 +140,16 @@ function CameraNow({ camera, bust, votesNeeded }: {
               ? 'recorded'
               : `${camera.readingVotes}/${votesNeeded} frames agree`}
           </span>
+          {fixable && (
+            <button
+              type="button"
+              className="linkbtn"
+              onClick={() => setEditing(true)}
+              title="Type what the photograph shows"
+            >
+              Fix
+            </button>
+          )}
         </div>
       ) : (
         <span style={{ fontSize: 13, color: 'var(--tx3)' }}>
@@ -171,9 +229,9 @@ function AttemptRow({ attempt, multiCamera }: {
  *  camera is too far away (widths amber), the model is failing (a new answer
  *  every frame, votes never gathering), or nothing is reading at all.
  */
-export function VehicleReader() {
+export function VehicleReader({ isAdmin = false }: { isAdmin?: boolean }) {
   const [showDetails, setShowDetails] = useState(false);
-  const { data, error, loading } = useAsync(
+  const { data, error, loading, reload } = useAsync(
     () => getVehicleReader(), [], EMPTY, REFRESH_MS);
 
   // Bumped every poll so the browser fetches a fresh crop. Without it an
@@ -236,6 +294,8 @@ export function VehicleReader() {
             camera={camera}
             bust={bust}
             votesNeeded={data.votesNeeded}
+            isAdmin={isAdmin}
+            onCorrected={reload}
           />
         ))}
       </div>

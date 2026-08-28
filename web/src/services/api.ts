@@ -480,6 +480,26 @@ export function vehicleCropUrl(cameraId: string, bust: number): string {
     `/vehicles/cameras/${encodeURIComponent(cameraId)}/crop?t=${bust}`) ?? '';
 }
 
+/** What a plate may contain, and which characters the reader confuses.
+ *
+ *  Fetched once and reused: it is a property of the alphabet and the model,
+ *  not of any gate, so it does not change while somebody is looking at it. */
+export async function getPlateAlphabet(): Promise<W.PlateAlphabet> {
+  return get<W.PlateAlphabet>('/vehicles/alphabet');
+}
+
+/** Type in a plate after looking at the photograph.
+ *
+ *  Administrator only — this rewrites what the log says a car was. From then
+ *  on the correction outranks the reader: an automatic amendment as the car
+ *  approaches will not overwrite it. */
+export async function correctVehiclePlate(
+  passId: string, plate: string,
+): Promise<W.VehiclePass> {
+  return patch<W.VehiclePass>(
+    `/vehicles/passes/${encodeURIComponent(passId)}/plate`, { plate });
+}
+
 /** Today's passes still waiting for a person. */
 export async function getVehicleAlerts(): Promise<W.GateAlert[]> {
   return get<W.GateAlert[]>('/vehicles/alerts');

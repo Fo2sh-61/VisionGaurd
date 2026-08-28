@@ -88,7 +88,13 @@ CREATE TABLE IF NOT EXISTS vehicle_pass (
     needs_review  INTEGER NOT NULL DEFAULT 0,
     snapshot      TEXT,
     plate_crop    TEXT,
-    created_at    TEXT NOT NULL
+    created_at    TEXT NOT NULL,
+    -- Who typed this plate in by hand, and when. NULL means the reader's own
+    -- answer. A person's correction outranks the reader's: once this is set,
+    -- the automatic "the car got closer and reads better now" amendment
+    -- leaves the row alone. Somebody looked at the photograph.
+    corrected_by  TEXT,
+    corrected_at  TEXT
 );
 CREATE INDEX IF NOT EXISTS ix_pass_at    ON vehicle_pass(at DESC);
 CREATE INDEX IF NOT EXISTS ix_pass_plate ON vehicle_pass(plate, at DESC);
@@ -195,6 +201,8 @@ class VehiclePass:
     unit: str | None = None
     snapshot: str | None = None
     plate_crop: str | None = None
+    #: Who typed this plate in by hand. None means the reader's own answer.
+    corrected_by: str | None = None
 
     @property
     def has_snapshot(self) -> bool:
@@ -262,7 +270,30 @@ class VehicleStore:
         self._lock = threading.RLock()
         self._conn = db.connect(self.path)
         self._conn.executescript(SCHEMA)
+        self._add_missing_columns()
         self._conn.commit()
+
+    def _add_missing_columns(self) -> None:
+        """Bring an existing database up to the current shape.
+
+        `CREATE TABLE IF NOT EXISTS` does nothing to a table that already
+        exists, so a new column never reaches a gate that has been running —
+        and gates are exactly the thing nobody wants to wipe to get a feature.
+        Adding by name, guarded by what is actually there, is idempotent and
+        needs no version number to go stale.
+        """
+        for table, column, ddl in (
+            # Who typed this plate in by hand. NULL means the reader's own
+            # answer, which is what lets an automatic correction know to leave
+            # a human's correction alone.
+            ("vehicle_pass", "corrected_by", "TEXT"),
+            ("vehicle_pass", "corrected_at", "TEXT"),
+        ):
+            existing = {r["name"] for r in
+                        self._conn.execute(f"PRAGMA table_info({table})")}
+            if column not in existing:
+                self._conn.execute(
+                    f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
 
     def close_db(self) -> None:
         with self._lock:
@@ -621,10 +652,17 @@ class VehicleStore:
 
         with self._lock:
             row = self._conn.execute(
-                "SELECT snapshot, plate_crop FROM vehicle_pass WHERE id = ?",
-                (pass_id,)).fetchone()
+                "SELECT snapshot, plate_crop, corrected_by FROM vehicle_pass"
+                " WHERE id = ?", (pass_id,)).fetchone()
             if row is None:
                 return None
+            if row["corrected_by"]:
+                # **A person outranks the reader.** Somebody looked at the
+                # photograph and typed what they saw; a later frame reading
+                # differently is not new information about that, and silently
+                # undoing their correction while they watch would be the most
+                # infuriating behaviour this page could have.
+                return self.pass_by_id(pass_id)
             with self._conn:
                 self._conn.execute(
                     "UPDATE vehicle_pass SET plate = ?, plate_display = ?,"
@@ -641,6 +679,42 @@ class VehicleStore:
                 for old in (row["snapshot"], row["plate_crop"]):
                     if old not in (snapshot, plate_crop):
                         _unlink(old)
+        return self.pass_by_id(pass_id)
+
+    def set_plate(self, pass_id: str, plate: str, by_who: str,
+                  today: date) -> VehiclePass | None:
+        """A person read the photograph and typed what it says.
+
+        **This wins over anything the reader decides afterwards**, which is
+        what `corrected_by` records. The status is recomputed for the same
+        reason an automatic correction recomputes it: the typed plate may
+        match a registered car, or a blacklisted one, and a stale verdict
+        beside a corrected plate is the worst of both.
+
+        What happened is untouched — the time, the gate, the direction and the
+        photograph are the event. Only the reading of the plate changes, and
+        the row now says a human made it.
+        """
+        canonical = platetext.normalize(plate)
+        if not canonical:
+            raise ValueError(
+                "That is not a readable plate. It needs at least one letter "
+                "or one digit.")
+        vehicle = self.by_plate(canonical)
+        status = status_for(vehicle, today)
+
+        with self._lock:
+            if self._conn.execute("SELECT 1 FROM vehicle_pass WHERE id = ?",
+                                  (pass_id,)).fetchone() is None:
+                return None
+            with self._conn:
+                self._conn.execute(
+                    "UPDATE vehicle_pass SET plate = ?, plate_display = ?,"
+                    " status = ?, vehicle_id = ?, needs_review = 0,"
+                    " corrected_by = ?, corrected_at = ? WHERE id = ?",
+                    (canonical, platetext.display(canonical), status,
+                     vehicle.id if vehicle else None, by_who, _iso(_now()),
+                     pass_id))
         return self.pass_by_id(pass_id)
 
     def pass_by_id(self, pass_id: str) -> VehiclePass | None:
@@ -1127,4 +1201,7 @@ def _to_pass(row: sqlite3.Row) -> VehiclePass:
         owner_name=row["v_owner"] if "v_owner" in keys else None,
         unit=row["v_unit"] if "v_unit" in keys else None,
         snapshot=row["snapshot"], plate_crop=row["plate_crop"],
+        # Guarded like the joined columns above: a row selected before this
+        # column existed still parses, which matters while a gate is running.
+        corrected_by=row["corrected_by"] if "corrected_by" in keys else None,
     )

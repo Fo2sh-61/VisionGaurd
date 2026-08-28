@@ -662,8 +662,10 @@ class VehiclesWorker(FeatureWorker[VehiclesResult]):
     def reading_now(self, camera_id: str):
         """The car being read at this camera right now: its crop and answer.
 
-        Returns `(jpeg_bytes, display, votes, votes_needed)`, or None when no
-        car is in view. The crop is the **clearest** frame of that car so far,
+        Returns `(jpeg_bytes, display, votes, votes_needed, pass_id,
+        canonical)`, or
+        None when no car is in view. `pass_id` is None until the votes settle
+        and the row is written. The crop is the **clearest** frame of that car so far,
         not the latest — the same frame the pass will be photographed from,
         so what an operator watches is what gets filed.
 
@@ -688,7 +690,8 @@ class VehiclesWorker(FeatureWorker[VehiclesResult]):
         if not ok:
             return None
         plate, _, votes = track.leader
-        return bytes(buffer), platetext.display(plate), votes, MIN_VOTES
+        return (bytes(buffer), platetext.display(plate), votes, MIN_VOTES,
+                track.pass_id, plate)
 
     def read_ms(self, camera_id: str) -> float | None:
         """Rolling milliseconds per read, or None before the first one.

@@ -250,7 +250,7 @@ export function VehicleGate() {
           {/* Under the cameras, deliberately: it explains what the boxes above
               are doing, and it is the only place a read that FAILED shows up
               at all — the pass log holds successes by construction. */}
-          <VehicleReader />
+          <VehicleReader isAdmin={isAdmin} />
         </>
       )}
 

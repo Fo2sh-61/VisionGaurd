@@ -3022,6 +3022,41 @@ def _mount(app: FastAPI) -> None:
         return Response(content=crop, media_type="image/jpeg",
                         headers={"Cache-Control": "no-store"})
 
+    @app.get("/vehicles/alphabet", response_model=S.PlateAlphabet,
+             tags=["vehicles"])
+    async def plate_alphabet(store: StoreDep) -> S.PlateAlphabet:
+        """What a plate may contain, and what the reader mixes up.
+
+        Readable by anyone signed in: it is the correction picker's vocabulary
+        and a guard is who does the correcting.
+        """
+        return store.plate_alphabet()
+
+    @app.patch("/vehicles/passes/{pass_id}/plate",
+               response_model=S.VehiclePass, tags=["vehicles"])
+    async def correct_plate(pass_id: str, body: S.PlateCorrection,
+                            store: StoreDep,
+                            user: auth_deps.CurrentUser) -> S.VehiclePass:
+        """Type in the plate after looking at the photograph.
+
+        Administrator only, by the same path rule as the rest of `/vehicles` —
+        this rewrites what the gate log says a car was, which is a bigger act
+        than clearing an alert.
+
+        The correction **outranks the reader from then on**: an automatic
+        amendment as the car approaches will not overwrite it. Somebody looked
+        at the picture.
+        """
+        try:
+            updated = store.correct_plate(pass_id, body.plate, user.name)
+        except SubsystemUnavailable as exc:
+            raise HTTPException(503, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        if updated is None:
+            raise HTTPException(404, f"no pass {pass_id!r}")
+        return updated
+
     @app.get("/vehicles/alerts", response_model=list[S.GateAlert],
              tags=["vehicles"])
     async def vehicle_alerts(store: StoreDep) -> list[S.GateAlert]:

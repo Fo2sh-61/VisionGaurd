@@ -943,3 +943,88 @@ class TestCorrectingAReading:
         assert store.amend_pass(first.id, plate="", confidence=0.9, votes=3,
                                 needs_review=False, today=TODAY) is None
         assert store.pass_by_id(first.id).plate == CANONICAL
+
+
+class TestTypingInAPlateByHand:
+    """A person looked at the photograph and typed what it says.
+
+    The reader will sometimes be wrong in a way no amount of voting fixes, so
+    the last word has to belong to somebody who can see the picture.
+    """
+
+    def test_the_plate_is_replaced(self, store):
+        first = a_pass(store, plate="بجد 9999")
+
+        store.set_plate(first.id, PLATE_ASCII, "Mohamed Fouad", TODAY)
+
+        assert store.pass_by_id(first.id).plate == CANONICAL
+
+    def test_the_row_says_who_typed_it(self, store):
+        first = a_pass(store, plate="بجد 9999")
+
+        store.set_plate(first.id, PLATE_ASCII, "Mohamed Fouad", TODAY)
+
+        assert store.pass_by_id(first.id).corrected_by == "Mohamed Fouad"
+
+    def test_english_digits_typed_in_match_the_register(self, store):
+        """Somebody types on the keyboard they have. The register has the same
+        car under Arabic digits, and it must still be the same car."""
+        store.add(plate=PLATE_ARABIC, owner_name="Mohamed Fouad",
+                  category="staff")
+        first = a_pass(store, plate="بجد 9999")
+
+        store.set_plate(first.id, PLATE_ASCII, "Sara Ibrahim", TODAY)
+
+        after = store.pass_by_id(first.id)
+        assert after.status == "known"
+        assert after.owner_name == "Mohamed Fouad"
+
+    def test_a_correction_onto_a_blacklisted_car_says_so(self, store):
+        store.add(plate=CANONICAL, owner_name="Former contractor",
+                  category="blacklist")
+        first = a_pass(store, plate="بجد 9999")
+
+        store.set_plate(first.id, CANONICAL, "Sara Ibrahim", TODAY)
+
+        assert store.pass_by_id(first.id).status == "blacklist"
+
+    def test_a_typed_plate_is_no_longer_flagged_for_review(self, store):
+        """"Needs review" means the reader was unsure. Somebody has now
+        looked, so there is nothing left to review."""
+        first = a_pass(store, plate="بجد 9999", review=True)
+
+        store.set_plate(first.id, CANONICAL, "Mohamed Fouad", TODAY)
+
+        assert store.pass_by_id(first.id).needs_review is False
+
+    def test_the_reader_does_not_overwrite_a_person(self, store):
+        """**The one that would infuriate.** The car is still at the barrier,
+        so the reader goes on voting — and must not undo a correction while
+        the person who made it is looking at it."""
+        first = a_pass(store, plate="بجد 9999")
+        store.set_plate(first.id, CANONICAL, "Mohamed Fouad", TODAY)
+
+        store.amend_pass(first.id, plate="بجد 8888", confidence=0.99,
+                         votes=40, needs_review=False, today=TODAY)
+
+        after = store.pass_by_id(first.id)
+        assert after.plate == CANONICAL
+        assert after.corrected_by == "Mohamed Fouad"
+
+    def test_what_happened_is_not_edited(self, store):
+        first = a_pass(store, plate="بجد 9999", direction="entry")
+
+        store.set_plate(first.id, CANONICAL, "Mohamed Fouad", TODAY)
+
+        after = store.pass_by_id(first.id)
+        assert after.at == first.at and after.direction == "entry"
+
+    def test_an_empty_plate_is_refused(self, store):
+        first = a_pass(store, plate=CANONICAL)
+
+        with pytest.raises(ValueError):
+            store.set_plate(first.id, "   ", "Mohamed Fouad", TODAY)
+
+    def test_a_row_that_is_gone_cannot_be_corrected(self, store):
+        assert store.set_plate("no-such-pass", CANONICAL, "Mohamed Fouad",
+                               TODAY) is None

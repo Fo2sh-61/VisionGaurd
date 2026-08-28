@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { Plate } from '@/components/Plate';
+import { PlateEditor } from '@/components/PlateEditor';
 import { Badge, Card, CardHeader, Empty, LoadError } from '@/components/ui';
 import {
-  deleteVehiclePass, getVehiclePasses, vehiclePassSnapshotUrl,
+  correctVehiclePlate, deleteVehiclePass, getVehiclePasses,
+  vehiclePassSnapshotUrl,
 } from '@/services/api';
 import {
   directionLabel, formatTime, plateStatusLabel, plateStatusTone,
@@ -37,10 +39,27 @@ export function VehiclePassesCard({ isAdmin, day }: {
   day: string;
 }) {
   const [removing, setRemoving] = useState<string | null>(null);
+  const [editing, setEditing] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
 
   const { data: passes, error, loading, reload } = useAsync(
     () => getVehiclePasses({ limit: 100, day }), [day], NONE, REFRESH_MS);
+
+  async function correct(pass: W.VehiclePass, plate: string) {
+    setSaving(true);
+    setProblem(null);
+    try {
+      await correctVehiclePlate(pass.id, plate);
+      setEditing(null);
+      reload();
+    } catch (err) {
+      setProblem(err instanceof Error
+        ? err.message : 'That plate could not be saved.');
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function remove(pass: W.VehiclePass) {
     setRemoving(pass.id);
@@ -116,8 +135,24 @@ export function VehiclePassesCard({ isAdmin, day }: {
             }} />
           )}
 
-          <Plate display={pass.plateDisplay} />
+          {/* Editing happens in the row, against the photograph beside it —
+              which is the only way to check a plate, and the reason this is
+              not a dialog. */}
+          {editing === pass.id ? (
+            <span style={{ gridColumn: '2 / -1' }}>
+              <PlateEditor
+                plate={pass.plate}
+                busy={saving}
+                onCancel={() => setEditing(null)}
+                onSave={(plate) => { void correct(pass, plate); }}
+              />
+            </span>
+          ) : (
+            <Plate display={pass.plateDisplay} />
+          )}
 
+          {editing === pass.id ? null : (
+          <>
           <span style={{ minWidth: 0 }}>
             {/* Never blank. "Not in the register" is a fact about the car; an
                 empty cell reads as data we failed to load. */}
@@ -126,6 +161,9 @@ export function VehiclePassesCard({ isAdmin, day }: {
             </span>
             <span style={{ fontSize: 12.5, color: 'var(--tx3)' }}>
               {pass.gateName}
+              {/* Said out loud: a corrected row is a person's judgement, not
+                  the model's, and nobody should re-check it as a misread. */}
+              {pass.correctedBy && ` · typed in by ${pass.correctedBy}`}
             </span>
           </span>
 
@@ -148,6 +186,17 @@ export function VehiclePassesCard({ isAdmin, day }: {
               {plateStatusLabel(pass.status)}
             </Badge>
 
+            {isAdmin && (
+              <button
+                type="button"
+                className="linkbtn"
+                onClick={() => setEditing(pass.id)}
+                title="The reader got this wrong — type what the photograph shows"
+              >
+                Fix
+              </button>
+            )}
+
             {/* One click. The old version asked twice, which is what made it
                 unusable when a gate under test throws up a nonsense row every
                 few seconds. Permanent, admin-only, audited before the row
@@ -165,6 +214,8 @@ export function VehiclePassesCard({ isAdmin, day }: {
               </button>
             )}
           </span>
+          </>
+          )}
         </div>
       ))}
     </Card>

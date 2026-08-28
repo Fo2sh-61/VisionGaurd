@@ -872,6 +872,10 @@ export interface VehiclePass {
   owner: string | null;
   unit: string | null;
   hasSnapshot: boolean;
+  /** Who typed this plate in by hand, if anybody. Null is the reader's own
+   *  answer. A corrected row says so, and is not corrected again by the
+   *  reader as the car approaches. */
+  correctedBy: string | null;
 }
 
 export interface RegisteredVehicle {
@@ -1002,8 +1006,14 @@ export interface GateReaderCamera {
    *  `readingDisplay` is the settled answer the votes converged on — not the
    *  last frame's raw read, which wobbles and was only ever a diagnostic. */
   readingDisplay: string | null;
+  /** The same reading, canonical: letters, space, ASCII digits. What the
+   *  editor works in — the display form is for reading, not for typing. */
+  readingPlate: string | null;
   readingVotes: number;
   hasCrop: boolean;
+  /** The row this car was filed as, once it has been. Null while the votes
+   *  are still gathering. Correcting from here edits that same row. */
+  readingPassId: string | null;
 }
 
 export interface GateReaderNow {
@@ -1046,6 +1056,19 @@ export interface VehicleImportRun {
   skipped: number;
   rejected: number;
   byWho: string;
+}
+
+/** What a plate may contain, and what the reader mixes up.
+ *
+ *  Served by the engine rather than copied here, because `confusions` is
+ *  measured — it lists the pairs the character model actually returns for one
+ *  another. A copy would drift, and the drift would show as a picker that
+ *  fails to offer the one character the reader probably got wrong. */
+export interface PlateAlphabet {
+  letters: string[];
+  commonLetters: string[];
+  digits: string[];
+  confusions: Record<string, string[]>;
 }
 
 /** One hour of one day at the gates. In above the line, out below it. */

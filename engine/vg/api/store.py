@@ -171,6 +171,9 @@ class Store(Protocol):
     def vehicle_cameras(self) -> list[S.CameraView]: ...
     def vehicle_reader(self) -> S.GateReaderNow: ...
     def vehicle_crop(self, camera_id: str) -> bytes | None: ...
+    def plate_alphabet(self) -> S.PlateAlphabet: ...
+    def correct_plate(self, pass_id: str, plate: str,
+                      actor: str) -> S.VehiclePass | None: ...
     def vehicle_alerts(self) -> list[S.GateAlert]: ...
     def dismiss_alert(self, pass_id: str, actor: str,
                       action_taken: bool = False) -> bool: ...
@@ -272,6 +275,26 @@ class MockStore:
 
     def vehicle_crop(self, camera_id: str) -> bytes | None:
         return None
+
+    def plate_alphabet(self) -> S.PlateAlphabet:
+        # Real, not a fixture: it is a property of the plate alphabet rather
+        # than of any gate, so the demo store can answer it honestly.
+        from vg import platetext
+
+        confusions: dict[str, list[str]] = {}
+        for a, b in platetext.CONFUSIONS:
+            confusions.setdefault(a, []).append(b)
+            confusions.setdefault(b, []).append(a)
+        return S.PlateAlphabet(
+            letters=list(platetext.LETTERS),
+            common_letters=list(platetext.STRICT_LETTERS),
+            digits=list("0123456789"),
+            confusions=confusions,
+        )
+
+    def correct_plate(self, pass_id: str, plate: str, actor: str):
+        raise SubsystemUnavailable(
+            "The vehicle log is not available in this demo store.")
 
     def vehicle_alerts(self) -> list[S.GateAlert]:
         return []
