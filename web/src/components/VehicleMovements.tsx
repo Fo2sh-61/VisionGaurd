@@ -29,7 +29,8 @@ import { Plate } from '@/components/Plate';
 import { VehiclePassesCard } from '@/components/VehiclePasses';
 import { Badge, Card, CardHeader, Empty, LoadError } from '@/components/ui';
 import {
-  exportVehiclePasses, getVehicleGates, getVehicleTraffic, getVehicleVisits,
+  deleteVehiclePass, exportVehiclePasses, getVehicleGates,
+  getVehicleTraffic, getVehicleVisits,
   getVehiclesInside, vehiclePassSnapshotUrl,
 } from '@/services/api';
 import { formatDuration, formatTime } from '@/services/format';
@@ -157,10 +158,30 @@ function TrafficChart({ hours }: { hours: W.TrafficHour[] }) {
   );
 }
 
-function VisitRow({ visit, showLeft }: {
+function VisitRow({ visit, showLeft, isAdmin, onRemoved }: {
   visit: W.VehicleVisit;
   showLeft: boolean;
+  /** Only on "inside now", and only for an administrator: with no exit
+   *  camera nobody is ever seen leaving, so clearing a car that has gone is
+   *  a manual job until a second camera exists. Removing the entry pass is
+   *  what takes it off this list — the same permanent, audited delete as
+   *  anywhere else. */
+  isAdmin?: boolean;
+  onRemoved?: () => void;
 }) {
+  const [removing, setRemoving] = useState(false);
+
+  async function remove() {
+    if (!visit.entryPassId) return;
+    setRemoving(true);
+    try {
+      await deleteVehiclePass(visit.entryPassId);
+      onRemoved?.();
+    } finally {
+      setRemoving(false);
+    }
+  }
+
   return (
     <div
       className="row"
@@ -212,6 +233,18 @@ function VisitRow({ visit, showLeft }: {
         <span style={{ fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap' }}>
           {length(visit.minutes)}
         </span>
+        {isAdmin && onRemoved && visit.entryPassId && (
+          <button
+            type="button"
+            className="linkbtn"
+            disabled={removing}
+            onClick={() => { void remove(); }}
+            title="This car has gone. Removes its pass, photograph and crop. Permanent."
+            style={{ color: 'var(--rd)' }}
+          >
+            {removing ? 'Removing…' : 'Gone'}
+          </button>
+        )}
       </span>
     </div>
   );
@@ -233,7 +266,9 @@ export function VehicleMovementsTab({ isAdmin, summary }: {
     () => getVehicleGates(day), [day], NO_GATES, MOVEMENT_REFRESH_MS);
   const { data: hours } = useAsync(
     () => getVehicleTraffic(day), [day], NO_HOURS, MOVEMENT_REFRESH_MS);
-  const { data: inside, error: insideError } = useAsync(
+  const {
+    data: inside, error: insideError, reload: reloadInside,
+  } = useAsync(
     () => getVehiclesInside(), [], NO_VISITS, MOVEMENT_REFRESH_MS);
   const { data: visits } = useAsync(
     () => getVehicleVisits(day), [day], NO_VISITS, MOVEMENT_REFRESH_MS);
@@ -473,30 +508,50 @@ export function VehicleMovementsTab({ isAdmin, summary }: {
 
         {insideError && <LoadError error={insideError} />}
 
-        {/* The whole tab's honesty hinges on this branch. With entries only,
-            every car that ever drove in stays "inside" for ever, and printing
-            that list under this heading would be a lie by arithmetic. */}
-        {!paired && (
-          <Empty>
-            No exit camera is configured, so no car can be matched to its exit
-            and this list cannot be produced. A gate needs a second camera with
-            <code style={{ margin: '0 4px' }}>direction: exit</code>
-            before "inside now" means anything.
-          </Empty>
+        {/* With no exit camera nobody is ever *seen* leaving, so this list is
+            every car that came in — an over-count, and said so in words above
+            the rows rather than withheld.
+
+            It used to be withheld entirely, which was the wrong call. On a
+            single-camera gate — what every deployment starts as — that left a
+            page with nine recorded cars and nothing on it. An over-count
+            labelled as one is honest; an empty page is not more honest for
+            being emptier. The *number* on the Live tile is still absent,
+            because a tile has nowhere to carry the caveat. */}
+        {!paired && insideShown.length > 0 && (
+          <div style={{
+            fontSize: 12.5, color: 'var(--am)', lineHeight: 1.45,
+            padding: '10px 12px', borderRadius: 10,
+            background: 'var(--am-bg)', marginBottom: 12,
+          }}>
+            No exit camera is configured, so no car is ever seen leaving.
+            This is therefore every car that came in — an over-count, not a
+            count of what is on site. Adding a second camera with{' '}
+            <code>direction: exit</code> at this gate is what turns it into
+            an answer. Until then, remove a row by hand once you know the car
+            has gone.
+          </div>
         )}
 
-        {paired && insideShown.length === 0 && !insideError && (
+        {insideShown.length === 0 && !insideError && (
           <Empty>
             {filtering
               ? 'No car inside matches that search.'
-              : notReading ?? 'No car is inside. Every car that came in today '
-                + 'has been seen leaving.'}
+              : notReading ?? (paired
+                ? 'No car is inside. Every car that came in today has been '
+                  + 'seen leaving.'
+                : 'No car has come in today.')}
           </Empty>
         )}
 
-        {paired && insideShown.map((visit) => (
-          <VisitRow key={`${visit.plate}-${visit.entered.utc}`} visit={visit}
-                    showLeft={false} />
+        {insideShown.map((visit) => (
+          <VisitRow
+            key={`${visit.plate}-${visit.entered.utc}`}
+            visit={visit}
+            showLeft={false}
+            isAdmin={isAdmin}
+            onRemoved={reloadInside}
+          />
         ))}
       </Card>
 

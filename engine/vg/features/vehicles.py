@@ -159,6 +159,13 @@ class _Track:
     best_confidence: float = 0.0
     misses: int = 0
     reported: bool = False
+    #: What was filed for this car, and the row it went into. Kept so the
+    #: record can be CORRECTED as the car gets closer: the first three frames
+    #: that agree are the worst look the camera will ever get, and a pass
+    #: written from them and then never revisited is the reader "sticking" on
+    #: a bad reading while dozens of better frames go in the bin.
+    reported_plate: str = ""
+    pass_id: str | None = None
     #: The frame that read best, and where the plate was in it. Kept so the
     #: pass can be photographed (P6-FR-003) from the clearest look the camera
     #: got, rather than from whichever frame happened to be the third. One
@@ -168,42 +175,73 @@ class _Track:
     best_box: PlateBox | None = field(default=None, compare=False, repr=False)
 
     def vote(self, text: str, weight: float, confidence: float) -> None:
-        """Add a frame's reading, merging it into a near match if there is one.
+        """Record one frame's reading, exactly as it was read.
 
-        The merge is the point. Two spellings of one plate that compete
-        instead of combining never reach three agreeing frames, so the car is
-        never recorded — a failure that looks like the reader not working
-        rather than the voting being wrong.
+        **Spellings are no longer collapsed as they arrive**, and that change
+        is the difference between a reader that corrects itself and one that
+        does not. Merging used to happen here: a near match was folded into
+        the bucket already present and the bucket kept the name it was given
+        first. Since a car enters at the far end of the frame, the first name
+        is the one read off the smallest, blurriest plate — so the worst
+        reading of the lot absorbed every better one that followed and won by
+        having arrived early. Fifty close-up frames could not shift it.
+
+        Merging still has to happen, or two spellings of one plate split the
+        vote and three frames never agree. It happens in `leader` instead,
+        where the group can be named after whichever spelling actually carries
+        the most weight rather than whichever came first.
         """
         if not text:
             return
-        key = self._existing(text) or text
-        if key != text:
-            # Keep whichever reading is more likely to be complete: a dropped
-            # character is far more common than an invented one.
-            better = platetext.richer(key, text)
-            if better != key:
-                self.votes[better] = self.votes.pop(key, 0.0)
-                self.counts[better] = self.counts.pop(key, 0)
-                key = better
-
-        self.votes[key] = self.votes.get(key, 0.0) + weight
-        self.counts[key] = self.counts.get(key, 0) + 1
+        self.votes[text] = self.votes.get(text, 0.0) + weight
+        self.counts[text] = self.counts.get(text, 0) + 1
         self.best_confidence = max(self.best_confidence, confidence)
 
-    def _existing(self, text: str) -> str | None:
-        for candidate in self.votes:
-            if platetext.same_plate(text, candidate):
-                return candidate
-        return None
+    def _groups(self) -> list[list[str]]:
+        """Spellings gathered into cars — the strongest reading first.
+
+        Seeded in descending weight so each group is anchored on its best
+        member, which keeps the grouping stable as more frames arrive: a
+        marginal reading cannot capture a group and drag the comparison
+        around with it.
+        """
+        groups: list[list[str]] = []
+        for text in sorted(self.votes, key=lambda t: -self.votes[t]):
+            for group in groups:
+                if platetext.same_plate(text, group[0]):
+                    group.append(text)
+                    break
+            else:
+                groups.append([text])
+        return groups
 
     @property
     def leader(self) -> tuple[str, float, int]:
-        """The winning plate, its weight and how many frames agreed."""
+        """The winning plate, its weight and how many frames agreed.
+
+        The weight and the count are the **group's** — every frame that read
+        this car, however it spelled it. The text is the single spelling
+        within that group carrying the most weight, so a close-up read at 0.95
+        beats three distant ones at 0.55 instead of losing to them for having
+        arrived second.
+
+        Ties go to the fuller reading: a dropped character is far more common
+        than an invented one, which is the judgement `richer` encodes.
+        """
         if not self.votes:
             return "", 0.0, 0
-        text = max(self.votes, key=lambda t: self.votes[t])
-        return text, self.votes[text], self.counts.get(text, 0)
+        groups = self._groups()
+        best = max(groups, key=lambda g: sum(self.votes[t] for t in g))
+        weight = sum(self.votes[t] for t in best)
+        count = sum(self.counts[t] for t in best)
+
+        text = best[0]
+        for other in best[1:]:
+            gap = self.votes[other] - self.votes[text]
+            if gap > 1e-9 or (abs(gap) <= 1e-9
+                              and platetext.richer(text, other) == other):
+                text = other
+        return text, round(weight, 4), count
 
     @property
     def settled(self) -> bool:
@@ -230,6 +268,10 @@ class VehiclePassRead:
     #: precondition, and a pass is recorded with or without one.
     image: "np.ndarray | None" = field(default=None, compare=False, repr=False)
     image_box: PlateBox | None = field(default=None, compare=False, repr=False)
+    #: Set when this replaces an earlier reading of the SAME car, because the
+    #: vote moved on as the car approached. The event layer updates that row
+    #: rather than writing another one — the car arrived once.
+    amends: str | None = None
 
 
 @dataclass
@@ -381,13 +423,57 @@ class VehiclesWorker(FeatureWorker[VehiclesResult]):
 
     def _settle(self, camera_id: str, tracks: list[_Track],
                 now: datetime) -> list[VehiclePassRead]:
-        """Emit a pass for every track that has now agreed with itself."""
+        """Emit a pass for every track that has agreed with itself.
+
+        **And keep listening after it has.** A pass used to be written once
+        and the track then ignored for the rest of its life, which meant the
+        three frames that happened to agree first decided the answer for
+        good — and those are the worst three the camera will ever get, with
+        the car at its furthest and the plate at its smallest. They agree with
+        each other because they are the same wrong reading repeated, clear the
+        bar, and lock in while fifty better frames are computed and discarded.
+
+        At a real gate the car is in view for five to ten seconds. So the vote
+        goes on running, and when it moves, the row it already wrote is
+        corrected. Early enough to be useful, and right by the time the car
+        leaves.
+        """
         out: list[VehiclePassRead] = []
         for track in tracks:
-            if track.reported or not track.settled:
+            if not track.settled:
                 continue
 
             plate, _, votes = track.leader
+
+            if track.reported:
+                # The car is still here and the vote has changed its mind.
+                # Correct the row rather than adding another: one arrival.
+                if plate == track.reported_plate or track.pass_id is None:
+                    continue
+                confidence = round(track.best_confidence, 4)
+                correction = VehiclePassRead(
+                    plate=plate,
+                    display=platetext.display(plate),
+                    confidence=confidence,
+                    votes=votes,
+                    needs_review=confidence < REVIEW_BELOW,
+                    first_seen=track.first_seen,
+                    box=track.box,
+                    image=track.best_image,
+                    image_box=track.best_box,
+                    amends=track.pass_id,
+                )
+                log.info("gate pass on %s corrected: %s -> %s (%d frames)",
+                         camera_id, platetext.transliterate(track.reported_plate),
+                         platetext.transliterate(plate), votes)
+                track.reported_plate = plate
+                # The new spelling has to hold the de-duplication slot too, or
+                # the corrected car reads as a new arrival moments later.
+                self._recent[(camera_id, plate)] = now
+                out.append(correction)
+                self._emit(camera_id, correction, track)
+                continue
+
             if self._seen_recently(camera_id, plate, now):
                 # Same car, same camera, still at the barrier. One pass.
                 track.reported = True
@@ -409,6 +495,7 @@ class VehiclesWorker(FeatureWorker[VehiclesResult]):
                 image_box=track.best_box,
             )
             track.reported = True
+            track.reported_plate = plate
             self._recent[(camera_id, plate)] = now
             out.append(record)
 
@@ -419,13 +506,36 @@ class VehiclesWorker(FeatureWorker[VehiclesResult]):
             log.info("gate pass on %s: %s (%d frames, %.2f)", camera_id,
                      platetext.transliterate(plate), votes, confidence)
 
-            if self.on_pass is not None:
-                try:
-                    self.on_pass(camera_id, record)
-                except Exception:
-                    # A store that refuses a write must not stop the camera.
-                    log.exception("could not record a gate pass on %s", camera_id)
+            self._emit(camera_id, record, track)
         return out
+
+    def _emit(self, camera_id: str, record: VehiclePassRead,
+              track: _Track) -> None:
+        """Hand a pass to the event layer and keep the row id it comes back.
+
+        The id is what makes a correction possible: without it the worker
+        could only ever add rows, and a car whose reading improved would
+        appear twice.
+        """
+        if self.on_pass is None:
+            return
+        try:
+            written = self.on_pass(camera_id, record)
+        except Exception:
+            # A store that refuses a write must not stop the camera.
+            log.exception("could not record a gate pass on %s", camera_id)
+            return
+        if written:
+            if track.pass_id is None:
+                track.pass_id = written
+        elif record.amends is None and track.pass_id is None:
+            # Corrections need the row id to know what to correct. A store
+            # that does not hand one back leaves this car locked to its first
+            # reading, which is precisely the behaviour being fixed — so say
+            # so rather than letting it look like the vote never moved.
+            log.warning(
+                "%s recorded a pass but returned no row id, so this car "
+                "cannot be corrected as it approaches", camera_id)
 
     def _matches_recent(self, plate: str, seen_plate: str,
                         age: timedelta) -> bool:

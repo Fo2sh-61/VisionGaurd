@@ -82,9 +82,20 @@ def worker(script: list[list[PlateRead]], recorded: list | None = None,
            near_dedupe_seconds: float = NEAR_DEDUPE_SECONDS):
     """A worker that never starts a thread. `analyse` is called directly."""
     passes = recorded if recorded is not None else []
+
+    def on_pass(camera_id, record):
+        """Records, and hands back a row id — as the real callback does.
+
+        The id is what lets the worker correct a row instead of adding one, so
+        a stub that returns None would quietly test a gate with corrections
+        switched off.
+        """
+        passes.append((camera_id, record))
+        return record.amends or f"pass-{len(passes)}"
+
     return VehiclesWorker(
         bus=None, reader=FakeReader(script), cameras=[],
-        on_pass=lambda camera_id, record: passes.append((camera_id, record)),
+        on_pass=on_pass,
         dedupe_seconds=dedupe_seconds,
         near_dedupe_seconds=near_dedupe_seconds,
     )
@@ -735,3 +746,99 @@ class TestACarThatSitsAtTheBarrier:
             at += timedelta(seconds=5)            # each one expires
 
         assert len(w._recent) < 12
+
+
+# ---------------------------------------------------------------------------
+# the car is still there — keep reading it
+# ---------------------------------------------------------------------------
+
+class TestTheReadingImprovesWhileTheCarIsThere:
+    """**The three frames that agree first are the worst three there will be.**
+
+    A car enters the far end of the frame, so the earliest reads come off the
+    smallest, blurriest plate. They agree with each other — the same wrong
+    answer repeated — clear the bar, and used to lock the row for good while
+    the car spent another ten seconds filling the frame and fifty better
+    frames were computed and discarded.
+
+    Mohamed described exactly this: "it catches the first detection of numbers
+    (mostly wrong) and sticks on it, however it has a lot of chances to fix
+    itself."
+    """
+
+    def far_then_near(self, wrong="بجد 1235", right="بجد 1234"):
+        """A wrong reading good enough to be filed, then the car comes closer.
+
+        The middle distance is what makes this the hard case: consistent
+        enough to clear the bar and be written down, and still wrong.
+        """
+        return ([[read(wrong, confidence=0.8, width=140)] for _ in range(4)]
+                + [[read(right, confidence=0.95, width=200)] for _ in range(12)])
+
+    def too_far_then_near(self, wrong="بجد 1235", right="بجد 1234"):
+        """Genuinely distant looks, which should not be filed at all."""
+        return ([[read(wrong, confidence=0.5, width=65)] for _ in range(3)]
+                + [[read(right, confidence=0.95, width=200)] for _ in range(12)])
+
+    def test_the_row_is_corrected_as_the_car_approaches(self):
+        recorded, _ = run(self.far_then_near())
+
+        assert recorded[-1][1].plate == "بجد 1234"
+
+    def test_and_it_is_still_only_one_car(self):
+        """A correction amends the row it names. It must never add a second."""
+        recorded, _ = run(self.far_then_near())
+
+        amends = [r for _, r in recorded if r.amends]
+        first = [r for _, r in recorded if not r.amends]
+        assert len(first) == 1
+        assert amends and all(a.amends for a in amends)
+
+    def test_the_first_row_still_appears_immediately(self):
+        """Correcting later must not delay the row. A guard watching the gate
+        needs to see the car now, not when it drives off."""
+        recorded, _ = run(self.far_then_near())
+
+        assert recorded[0][1].amends is None
+        assert recorded[0][1].plate == "بجد 1235"
+
+    def test_a_plate_too_distant_to_trust_is_never_filed_wrong(self):
+        """**Better than correcting: not being wrong in the first place.**
+
+        Weight is confidence x plausibility x size, so genuinely distant looks
+        never reach the bar however consistent they are. The row is written
+        once the car is close, already right, and no correction is needed.
+        """
+        recorded, _ = run(self.too_far_then_near())
+
+        assert len(recorded) == 1
+        assert recorded[0][1].plate == "بجد 1234"
+        assert recorded[0][1].amends is None
+
+    def test_a_reading_that_never_changes_is_never_corrected(self):
+        """No churn on the common case: a car read the same way throughout
+        writes one row and is left alone."""
+        recorded, _ = run([[read("بجد 1234")] for _ in range(15)])
+
+        assert len(recorded) == 1
+        assert recorded[0][1].amends is None
+
+    def test_the_correction_carries_the_better_photograph(self):
+        """The clearest frame is now a close-up, so the picture filed with the
+        row should be that one rather than the distant first look."""
+        recorded, _ = run(self.far_then_near())
+
+        assert recorded[-1][1].image is not None
+
+    def test_the_correction_carries_the_votes_behind_it(self):
+        """More frames agreed on the right answer than ever agreed on the
+        wrong one — which is the evidence the correction rests on."""
+        recorded, _ = run(self.far_then_near())
+
+        assert recorded[-1][1].votes > recorded[0][1].votes
+
+    def test_a_corrected_car_is_not_then_recorded_again_as_new(self):
+        """The corrected spelling has to take over the de-duplication slot,
+        or the same car reads as a fresh arrival seconds later."""
+        recorded, w = run(self.far_then_near())
+        assert w._seen_recently("gate1", "بجد 1234", START + timedelta(seconds=4))

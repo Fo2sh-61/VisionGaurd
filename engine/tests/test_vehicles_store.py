@@ -861,3 +861,85 @@ class TestTheChartIsInTheSitesHours:
                             early + timedelta(hours=1), -300)
 
         assert rows[0]["hour"] == 21
+
+
+class TestCorrectingAReading:
+    """A car is in view for seconds and the last look beats the first.
+
+    Improving the row is not rewriting history: the car arrived once, the row
+    is that arrival, and the plate on it is the system's best reading of it.
+    Refusing to improve would mean deliberately keeping the worst of fifty
+    answers.
+    """
+
+    def test_the_plate_is_replaced(self, store):
+        first = a_pass(store, plate="بجد 1235")
+
+        store.amend_pass(first.id, plate="بجد 1234", confidence=0.95,
+                         votes=12, needs_review=False, today=TODAY)
+
+        assert store.pass_by_id(first.id).plate == CANONICAL
+
+    def test_it_is_still_one_row(self, store):
+        first = a_pass(store, plate="بجد 1235")
+        store.amend_pass(first.id, plate=CANONICAL, confidence=0.95, votes=12,
+                         needs_review=False, today=TODAY)
+
+        assert len(store.passes()) == 1
+
+    def test_the_status_is_recomputed(self, store):
+        """**The important one.** A corrected plate may match a car the school
+        knows — or a blacklisted one. Leaving the old verdict beside the new
+        plate would be the worst of both."""
+        store.add(plate=CANONICAL, owner_name="Mohamed Fouad", category="staff")
+        first = a_pass(store, plate="بجد 1235")
+        assert first.status == "unknown"
+
+        store.amend_pass(first.id, plate=CANONICAL, confidence=0.95, votes=12,
+                         needs_review=False, today=TODAY)
+
+        after = store.pass_by_id(first.id)
+        assert after.status == "known"
+        assert after.owner_name == "Mohamed Fouad"
+
+    def test_a_correction_onto_a_blacklisted_car_says_so(self, store):
+        store.add(plate=CANONICAL, owner_name="Former contractor",
+                  category="blacklist")
+        first = a_pass(store, plate="بجد 1235")
+
+        store.amend_pass(first.id, plate=CANONICAL, confidence=0.95, votes=12,
+                         needs_review=False, today=TODAY)
+
+        assert store.pass_by_id(first.id).status == "blacklist"
+
+    def test_what_happened_is_not_edited(self, store):
+        """The time and the direction are facts about the car. Only the
+        reading of the plate improves."""
+        first = a_pass(store, plate="بجد 1235", direction="entry")
+
+        store.amend_pass(first.id, plate=CANONICAL, confidence=0.95, votes=12,
+                         needs_review=False, today=TODAY)
+
+        after = store.pass_by_id(first.id)
+        assert after.at == first.at
+        assert after.direction == "entry"
+
+    def test_a_weak_correction_is_still_flagged(self, store):
+        first = a_pass(store, plate="بجد 1235")
+
+        store.amend_pass(first.id, plate=CANONICAL, confidence=0.3, votes=4,
+                         needs_review=True, today=TODAY)
+
+        assert store.pass_by_id(first.id).needs_review is True
+
+    def test_correcting_a_row_that_is_gone_is_refused(self, store):
+        assert store.amend_pass("no-such-pass", plate=CANONICAL,
+                                confidence=0.9, votes=3, needs_review=False,
+                                today=TODAY) is None
+
+    def test_an_unreadable_correction_changes_nothing(self, store):
+        first = a_pass(store, plate=CANONICAL)
+
+        assert store.amend_pass(first.id, plate="", confidence=0.9, votes=3,
+                                needs_review=False, today=TODAY) is None
+        assert store.pass_by_id(first.id).plate == CANONICAL

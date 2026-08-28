@@ -1205,18 +1205,35 @@ def _start_vehicles(cfg, registry, roster):
         # over a camera thread.
         last_sweep = [datetime.now(timezone.utc)]
 
-        def record(camera_id: str, read) -> None:
-            """One settled plate becomes one row. Called on a camera thread."""
+        def record(camera_id: str, read) -> str | None:
+            """One settled plate becomes one row. Called on a camera thread.
+
+            Returns the row id, which the worker keeps so that the SAME car
+            reading better a few frames later corrects that row instead of
+            adding a second one.
+            """
             camera = by_camera.get(camera_id)
             if camera is None:
-                return
+                return None
             # The photograph first, so its path goes onto the row rather than
             # being attached afterwards. It returns None on any failure - a
             # picture that could not be written must not cost the pass.
             snapshot, crop = save_pass_images(
                 cfg.storage.gate_images_dir, camera_id, read.first_seen,
                 read.plate, read.image, read.image_box)
-            store.record_pass(
+
+            if read.amends:
+                # The car is still in front of the camera and the vote has
+                # improved. One arrival, one row - corrected, not duplicated.
+                store.amend_pass(
+                    read.amends, plate=read.plate, confidence=read.confidence,
+                    votes=read.votes, needs_review=read.needs_review,
+                    today=date.fromisoformat(clock.today()),
+                    snapshot=snapshot, plate_crop=crop,
+                )
+                return read.amends
+
+            written = store.record_pass(
                 at=read.first_seen,
                 camera_id=camera_id,
                 gate=camera.gate,
@@ -1238,6 +1255,8 @@ def _start_vehicles(cfg, registry, roster):
                         now - timedelta(days=cfg.storage.clip_retention_days))
                 except Exception:  # noqa: BLE001 - reported, never raised
                     log.exception("could not expire old gate images")
+
+            return written.id if written else None
 
         rate = min((c.fps for c in gates), default=4.0)
         worker = VehiclesWorker(

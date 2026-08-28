@@ -592,6 +592,57 @@ class VehicleStore:
                 if r["plate"] != canonical
                 and platetext.same_plate(canonical, r["plate"])]
 
+    def amend_pass(self, pass_id: str, plate: str, confidence: float,
+                   votes: int, needs_review: bool, today: date,
+                   snapshot: str | None = None,
+                   plate_crop: str | None = None) -> VehiclePass | None:
+        """Correct a reading as more of the same car is seen.
+
+        **This is not rewriting history.** The car arrived once; the row is
+        that arrival, and the plate on it is the system's best reading of it.
+        A gate sees a car for five to ten seconds and the last look is far
+        better than the first, so refusing to improve the row would mean
+        deliberately keeping the worst answer of the fifty available.
+
+        What is frozen stays frozen — `at` and `direction` are what happened.
+        The **status is recomputed**, and it has to be: a corrected plate may
+        now match a registered car, or a blacklisted one, and leaving the
+        stale verdict beside the new plate would be the worst of both.
+
+        The photograph is replaced only when a better one came with the
+        correction; the old files are removed so a corrected pass does not
+        leak images nothing points at.
+        """
+        canonical = platetext.normalize(plate)
+        if not canonical:
+            return None
+        vehicle = self.by_plate(canonical)
+        status = status_for(vehicle, today)
+
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT snapshot, plate_crop FROM vehicle_pass WHERE id = ?",
+                (pass_id,)).fetchone()
+            if row is None:
+                return None
+            with self._conn:
+                self._conn.execute(
+                    "UPDATE vehicle_pass SET plate = ?, plate_display = ?,"
+                    " status = ?, vehicle_id = ?, confidence = ?, votes = ?,"
+                    " needs_review = ?"
+                    + (", snapshot = ?, plate_crop = ?" if snapshot else "")
+                    + " WHERE id = ?",
+                    (canonical, platetext.display(canonical), status,
+                     vehicle.id if vehicle else None, float(confidence),
+                     int(votes), int(bool(needs_review)))
+                    + ((snapshot, plate_crop) if snapshot else ())
+                    + (pass_id,))
+            if snapshot:
+                for old in (row["snapshot"], row["plate_crop"]):
+                    if old not in (snapshot, plate_crop):
+                        _unlink(old)
+        return self.pass_by_id(pass_id)
+
     def pass_by_id(self, pass_id: str) -> VehiclePass | None:
         """One pass, by id. Indexed lookup rather than a scan of the log."""
         with self._lock:
