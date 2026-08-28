@@ -2978,6 +2978,25 @@ def _mount(app: FastAPI) -> None:
         """
         return _for_day(store.vehicle_traffic, day)
 
+    @app.get("/vehicles/cameras/{camera_id}/crop", tags=["vehicles"])
+    async def vehicle_crop(camera_id: str, store: StoreDep) -> Response:
+        """A photograph of the plate this camera is reading right now.
+
+        The clearest frame of that car so far, not the latest — the same one
+        the pass will be filed with, so what an operator watches is what gets
+        recorded.
+
+        404 when no car is in view, which is the ordinary state of a gate and
+        not an error; the console simply shows nothing. `no-store` because the
+        picture changes as the car moves and a cached crop of the last car
+        would be exactly the sort of stale-shown-as-live this product refuses.
+        """
+        crop = store.vehicle_crop(camera_id)
+        if crop is None:
+            raise HTTPException(404, "No car is being read at this camera.")
+        return Response(content=crop, media_type="image/jpeg",
+                        headers={"Cache-Control": "no-store"})
+
     @app.get("/vehicles/alerts", response_model=list[S.GateAlert],
              tags=["vehicles"])
     async def vehicle_alerts(store: StoreDep) -> list[S.GateAlert]:

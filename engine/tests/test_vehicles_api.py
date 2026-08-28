@@ -949,3 +949,41 @@ class TestAskingAboutADay:
 
         assert response.status_code == 200
         assert response.json() == []
+
+
+class TestTheLivePlateShot:
+    """The photograph of the plate being read, which replaced the noise."""
+
+    def test_no_car_at_the_gate_is_a_404_not_an_error(self, bare_app, authed):
+        """The ordinary state of a gate. The console shows nothing and says
+        nothing — an empty gate is not a fault."""
+        response = authed(bare_app, role="it").get(
+            "/vehicles/cameras/cam-laptop/crop")
+
+        assert response.status_code == 404
+
+    def test_a_guard_may_see_it(self, app, authed):
+        """The person at the gate is a guard, and this is the picture of the
+        car in front of them."""
+        response = authed(app, role="it").get(
+            "/vehicles/cameras/cam-laptop/crop")
+
+        assert response.status_code not in (401, 403)
+
+    def test_an_anonymous_caller_may_not(self, app):
+        assert TestClient(app).get(
+            "/vehicles/cameras/cam-laptop/crop").status_code == 401
+
+    def test_the_reader_says_what_it_settled_on_not_the_last_frame(self):
+        """`readingDisplay` is the voted answer, never the raw per-frame read.
+
+        The distinction is the whole reason the card was rebuilt: the raw
+        reads wobble by a character and showing them made a working gate look
+        broken.
+        """
+        from vg.api import schemas as S
+
+        fields = S.GateReaderCamera.model_json_schema()["properties"]
+        assert "readingDisplay" in fields
+        assert "readingVotes" in fields
+        assert "hasCrop" in fields

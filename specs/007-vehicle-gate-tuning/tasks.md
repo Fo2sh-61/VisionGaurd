@@ -191,11 +191,11 @@ description: "Task list for Vehicle Gate Accuracy & Redesign"
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-- [ ] T063 Sweep the whole page for invented numbers against P6-FR-054 and SC-006: every new tile, chart, table and line either carries a measured figure or is absent with a reason. Confirm the two deliberate deviations from the drawing are in place — no "14 fps" on tiles, real model names instead of "reader easyocr" ([research.md](./research.md) §10).
-- [ ] T064 [P] Update `STATUS.md`'s Vehicle gate row: boxes now draw (with the regression test that proves it), what the accuracy evidence says, and what remains unmeasured on site plates.
-- [ ] T065 [P] Update the Vehicle gate section of `docs/PLAN.md` to match what now exists, and note the pass list's removal with the owner's decision date.
-- [ ] T066 Run all four gates and fix what this feature broke: `python -m pytest engine` (baseline 1120 passed / 11 skipped / 3 pre-existing failures in `tests/test_track_page.py` — the count must rise, and those three must not grow), `python -m pyflakes engine/vg engine/tools engine/tests`, `cd web; npx tsc -b --force`, and `.\dev.ps1 up -Clip`.
-- [ ] T067 Work through [quickstart.md](./quickstart.md) end to end, including `-Mock` mode for every new endpoint.
+- [X] T063 Sweep the whole page for invented numbers against P6-FR-054 and SC-006: every new tile, chart, table and line either carries a measured figure or is absent with a reason. Confirm the two deliberate deviations from the drawing are in place — no "14 fps" on tiles, real model names instead of "reader easyocr" ([research.md](./research.md) §10).
+- [X] T064 [P] Update `STATUS.md`'s Vehicle gate row: boxes now draw (with the regression test that proves it), what the accuracy evidence says, and what remains unmeasured on site plates.
+- [X] T065 [P] Update the Vehicle gate section of `docs/PLAN.md` to match what now exists, and note the pass list's removal with the owner's decision date.
+- [X] T066 Run all four gates and fix what this feature broke: `python -m pytest engine` (baseline 1120 passed / 11 skipped / 3 pre-existing failures in `tests/test_track_page.py` — the count must rise, and those three must not grow), `python -m pyflakes engine/vg engine/tools engine/tests`, `cd web; npx tsc -b --force`, and `.\dev.ps1 up -Clip`.
+- [X] T067 Work through [quickstart.md](./quickstart.md) end to end, including `-Mock` mode for every new endpoint.
 - [ ] T068 **Ask Mohamed for the manual checks only he can do**: hold a real plate at the webcam and confirm the box, the width readout and the votes climbing; confirm a real plate now reads correctly; and confirm the redesigned page reads the way he drew it. Report honestly which parts remain unmeasured on site footage.
 
 ---

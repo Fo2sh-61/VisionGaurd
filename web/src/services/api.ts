@@ -438,6 +438,16 @@ export async function getVehicleReader(): Promise<W.GateReaderNow> {
   return get<W.GateReaderNow>('/vehicles/reader');
 }
 
+/** A photograph of the plate a gate camera is reading right now.
+ *
+ *  The `bust` argument is a cache-buster: the picture changes as the car
+ *  moves, and a browser reusing the last car's crop would be showing
+ *  something stale as though it were live. */
+export function vehicleCropUrl(cameraId: string, bust: number): string {
+  return assetUrl(
+    `/vehicles/cameras/${encodeURIComponent(cameraId)}/crop?t=${bust}`) ?? '';
+}
+
 /** Today's passes still waiting for a person. */
 export async function getVehicleAlerts(): Promise<W.GateAlert[]> {
   return get<W.GateAlert[]>('/vehicles/alerts');

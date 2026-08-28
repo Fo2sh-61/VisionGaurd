@@ -1287,6 +1287,7 @@ class LiveStore(MockStore):
         attempts: list[S.ReaderAttempt] = []
 
         for camera in self._gate_cameras():
+            reading = worker.reading_now(camera.id)
             cameras.append(S.GateReaderCamera(
                 camera_id=camera.id,
                 camera_name=camera.name,
@@ -1301,6 +1302,9 @@ class LiveStore(MockStore):
                 and reader.chars_loaded.stem or "unknown",
                 form=getattr(reader, "form", "unknown"),
                 read_ms=worker.read_ms(camera.id),
+                reading_display=reading[1] if reading else None,
+                reading_votes=reading[2] if reading else 0,
+                has_crop=reading is not None,
             ))
             for attempt in worker.attempts_on(camera.id):
                 attempts.append(S.ReaderAttempt(
@@ -1321,6 +1325,19 @@ class LiveStore(MockStore):
         attempts.sort(key=lambda a: a.at.utc, reverse=True)
         return S.GateReaderNow(cameras=cameras, attempts=attempts,
                                votes_needed=MIN_VOTES)
+
+    def vehicle_crop(self, camera_id: str) -> bytes | None:
+        """A JPEG of the plate this camera is reading right now, or None.
+
+        Served rather than embedded in the reader payload: a picture polled
+        every two seconds does not belong inside a JSON document that also
+        carries the numbers, and the browser caches and cancels an <img> far
+        better than it does a base64 blob.
+        """
+        if self.vehicles_worker is None:
+            return None
+        reading = self.vehicles_worker.reading_now(camera_id)
+        return reading[0] if reading else None
 
     # -- movements ----------------------------------------------------------
 

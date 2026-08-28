@@ -1667,6 +1667,16 @@ class GateReaderCamera(Wire):
     reader: str                     # the character model actually loaded
     form: str                       # TensorRT | PyTorch CUDA
     read_ms: float | None = None
+    #: The car in front of this camera right now, if there is one.
+    #:
+    #: `reading_display` is the settled answer the votes have converged on —
+    #: **not** the last frame's raw read, which wobbles by a character and
+    #: was only ever a diagnostic. `has_crop` says a photograph of that plate
+    #: can be fetched; the console shows the picture beside the answer, so a
+    #: person judges the two together rather than taking either on faith.
+    reading_display: str | None = None
+    reading_votes: int = 0
+    has_crop: bool = False
 
 
 class GateReaderNow(Wire):

@@ -998,6 +998,12 @@ export interface GateReaderCamera {
   reader: string;
   form: string;
   readMs: number | null;
+  /** The car in front of this camera right now, if there is one.
+   *  `readingDisplay` is the settled answer the votes converged on — not the
+   *  last frame's raw read, which wobbles and was only ever a diagnostic. */
+  readingDisplay: string | null;
+  readingVotes: number;
+  hasCrop: boolean;
 }
 
 export interface GateReaderNow {

@@ -549,6 +549,37 @@ class VehiclesWorker(FeatureWorker[VehiclesResult]):
         """
         return list(reversed(self._attempts.get(camera_id, ())))
 
+    def reading_now(self, camera_id: str):
+        """The car being read at this camera right now: its crop and answer.
+
+        Returns `(jpeg_bytes, display, votes, votes_needed)`, or None when no
+        car is in view. The crop is the **clearest** frame of that car so far,
+        not the latest — the same frame the pass will be photographed from,
+        so what an operator watches is what gets filed.
+
+        This is what replaced the per-frame reading table on the console. The
+        raw reads wobble by a character and showing them invited the reader to
+        distrust a system that was working; the picture and the settled answer
+        are what a person can actually judge.
+        """
+        import cv2
+
+        live = [t for t in self._tracks.get(camera_id, ())
+                if t.misses == 0 and t.best_image is not None
+                and t.best_box is not None]
+        if not live:
+            return None
+        # The nearest car, which at a gate is the one at the barrier.
+        track = max(live, key=lambda t: t.best_box.area)
+        crop = track.best_box.crop(track.best_image)
+        if crop is None or crop.size == 0:
+            return None
+        ok, buffer = cv2.imencode(".jpg", crop, [cv2.IMWRITE_JPEG_QUALITY, 88])
+        if not ok:
+            return None
+        plate, _, votes = track.leader
+        return bytes(buffer), platetext.display(plate), votes, MIN_VOTES
+
     def read_ms(self, camera_id: str) -> float | None:
         """Rolling milliseconds per read, or None before the first one.
 
