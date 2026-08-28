@@ -165,6 +165,17 @@ def counts_towards_target(box: Box) -> bool:
     return (box[2] - box[0]) >= READABLE_WIDTH_PX
 
 
+def _latin(text: str) -> str:
+    """A plate in Latin letters, for a report a Windows console can print.
+
+    Arabic in a `print()` raises `UnicodeEncodeError` on cp1252 — inside the
+    tool that exists to diagnose things.
+    """
+    from vg import platetext
+
+    return platetext.transliterate(platetext.normalize(text))
+
+
 # ---------------------------------------------------------------------------
 # the readers — built ONCE per configuration, never per image
 # ---------------------------------------------------------------------------
@@ -360,33 +371,30 @@ def evaluate(read, pairs, truth: dict[str, str], config: str,
         if not true_text:
             continue
         # One plate per truth row, so score the best-matched box only.
-        for want_box, found_box in matched:
+        if matched:
+            want_box, found_box = matched[0]
             text = next((t for b, t, _ in got if b == found_box), "")
             correct = exact_read(text, true_text)
-            wide = counts_towards_target(want_box)
-            score.judged += 1
-            score.exact += int(correct)
-            if wide:
-                score.judged_wide += 1
-                score.exact_wide += int(correct)
-            if not correct:
-                from vg import platetext
-                score.failures.append((
-                    image_path.name,
-                    platetext.transliterate(platetext.normalize(true_text)),
-                    platetext.transliterate(platetext.normalize(text)) or "(nothing)",
-                ))
-            break
+            read_as = _latin(text) or "(nothing)"
+        elif want:
+            # The detector never found the plate, so the reader was never
+            # asked. **Still counted as a failure to read this car.** Scoring
+            # only the plates that were found would let a detector that finds
+            # nothing score 100% on the handful it managed.
+            want_box, correct = want[0], False
+            read_as = "(plate not found)"
         else:
-            # The plate was never found, so the reader was never asked. That
-            # is still a failure to read this car, and hiding it would let a
-            # detector that finds nothing score 100% on what it did read.
-            if want:
-                score.judged += 1
-                if counts_towards_target(want[0]):
-                    score.judged_wide += 1
-                score.failures.append(
-                    (image_path.name, "(truth)", "(plate not found)"))
+            # Truth for a photo whose label has no plate in it. Nothing to
+            # score either way, and counting it would be scoring the label.
+            continue
+
+        score.judged += 1
+        score.exact += int(correct)
+        if counts_towards_target(want_box):
+            score.judged_wide += 1
+            score.exact_wide += int(correct)
+        if not correct:
+            score.failures.append((image_path.name, _latin(true_text), read_as))
     return score
 
 

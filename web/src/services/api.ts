@@ -418,21 +418,6 @@ export async function getVehicleSummary(): Promise<W.GateSummary> {
   return get<W.GateSummary>('/vehicles/summary');
 }
 
-export async function getVehiclePasses(
-  filters: {
-    limit?: number; plate?: string; gate?: number;
-    direction?: string; status?: string;
-  } = {},
-): Promise<W.VehiclePass[]> {
-  const query = new URLSearchParams();
-  for (const [key, value] of Object.entries(filters)) {
-    if (value !== undefined && value !== '' && value !== null) {
-      query.set(key, String(value));
-    }
-  }
-  const suffix = query.toString();
-  return get<W.VehiclePass[]>(`/vehicles/passes${suffix ? `?${suffix}` : ''}`);
-}
 
 /** Gate cameras only. A camera with no gate number is not watching a gate. */
 export async function getVehicleCameras(): Promise<Camera[]> {
@@ -568,15 +553,6 @@ export async function getVehicleLastImport(): Promise<W.VehicleImportRun | null>
   }
 }
 
-/** Remove one pass from the log, with its photograph and plate crop.
- *
- *  Permanent, and administrator only. "Inside now" is computed from the pass
- *  table, so a row that stayed hidden would keep answering after somebody
- *  deleted it — which is why the engine deletes rather than flags. The audit
- *  entry is written before the row goes and cannot itself be deleted. */
-export async function deleteVehiclePass(id: string): Promise<void> {
-  await del<{ ok: boolean }>(`/vehicles/passes/${encodeURIComponent(id)}`);
-}
 
 /** Download the pass log as a CSV.
  *

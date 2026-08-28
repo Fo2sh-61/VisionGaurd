@@ -289,3 +289,57 @@ class TestOnlyAlertsAreGuardWritable:
         """One prefix. If this ever grows, it should be a decision somebody
         argued for rather than a line that crept in."""
         assert auth_deps.OPERATOR_WRITE_PREFIXES == ("/vehicles/alerts",)
+
+
+class TestTheCarveOutCannotBeWalkedAround:
+    """The carve-out is the first write under `/vehicles` a non-admin may make.
+
+    The prefix test above proves `requires_admin` says the right thing about a
+    string. This proves the *server* does — because a path that slips past the
+    permission layer and is then resolved to a different route by the router
+    would be a bypass, and reasoning about which layer normalises what is
+    exactly the kind of thing to check rather than argue.
+    """
+
+    @pytest.fixture
+    def guard(self, user_store):
+        from fastapi.testclient import TestClient
+
+        from vg.api import app as app_module
+        from vg.api.app import create_app
+        from vg.api.store import MockStore
+
+        app_module.set_store(MockStore())
+        application = create_app()
+        user = user_store.create_user(
+            email="guard@test.local", name="Guard", role="it",
+            password="a-long-enough-test-password")
+        token, _ = user_store.start_session(user)
+        application.state.users = user_store
+        return TestClient(application,
+                          headers={"Authorization": f"Bearer {token}"})
+
+    @pytest.mark.parametrize("path", [
+        "/vehicles/register",                 # the thing being protected
+        "/vehicles/alerts/../register",       # traversal out of the carve-out
+        "/vehicles/alerts%2f..%2fregister",   # the same, percent-encoded
+        "/VEHICLES/register",                 # case
+        "/vehicles/import",
+    ])
+    def test_a_guard_never_reaches_the_register(self, guard, path):
+        """Whatever the route does with these, none may succeed.
+
+        403 (refused) and 404/405 (no such route) are both fine answers. A 2xx
+        would mean a guard had written the register.
+        """
+        response = guard.post(path, json={"plate": "بجد 1234"})
+
+        assert response.status_code >= 400, (
+            f"{path} returned {response.status_code} — a guard got through")
+
+    def test_and_the_one_thing_they_may_do_still_works(self, guard):
+        """The carve-out has to actually carve something out, or the tests
+        above would pass on a rule that refuses everything."""
+        response = guard.post("/vehicles/alerts/whatever/dismiss")
+
+        assert response.status_code not in (401, 403)

@@ -1208,18 +1208,16 @@ class LiveStore(MockStore):
         if self.vehicle_store is None:
             return []
         since, until = self._day_bounds(day)
-        # The store groups on the stored UTC hour; the site may be hours from
-        # UTC, so the shift happens here — same rule as every other rendered
-        # time on this page.
-        offset = self.clock.offset_minutes(since) // 60
-        merged: dict[int, dict] = {}
-        for row in self.vehicle_store.hourly(since, until):
-            hour = (row["hour"] + offset) % 24
-            slot = merged.setdefault(hour, {"entered": 0, "left": 0})
-            slot["entered"] += row["entered"]
-            slot["left"] += row["left"]
-        return [S.TrafficHour(hour=h, entered=v["entered"], left=v["left"])
-                for h, v in sorted(merged.items())]
+        # The site's offset in MINUTES, handed to the store rather than
+        # applied here. Shifting a UTC hour by `offset // 60` looks equivalent
+        # and is an hour wrong for half the clock in any half-hour zone; the
+        # store does it exactly. Same rule as every other rendered time on
+        # this page: the site experienced it, so the site's clock names it.
+        rows = self.vehicle_store.hourly(
+            since, until, self.clock.offset_minutes(since))
+        return [S.TrafficHour(hour=row["hour"], entered=row["entered"],
+                              left=row["left"])
+                for row in rows]
 
     def vehicle_passes(self, **filters) -> list[S.VehiclePass]:
         """The pass log, newest first."""

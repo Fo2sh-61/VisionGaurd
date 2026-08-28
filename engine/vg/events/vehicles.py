@@ -727,21 +727,28 @@ class VehicleStore:
                until: datetime | None = None) -> list[Visit]:
         return [v for v in self.visits(since, until) if v.inside]
 
-    def hourly(self, since: datetime, until: datetime) -> list[dict]:
-        """Entries and exits by hour of the day, for the traffic chart.
+    def hourly(self, since: datetime, until: datetime,
+               offset_minutes: int = 0) -> list[dict]:
+        """Entries and exits by hour of the SITE'S day, for the traffic chart.
 
-        Grouped in SQL on the stored ISO string's hour field, which is UTC —
-        the caller shifts to site local, the same way every other rendered
-        time on this page is shifted. Only hours that have something in them
-        appear: a bar of height zero at 3am is noise, and an empty list is the
-        honest answer for a day nothing happened.
+        **The shift happens here, in minutes, and that detail is the whole
+        reason this takes an offset at all.** The obvious version groups on the
+        stored UTC hour and lets the caller add `offset // 60` — which is exact
+        for Cairo and for every whole-hour zone, and an hour wrong for half the
+        clock in India (+5:30) or Iran (+3:30). `strftime` with a minutes
+        modifier is correct everywhere and costs nothing.
+
+        Only hours that have something in them appear: a bar of height zero at
+        3am is noise, and an empty list is the honest answer for a day nothing
+        happened.
         """
         with self._lock:
             rows = self._conn.execute(
-                "SELECT substr(at, 12, 2) AS hour, direction, COUNT(*) AS n"
+                "SELECT strftime('%H', at, ? || ' minutes') AS hour,"
+                " direction, COUNT(*) AS n"
                 " FROM vehicle_pass WHERE at >= ? AND at < ?"
                 " GROUP BY hour, direction ORDER BY hour",
-                (_iso(since), _iso(until))).fetchall()
+                (int(offset_minutes), _iso(since), _iso(until))).fetchall()
 
         by_hour: dict[int, dict] = {}
         for row in rows:

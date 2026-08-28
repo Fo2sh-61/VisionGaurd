@@ -232,34 +232,8 @@ export const formatMetrics = (metrics: Metric[]): Stat[] => metrics.map(formatMe
 
 /* ---------- attendance ---------- */
 
-/** What a pass reads as. The engine sends an enum; the sentence is built here.
- *
- *  "Not registered" rather than "Unknown": the car is perfectly well known to
- *  the camera that photographed it, it is simply not on the school's list. */
-export function plateStatusLabel(status: string): string {
-  switch (status) {
-    case 'known': return 'Registered';
-    case 'unknown': return 'Not registered';
-    case 'blacklist': return 'Blacklisted';
-    case 'expired': return 'Permit expired';
-    default: return status;
-  }
-}
 
-export function plateStatusTone(status: string): Tone {
-  switch (status) {
-    case 'known': return 'good';
-    case 'blacklist': return 'bad';
-    case 'unknown':
-    case 'expired': return 'warn';
-    default: return 'neutral';
-  }
-}
 
-/** `entry` / `exit` as a guard would say it. */
-export function directionLabel(direction: string): string {
-  return direction === 'entry' ? 'In' : direction === 'exit' ? 'Out' : direction;
-}
 
 /** What a category means on a register row. */
 export function vehicleCategoryLabel(category: string): string {

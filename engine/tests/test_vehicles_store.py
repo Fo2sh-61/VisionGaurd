@@ -817,3 +817,47 @@ class TestTheLastImportLine:
         store.import_rows([{"plate": "س ص ط 9876"}], by_who="Second")
 
         assert store.last_import_run()["by_who"] == "Second"
+
+
+class TestTheChartIsInTheSitesHours:
+    """The hour buckets are the site's, and the shift is done in minutes.
+
+    **The obvious version of this is wrong and looks right.** Group on the
+    stored UTC hour, let the caller add `offset // 60`, and it is exact for
+    Cairo, London and New York — and an hour out for half of every day in
+    India (+5:30) or Iran (+3:30). The bug would never show up at this school
+    and would be waiting for the next one.
+    """
+
+    def test_utc_is_unshifted(self, store):
+        a_pass(store, at=NOON)                      # 12:00 UTC
+
+        assert store.hourly(NOON - timedelta(hours=1),
+                            NOON + timedelta(hours=1), 0)[0]["hour"] == 12
+
+    def test_a_whole_hour_offset_shifts_the_bucket(self, store):
+        a_pass(store, at=NOON)                      # 12:00 UTC = 15:00 Cairo
+
+        rows = store.hourly(NOON - timedelta(hours=1),
+                            NOON + timedelta(hours=1), 180)
+
+        assert rows[0]["hour"] == 15
+
+    def test_a_half_hour_offset_lands_in_the_right_hour(self, store):
+        """12:45 UTC is 18:15 in India — hour 18, not hour 17."""
+        quarter_to = NOON + timedelta(minutes=45)
+        a_pass(store, at=quarter_to)
+
+        rows = store.hourly(NOON, NOON + timedelta(hours=1), 330)
+
+        assert rows[0]["hour"] == 18
+
+    def test_a_negative_offset_wraps_backwards(self, store):
+        """02:00 UTC is 21:00 the previous evening in New York."""
+        early = NOON.replace(hour=2)
+        a_pass(store, at=early)
+
+        rows = store.hourly(early - timedelta(hours=1),
+                            early + timedelta(hours=1), -300)
+
+        assert rows[0]["hour"] == 21
