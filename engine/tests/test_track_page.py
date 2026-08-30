@@ -1043,6 +1043,7 @@ class TestTheGateIsActuallyWired:
 # ===========================================================================
 
 import tempfile
+import threading
 
 from vg import config as vgconfig
 from vg.api.live import LiveStore
@@ -1872,11 +1873,30 @@ class TestSweepEstimates:
 
         hits: list = []
 
+        # A latch the finder waits on, open by default.
+        #
+        # `FakeSource` writes a file instantly and this finder returns
+        # instantly, so a sweep of any affordable size can run to completion
+        # in the time it takes to route the next request. That made
+        # `test_stopping_says_stopped_not_finished` a coin toss: it cancelled
+        # a job that had already finished, and a finished job has no stop
+        # reason to report. It passed locally and failed on a faster CI
+        # machine, which is the worst way for a test to be wrong.
+        #
+        # Closing the latch holds a sweep genuinely mid-flight, so the one
+        # test that needs to cancel one can rely on there being one to cancel.
+        gate = threading.Event()
+        gate.set()
+
         def finder(clip, camera_id, at_, person_id):
+            # Bounded, so a test that forgets to reopen the latch fails
+            # slowly rather than hanging the suite for ever.
+            gate.wait(timeout=5.0)
             return list(hits)
 
         runner = ArchiveRunner(
             FakeSource(), tmp_path, chunk_seconds=30.0, workers=1, finder=finder)
+        runner.finder_gate = gate
         store = LiveStore(
             config=vgconfig.load(), registry=CameraRegistry([]),
             gallery=gallery, anchors=anchors, archive=runner,
@@ -2019,10 +2039,26 @@ class TestSweepsRun:
         anchors.set_rates(fetch_x=8.0, process_fps=60.0)
         client = authed(app)
 
-        started = client.post("/path/sweep", json=self.ask(minutes_wide=5)).json()
-        stopped = client.delete(f"/path/sweep/{started['job']['id']}")
+        # Hold the sweep open, or there may be nothing left to cancel: this
+        # test used to race the job to the finish line and lose on a fast
+        # machine. Cancelling a job that already completed is a different
+        # question from the one being asked here.
+        runner.finder_gate.clear()
+        try:
+            started = client.post(
+                "/path/sweep", json=self.ask(minutes_wide=5)).json()
+            stopped = client.delete(f"/path/sweep/{started['job']['id']}")
+        finally:
+            runner.finder_gate.set()
 
         assert stopped.status_code == 200
+        # The precondition, stated rather than assumed. This is the thing that
+        # was silently untrue on a fast machine: a job that had already
+        # finished was being "cancelled", and the test then blamed the product
+        # for not reporting a stop that never happened.
+        assert stopped.json()["job"]["progress"] < 1.0, (
+            "the sweep finished before it was cancelled, so this asserts "
+            "nothing — the latch in `sweep_app` is meant to prevent that")
         # A cancelled sweep found what it found. Reporting it as a plain
         # completion would say it looked everywhere, which it did not.
         assert stopped.json()["job"]["error"] == "stopped"
