@@ -894,6 +894,63 @@ class VehiclesConfig:
         return cls(dedupe_seconds=seconds, near_dedupe_seconds=near)
 
 
+@dataclass(frozen=True)
+class AskConfig:
+    """The natural-language query console (P12).
+
+    Deliberately three fields. Ask has no thresholds to tune and no per-camera
+    behaviour — it turns a sentence into a menu choice and runs an existing
+    query. Everything that *could* be configured about it is either a fact
+    about the site (which comes from the store) or a decision that belongs in
+    code (which queries exist, and what may be sent off-site).
+
+    The API key is **not** here. It lives in `.env` as `GEMINI_API_KEY`, the
+    same rule the camera credentials follow: a secret in engine.yaml is a
+    secret in git.
+    """
+
+    enabled: bool = True
+
+    #: Confirm against the live model list before shipping. Gemini ids move
+    #: faster than this file does; a wrong one fails at the first question
+    #: with the provider's own error rather than answering wrongly.
+    model: str = "gemini-3.7-flash"
+
+    #: A person is waiting at a screen. Saying "temporarily unavailable" after
+    #: eight seconds beats an indefinite spinner, and the answer is never so
+    #: valuable that it is worth waiting longer for.
+    timeout_seconds: float = 8.0
+
+    @classmethod
+    def parse(cls, raw: dict[str, Any] | None, where: str) -> "AskConfig":
+        raw = raw or {}
+        known = {"enabled", "model", "timeout_seconds"}
+        unknown = sorted(set(raw) - known)
+        if unknown:
+            raise ConfigError(f"{where}: unknown key(s) {unknown}")
+
+        model = str(raw.get("model", "gemini-3.7-flash")).strip()
+        if not model:
+            raise ConfigError(
+                f"{where}.model: must name a model. Ask cannot pick one for "
+                f"you — the id decides both the cost and the Arabic accuracy."
+            )
+
+        seconds = float(raw.get("timeout_seconds", 8.0))
+        if not 1 <= seconds <= 120:
+            raise ConfigError(
+                f"{where}.timeout_seconds: expected 1 <= seconds <= 120, got "
+                f"{seconds}. Below a second nothing would ever answer; above "
+                f"two minutes the operator has given up and asked again."
+            )
+
+        return cls(
+            enabled=bool(raw.get("enabled", True)),
+            model=model,
+            timeout_seconds=seconds,
+        )
+
+
 ArchiveBackend = Literal["dvr", "footage"]
 
 
@@ -1003,6 +1060,9 @@ class EngineConfig:
     archive: ArchiveConfig = field(default_factory=ArchiveConfig)
     # How long the same plate at the same gate camera is one arrival.
     vehicles: VehiclesConfig = field(default_factory=VehiclesConfig)
+    # The natural-language query console. Off, or keyless, changes nothing
+    # else — no feature may require another (constitution rule 9).
+    ask: AskConfig = field(default_factory=AskConfig)
 
     def camera(self, camera_id: str) -> CameraConfig | None:
         return next((c for c in self.cameras if c.id == camera_id), None)
@@ -1146,6 +1206,7 @@ def load(path: Path | str | None = None) -> EngineConfig:
         tracking=TrackingConfig.parse(raw.get("tracking"), "tracking"),
         archive=archive,
         vehicles=VehiclesConfig.parse(raw.get("vehicles"), "vehicles"),
+        ask=AskConfig.parse(raw.get("ask"), "ask"),
     )
 
 

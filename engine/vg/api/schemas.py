@@ -1882,3 +1882,101 @@ class TrafficHour(Wire):
     hour: int                       # 0..23, site local
     entered: int
     left: int
+
+
+# ---------------------------------------------------------------------------
+# Ask — the natural-language query console (P12)
+# ---------------------------------------------------------------------------
+
+class AskOutcome(str, Enum):
+    """Four outcomes, four different screens.
+
+    They must never collapse into "no results". "I cannot answer that",
+    "which one did you mean?", "the counting subsystem is off" and "here is
+    the answer, and it is empty" are four different things to tell a guard,
+    and the console already keeps empty/zero/unknown apart everywhere else.
+    """
+
+    ANSWERED = "answered"
+    UNSUPPORTED = "unsupported"
+    NEEDS_DETAIL = "needs_detail"
+    UNAVAILABLE = "unavailable"
+
+
+class AskUnderstanding(Wire):
+    """What Ask decided the question was — shown to the operator, always.
+
+    This is the anti-fabrication device. Ask answers straight away rather than
+    asking for confirmation first, so a confidently wrong route would otherwise
+    produce a true answer to a question nobody asked. The operator's only
+    defence is being able to see what was actually run on their behalf, which
+    is why the console may never hide or abbreviate this line.
+    """
+
+    #: A menu id from `vg/ask/menu.py`. Never free text, never a sentence.
+    query: str
+    #: Resolved to real values — placeholders already put back, locally.
+    params: dict[str, str] = {}
+    #: Parameters Ask filled in itself rather than reading from the question,
+    #: e.g. `date` when the question said "today" or said nothing at all. A
+    #: wrong assumption has to be visible; a silent one is how a figure for
+    #: the wrong day gets believed.
+    assumed: list[str] = []
+
+
+class AskRow(Wire):
+    """One piece of evidence from the query's own result.
+
+    `label` is a **value** the query returned — a name, a plate, a zone, a
+    camera. Never a sentence: sentences are built by the console (P11).
+    """
+
+    label: str
+    at: Instant | None = None
+    camera: str | None = None
+    confidence: Confidence | None = None
+    clip_url: str | None = None
+    #: Per-row honesty, forwarded from the query: demo data, an estimated
+    #: exit, a weak plate read. A row that is less certain than its
+    #: neighbours must say so on the row, not in a footnote.
+    note: Note | None = None
+
+
+class AskAnswer(Wire):
+    """The answer to one question.
+
+    **There is no free-text field on this type, and that is the point.** Every
+    sentence the operator reads is built by the console from `note` and
+    `understood.query`. The model that read the question has nowhere to write,
+    so it cannot contribute a fact even by mistake — P12-FR-003 enforced by
+    the shape of the data rather than by review.
+    """
+
+    outcome: AskOutcome
+    understood: AskUnderstanding | None = None
+    #: The same figures the matching page shows.
+    headline: list[Metric] = []
+    rows: list[AskRow] = []
+    #: The honest state, when there is one to explain.
+    note: Note | None = None
+    #: Where to go for the fuller view. Always *additional* — never the answer
+    #: itself. A response with a deep link and no data has not answered.
+    deep_link: str | None = None
+    #: The exact text that left the site, byte for byte. Always present, even
+    #: when nothing left (then it is empty) and even when the question failed.
+    #: With unrecognised words sent as typed, this record is the only way to
+    #: know what actually went.
+    sent_off_site: str = ""
+    #: The audit receipt. Proof the entry was written before this was built.
+    audit_id: str = ""
+
+
+class AskRequest(Wire):
+    """One question, as typed.
+
+    No language field. The parser reads mixed script, and asking the console to
+    guess a language in order to help it is a way to be wrong about a sentence
+    that is half Arabic and half English — which is most of them here.
+    """
+
+    question: str = Field(min_length=1, max_length=500)

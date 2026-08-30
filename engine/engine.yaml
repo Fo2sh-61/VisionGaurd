@@ -148,6 +148,37 @@ vehicles:
   near_dedupe_seconds: 5
 
 # ---------------------------------------------------------------------------
+# Ask — the natural-language query console (P12)
+#
+# Ask does not answer questions. It works out which EXISTING query a question
+# is, runs that query, and shows its real result. The model is a translator
+# between a sentence and a menu id, and it never sees a face, a frame or a
+# record — only a masked sentence with the names and plates taken out.
+#
+# The key is GEMINI_API_KEY in engine/.env, never here. With no key Ask says
+# so on System Health and every other feature is untouched.
+#
+# Changing `model` is the only thing needed to move to a different Gemini
+# model. Moving to a different PROVIDER is one new class in vg/ask/parser.py;
+# nothing else in Ask knows who answered.
+# ---------------------------------------------------------------------------
+ask:
+  enabled: true
+
+  # gemini-3.7-flash was current on 30 Aug 2026. Gemini ids move quickly, so
+  # confirm against the live model list rather than trusting this line. A
+  # wrong id fails loudly at the first question, not silently.
+  #
+  # gemini-3.5-flash-lite has double the per-minute rate limit if bursts ever
+  # matter. Routing accuracy on Arabic decides between them, and
+  # `python engine/tools/ask_corpus.py` is what measures it.
+  model: gemini-3.7-flash
+
+  # A question is a person waiting at a screen. Better to say "temporarily
+  # unavailable" after eight seconds than to leave them looking at a spinner.
+  timeout_seconds: 8
+
+# ---------------------------------------------------------------------------
 # Archive — where recorded video comes from when somebody asks to watch a leg
 #
 #   footage   slice files already on disk under storage.footage_dir. Needs no

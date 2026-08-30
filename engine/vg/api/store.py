@@ -16,11 +16,14 @@ front end onto the API is a visibly no-op change.
 
 from __future__ import annotations
 
+import logging
 import random
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Protocol
 
 from vg.api import schemas as S
+
+log = logging.getLogger(__name__)
 
 # Cairo. The demo fixtures are written in local site time.
 TZ_OFFSET_MINUTES = 180
@@ -208,6 +211,14 @@ class Store(Protocol):
     def delivery_targets(self) -> list[S.DeliveryTarget]: ...
     def audit(self, limit: int) -> list[S.AuditEntry]: ...
     def capabilities(self) -> list[S.Capability]: ...
+
+    # -- ask (P12) --
+    #
+    # Implemented once, on MockStore, and inherited by LiveStore. It holds no
+    # data of its own: it calls `self.attendance(...)` and the rest, which
+    # resolve to whichever store is mounted. See `MockStore.ask`.
+    def ask(self, question: str, actor: str,
+            parser: object | None = None) -> S.AskAnswer: ...
 
 
 # ===========================================================================
@@ -907,6 +918,7 @@ class MockStore:
         ("users", "Users and roles"),
         ("audit", "Audit trail"),
         ("attention", "Alerts"),
+        ("ask", "Ask"),
     )
 
     def capabilities(self) -> list[S.Capability]:
@@ -1203,3 +1215,193 @@ class MockStore:
                              action=action, subject=subject, detail=detail)
         self._audit.append(entry)
         return entry
+
+    # -----------------------------------------------------------------------
+    # Ask — the natural-language query console (P12)
+    #
+    # Implemented HERE, on MockStore, and deliberately not overridden on
+    # LiveStore. It looks like fixture code serving a production path, which is
+    # the bug P0-01 killed, and it is the opposite: `ask` holds no data. It
+    # masks, parses, then calls `self.attendance(...)` / `self.breaches(...)` /
+    # whichever the menu names, and Python resolves `self` to whichever store
+    # is mounted. One orchestration answers from fixtures in demo mode and from
+    # live data in production, and the result carries whatever honesty
+    # labelling that store already attaches.
+    #
+    # Writing it twice would be two orchestrations to keep in step, and the
+    # mock one would rot silently because the tests would use it.
+    # `test_ask.py` asserts `LiveStore.ask is MockStore.ask`, so the day
+    # somebody overrides it that is a decision rather than an accident.
+    # -----------------------------------------------------------------------
+
+    def ask(self, question: str, actor: str,
+            parser: object | None = None) -> S.AskAnswer:
+        """Answer one question from one existing query, or say why not."""
+        from vg.api import notes
+        from vg.ask import Dictionary, find, mask, unmask, unrecognised
+        from vg.ask.mask import AMBIGUOUS
+        from vg.ask.menu import TODAY
+        from vg.ask.parser import ParserUnavailable
+
+        # 1. Mask, locally, before anything can leave. The dictionary is built
+        #    per question and never cached: a stale one is a name that leaves.
+        dictionary = Dictionary.build(self._ask_names(), self._ask_plates())
+        masked, used = mask(question, dictionary)
+        stray = unrecognised(question, dictionary)
+
+        # 2. Audit BEFORE the send, not after. The row records the question as
+        #    typed and the exact text about to leave, so a question asked
+        #    during an outage is still a question asked. `detail` gains the
+        #    resolved query below — the row's identity and timestamp are fixed
+        #    here and never rewritten.
+        entry = self._log(actor, "ask", question, f"sent: {masked}")
+
+        def answer(outcome: S.AskOutcome, **kw) -> S.AskAnswer:
+            note = kw.pop("note", None)
+            # The words that left are worth saying whatever else happened, but
+            # never in place of the real reason for a failure.
+            if note is None and stray and outcome is S.AskOutcome.ANSWERED:
+                note = notes.note("ask.words_left_site", words=", ".join(stray))
+            return S.AskAnswer(outcome=outcome, note=note,
+                               sent_off_site=masked, audit_id=entry.id, **kw)
+
+        # 3. Parse. Every failure is a payload, never a 5xx.
+        if parser is None:
+            parser = self._ask_parser()
+        try:
+            parsed = parser.parse(masked)
+        except ParserUnavailable as exc:
+            return answer(S.AskOutcome.UNAVAILABLE,
+                          note=notes.note("ask.cloud_unavailable",
+                                          reason=exc.reason))
+
+        query = find(parsed.query)
+        if query is None:
+            entry.detail = f"{entry.detail} -> unsupported"
+            return answer(S.AskOutcome.UNSUPPORTED,
+                          note=notes.note("ask.unsupported"))
+
+        # 4. Resolve placeholders back to real values, locally.
+        params = unmask(dict(parsed.params), used)
+        assumed: list[str] = []
+        for spec in query.params:
+            if params.get(spec.name):
+                continue
+            if spec.default == TODAY:
+                params[spec.name] = self._ask_today()
+                assumed.append(spec.name)
+            elif spec.default:
+                params[spec.name] = spec.default
+                assumed.append(spec.name)
+
+        understood = S.AskUnderstanding(query=query.id, params=params,
+                                        assumed=assumed)
+        entry.detail = f"{entry.detail} -> {query.id} {params}"
+
+        # A name two enrolled people share was masked — to nobody. The name
+        # did not leave the site, and Ask must not now pick one of them.
+        unclear = next(
+            (spec.name for spec in query.params
+             if AMBIGUOUS in str(parsed.params.get(spec.name, ""))), None)
+
+        missing = unclear or parsed.missing or next(
+            (name for name in query.required if not params.get(name)), None)
+        if missing:
+            return answer(S.AskOutcome.NEEDS_DETAIL, understood=understood,
+                          note=notes.note("ask.needs_detail", parameter=missing))
+
+        # 5. A feature that records nothing has no answer to give in any
+        #    shape. Saying "nothing found" would describe a search that never
+        #    ran, so it says what is actually true and offers the page.
+        if query.stores_nothing:
+            return answer(S.AskOutcome.UNAVAILABLE, understood=understood,
+                          deep_link=query.route(params),
+                          note=notes.note("ask.not_recorded", subject=query.id))
+
+        # 6. A name nobody knows is not an absence. An empty register row for
+        #    somebody who was never enrolled reads as "they did not come".
+        unknown = self._ask_unknown_person(query, params)
+        if unknown:
+            return answer(S.AskOutcome.UNSUPPORTED, understood=understood,
+                          note=notes.note("ask.unknown_person", name=unknown))
+
+        # 7. Run the one trusted query. A subsystem that is off answers for
+        #    itself — Ask forwards its reason rather than paraphrasing it.
+        try:
+            result = query.run(self, params)
+        except SubsystemUnavailable as exc:
+            return answer(S.AskOutcome.UNAVAILABLE, understood=understood,
+                          deep_link=query.route(params),
+                          note=notes.note("ask.cloud_unavailable",
+                                          reason=str(exc)))
+        except (ValueError, TypeError, KeyError) as exc:
+            # The model handed over a value the query cannot use — "days":
+            # "next week", a gate that is not a number. That is a routing
+            # failure, not a server fault, and it must not become a 500 on an
+            # endpoint whose contract says it always answers.
+            log.warning("ask: %s rejected its parameters %s (%s)",
+                        query.id, params, exc)
+            return answer(S.AskOutcome.NEEDS_DETAIL, understood=understood,
+                          note=notes.note("ask.needs_detail",
+                                          parameter=_bad_parameter(query, params)))
+
+        return answer(S.AskOutcome.ANSWERED, understood=understood,
+                      headline=result.headline, rows=result.rows,
+                      deep_link=query.route(params))
+
+    # -- the four small things `ask` needs from the store it is running on --
+
+    def _ask_names(self) -> list[str]:
+        """Every enrolled name, for masking. Read fresh on every question."""
+        try:
+            return [p.name for p in self.people() if p.name]
+        except SubsystemUnavailable:
+            # The directory being down must not stop Ask masking what it can,
+            # and must certainly not send an unmasked question instead.
+            return []
+
+    def _ask_plates(self) -> list[str]:
+        try:
+            return [v.plate_display for v in self.vehicle_register("", "")]
+        except SubsystemUnavailable:
+            return []
+
+    def _ask_today(self) -> str:
+        """The site's today. Overridden on LiveStore, which holds the clock."""
+        return str(TODAY)
+
+    def _ask_parser(self):
+        """Whatever can read a question today, or something that says it cannot.
+
+        Built per question rather than cached, because the honest answer
+        changes when the key or the config does and a cached parser would go
+        on claiming to work after somebody switched Ask off.
+        """
+        from vg.ask import build_parser
+
+        return build_parser()
+
+    def _ask_unknown_person(self, query, params: dict[str, str]) -> str | None:
+        """A named person the directory has never heard of, or None."""
+        name = params.get("person")
+        if not name and params.get("mode") == "person":
+            name = params.get("subject")
+        if not name:
+            return None
+        known = {n.casefold() for n in self._ask_names()}
+        return None if name.casefold() in known else name
+
+
+def _bad_parameter(query, params: dict[str, str]) -> str:
+    """Which parameter a query most likely choked on.
+
+    A best guess for one word on screen, not a diagnosis: the operator is
+    being asked to say the thing again more clearly, and naming the wrong
+    field is a small cost against saying nothing at all.
+    """
+    for spec in query.params:
+        value = params.get(spec.name, "")
+        if spec.name in {"days", "gate"} and value and not value.isdigit():
+            return spec.name
+    return query.required[0] if query.required else (
+        query.params[0].name if query.params else "detail")

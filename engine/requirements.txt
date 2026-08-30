@@ -58,6 +58,15 @@ tzdata                      # REQUIRED on Windows: no system tz database, so
 # --- model audit -----------------------------------------------------------
 onnx>=1.17                  # read graph metadata out of the .onnx files
 
+# --- ask ------------------------------------------------------------------
+# The natural-language query console (P12). This is the CURRENT Gemini SDK —
+# `import google.genai` — not `google-generativeai`, which is the superseded
+# package a search will still find first. Ask uses it for exactly one thing:
+# turning a masked question into a menu choice, with a JSON schema so the
+# model cannot reply with prose. Nothing else in the engine imports it, and
+# with no GEMINI_API_KEY set the import is never reached.
+google-genai>=1.0
+
 # --- dev / CI --------------------------------------------------------------
 pytest>=8.0
 pyflakes>=3.2               # catches a name used but never bound, in ~1s. That

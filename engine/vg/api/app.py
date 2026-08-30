@@ -2322,6 +2322,33 @@ def _mount(app: FastAPI) -> None:
         """
         return store.track(query, actor)
 
+    @app.post("/ask", response_model=S.AskAnswer, tags=["ask"])
+    async def ask(
+        body: S.AskRequest,
+        store: StoreDep,
+        actor: Annotated[str, Query(description="who is asking")] = "unknown",
+    ) -> S.AskAnswer:
+        """Answer one plain-language question from one existing query.
+
+        **Always 200.** Degradation is payload, never a 5xx (constitution rule
+        7): "the cloud is unreachable" and "the counting subsystem is off" are
+        answers about the system's state, not failures of this endpoint. The
+        outcome field says which of the four states it is, and the note carries
+        the reason.
+
+        **Read-only.** Nothing here writes to any feature. The only thing this
+        call creates is its own audit row, and that row is committed inside
+        `store.ask` *before* the question is sent anywhere — so a question
+        asked during an outage is still a question asked. `AskAnswer.audit_id`
+        is the receipt.
+
+        Deliberately not under `ADMIN_PREFIXES`: one path reaches thirteen
+        queries, so a path rule cannot see what is about to run. The menu is
+        instead restricted to what the weakest role can already read, and
+        `test_ask.py` holds that line.
+        """
+        return store.ask(body.question, actor)
+
     @app.get("/audit", response_model=list[S.AuditEntry], tags=["track"])
     async def get_audit(
         store: StoreDep, limit: Annotated[int, Query(ge=1, le=500)] = 50

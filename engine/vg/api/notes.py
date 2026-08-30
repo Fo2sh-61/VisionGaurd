@@ -39,7 +39,44 @@ from vg.api import schemas as S
 #: Grouped by what is being explained. Add a code here in the same commit as
 #: the `note()` call that emits it and the wording that renders it — a code
 #: with no emitter and a code with no wording are both caught by tests.
-CODES: frozenset[str] = frozenset()
+CODES: frozenset[str] = frozenset({
+    # -- Ask, the natural-language query console (P12) ----------------------
+    #
+    # Every one of these is a refusal or a limit. Ask has no code for a
+    # successful answer, because a successful answer is figures and rows and
+    # needs no sentence from the engine at all.
+
+    #: Not something Ask can answer. The wording must also say what it CAN
+    #: answer about, or the operator is left guessing at the boundary.
+    "ask.unsupported",
+
+    #: The right query, one parameter short. `parameter` names which.
+    #: Exactly one clarifier — a dialogue is a different feature.
+    "ask.needs_detail",
+
+    #: `name` is not in the directory. This must NOT read as "they were
+    #: absent": an empty register row and a person the system has never heard
+    #: of are different answers, and only one of them is about attendance.
+    "ask.unknown_person",
+
+    #: The parser could not be reached. `reason` distinguishes a timeout from
+    #: a refusal from no key at all. The wording must say that detection and
+    #: the safety features are unaffected — otherwise "Ask is unavailable"
+    #: reads as "the system is down" to a guard at a gate.
+    "ask.cloud_unavailable",
+
+    #: Asked about something the system does not record. `subject` names it.
+    #: Today that is lost items only: bag search runs live on the tiles
+    #: somebody is watching and stores nothing, so there is no history to
+    #: search. Saying "nothing found" would describe a search that never ran.
+    "ask.not_recorded",
+
+    #: Words the site did not recognise, sent as typed. `words` lists them.
+    #: The accepted limit from the spec, on screen rather than buried: a
+    #: visitor's name typed into the box does leave the site, and the person
+    #: who typed it is the person who should know.
+    "ask.words_left_site",
+})
 
 
 def note(code: str, **args: str | int | float) -> S.Note:

@@ -16,6 +16,7 @@ The methods still inherited from MockStore are the honest to-do list.
 from __future__ import annotations
 
 import logging
+import os
 from datetime import date, datetime, timedelta, timezone
 
 from vg import platetext
@@ -2237,6 +2238,7 @@ class LiveStore(MockStore):
             "attention": (S.DataState.UNAVAILABLE,
                           "Alerts are not built yet. Nothing is being sent to "
                           "anybody."),
+            "ask": self._ask_state(),
         }
 
         out: list[S.Capability] = []
@@ -2245,6 +2247,36 @@ class LiveStore(MockStore):
                 key, (S.DataState.UNAVAILABLE, "Not built yet."))
             out.append(S.Capability(key=key, name=name, state=state, reason=reason))
         return out
+
+    def _ask_state(self) -> tuple[S.DataState, str | None]:
+        """Whether Ask can actually answer, and why not.
+
+        Three different reasons, three different sentences. "Unavailable" alone
+        would leave an administrator unable to tell a switched-off feature from
+        a missing key, and only one of those is theirs to fix. Constitution
+        rule 8: a subsystem that cannot start says so in the UI, not only in
+        the log.
+        """
+        if not self.config.ask.enabled:
+            return (S.DataState.UNAVAILABLE,
+                    "Ask is switched off in engine.yaml. Every other feature "
+                    "is unaffected.")
+        if not os.environ.get("GEMINI_API_KEY"):
+            return (S.DataState.UNAVAILABLE,
+                    "No GEMINI_API_KEY is set, so questions cannot be "
+                    "interpreted. Detection, recording and the gate are "
+                    "unaffected.")
+        return S.DataState.LIVE, None
+
+    def _ask_today(self) -> str:
+        """The site's today, from the site's clock.
+
+        `MockStore` answers with its own demo date. This is the one piece of
+        `ask` that has to know where it is running, and it is a date rather
+        than a decision — which is why it is an override and the orchestration
+        above it is not.
+        """
+        return self.clock.today()
 
     def _breaches_state(self) -> tuple[S.DataState, str | None]:
         """Whether anything is actually watching the restricted areas.

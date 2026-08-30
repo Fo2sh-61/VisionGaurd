@@ -1,0 +1,193 @@
+# The Ask corpus: what a guard actually types, and what it should mean.
+#
+# Two jobs, and they are different:
+#
+#   masking   every `identifiers` value must be gone from the masked text.
+#             That test needs no network and is the one that matters most —
+#             a failure here is a name leaving the site.
+#   routing   `query` is what the parser should choose. Measured against a
+#             real model by `engine/tools/ask_corpus.py` (SC-003, >= 95%).
+#
+# `people` and `plates` are the site this corpus assumes. They are deliberately
+# awkward: two people share a first name, one name is two consonants, and the
+# plate is written in Arabic-Indic digits in the register and Western digits in
+# half the questions.
+#
+# Mohamed corrects the Arabic. Nothing here has been read by a native speaker
+# yet, and until it has, a routing score from it measures the parser against my
+# Arabic rather than against the school's.
+
+people:
+  - Sara Ahmed
+  - Ali Hassan
+  - Layla Ibrahim
+  - Nour Mostafa
+  - Omar Khaled
+  - Sara Mahmoud      # shares a first name with Sara Ahmed, on purpose
+
+plates:
+  - ص ب د ٢٣٤
+  - ط ح ل ٧٨٩
+
+questions:
+  # -- attendance, the most-asked question in the building -------------------
+  - ask: سارة جت امتى النهاردة؟
+    lang: eg
+    query: attendance
+    identifiers: [Sara]
+  - ask: هل حضرت ليلى ابراهيم اليوم؟
+    lang: msa
+    query: attendance
+    identifiers: [ليلى, ابراهيم]
+  - ask: was Layla Ibrahim late today
+    lang: en
+    query: attendance
+    identifiers: [Layla, Ibrahim]
+  - ask: nour gat el naharda wala la
+    lang: franco
+    query: attendance
+    identifiers: [nour]
+  - ask: who is absent from Grade 8 today
+    lang: en
+    query: attendance
+
+  # -- where somebody went. "track X" is the shape everything is held to -----
+  - ask: track Ali Hassan
+    lang: en
+    query: person_path
+    identifiers: [Ali, Hassan]
+  - ask: تتبع عمر خالد
+    lang: msa
+    query: person_path
+    identifiers: [عمر, خالد]
+  - ask: عمر راح فين النهاردة
+    lang: eg
+    query: person_path
+    identifiers: [عمر]
+  - ask: fen ra7 Omar embare7
+    lang: franco
+    query: person_path
+    identifiers: [Omar]
+  - ask: where did Nour Mostafa go this morning
+    lang: en
+    query: person_path
+    identifiers: [Nour, Mostafa]
+
+  # -- headcount ------------------------------------------------------------
+  - ask: كام واحد في الفناء دلوقتي
+    lang: eg
+    query: headcount
+  - ask: how many people are at the main entrance
+    lang: en
+    query: headcount
+  - ask: kam wa7ed fel yard delwa2ty
+    lang: franco
+    query: headcount
+
+  # -- the gate -------------------------------------------------------------
+  - ask: عربية ص ب د ٢٣٤ دخلت النهاردة؟
+    lang: eg
+    query: vehicle_passes
+    identifiers: [ص ب د ٢٣٤]
+  - ask: did plate ص ب د 234 come in today
+    lang: mixed
+    query: vehicle_passes
+    identifiers: [ص ب د 234]
+  - ask: which cars are inside now
+    lang: en
+    query: vehicles_inside
+  - ask: العربيات اللي جوه دلوقتي
+    lang: eg
+    query: vehicles_inside
+  - ask: كام عربية دخلت من بوابة ١ النهاردة
+    lang: eg
+    query: gate_totals
+  - ask: هل ط ح ل ٧٨٩ مسجلة عندنا؟
+    lang: msa
+    query: vehicle_registered
+    identifiers: [ط ح ل ٧٨٩]
+  - ask: is ط ح ل 789 registered
+    lang: mixed
+    query: vehicle_registered
+    identifiers: [ط ح ل 789]
+
+  # -- safety ---------------------------------------------------------------
+  - ask: any knife alerts today
+    lang: en
+    query: weapons
+  - ask: في حد دخل المعمل الاسبوع ده؟
+    lang: eg
+    query: zone_breaches
+  - ask: did anyone enter the chemistry lab this week
+    lang: en
+    query: zone_breaches
+
+  # -- people ---------------------------------------------------------------
+  - ask: is Omar Khaled enrolled
+    lang: en
+    query: person_directory
+    identifiers: [Omar, Khaled]
+  - ask: مين في صف تمانية
+    lang: eg
+    query: group_roster
+  - ask: how many days has Ali Hassan been present
+    lang: en
+    query: person_history
+    identifiers: [Ali, Hassan]
+
+  # -- the system itself ----------------------------------------------------
+  - ask: هل كاميرا البوابة شغالة؟
+    lang: msa
+    query: system_state
+  - ask: is the gate camera working
+    lang: en
+    query: system_state
+
+  # -- records nothing. Must NOT come back as an empty result ----------------
+  - ask: فين الشنطة الحمرا
+    lang: eg
+    query: lost_item
+  - ask: find the red bag
+    lang: en
+    query: lost_item
+
+  # -- out of scope. `query: null` means Ask must refuse ---------------------
+  - ask: ليه سارة اتأخرت النهاردة؟
+    lang: eg
+    query: null
+    identifiers: [سارة]
+    why: a reason, not a record. Nothing in the system stores why.
+  - ask: what will the weather be tomorrow
+    lang: en
+    query: null
+    why: not about this site at all.
+  - ask: هيحصل ايه بكرة في المدرسة
+    lang: eg
+    query: null
+    why: the future. Nothing has been recorded yet.
+  - ask: is Sara a good student
+    lang: en
+    query: null
+    identifiers: [Sara]
+    why: a judgement. The system holds attendance, not opinions.
+
+  # -- ambiguous. One clarifier, never a guess -------------------------------
+  - ask: كام واحد
+    lang: eg
+    query: headcount
+    missing: place
+    why: how many, where? A headcount with no place is not answerable.
+  - ask: was Sara late
+    lang: en
+    query: attendance
+    ambiguous_person: true
+    why: two people are called Sara, so the name cannot be resolved to one.
+
+  # -- a name the site does not know. Sent as typed, and reported ------------
+  - ask: did Mohab come in today
+    lang: en
+    query: attendance
+    unrecognised: [Mohab]
+    why: >
+      Not enrolled, so masking cannot know him. He is sent as typed — the
+      accepted limit from the spec — and `ask.words_left_site` names him.
