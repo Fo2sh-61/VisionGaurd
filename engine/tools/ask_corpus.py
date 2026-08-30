@@ -86,10 +86,28 @@ def main() -> int:
 
     by_lang: dict[str, list[bool]] = {}
     wrong: list[str] = []
+    dead = 0
     for index, case in enumerate(cases):
         masked, _ = mask(case["ask"], dictionary)
         got = _route(parser, masked, args.retries, args.delay)
         print(f"  [{index + 1}/{len(cases)}] {got}", flush=True)
+
+        # Give up rather than grind. A per-minute limit clears while you wait;
+        # a DAILY one does not, and the two look identical from here. Retrying
+        # a spent daily quota for every remaining question means an hour of
+        # waiting for 37 answers that will never come — which is exactly what
+        # this did to `gemini-3.7-flash`, whose free allowance is 20 requests
+        # against a corpus of 37.
+        dead = dead + 1 if got.startswith("<unavailable: busy") else 0
+        if dead >= 3:
+            print(f"\nGiving up after {dead} in a row. The quota for "
+                  f"{args.model or cfg.ask.model} looks spent for today — a "
+                  f"per-minute limit would have cleared by now.\n"
+                  f"Try a model with its own allowance:\n"
+                  f"  python engine/tools/ask_corpus.py "
+                  f"--model gemini-3.5-flash-lite\n"
+                  f"or --dry-run to check the masking, which costs nothing.")
+            return 2
         want = case["query"]
         # Some questions have more than one correct route. Scoring a right
         # answer as wrong would make the model look worse than it is and hide
@@ -141,7 +159,10 @@ def _route(parser, masked: str, retries: int, delay: float) -> str:
             transient = exc.reason in {"busy", "offline", "timeout"}
             if not transient or attempt == retries:
                 return f"<unavailable: {exc.reason}>"
-            wait = 30.0 * (attempt + 1) if exc.reason == "busy" else 5.0
+            # Short waits. A per-minute window clears inside a minute; if it
+            # does not, waiting longer is not going to help and the caller
+            # gives up after three of these in a row.
+            wait = 20.0 if exc.reason == "busy" else 5.0
             print(f"      {exc.reason}, waiting {wait:.0f}s", flush=True)
             time.sleep(wait)
         finally:

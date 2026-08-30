@@ -914,7 +914,12 @@ class AskConfig:
     #: Confirm against the live model list before shipping. Gemini ids move
     #: faster than this file does; a wrong one fails at the first question
     #: with the provider's own error rather than answering wrongly.
-    model: str = "gemini-3.7-flash"
+    #:
+    #: flash-lite rather than the better flash, and measured rather than
+    #: preferred: the free tier gives `gemini-3.7-flash` twenty requests a
+    #: day, which is fewer than one accuracy run and far fewer than one
+    #: school day. See specs/010-ask/evidence/routing.md.
+    model: str = "gemini-3.5-flash-lite"
 
     #: A person is waiting at a screen. Saying "temporarily unavailable" after
     #: eight seconds beats an indefinite spinner, and the answer is never so
@@ -929,7 +934,7 @@ class AskConfig:
         if unknown:
             raise ConfigError(f"{where}: unknown key(s) {unknown}")
 
-        model = str(raw.get("model", "gemini-3.7-flash")).strip()
+        model = str(raw.get("model", "gemini-3.5-flash-lite")).strip()
         if not model:
             raise ConfigError(
                 f"{where}.model: must name a model. Ask cannot pick one for "

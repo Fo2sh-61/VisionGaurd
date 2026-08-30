@@ -165,14 +165,19 @@ vehicles:
 ask:
   enabled: true
 
-  # gemini-3.7-flash was current on 30 Aug 2026. Gemini ids move quickly, so
-  # confirm against the live model list rather than trusting this line. A
-  # wrong id fails loudly at the first question, not silently.
+  # gemini-3.5-flash-lite, and the reason is measured rather than preferred.
   #
-  # gemini-3.5-flash-lite has double the per-minute rate limit if bursts ever
-  # matter. Routing accuracy on Arabic decides between them, and
-  # `python engine/tools/ask_corpus.py` is what measures it.
-  model: gemini-3.7-flash
+  # gemini-3.7-flash is the better model and is NOT usable on the free tier:
+  # Google's API returns `limit: 20` requests for it, against a corpus of 37,
+  # so it cannot answer a day's questions at a school and cannot even complete
+  # one accuracy run. flash-lite has a materially larger allowance and scored
+  # 91.9% on the corpus — the only measured number either model has.
+  #
+  # Confirm the id against the live model list rather than trusting this line;
+  # Gemini ids move quickly. A wrong one fails loudly at the first question.
+  # `python engine/tools/ask_corpus.py` is what settles a change of model, and
+  # `specs/010-ask/evidence/routing.md` holds the figures.
+  model: gemini-3.5-flash-lite
 
   # A question is a person waiting at a screen. Better to say "temporarily
   # unavailable" after eight seconds than to leave them looking at a spinner.

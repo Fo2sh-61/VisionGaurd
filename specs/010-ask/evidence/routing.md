@@ -68,6 +68,17 @@ run would not have that noise.
   and it wants a bigger corpus before it is worth doing — 37 questions means
   one question is 2.7 percentage points.
 
+## `engine.yaml` now names flash-lite
+
+Changed 30 Aug 2026, on this evidence rather than on preference. `gemini-3.7-flash`
+is the better model and cannot do the job on a free key: 20 requests a day is
+fewer than one accuracy run and far fewer than one school day of questions.
+
+The tool also used to grind on a spent quota — a daily cap and a per-minute one
+look identical from the client, so it retried all 37 questions and would have
+waited the better part of an hour for answers that could not come. It now gives
+up after three refusals in a row and names the model to try instead.
+
 ## What has not been done
 
 - **No native speaker has read the corpus.** Until Mohamed corrects the Arabic,
