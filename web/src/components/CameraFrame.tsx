@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useT } from '@/app/LanguageContext';
 import { useSite } from '@/app/SiteContext';
 import type { CameraFeature } from '@/services/api';
 import { getCameraDetections } from '@/services/api';
@@ -130,6 +131,7 @@ export function CameraFrame({
   onPicture?: (rect: PictureRect) => void;
 }) {
   const s = SCALE[size];
+  const t = useT();
   const tzOffsetMinutes = useSite().site?.tzOffsetMinutes ?? 0;
   const zone = camera.zone;
   // Keep the zone label inside the frame when the zone starts near the top edge.
@@ -282,7 +284,19 @@ export function CameraFrame({
       : undefined;
 
   return (
-    <div className="camframe" ref={frameRef} style={{ height: s.height }}>
+    // dir="ltr" is pinned here and must stay pinned, in every language.
+    //
+    // Everything below is positioned in physical coordinates against the
+    // frame the camera actually sent — zones, the counting line, every box,
+    // the badges. Right-to-left is a property of the interface; the picture
+    // is evidence. Letting `dir` reach in here would mirror the overlays and
+    // put a box on the wrong person, in a way that looks entirely deliberate
+    // to whoever is reading it. A mirrored picture is a fabricated picture.
+    //
+    // Arabic text inside still reads right-to-left on its own — a camera
+    // name or a person's name is a text run, and the bidi algorithm handles
+    // it without any help from the container. P11-FR-009.
+    <div className="camframe" dir="ltr" ref={frameRef} style={{ height: s.height }}>
       {frameSrc ? (
         <img
           src={frameSrc}
@@ -398,7 +412,7 @@ export function CameraFrame({
                       #{b.trackId}
                     </span>
                     <span style={{ display: 'block', fontSize: s.labelFont * 0.92 }}>
-                      {b.label ?? 'Unknown person'}
+                      {b.label ?? t('camera.unknownPerson')}
                     </span>
                   </>
                 ) : (
@@ -450,7 +464,7 @@ export function CameraFrame({
       {camera.offline && (
         <div className="camframe__nosignal">
           <span style={{ color: '#aab5ac', fontSize: 12, fontWeight: 700, letterSpacing: '.05em' }}>
-            NO SIGNAL
+            {t('camera.noSignal')}
           </span>
           <span style={{ color: '#77827a', fontSize: 11 }}>showing last received frame</span>
         </div>

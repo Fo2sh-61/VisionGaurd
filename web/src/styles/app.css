@@ -20,6 +20,40 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Arabic needs a face that actually has Arabic glyphs.
+ *
+ *  'Albert Sans' has none. Without this the browser falls back per glyph, so
+ *  an Arabic page renders in whatever the system default happens to be while
+ *  the numbers and any Latin stay in Albert Sans - two designs in one
+ *  sentence, at two different weights.
+ *
+ *  Arabic also sits taller than Latin at the same size: a leading tuned for
+ *  Latin crowds the descenders on jim and ya and makes a paragraph look
+ *  cramped even when nothing is clipped. */
+html[lang='ar'] body,
+html[lang='ar'] input,
+html[lang='ar'] select,
+html[lang='ar'] button,
+html[lang='ar'] textarea {
+  font-family: 'Noto Sans Arabic', 'Segoe UI', Tahoma, 'Geeza Pro', system-ui, sans-serif;
+}
+
+html[lang='ar'] body {
+  line-height: 1.7;
+}
+
+/* A glyph that points somewhere. "Next" points right in English and left in
+ *  Arabic, and a chevron that keeps pointing right in a right-to-left list is
+ *  pointing back the way you came. Mirrored, not re-picked, so one glyph in
+ *  the markup is right in both languages. */
+.mirror-rtl {
+  display: inline-block;
+}
+
+[dir='rtl'] .mirror-rtl {
+  transform: scaleX(-1);
+}
+
 a {
   color: var(--ac);
   text-decoration: none;
@@ -124,7 +158,7 @@ textarea {
   color: var(--tx2);
   background: transparent;
   border: none;
-  text-align: left;
+  text-align: start;
   cursor: pointer;
   width: 100%;
   font-weight: 400;
@@ -504,7 +538,7 @@ select.input {
   cursor: pointer;
   border: 1px solid var(--line);
   padding: 0;
-  text-align: left;
+  text-align: start;
   display: block;
   width: 100%;
 }
@@ -528,6 +562,12 @@ select.input {
   opacity: 0.6;
 }
 
+/* Everything under `.camframe__` positions with PHYSICAL left/right, and must
+   keep doing so. The picture is evidence: a box has to sit over the thing it
+   describes, in Arabic exactly as in English. `CameraFrame` pins the picture
+   container to `dir="ltr"` for the same reason. Reaching for a logical
+   property here would move every overlay to the wrong side of the frame and
+   turn a true picture into a false one. P11-FR-009. */
 .camframe__floor {
   position: absolute;
   left: 0;
@@ -775,11 +815,10 @@ select.input {
   border-bottom: 1px solid var(--line);
   cursor: pointer;
   background: none;
-  border-left: none;
-  border-right: none;
+  border-inline: none;
   border-top: none;
   width: 100%;
-  text-align: left;
+  text-align: start;
   font: inherit;
   color: inherit;
 }

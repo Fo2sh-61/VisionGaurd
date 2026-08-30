@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useCameraGrid, useCameras } from '@/app/CameraContext';
+import { useLanguage, useT } from '@/app/LanguageContext';
 import type { CameraFeature } from '@/services/api';
 import { getCameraCounts } from '@/services/api';
 import { describeCount } from '@/services/format';
@@ -35,7 +36,9 @@ function tileRefreshMs(count: number): number {
 /** How often the grid refreshes headcounts. One request for all tiles. */
 const COUNT_REFRESH_MS = 1_000;
 
-const UNPLACED = 'Unassigned';
+/** The heading for cameras with no area set. Wording, so it comes from the
+ *  catalogue; the camera's own `area` is data and is never translated. */
+const UNPLACED = 'camera.unassignedArea';
 
 export function CamGrid({
   title,
@@ -99,6 +102,8 @@ export function CamGrid({
    *  point, and burying them on page four of the pager would be. */
   pinned?: string[];
 }) {
+  const t = useT();
+  const { language } = useLanguage();
   const [open, setOpen] = useState<Camera | null>(null);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(0);
@@ -208,11 +213,11 @@ export function CamGrid({
           {cam.name}
         </div>
         <div style={{ fontSize: 11.5, color: 'var(--tx2)', marginTop: 1 }}>
-          {cam.offline ? cam.status : describeCount(counts[cam.id], cam.status)}
+          {cam.offline ? cam.status : describeCount(counts[cam.id], cam.status, language)}
         </div>
         {pinned?.includes(cam.id) && (
           <div style={{ marginTop: 4 }}>
-            <Badge tone="warn">Bag seen</Badge>
+            <Badge tone="warn">{t('camera.bagSeen')}</Badge>
           </div>
         )}
       </div>
@@ -246,8 +251,8 @@ export function CamGrid({
           <input
             type="search"
             value={search}
-            placeholder="Find a camera or area"
-            aria-label="Find a camera or area"
+            placeholder={t('camera.search')}
+            aria-label={t('camera.search')}
             onChange={(e) => {
               setSearch(e.target.value);
               setPage(0);
@@ -269,15 +274,15 @@ export function CamGrid({
             color: 'var(--am)',
           }}
         >
-          Engine unreachable — showing the last known cameras. Nothing here is live.
+          {t('camera.lastKnown')}
         </div>
       )}
 
       {matching.length === 0 && (
         <div style={{ marginTop: 14, fontSize: 13, color: 'var(--tx3)' }}>
           {needle
-            ? `No camera or area matches “${search.trim()}”.`
-            : 'No cameras are configured.'}
+            ? t('camera.noneMatch', { search: search.trim() })
+            : t('camera.noneConfigured')}
         </div>
       )}
 
@@ -294,7 +299,7 @@ export function CamGrid({
                   marginBottom: 6,
                 }}
               >
-                {area}
+                {area === UNPLACED ? t(UNPLACED) : area}
               </div>
               <div className="camgrid">
                 {ordered.filter((c) => (c.area || UNPLACED) === area).map(tile)}
@@ -320,7 +325,7 @@ export function CamGrid({
             disabled={current === 0}
             onClick={() => setPage(current - 1)}
           >
-            Previous
+            {t('camera.previous')}
           </button>
           <span>
             {current * pageSize + 1}–{Math.min(matching.length, (current + 1) * pageSize)} of{' '}
@@ -332,7 +337,7 @@ export function CamGrid({
             disabled={current >= pages - 1}
             onClick={() => setPage(current + 1)}
           >
-            Next
+            {t('camera.next')}
           </button>
         </div>
       )}

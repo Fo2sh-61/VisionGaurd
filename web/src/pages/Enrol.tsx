@@ -34,6 +34,8 @@ import {
   removeEnrolmentPhoto,
   startEnrolment,
 } from '@/services/api';
+import { useLanguage, useT } from '@/app/LanguageContext';
+import type { MessageKey } from '@/i18n';
 import { ApiError } from '@/services/http';
 import type * as W from '@/services/wire';
 import type { Camera, PersonType, Tone } from '@/types';
@@ -90,6 +92,8 @@ function ScoreBar({ score }: { score: number }) {
 }
 
 export function Enrol() {
+  const t = useT();
+  const { language } = useLanguage();
   const navigate = useNavigate();
 
   // -- the form, before a session exists --------------------------------
@@ -118,7 +122,7 @@ export function Enrol() {
   const objectUrls = useRef<string[]>([]);
 
   useEffect(() => {
-    void getCameras()
+    void getCameras(language)
       .then((list) => {
         setCameras(list);
         if (list.length) setCameraId((current) => current || list[0].id);
@@ -177,15 +181,15 @@ export function Enrol() {
   const guidance = (() => {
     if (!session) return '';
     if (!live) return session.advice;
-    if (preview === null) return 'Looking…';
+    if (preview === null) return t('enrol.looking');
     if (preview.offline) {
-      return 'That camera is not sending a picture. Choose another camera, or upload photos instead.';
+      return t('enrol.cameraNoPicture');
     }
     if (preview.faces.length === 0) {
-      return 'Nobody detected — step in front of the camera.';
+      return t('enrol.nobodyDetected');
     }
     if (preview.faces.length > 1) {
-      return `${preview.faces.length} faces in shot. One person at a time, please.`;
+      return t('enrol.tooManyFaces', { count: preview.faces.length });
     }
     return session.advice;
   })();
@@ -196,7 +200,7 @@ export function Enrol() {
         ? err.message
         : err instanceof Error
           ? err.message
-          : 'Something went wrong.',
+          : t('enrol.somethingWentWrong'),
     );
   }, []);
 
@@ -285,7 +289,7 @@ export function Enrol() {
     setBusy(true);
     setError(null);
     try {
-      const person = await commitEnrolment(session.id);
+      const person = await commitEnrolment(session.id, language);
       setSaved(person.name);
       setSession(null);
       setThumbs({});
@@ -341,45 +345,46 @@ export function Enrol() {
           className="linkbtn"
           onClick={() => void leave()}
         >
-          ← People
+          <span className="mirror-rtl" aria-hidden="true">←</span>{' '}
+          {t('enrol.backToPeople')}
         </button>
         {confirmLeave && session && (
           <>
             <span style={{ fontSize: 13, color: 'var(--tx2)' }}>
-              Leave now and the {session.photos.length === 1 ? 'photo' : 'photos'} you
-              have taken are discarded. Nothing has been saved yet.
+              {t(session.photos.length === 1
+                ? 'enrol.leaveWarningOne' : 'enrol.leaveWarning')}
             </span>
             <button type="button" className="chip-btn chip-btn--on" onClick={() => void leave()}>
-              Discard and leave
+              {t('enrol.discardAndLeave')}
             </button>
             <button
               type="button"
               className="chip-btn chip-btn--off"
               onClick={() => setConfirmLeave(false)}
             >
-              Stay
+              {t('enrol.stay')}
             </button>
           </>
         )}
       </div>
 
       <PageHeader
-        title="Enrol a face"
-        lead="Add someone the cameras should recognise. Five photos from different angles — one photo is one angle under one light, and recognition fails the moment they turn their head. Nobody is added without them."
+        title={t('enrol.title')}
+        lead={t('enrol.lead')}
       />
 
       {saved && (
         <Card tight>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-            <Badge tone="good">Saved</Badge>
+            <Badge tone="good">{t('enrol.saved')}</Badge>
             <div style={{ flex: 1, minWidth: 200 }}>
-              <strong>{saved}</strong> is enrolled and can now be recognised.
+              {t('enrol.savedLead', { name: saved })}
             </div>
             <button type="button" className="chip-btn chip-btn--off" onClick={() => navigate('/people')}>
-              View in People
+              {t('enrol.viewInPeople')}
             </button>
             <button type="button" className="chip-btn chip-btn--off" onClick={() => setSaved(null)}>
-              Enrol someone else
+              {t('enrol.enrolAnother')}
             </button>
           </div>
         </Card>
@@ -388,7 +393,7 @@ export function Enrol() {
       {error && (
         <Card tight>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <Badge tone="bad">Problem</Badge>
+            <Badge tone="bad">{t('enrol.problem')}</Badge>
             <div style={{ flex: 1 }}>{error}</div>
           </div>
         </Card>
@@ -396,7 +401,7 @@ export function Enrol() {
 
       {!session ? (
         <Card>
-          <CardHeader title="Who are you enrolling?" sub="You can add photos on the next step." />
+          <CardHeader title={t('enrol.whoAreYouEnrolling')} sub={t('enrol.photosNextStep')} />
           <div
             style={{
               display: 'grid',
@@ -404,32 +409,37 @@ export function Enrol() {
               gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
             }}
           >
-            <Field label="Full name">
+            <Field label={t('enrol.fullName')}>
               <input
                 className="input"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. Ahmed Hassan"
+                placeholder={t('enrol.namePlaceholder')}
                 autoFocus
               />
             </Field>
-            <Field label="Type">
-              <Select value={type} onChange={(v) => setType(v as PersonType)} options={TYPES} />
+            <Field label={t('enrol.type')}>
+              <Select
+                value={type}
+                onChange={(v) => setType(v as PersonType)}
+                options={TYPES}
+                label={(o) => t(`person.type.${o}` as MessageKey)}
+              />
             </Field>
-            <Field label="Group (optional)">
+            <Field label={t('enrol.group')}>
               <input
                 className="input"
                 value={group}
                 onChange={(e) => setGroup(e.target.value)}
-                placeholder="e.g. Grade 8"
+                placeholder={t('enrol.groupPlaceholder')}
               />
             </Field>
-            <Field label="Detail (optional)">
+            <Field label={t('enrol.detail')}>
               <input
                 className="input"
                 value={detail}
                 onChange={(e) => setDetail(e.target.value)}
-                placeholder="e.g. Grade 8 — B"
+                placeholder={t('enrol.detailPlaceholder')}
               />
             </Field>
           </div>
@@ -440,7 +450,7 @@ export function Enrol() {
               disabled={!name.trim() || busy}
               onClick={() => void begin()}
             >
-              {busy ? 'Starting…' : 'Start enrolment'}
+              {t(busy ? 'enrol.starting' : 'enrol.start')}
             </button>
           </div>
         </Card>
@@ -483,7 +493,7 @@ export function Enrol() {
                               top: `${point.y * 100}%`,
                               width: 7,
                               height: 7,
-                              marginLeft: -3.5,
+                              marginInlineStart: -3.5,
                               marginTop: -3.5,
                               borderRadius: '50%',
                               background: FACE_OUTLINE,
@@ -522,7 +532,7 @@ export function Enrol() {
                     value={cameraId}
                     onChange={(e) => setCameraId(e.target.value)}
                     style={{ maxWidth: 220 }}
-                    aria-label="Camera to capture from"
+                    aria-label={t('enrol.cameraToCaptureFrom')}
                   >
                     {cameras.map((c) => (
                       <option key={c.id} value={c.id}>
@@ -536,7 +546,7 @@ export function Enrol() {
                     disabled={busy || !cameraId}
                     onClick={() => void captureFromCamera()}
                   >
-                    {busy ? 'Working…' : 'Capture'}
+                    {t(busy ? 'enrol.working' : 'enrol.capture')}
                   </button>
                 </>
               )}
@@ -603,7 +613,7 @@ export function Enrol() {
                     )}
                   </div>
 
-                  <div style={{ fontWeight: 600 }}>Photo {index + 1}</div>
+                  <div style={{ fontWeight: 600 }}>{t('enrol.photoN', { n: index + 1 })}</div>
 
                   <div>
                     {photo.usable ? (
@@ -614,7 +624,7 @@ export function Enrol() {
                         </div>
                       </>
                     ) : (
-                      <Badge tone="bad">Unusable</Badge>
+                      <Badge tone="bad">{t('enrol.unusable')}</Badge>
                     )}
                   </div>
 

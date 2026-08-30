@@ -16,6 +16,8 @@
  */
 
 import { type MutableRefObject, useEffect, useState } from 'react';
+import { useLanguage, useT } from '@/app/LanguageContext';
+import type { MessageKey } from '@/i18n';
 import { Plate } from '@/components/Plate';
 import { Badge, Card, Empty, LoadError, Select } from '@/components/ui';
 import {
@@ -24,20 +26,21 @@ import {
 } from '@/services/api';
 import { apiBase } from '@/services/http';
 import {
-  formatEventTime, vehicleCategoryLabel, vehicleCategoryTone,
+  formatCount, formatEventTime, vehicleCategoryTone,
 } from '@/services/format';
 import type * as W from '@/services/wire';
 import { useAsync } from '@/app/useAsync';
 
 const NO_VEHICLES: W.RegisteredVehicle[] = [];
 
-const CATEGORIES: [string, string][] = [
-  ['all', 'All'],
-  ['staff', 'Staff'],
-  ['visitor', 'Visitors'],
-  ['vip', 'VIP'],
-  ['blacklist', 'Blacklisted'],
-];
+const CATEGORIES = ['all', 'staff', 'visitors', 'vip', 'blacklist'] as const;
+
+/** The filter chip says "Visitors"; a single car is a "Visitor". Two words in
+ *  English, and not necessarily two in Arabic, so both have their own key and
+ *  the filter maps back to the engine's `visitor`. */
+const CATEGORY_VALUE: Record<(typeof CATEGORIES)[number], string> = {
+  all: 'all', staff: 'staff', visitors: 'visitor', vip: 'vip', blacklist: 'blacklist',
+};
 
 const EMPTY_FORM: W.VehicleRegistration = {
   plate: '', category: 'visitor', owner: '', phone: '', unit: '',
@@ -54,6 +57,8 @@ export function VehicleRegisterTab({ isAdmin, prefillPlate }: {
   isAdmin: boolean;
   prefillPlate: MutableRefObject<string | null>;
 }) {
+  const { language } = useLanguage();
+  const t = useT();
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('all');
   const [form, setForm] = useState<W.VehicleRegistration | null>(null);
@@ -85,7 +90,7 @@ export function VehicleRegisterTab({ isAdmin, prefillPlate }: {
 
   async function save() {
     if (!form?.plate.trim()) {
-      setProblem('A vehicle needs a plate. Everything else is optional.');
+      setProblem(t('register.needsPlate'));
       return;
     }
     setBusy(true);
@@ -100,7 +105,7 @@ export function VehicleRegisterTab({ isAdmin, prefillPlate }: {
       // shows a save that did not happen the way it thinks it did.
       reload();
     } catch (err) {
-      setProblem(err instanceof Error ? err.message : 'That was not saved.');
+      setProblem(err instanceof Error ? err.message : t('register.notSaved'));
     } finally {
       setBusy(false);
     }
@@ -114,7 +119,7 @@ export function VehicleRegisterTab({ isAdmin, prefillPlate }: {
       setConfirming(null);
       reload();
     } catch (err) {
-      setProblem(err instanceof Error ? err.message : 'That was not removed.');
+      setProblem(err instanceof Error ? err.message : t('register.notRemoved'));
     } finally {
       setBusy(false);
     }
@@ -129,7 +134,7 @@ export function VehicleRegisterTab({ isAdmin, prefillPlate }: {
       reloadLastImport();
       reload();
     } catch (err) {
-      setProblem(err instanceof Error ? err.message : 'That file was not loaded.');
+      setProblem(err instanceof Error ? err.message : t('register.fileNotLoaded'));
     } finally {
       setBusy(false);
     }
@@ -163,14 +168,11 @@ export function VehicleRegisterTab({ isAdmin, prefillPlate }: {
     <>
       {isAdmin && (
         <Card>
-          <div style={{ fontWeight: 700, fontSize: 15 }}>Import the vehicle list</div>
+          <div style={{ fontWeight: 700, fontSize: 15 }}>{t('register.importTitle')}</div>
           <div style={{
             fontSize: 13, color: 'var(--tx2)', margin: '2px 0 14px', maxWidth: 640,
           }}>
-            Download the template, fill in a row per car, and upload it. Column
-            headings work in English or Arabic, and either digit system is
-            accepted — plates are normalised on the way in, so the same car
-            typed two ways lands on one row.
+            {t('register.importLead')}
           </div>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
             <a
@@ -182,7 +184,7 @@ export function VehicleRegisterTab({ isAdmin, prefillPlate }: {
                 alignItems: 'center', textDecoration: 'none',
               }}
             >
-              Download template
+              {t('register.downloadTemplate')}
             </a>
             <label
               style={{
@@ -193,7 +195,7 @@ export function VehicleRegisterTab({ isAdmin, prefillPlate }: {
                 opacity: busy ? 0.6 : 1,
               }}
             >
-              {busy ? 'Loading…' : 'Upload Excel or CSV'}
+              {t(busy ? 'register.uploading' : 'register.upload')}
               <input
                 type="file"
                 accept=".csv,.xlsx,.xlsm"
@@ -212,12 +214,23 @@ export function VehicleRegisterTab({ isAdmin, prefillPlate }: {
                 nobody has ever imported into shows no line at all. */}
             {lastImport && (
               <span style={{ fontSize: 12.5, color: 'var(--tx3)' }}>
-                Last import: {lastImport.added.toLocaleString()} added
+                {/* One sentence from the catalogue, not three fragments
+                    concatenated here. Joined in JSX it could only ever be
+                    English, and the counts followed the BROWSER's number
+                    format rather than the console's - so the same import
+                    read `1,240` on one machine and `1.240` on the next. */}
+                {t('register.lastImport', {
+                  added: formatCount(lastImport.added, language),
+                })}
                 {lastImport.skipped > 0
-                  && ` · ${lastImport.skipped.toLocaleString()} already on the list`}
+                  && ` · ${t('register.lastImportSkipped', {
+                    count: formatCount(lastImport.skipped, language),
+                  })}`}
                 {lastImport.rejected > 0
-                  && ` · ${lastImport.rejected.toLocaleString()} rejected`}
-                {' · '}{formatEventTime(lastImport.at)}
+                  && ` · ${t('register.lastImportRejected', {
+                    count: formatCount(lastImport.rejected, language),
+                  })}`}
+                {' · '}{formatEventTime(lastImport.at, language)}
               </span>
             )}
           </div>
@@ -234,7 +247,7 @@ export function VehicleRegisterTab({ isAdmin, prefillPlate }: {
                   && ` · ${imported.problems.length} not loaded`}
               </div>
               {imported.problems.length > 0 && (
-                <ul style={{ margin: '8px 0 0', paddingLeft: 18, color: 'var(--am)' }}>
+                <ul style={{ margin: '8px 0 0', paddingInlineStart: 18, color: 'var(--am)' }}>
                   {imported.problems.map((p) => <li key={p}>{p}</li>)}
                 </ul>
               )}
@@ -255,19 +268,19 @@ export function VehicleRegisterTab({ isAdmin, prefillPlate }: {
             style={{ ...inputStyle, flex: 1, minWidth: 200, height: 42, fontSize: 14.5 }}
           />
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {CATEGORIES.map(([key, label]) => (
+            {CATEGORIES.map((chip) => (
               <button
-                key={key}
+                key={chip}
                 type="button"
-                onClick={() => setCategory(key)}
+                onClick={() => setCategory(CATEGORY_VALUE[chip])}
                 style={{
                   padding: '9px 14px', borderRadius: 10, border: 'none',
                   fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                  background: category === key ? 'var(--chip)' : 'var(--bg)',
-                  color: category === key ? 'var(--ac2)' : 'var(--tx3)',
+                  background: category === CATEGORY_VALUE[chip] ? 'var(--chip)' : 'var(--bg)',
+                  color: category === CATEGORY_VALUE[chip] ? 'var(--ac2)' : 'var(--tx3)',
                 }}
               >
-                {label}
+                {t(`vehicle.category.${chip}` as MessageKey)}
               </button>
             ))}
           </div>
@@ -295,48 +308,44 @@ export function VehicleRegisterTab({ isAdmin, prefillPlate }: {
             borderBottom: '1px solid var(--line)', marginBottom: 16,
           }}>
             <div style={{ fontWeight: 700, fontSize: 16 }}>
-              {editing ? 'Editing this vehicle' : 'Add a vehicle'}
+              {t(editing ? 'register.editing' : 'register.adding')}
             </div>
             <div style={{ fontSize: 13, color: 'var(--tx2)', margin: '2px 0 16px' }}>
-              {editing
-                ? 'Changes apply from this car’s next pass. Its recorded passes are not altered.'
-                : 'The plate is the only field that must be filled in. Everything else makes the log readable later.'}
+              {t(editing ? 'register.editingLead' : 'register.addingLead')}
             </div>
 
             <div style={{
               display: 'grid', gap: 12,
               gridTemplateColumns: 'repeat(auto-fit,minmax(190px,1fr))',
             }}>
-              {field('plate', 'Plate', 'ب ج د ١٢٣٤',
-                'Arabic or English digits both work — the plate is normalised on save.')}
-              {field('owner', 'Owner', 'e.g. Tarek Nassar')}
-              {field('phone', 'Phone', '01x xxx xxxx')}
-              {field('unit', 'Unit or department', 'e.g. IT')}
+              {field('plate', t('register.plate'), 'ب ج د ١٢٣٤',
+                t('register.plateHint'))}
+              {field('owner', t('register.owner'), t('register.ownerPlaceholder'))}
+              {field('phone', t('register.phone'), t('register.phonePlaceholder'))}
+              {field('unit', t('register.unit'), t('register.unitPlaceholder'))}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <label style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--tx2)' }}>
-                  Category
+                  {t('register.category')}
                 </label>
+                {/* The option values are the engine's own categories now.
+                    They used to be the English labels, mapped back by
+                    comparing strings — which meant an Arabic label could
+                    never have matched, and rewording one silently changed
+                    which category was saved. */}
                 <Select
-                  value={vehicleCategoryLabel(form.category ?? 'visitor')}
-                  onChange={(label) => setForm({
-                    ...form,
-                    // `Select` renders its options verbatim, so it is fed the
-                    // labels and the value is mapped back here. The engine
-                    // rejects anything outside its four categories either way.
-                    category: (['staff', 'visitor', 'vip', 'blacklist']
-                      .find((c) => vehicleCategoryLabel(c) === label)) ?? 'visitor',
-                  })}
-                  options={['staff', 'visitor', 'vip', 'blacklist']
-                    .map(vehicleCategoryLabel)}
+                  value={form.category ?? 'visitor'}
+                  onChange={(category) => setForm({ ...form, category })}
+                  options={['staff', 'visitor', 'vip', 'blacklist']}
+                  label={(c) => t(`vehicle.category.${c}` as MessageKey)}
                 />
               </div>
-              {field('validUntil', 'Permit valid until', 'YYYY-MM-DD',
-                'Leave empty for no expiry. Visitors usually want a date.')}
-              {field('carMake', 'Car make', 'e.g. Hyundai Elantra')}
-              {field('carColour', 'Colour', 'e.g. grey')}
+              {field('validUntil', t('register.validUntil'), 'YYYY-MM-DD',
+                t('register.validUntilHint'))}
+              {field('carMake', t('register.carMake'), t('register.carMakePlaceholder'))}
+              {field('carColour', t('register.colour'), t('register.colourPlaceholder'))}
             </div>
             <div style={{ marginTop: 12 }}>
-              {field('notes', 'Notes', 'Anything the guard should know')}
+              {field('notes', t('register.notes'), t('register.notesPlaceholder'))}
             </div>
 
             {problem && (
@@ -360,7 +369,7 @@ export function VehicleRegisterTab({ isAdmin, prefillPlate }: {
                   opacity: busy ? 0.6 : 1,
                 }}
               >
-                {editing ? 'Save changes' : 'Add to the register'}
+                {t(editing ? 'register.saveChanges' : 'register.addToRegister')}
               </button>
               <button
                 type="button"
@@ -385,11 +394,8 @@ export function VehicleRegisterTab({ isAdmin, prefillPlate }: {
         {!error && !loading && vehicles.length === 0 && (
           <Empty>
             {query || category !== 'all'
-              ? 'Nothing matches that search.'
-              : 'The register is empty. Every car that passes is recorded as '
-                + 'not registered until it is on this list — import a '
-                + 'spreadsheet, or press Register beside a car on the Live tab '
-                + 'to add it with its plate already filled in.'}
+              ? t('register.noMatch')
+              : t('register.empty')}
           </Empty>
         )}
 
@@ -406,7 +412,7 @@ export function VehicleRegisterTab({ isAdmin, prefillPlate }: {
               <Plate display={vehicle.plateDisplay} compact latin />
               <span style={{ minWidth: 0 }}>
                 <span style={{ fontWeight: 600, fontSize: 14, display: 'block' }}>
-                  {vehicle.owner ?? 'No owner recorded'}
+                  {vehicle.owner ?? t('register.noOwner')}
                 </span>
                 <span style={{ fontSize: 12.5, color: 'var(--tx3)' }}>
                   {[vehicle.carMake, vehicle.carColour].filter(Boolean).join(' · ') || '—'}
@@ -417,7 +423,7 @@ export function VehicleRegisterTab({ isAdmin, prefillPlate }: {
               </span>
               <span>
                 <Badge tone={vehicleCategoryTone(vehicle.category)}>
-                  {vehicleCategoryLabel(vehicle.category)}
+                  {t(`vehicle.category.${vehicle.category}` as MessageKey)}
                 </Badge>
               </span>
               <span style={{
@@ -425,8 +431,8 @@ export function VehicleRegisterTab({ isAdmin, prefillPlate }: {
                 color: vehicle.expired ? 'var(--am)' : 'var(--tx2)',
               }}>
                 {vehicle.validUntil
-                  ? `${vehicle.expired ? 'Expired' : 'Valid to'} ${vehicle.validUntil}`
-                  : 'No expiry'}
+                  ? `${t(vehicle.expired ? 'register.expired' : 'register.validTo')} ${vehicle.validUntil}`
+                  : t('register.noExpiry')}
               </span>
               <span style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
                 {isAdmin && confirming !== vehicle.id && (
@@ -489,7 +495,7 @@ export function VehicleRegisterTab({ isAdmin, prefillPlate }: {
                     cursor: busy ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap',
                   }}
                 >
-                  Remove from the register
+                  {t('register.removeFromRegister')}
                 </button>
                 <button
                   type="button"

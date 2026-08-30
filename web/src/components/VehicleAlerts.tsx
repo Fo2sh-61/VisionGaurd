@@ -6,6 +6,7 @@ import {
 } from '@/services/format';
 import type * as W from '@/services/wire';
 import { useAsync } from '@/app/useAsync';
+import { useLanguage } from '@/app/LanguageContext';
 
 /** Alerts change when a car passes, not frame by frame. */
 const REFRESH_MS = 4_000;
@@ -24,6 +25,7 @@ function AlertRow({ alert, isAdmin, onResolve, onDismiss }: {
   onResolve: (alert: W.GateAlert) => void;
   onDismiss: (alert: W.GateAlert) => void;
 }) {
+  const { language } = useLanguage();
   const [busy, setBusy] = useState(false);
   const tone = TONE[alert.kind];
   const action = alertAction(alert.kind);
@@ -40,7 +42,7 @@ function AlertRow({ alert, isAdmin, onResolve, onDismiss }: {
         flex: 1, minWidth: 220, fontSize: 13.5, fontWeight: 600,
         color: tone.fg, lineHeight: 1.4,
       }}>
-        {alertMessage(alert)}
+        {alertMessage(alert, language)}
       </span>
 
       <span style={{

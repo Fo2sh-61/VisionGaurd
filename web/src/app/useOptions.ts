@@ -9,15 +9,17 @@
  *  interface owns (colours, time presets, explainer copy). */
 
 import { useEffect, useState } from 'react';
+import { useLanguage } from '@/app/LanguageContext';
 import { getGroups, getPeople } from '@/services/api';
 import { useSite } from './SiteContext';
 
 /** ["Grade 7", "Grade 8", "All staff", …] */
 export function useGroupNames(): string[] {
+  const { language } = useLanguage();
   const [names, setNames] = useState<string[]>([]);
   useEffect(() => {
     let cancelled = false;
-    void getGroups()
+    void getGroups(language)
       .then((groups) => {
         if (!cancelled) setNames(groups.map((g) => g.name));
       })
@@ -37,10 +39,11 @@ export function useGroupNames(): string[] {
  *  two students share one. The engine already returns a stable id; when the
  *  pages move to ids, this hook returns pairs instead. */
 export function usePersonNames(type?: 'Student' | 'Staff' | 'Visitor'): string[] {
+  const { language } = useLanguage();
   const [names, setNames] = useState<string[]>([]);
   useEffect(() => {
     let cancelled = false;
-    void getPeople()
+    void getPeople(language)
       .then((people) => {
         if (cancelled) return;
         setNames(people.filter((p) => !type || p.type === type).map((p) => p.name));

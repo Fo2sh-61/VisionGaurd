@@ -29,6 +29,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useCameras } from '@/app/CameraContext';
 import { useCapability } from '@/app/CapabilityContext';
 import { useToday } from '@/app/SiteContext';
+import { useLanguage, useT } from '@/app/LanguageContext';
 import { usePersonNames } from '@/app/useOptions';
 import { CamGrid } from '@/components/CamGrid';
 import { CameraFrame } from '@/components/CameraFrame';
@@ -51,8 +52,9 @@ import {
   stopFollowRecording,
   stopSweep,
 } from '@/services/api';
-import { formatLongDate, formatTime } from '@/services/format';
+import { formatCount, formatLongDate, formatTime } from '@/services/format';
 import type * as W from '@/services/wire';
+import type { MessageArgs, MessageKey } from '@/i18n';
 import type { Camera, DetectionBox } from '@/types';
 
 /* ---------- evidence colours ----------
@@ -79,11 +81,11 @@ const GRID_PAGE = 8;
  *  before their face was readable enough to anchor. */
 const PADDING_MS = 5_000;
 
-const TIMERS: { label: string; seconds: number | null }[] = [
-  { label: 'Until I stop it', seconds: null },
-  { label: '1 min', seconds: 60 },
-  { label: '5 min', seconds: 300 },
-  { label: '10 min', seconds: 600 },
+const TIMERS: { label: MessageKey; args?: MessageArgs; seconds: number | null }[] = [
+  { label: 'track.untilIStopIt', seconds: null },
+  { label: 'track.minutes', args: { n: 1 }, seconds: 60 },
+  { label: 'track.minutes', args: { n: 5 }, seconds: 300 },
+  { label: 'track.minutes', args: { n: 10 }, seconds: 600 },
 ];
 
 const clock = (seconds: number) => {
@@ -99,6 +101,7 @@ const minutes = (hhmm: string) => {
 };
 
 export function TrackPerson() {
+  const t = useT();
   const capability = useCapability('track');
   const today = useToday();
   const people = usePersonNames();
@@ -109,8 +112,8 @@ export function TrackPerson() {
   return (
     <>
       <PageHeader
-        title="Track a person"
-        lead="Follow somebody across cameras now, or rebuild where they went earlier."
+        title={t('track.title')}
+        lead={t('track.lead')}
       />
       <DataNotice capability={capability} />
 
@@ -123,10 +126,10 @@ export function TrackPerson() {
             onClick={() => setMode(m)}
           >
             {m === 'live'
-              ? 'Catch someone now'
+              ? t('track.catchNow')
               : m === 'past'
-                ? 'Where did they go'
-                : 'Someone not enrolled'}
+                ? t('track.whereDidTheyGo')
+                : t('track.notEnrolled')}
           </button>
         ))}
       </div>
@@ -147,6 +150,7 @@ export function TrackPerson() {
  * ========================================================================= */
 
 function LiveMode({ cameras }: { cameras: Camera[] }) {
+  const t = useT();
   const [watching, setWatching] = useState<Camera | null>(null);
   const [follow, setFollow] = useState<W.FollowView | null>(null);
   const [error, setError] = useState('');
@@ -240,10 +244,10 @@ function LiveMode({ cameras }: { cameras: Camera[] }) {
       // Three refusals, three different meanings. Collapsing them would send
       // an operator to fix the wrong thing.
       const status = err instanceof ApiError ? err.status : 0;
-      const detail = err instanceof ApiError ? err.message : 'Could not start following.';
+      const detail = err instanceof ApiError ? err.message : t('track.couldNotStartFollowing');
       setError(
         status === 404
-          ? 'Nobody there to follow — they may have moved. Click the person themselves.'
+          ? t('track.nobodyThereToFollow')
           : detail,
       );
     } finally {
@@ -257,7 +261,7 @@ function LiveMode({ cameras }: { cameras: Camera[] }) {
     try {
       setFollow(await run());
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'That did not work.');
+      setError(err instanceof ApiError ? err.message : t('track.thatDidNotWork'));
     } finally {
       setBusy(false);
     }
@@ -289,8 +293,8 @@ function LiveMode({ cameras }: { cameras: Camera[] }) {
         <Card>
           <Step
             n="1"
-            title="Pick the camera they are on"
-            sub="Grouped by area. Search if you know the name."
+            title={t('track.pickCamera')}
+            sub={t('track.pickCameraSub')}
           />
         </Card>
       )}
@@ -299,11 +303,11 @@ function LiveMode({ cameras }: { cameras: Camera[] }) {
         <Card>
           <Step
             n={active ? '3' : '2'}
-            title={active ? 'Following' : 'Click the person'}
+            title={t(active ? 'track.following' : 'track.clickThePerson')}
             sub={
               active
-                ? 'The engine keeps hold of them. Nothing here decides where they are.'
-                : 'Click the body itself — the outline you can see, not the space beside it.'
+                ? t('track.followingSub')
+                : t('track.clickTheBodySub')
             }
           />
 
@@ -364,7 +368,7 @@ function LiveMode({ cameras }: { cameras: Camera[] }) {
               feature="track"
               onBoxes={setBoxes}
               onPicture={setPicture}
-              badge={active?.recording?.state === 'recording' ? 'Recording' : 'LIVE'}
+              badge={t(active?.recording?.state === 'recording' ? 'track.recording' : 'track.live')}
             />
 
             {/* What you are about to follow, marked before you commit to it.
@@ -391,9 +395,9 @@ function LiveMode({ cameras }: { cameras: Camera[] }) {
           {!active && (
             <div style={{ fontSize: 12, color: 'var(--tx3)', marginTop: 6 }}>
               {boxes.length === 0
-                ? 'Nobody is being tracked on this camera right now. Step into view.'
+                ? t('track.nobodyTracked')
                 : hovered
-                  ? 'Click to follow this person.'
+                  ? t('track.clickToFollow')
                   : `${boxes.length} ${boxes.length === 1 ? 'person' : 'people'} in view — hover one to pick them out.`}
             </div>
           )}
@@ -415,8 +419,8 @@ function LiveMode({ cameras }: { cameras: Camera[] }) {
         </Card>
       ) : (
         <CamGrid
-          title="Cameras"
-          note="Pick the one they are on. Click a person in the enlarged view to follow them."
+          title={t('track.cameras')}
+          note={t('track.camerasSub')}
           cameras={[]}
           byArea
           searchable
@@ -437,6 +441,7 @@ function LiveMode({ cameras }: { cameras: Camera[] }) {
 /** Who the engine thinks this is, said plainly — including when it does not
  *  know yet, which is most of the first few seconds. */
 function FollowBanner({ follow }: { follow: W.FollowView }) {
+  const t = useT();
   const named = !!follow.name;
   const over = !!follow.endedReason;
   const tone = over ? 'var(--tx3)' : named ? FACE : UNKNOWN;
@@ -451,18 +456,18 @@ function FollowBanner({ follow }: { follow: W.FollowView }) {
         borderRadius: 10,
         marginBottom: 12,
         background: 'var(--panel)',
-        borderLeft: `3px solid ${tone}`,
+        borderInlineStart: `3px solid ${tone}`,
       }}
     >
       <div style={{ minWidth: 0, flex: 1 }}>
         <div style={{ fontSize: 14.5, fontWeight: 700, color: tone }}>
           {over
             ? follow.endedReason === 'track lost'
-              ? 'Lost them'
-              : `Stopped — ${follow.endedReason}`
+              ? t('track.lostThem')
+              : t('track.stoppedBecause', { reason: follow.endedReason ?? '' })
             : named
               ? follow.name
-              : 'Following an unidentified person'}
+              : t('track.followingUnidentified')}
         </div>
         <div style={{ fontSize: 12.5, color: 'var(--tx2)', marginTop: 1 }}>
           {over ? (
@@ -470,9 +475,9 @@ function FollowBanner({ follow }: { follow: W.FollowView }) {
               // Said in full, because the alternative reading — that the name
               // is still valid somewhere — is the exact belief that once put
               // one person's name on everybody.
-              'The track broke, so any name went with it. Nothing is being followed.'
+              t('track.trackBroke')
             ) : (
-              'Nothing is being followed.'
+              t('track.nothingFollowed')
             )
           ) : named ? (
             <>
@@ -502,6 +507,8 @@ function RecordPanel({
   busy: boolean;
   act: (run: () => Promise<W.FollowView>) => Promise<void>;
 }) {
+  const { language } = useLanguage();
+  const t = useT();
   const [timer, setTimer] = useState<number | null>(300);
   const recording = follow.recording;
   const running = recording?.state === 'recording';
@@ -522,7 +529,7 @@ function RecordPanel({
             <span style={{ fontSize: 12.5, color: 'var(--tx2)' }}>
               {recording?.timerSecondsLeft != null
                 ? `Stops itself in ${clock(recording.timerSecondsLeft)}`
-                : 'Runs until you stop it'}
+                : t('track.runsUntilYouStopIt')}
             </span>
           </>
         ) : (
@@ -533,16 +540,16 @@ function RecordPanel({
               disabled={busy}
               onClick={() => void act(() => startFollowRecording(timer))}
             >
-              Record
+              {t('track.record')}
             </button>
-            {TIMERS.map((t) => (
+            {TIMERS.map((option) => (
               <button
-                key={t.label}
+                key={option.seconds ?? 'none'}
                 type="button"
-                className={`chip-btn ${timer === t.seconds ? 'chip-btn--on' : 'chip-btn--off'}`}
-                onClick={() => setTimer(t.seconds)}
+                className={`chip-btn ${timer === option.seconds ? 'chip-btn--on' : 'chip-btn--off'}`}
+                onClick={() => setTimer(option.seconds)}
               >
-                {t.label}
+                {t(option.label, option.args)}
               </button>
             ))}
           </>
@@ -550,8 +557,7 @@ function RecordPanel({
       </div>
 
       <div style={{ fontSize: 12, color: 'var(--tx3)', marginTop: 8 }}>
-        One file per camera they cross. It stops by itself if the timer runs out or the
-        track is lost, so closing this tab cannot leave a camera recording.
+        {t('track.recordNote')}
       </div>
 
       {recording && recording.segments.length > 0 && (
@@ -570,7 +576,7 @@ function RecordPanel({
               <span style={{ fontWeight: 600, color: 'var(--tx)' }}>
                 {s.cameraName ?? s.cameraId}
               </span>
-              <span>{formatTime(s.startedAt)}</span>
+              <span>{formatTime(s.startedAt, language)}</span>
               <span>· {s.seconds.toFixed(0)}s</span>
               <span>
                 ·{' '}
@@ -589,9 +595,11 @@ function RecordPanel({
 }
 
 function Trail({ hops }: { hops: W.TrailHop[] }) {
+  const { language } = useLanguage();
+  const t = useT();
   return (
     <Card>
-      <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 8 }}>Where they have been</div>
+      <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 8 }}>{t('track.whereTheyHaveBeen')}</div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {hops.map((hop, i) => (
           <div
@@ -607,7 +615,7 @@ function Trail({ hops }: { hops: W.TrailHop[] }) {
                 flexShrink: 0,
               }}
             />
-            <span style={{ fontWeight: 600 }}>{formatTime(hop.at)}</span>
+            <span style={{ fontWeight: 600 }}>{formatTime(hop.at, language)}</span>
             <span>{hop.cameraName}</span>
             <span style={{ color: 'var(--tx3)' }}>{hop.place}</span>
           </div>
@@ -634,6 +642,7 @@ function PastMode({
   today: string;
   cameras: Camera[];
 }) {
+  const t = useT();
   const [who, setWho] = useState('');
   const [date, setDate] = useState(today);
   const [from, setFrom] = useState('07:00');
@@ -668,7 +677,7 @@ function PastMode({
           ? `Nobody here is called “${who}”. Check the spelling, or pick them from the list.`
           : err instanceof ApiError
             ? err.message
-            : 'Could not build that path.',
+            : t('track.couldNotBuildPath'),
       );
       setPath(null);
     } finally {
@@ -681,11 +690,11 @@ function PastMode({
       <Card>
         <Step
           n="1"
-          title="Who, and when"
-          sub="Answers straight away — it is read from what was already recognised, not searched for now. Every search is written to the audit trail."
+          title={t('track.whoAndWhen')}
+          sub={t('track.whoAndWhenSub')}
         />
         <div className="row" style={{ gridTemplateColumns: '2fr 1fr 1fr 1fr auto', gap: 10 }}>
-          <Labelled label="Person">
+          <Labelled label={t('track.person')}>
             <input
               list="track-people"
               value={who}
@@ -714,7 +723,7 @@ function PastMode({
               disabled={!who || !windowOk || loading}
               onClick={() => void run()}
             >
-              {loading ? 'Looking…' : 'Show their path'}
+              {t(loading ? 'track.looking' : 'track.showTheirPath')}
             </button>
           </div>
         </div>
@@ -758,6 +767,8 @@ function Skeleton({
   from: string;
   to: string;
 }) {
+  const { language } = useLanguage();
+  const t = useT();
   const name = path.subject.name ?? path.subject.id ?? 'this person';
   const nothing = path.anchors.length === 0 && path.appearance.length === 0;
   const [leg, setLeg] = useState<W.LegJob | null>(null);
@@ -787,10 +798,10 @@ function Skeleton({
         status === 503
           ? (err as ApiError).message
           : status === 409
-            ? 'The engine is already fetching as much video as it can keep up with. Try again in a moment.'
+            ? t('track.engineBusy')
             : err instanceof ApiError
               ? err.message
-              : 'That video could not be fetched.',
+              : t('track.videoNotFetched'),
       );
     } finally {
       setOpening('');
@@ -801,11 +812,39 @@ function Skeleton({
     <Card>
       <div style={{ fontWeight: 700, fontSize: 15.5 }}>{name}</div>
       <div style={{ fontSize: 12.5, color: 'var(--tx3)', marginBottom: 12 }}>
-        {formatLongDate(path.date)} · {from} to {to} ·{' '}
+        {/* Every part of this line comes from the catalogue.
+            The time range in particular: `07:30 to 16:00` built here would
+            be English whatever the console is set to, and the two times sit
+            either side of a neutral word - which in right-to-left text
+            reorders on screen, so a shift appears to end before it starts.
+            Through the catalogue both are isolated automatically. */}
+        {formatLongDate(path.date, language)} ·{' '}
+        {t('track.timeRange', { from, to })} ·{' '}
         {path.anchors.length === 0
-          ? 'not identified anywhere'
-          : `${path.anchors.length} ${path.anchors.length === 1 ? 'stop' : 'stops'}`}
+          ? t('track.notIdentifiedAnywhere')
+          : t(path.anchors.length === 1 ? 'track.stops.one' : 'track.stops.other',
+            { count: formatCount(path.anchors.length, language) })}
       </div>
+
+      {/* Patrol recognition is off, so only the entrance cameras looked for
+          faces. A path built that way is THINNER, and a thinner path reads
+          exactly like a person who was not there. Saying which it is turns a
+          misleading answer into a true one. */}
+      {path.namesFrom === 'identity' && (
+        <div
+          role="status"
+          style={{
+            fontSize: 12.5,
+            color: 'var(--tx3)',
+            border: '1px solid var(--ln)',
+            borderRadius: 8,
+            padding: '8px 10px',
+            marginBottom: 12,
+          }}
+        >
+          {t('track.namesFromIdentity')}
+        </div>
+      )}
 
       {nothing ? (
         <Empty>
@@ -853,7 +892,7 @@ function Skeleton({
                       flexShrink: 0,
                     }}
                   />
-                  <span style={{ fontWeight: 600, minWidth: 62 }}>{formatTime(s.at)}</span>
+                  <span style={{ fontWeight: 600, minWidth: 62 }}>{formatTime(s.at, language)}</span>
                   <span style={{ fontWeight: 600 }}>{s.place}</span>
                   <span style={{ color: 'var(--tx3)' }}>{s.cameraName}</span>
                 </div>
@@ -889,6 +928,8 @@ function AnchorRow({
   busy: boolean;
   onWatch: () => void;
 }) {
+  const { language } = useLanguage();
+  const t = useT();
   const seconds = Math.max(
     0,
     (new Date(anchor.until.utc).getTime() - new Date(anchor.at.utc).getTime()) / 1000,
@@ -905,12 +946,12 @@ function AnchorRow({
       <span
         style={{ width: 10, height: 10, borderRadius: '50%', background: FACE, flexShrink: 0 }}
       />
-      <span style={{ fontWeight: 600, minWidth: 62 }}>{formatTime(anchor.at)}</span>
+      <span style={{ fontWeight: 600, minWidth: 62 }}>{formatTime(anchor.at, language)}</span>
       <span style={{ fontWeight: 600 }}>{anchor.place}</span>
       <span style={{ color: 'var(--tx3)' }}>{anchor.cameraName}</span>
-      <span style={{ color: 'var(--tx3)', fontSize: 11.5, marginLeft: 'auto' }}>{why}</span>
+      <span style={{ color: 'var(--tx3)', fontSize: 11.5, marginInlineStart: 'auto' }}>{why}</span>
       <button type="button" className="linkbtn" disabled={busy} onClick={onWatch}>
-        {busy ? 'Fetching…' : 'Watch'}
+        {t(busy ? 'track.fetching' : 'track.watch')}
       </button>
     </div>
   );
@@ -943,6 +984,8 @@ function LegPlayer({
    *  else's path is not a question anybody is asking there. */
   onPickBody?: (point: { jobId: string; chunk: number; x: number; y: number }) => void;
 }) {
+  const { language } = useLanguage();
+  const t = useT();
   const [job, setJob] = useState<W.LegJob>(leg);
   const [piece, setPiece] = useState(0);
   const [failed, setFailed] = useState('');
@@ -992,7 +1035,7 @@ function LegPlayer({
         <div>
           <div style={{ fontWeight: 700, fontSize: 15.5 }}>{job.cameraName}</div>
           <div style={{ fontSize: 12.5, color: 'var(--tx3)' }}>
-            {job.place} · {formatTime(job.start)} · {job.seconds.toFixed(0)} seconds of
+            {job.place} · {formatTime(job.start, language)} · {job.seconds.toFixed(0)} seconds of
             recorded video
           </div>
         </div>
@@ -1004,7 +1047,7 @@ function LegPlayer({
       {job.job.state === 'failed' ? (
         <Empty>
           {job.job.error ??
-            'That video could not be fetched from the recorder. Nothing was lost — try the stop again.'}
+            t('track.videoNotFetchedFromRecorder')}
         </Empty>
       ) : url ? (
         <>
@@ -1032,7 +1075,7 @@ function LegPlayer({
                 : undefined
             }
             onError={() =>
-              setFailed('That piece of video would not play. It may have been replaced.')
+              setFailed(t('track.videoWouldNotPlay'))
             }
             style={{
               width: '100%',
@@ -1203,10 +1246,11 @@ function Labelled({ label, children }: { label: string; children: React.ReactNod
 /** Three kinds of evidence, named in words. Colour alone would not survive a
  *  colour-blind operator or a printed report. */
 function Legend() {
+  const say = useT();
   const items = [
-    { t: 'Identified by face', c: FACE, round: true },
-    { t: 'Clothing match only', c: CLOTH, round: false },
-    { t: 'Not identified', c: UNKNOWN, round: false },
+    { t: say('track.identifiedByFace'), c: FACE, round: true },
+    { t: say('track.clothingMatchOnly'), c: CLOTH, round: false },
+    { t: say('track.notIdentified'), c: UNKNOWN, round: false },
   ];
   return (
     <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', margin: '14px 0' }}>
@@ -1254,6 +1298,8 @@ function SweepPanel({
    *  after a hit this is "look harder", after nothing it is the next move. */
   foundSomething: boolean;
 }) {
+  const { language } = useLanguage();
+  const t = useT();
   const who = person;
   const [date, setDate] = useState(seedDate);
   const [from, setFrom] = useState(seedFrom);
@@ -1299,7 +1345,7 @@ function SweepPanel({
     try {
       setEstimate(await estimateSweep(request()));
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not work out the cost.');
+      setError(err instanceof ApiError ? err.message : t('track.couldNotWorkOutCost'));
     } finally {
       setBusy(false);
     }
@@ -1311,7 +1357,7 @@ function SweepPanel({
     try {
       setJob(await startSweep(request()));
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'That sweep would not start.');
+      setError(err instanceof ApiError ? err.message : t('track.sweepWouldNotStart'));
     } finally {
       setBusy(false);
     }
@@ -1340,16 +1386,16 @@ function SweepPanel({
     <Card>
       <Step
         n="2"
-        title={foundSomething ? 'Not the whole story?' : 'Look harder'}
+        title={t(foundSomething ? 'track.notWholeStory' : 'track.lookHarder')}
         sub={
           foundSomething
-            ? 'The answer above is what the cameras recognised at the time. This goes back through the recorded video and looks again — slower, and it says how much slower before it starts.'
-            : 'Nothing was recognised live in that window. This re-examines the recorded video itself, which can find someone the cameras missed as they walked past. It is much slower, and it says how much before it starts.'
+            ? t('track.notWholeStorySub')
+            : t('track.lookHarderSub')
         }
       />
 
       <div className="row" style={{ gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr', gap: 10 }}>
-        <Labelled label="Person">
+        <Labelled label={t('track.person')}>
           <input value={who} readOnly disabled />
         </Labelled>
         <Labelled label="Date">
@@ -1361,9 +1407,9 @@ function SweepPanel({
         <Labelled label="To">
           <input type="time" value={to} onChange={(e) => setTo(e.target.value)} />
         </Labelled>
-        <Labelled label="Where">
+        <Labelled label={t('track.where')}>
           <select value={area} onChange={(e) => setArea(e.target.value)}>
-            <option value="">Everywhere</option>
+            <option value="">{t('track.everywhere')}</option>
             {areas.map((a) => (
               <option key={a} value={a}>
                 {a}
@@ -1380,7 +1426,7 @@ function SweepPanel({
           disabled={!who || !windowOk || busy}
           onClick={() => void price()}
         >
-          {busy && !estimate ? 'Working it out…' : 'What would this cost?'}
+          {t(busy && !estimate ? 'track.workingItOut' : 'track.whatWouldThisCost')}
         </button>
         <button
           type="button"
@@ -1415,7 +1461,9 @@ function SweepPanel({
             }}
           >
             <span style={{ fontWeight: 600 }}>
-              {running ? 'Searching…' : job.job.error === 'stopped' ? 'Stopped' : 'Finished'}
+              {running
+                ? t('track.searching')
+                : t(job.job.error === 'stopped' ? 'track.stopped' : 'track.finished')}
             </span>
             <span style={{ color: 'var(--tx2)' }}>
               {job.segmentsDone} of {job.segmentsTotal} pieces
@@ -1465,16 +1513,12 @@ function SweepPanel({
                   // be the single most misleading sentence on the page: it
                   // reads as evidence they were not there, when in fact not
                   // one second of video was looked at.
-                  'None of that window is in the archive, so nothing was searched. ' +
-                  'This says nothing about where they were — there is simply no ' +
-                  'recorded video from then.'
+                  t('track.nothingInArchive')
                 : job.segmentsMissing > 0
-                  ? `Nobody matching was found. Note that ${job.segmentsMissing} of ` +
-                    `${job.segmentsTotal} pieces had no recorded video behind them, ` +
-                    'so that part of the window was never searched.'
-                  : 'Nobody matching was found on those cameras in that window. ' +
-                    'That is an answer about what was recorded, not proof they were ' +
-                    'not there.'}
+                  ? t('track.nobodyFoundSomeMissing', {
+                    missing: job.segmentsMissing, total: job.segmentsTotal,
+                  })
+                  : t('track.nobodyFound')}
             </Empty>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -1492,10 +1536,10 @@ function SweepPanel({
                       flexShrink: 0,
                     }}
                   />
-                  <span style={{ fontWeight: 600, minWidth: 62 }}>{formatTime(hit.at)}</span>
+                  <span style={{ fontWeight: 600, minWidth: 62 }}>{formatTime(hit.at, language)}</span>
                   <span style={{ fontWeight: 600 }}>{hit.place}</span>
                   <span style={{ color: 'var(--tx3)' }}>{hit.cameraName}</span>
-                  <span style={{ color: 'var(--tx3)', fontSize: 11.5, marginLeft: 'auto' }}>
+                  <span style={{ color: 'var(--tx3)', fontSize: 11.5, marginInlineStart: 'auto' }}>
                     {hit.match === 'face'
                       ? `${hit.matches} matches · best ${hit.score.toFixed(2)}`
                       : `same body · ${hit.matches} looks`}
@@ -1542,6 +1586,8 @@ function EstimateLine({ estimate }: { estimate: W.SweepEstimate }) {
 /** Open a camera's recorded video at a moment, so a person nobody enrolled
  *  can be picked out of it. */
 function BrowseFootage({ cameras, today }: { cameras: Camera[]; today: string }) {
+  const { language } = useLanguage();
+  const t = useT();
   const [cameraId, setCameraId] = useState(cameras[0]?.id ?? '');
   const [date, setDate] = useState(today);
   const [time, setTime] = useState('12:00');
@@ -1569,7 +1615,7 @@ function BrowseFootage({ cameras, today }: { cameras: Camera[]; today: string })
         }),
       );
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'That footage could not be opened.');
+      setError(err instanceof ApiError ? err.message : t('track.footageNotOpened'));
     } finally {
       setBusy(false);
     }
@@ -1589,7 +1635,7 @@ function BrowseFootage({ cameras, today }: { cameras: Camera[]; today: string })
       );
     } catch (err) {
       setError(
-        err instanceof ApiError ? err.message : 'That body could not be followed.',
+        err instanceof ApiError ? err.message : t('track.bodyNotFollowed'),
       );
     } finally {
       setBusy(false);
@@ -1600,12 +1646,12 @@ function BrowseFootage({ cameras, today }: { cameras: Camera[]; today: string })
     <Card>
       <Step
         n="1"
-        title="Open a camera's recorded video"
-        sub="For somebody who was never enrolled: find them in the footage, then click them."
+        title={t('track.openRecorded')}
+        sub={t('track.openRecordedSub')}
       />
 
       <div className="row" style={{ gridTemplateColumns: '2fr 1fr 1fr auto', gap: 10 }}>
-        <Labelled label="Camera">
+        <Labelled label={t('track.camera')}>
           <select value={cameraId} onChange={(e) => setCameraId(e.target.value)}>
             {cameras.map((c) => (
               <option key={c.id} value={c.id}>
@@ -1628,7 +1674,7 @@ function BrowseFootage({ cameras, today }: { cameras: Camera[]; today: string })
             disabled={!cameraId || busy}
             onClick={() => void open()}
           >
-            {busy ? 'Opening…' : 'Open footage'}
+            {t(busy ? 'track.opening' : 'track.openFootage')}
           </button>
         </div>
       </div>
@@ -1643,7 +1689,7 @@ function BrowseFootage({ cameras, today }: { cameras: Camera[]; today: string })
 
       {hunt && (
         <div style={{ marginTop: 12 }}>
-          <div style={{ fontWeight: 700, fontSize: 14 }}>Where that body turns up</div>
+          <div style={{ fontWeight: 700, fontSize: 14 }}>{t('track.whereBodyTurnsUp')}</div>
           <div style={{ fontSize: 12, color: 'var(--tx3)', margin: '2px 0 8px' }}>
             Matched by clothing and build. That says the same body moved through — it
             does not say who they are, and no name will appear here.
@@ -1651,7 +1697,7 @@ function BrowseFootage({ cameras, today }: { cameras: Camera[]; today: string })
           {hunt.hits.length === 0 ? (
             <div style={{ fontSize: 12.5, color: 'var(--tx2)' }}>
               {hunt.job.state === 'done'
-                ? 'Nothing that looks like them on the other cameras in that window.'
+                ? t('track.nothingLikeThem')
                 : `Looking… ${hunt.segmentsDone} of ${hunt.segmentsTotal} pieces.`}
             </div>
           ) : (
@@ -1664,7 +1710,7 @@ function BrowseFootage({ cameras, today }: { cameras: Camera[]; today: string })
                   <span
                     style={{ width: 10, height: 10, borderRadius: 2, background: CLOTH }}
                   />
-                  <span style={{ fontWeight: 600, minWidth: 62 }}>{formatTime(hit.at)}</span>
+                  <span style={{ fontWeight: 600, minWidth: 62 }}>{formatTime(hit.at, language)}</span>
                   <span style={{ fontWeight: 600 }}>{hit.place}</span>
                   <span style={{ color: 'var(--tx3)' }}>{hit.cameraName}</span>
                 </div>

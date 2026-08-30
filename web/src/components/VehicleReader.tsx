@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useLanguage, useT } from '@/app/LanguageContext';
 import { Card, Empty, LoadError } from '@/components/ui';
 import { Plate } from '@/components/Plate';
 import { PlateEditor } from '@/components/PlateEditor';
@@ -49,6 +50,7 @@ function CameraNow({ camera, bust, votesNeeded, isAdmin, onCorrected }: {
   isAdmin: boolean;
   onCorrected: () => void;
 }) {
+  const t = useT();
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const agreed = votesNeeded > 0 && camera.readingVotes >= votesNeeded;
@@ -145,9 +147,9 @@ function CameraNow({ camera, bust, votesNeeded, isAdmin, onCorrected }: {
               type="button"
               className="linkbtn"
               onClick={() => setEditing(true)}
-              title="Type what the photograph shows"
+              title={t('reader.fixTitle')}
             >
-              Fix
+              {t('reader.fix')}
             </button>
           )}
         </div>
@@ -164,6 +166,7 @@ function AttemptRow({ attempt, multiCamera }: {
   attempt: W.ReaderAttempt;
   multiCamera: boolean;
 }) {
+  const { language } = useLanguage();
   const tone = TONE[plateWidthTone(attempt.widthPx)];
   const agreed = attempt.votes >= attempt.votesNeeded;
 
@@ -176,7 +179,7 @@ function AttemptRow({ attempt, multiCamera }: {
       }}
     >
       <span style={{ color: 'var(--tx2)', fontFamily: 'ui-monospace, Menlo, monospace' }}>
-        {formatTime(attempt.at)}
+        {formatTime(attempt.at, language)}
         {multiCamera && (
           <span style={{ display: 'block', fontSize: 11, color: 'var(--tx3)' }}>
             {attempt.cameraName}
@@ -230,6 +233,7 @@ function AttemptRow({ attempt, multiCamera }: {
  *  every frame, votes never gathering), or nothing is reading at all.
  */
 export function VehicleReader({ isAdmin = false }: { isAdmin?: boolean }) {
+  const t = useT();
   const [showDetails, setShowDetails] = useState(false);
   const { data, error, loading, reload } = useAsync(
     () => getVehicleReader(), [], EMPTY, REFRESH_MS);
@@ -276,7 +280,7 @@ export function VehicleReader({ isAdmin = false }: { isAdmin?: boolean }) {
             className="linkbtn"
             onClick={() => setShowDetails((on) => !on)}
           >
-            {showDetails ? 'Hide details' : 'Details'}
+            {t(showDetails ? 'reader.hideDetails' : 'reader.details')}
           </button>
         )}
       </div>
@@ -284,7 +288,7 @@ export function VehicleReader({ isAdmin = false }: { isAdmin?: boolean }) {
       {error && <LoadError error={error} />}
 
       {!error && data.cameras.length === 0 && !loading && (
-        <Empty>{data.reason ?? 'No gate camera is being read.'}</Empty>
+        <Empty>{data.reason ?? t('reader.noGateCamera')}</Empty>
       )}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -330,7 +334,7 @@ export function VehicleReader({ isAdmin = false }: { isAdmin?: boolean }) {
           ))}
 
           {data.attempts.length === 0 ? (
-            <Empty>Nothing has been read yet.</Empty>
+            <Empty>{t('reader.nothingRead')}</Empty>
           ) : (
             <>
               <div style={{
@@ -339,9 +343,13 @@ export function VehicleReader({ isAdmin = false }: { isAdmin?: boolean }) {
                 color: 'var(--tx3)', letterSpacing: '.04em',
                 textTransform: 'uppercase',
               }}>
-                <span>Time</span><span>What it read</span><span>Conf.</span>
-                <span>Plausible</span><span>Width</span>
-                <span>Leading candidate</span><span>Votes</span>
+                <span>{t('reader.colTime')}</span>
+                <span>{t('reader.colRead')}</span>
+                <span>{t('reader.colConfidence')}</span>
+                <span>{t('reader.colPlausible')}</span>
+                <span>{t('reader.colWidth')}</span>
+                <span>{t('reader.colCandidate')}</span>
+                <span>{t('reader.colVotes')}</span>
               </div>
               {data.attempts.map((attempt, i) => (
                 <AttemptRow

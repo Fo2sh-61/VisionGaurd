@@ -27,6 +27,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { useLanguage } from '@/app/LanguageContext';
 import { getCameras } from '@/services/api';
 import type { Camera } from '@/types';
 
@@ -91,6 +92,7 @@ function asOffline(camera: Camera): Camera {
 }
 
 export function CameraProvider({ children }: { children: ReactNode }) {
+  const { language } = useLanguage();
   const [cameras, setCameras] = useState<Camera[]>(() => readCache().map(asOffline));
   const [degraded, setDegraded] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -104,7 +106,7 @@ export function CameraProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let cancelled = false;
 
-    getCameras()
+    getCameras(language)
       .then((next) => {
         if (cancelled) return;
         lastGood.current = next;

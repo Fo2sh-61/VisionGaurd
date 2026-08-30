@@ -9,6 +9,8 @@ import { getVehicleCameras, getVehicleSummary } from '@/services/api';
 import type { Camera } from '@/types';
 import { useAccount } from '@/app/AuthContext';
 import { useCapability } from '@/app/CapabilityContext';
+import { useLanguage, useT } from '@/app/LanguageContext';
+import { formatCount } from '@/services/format';
 import { useAsync } from '@/app/useAsync';
 
 /** The tiles change as cars pass, not as fast as the frames do. */
@@ -21,11 +23,7 @@ const NO_CAMERAS: Camera[] = [];
 
 type Tab = 'live' | 'movements' | 'register';
 
-const TABS: [Tab, string][] = [
-  ['live', 'Live'],
-  ['movements', 'Movements'],
-  ['register', 'Registered vehicles'],
-];
+const TABS: Tab[] = ['live', 'movements', 'register'];
 
 /** One stat tile.
  *
@@ -41,6 +39,11 @@ function Tile({ label, value, note, tone }: {
   note: string;
   tone?: 'accent' | 'warn' | 'bad';
 }) {
+  // Taken from the context rather than a prop: `toLocaleString()` with no
+  // locale followed the BROWSER, so the same count read `1,240` on one
+  // machine and `1.240` on the next, in a console two people compare notes
+  // over.
+  const { language } = useLanguage();
   const colour = value === null ? 'var(--tx3)'
     : tone === 'bad' ? 'var(--rd)'
       : tone === 'warn' ? 'var(--am)'
@@ -55,7 +58,7 @@ function Tile({ label, value, note, tone }: {
       <div style={{
         fontSize: 26, fontWeight: 700, letterSpacing: '-.02em', color: colour,
       }}>
-        {value === null ? '—' : value.toLocaleString()}
+        {value === null ? '—' : formatCount(value, language)}
       </div>
       <div style={{ fontSize: 12, color: 'var(--tx3)', lineHeight: 1.35 }}>{note}</div>
     </div>
@@ -63,6 +66,8 @@ function Tile({ label, value, note, tone }: {
 }
 
 export function VehicleGate() {
+  const { language } = useLanguage();
+  const t = useT();
   const capability = useCapability('vehicles');
   const [tab, setTab] = useState<Tab>('live');
   // An interface hint only. The server decides, and refuses a write from a
@@ -78,7 +83,7 @@ export function VehicleGate() {
   const { data: summary, error: summaryError } = useAsync(
     () => getVehicleSummary(), [], null, SUMMARY_REFRESH_MS);
   const { data: cameras, error: camerasError, loading: camerasLoading } = useAsync(
-    () => getVehicleCameras(), [], NO_CAMERAS, CAMERA_REFRESH_MS);
+    () => getVehicleCameras(language), [language], NO_CAMERAS, CAMERA_REFRESH_MS);
 
 
   // Only where a gate has both an entry and an exit camera. Without one, an
@@ -90,12 +95,12 @@ export function VehicleGate() {
     <>
       <DataNotice capability={capability} />
       <PageHeader
-        title="Vehicle gate"
-        lead="Every car that passes a gate is photographed and its plate read, then matched against the registered list. Nothing is ever blocked by the software — a car that is not on the list still passes, and is still recorded."
+        title={t('gate.title')}
+        lead={t('gate.lead')}
       />
 
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 18 }}>
-        {TABS.map(([key, label]) => (
+        {TABS.map((key) => (
           <button
             key={key}
             type="button"
@@ -109,7 +114,7 @@ export function VehicleGate() {
               fontSize: 13.5, fontWeight: 600, cursor: 'pointer',
             }}
           >
-            {label}
+            {t(`gate.tab.${key}`)}
           </button>
         ))}
       </div>
@@ -137,33 +142,34 @@ export function VehicleGate() {
             gap: 12, marginBottom: 14,
           }}>
             <Tile
-              label="Entered today"
+              label={t('gate.enteredToday')}
               value={summary?.entered ?? null}
               note={summary?.gates
-                ? `across ${summary.gates} gate${summary.gates === 1 ? '' : 's'}`
-                : 'no gate is configured'}
+                ? t(summary.gates === 1 ? 'gate.acrossOneGate' : 'gate.acrossGates',
+                  { count: summary.gates })
+                : t('gate.noGateConfigured')}
             />
             <Tile
-              label="Left today"
+              label={t('gate.leftToday')}
               value={summary?.left ?? null}
-              note={paired ? 'each matched to its entry' : 'no exit camera is configured'}
+              note={t(paired ? 'gate.matchedToEntry' : 'gate.noExitCamera')}
             />
             <Tile
-              label="Inside now"
+              label={t('gate.insideNow')}
               value={summary?.inside ?? null}
-              note={paired ? 'entries with no exit yet' : 'needs an exit camera to compute'}
+              note={t(paired ? 'gate.entriesNoExit' : 'gate.needsExitCamera')}
               tone="accent"
             />
             <Tile
-              label="Not registered"
+              label={t('gate.notRegistered')}
               value={summary?.unknown ?? null}
-              note="logged, never blocked"
+              note={t('gate.loggedNeverBlocked')}
               tone="warn"
             />
             <Tile
-              label="Blacklisted"
+              label={t('gate.blacklisted')}
               value={summary?.blacklist ?? null}
-              note="raised on the Home page"
+              note={t('gate.raisedOnHome')}
               tone="bad"
             />
             {/* Replaced "Needs review", which retired with the pass list —
@@ -173,11 +179,13 @@ export function VehicleGate() {
                 is not reading plates, and every other tile looks perfectly
                 healthy while it happens. */}
             <Tile
-              label="Cameras reading"
+              label={t('gate.camerasReading')}
               value={summary?.camerasReading ?? null}
               note={summary?.camerasTotal
-                ? `of ${summary.camerasTotal} gate camera${summary.camerasTotal === 1 ? '' : 's'}`
-                : 'no gate camera is configured'}
+                ? t(summary.camerasTotal === 1
+                  ? 'gate.ofOneGateCamera' : 'gate.ofGateCameras',
+                { count: summary.camerasTotal })
+                : t('gate.noGateCameraConfigured')}
               tone={summary && summary.camerasNote ? 'warn' : undefined}
             />
           </div>
@@ -209,10 +217,9 @@ export function VehicleGate() {
           {!camerasError && !camerasLoading && cameras.length === 0 && (
             <Card>
               <Empty>
-                No camera is set up as a gate, so no plate is being read. A
-                gate camera needs a gate number and a direction in
+                {t('gate.noGateSetUp')}
                 <code style={{ margin: '0 4px' }}>engine.yaml</code>
-                before anything appears here.
+                {t('gate.noGateSetUpAfter')}
               </Empty>
             </Card>
           )}
@@ -236,8 +243,8 @@ export function VehicleGate() {
               flag is for a tile showing a bare picture with no feature named,
               where the poll would otherwise fall through to faces. */}
           <CamGrid
-            title="Gate cameras"
-            note="One camera per direction at each gate — that is what makes entry and exit a fact rather than a guess from plate size. Green = registered, amber = not registered, red = blacklisted. The number beside each box is the plate's width in pixels: 100px or more is a comfortable read, below that still reads with less confidence. Nothing is rejected for being small — width only changes the weight of that frame's vote."
+            title={t('gate.gateCameras')}
+            note={t('gate.gateCamerasNote')}
             cameras={cameras}
             feature="vehicles"
             tileOverlay

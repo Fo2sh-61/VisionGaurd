@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useLanguage } from '@/app/LanguageContext';
 import type { CameraFeature } from '@/services/api';
 import { describeCount } from '@/services/format';
 import type { Camera } from '@/types';
@@ -19,6 +20,7 @@ export function CameraModal({
   feature?: CameraFeature;
   colour?: string;
 }) {
+  const { language } = useLanguage();
   const [count, setCount] = useState<number | null>(null);
 
   // The frame already polls detections ~10x a second; it hands the headcount
@@ -50,7 +52,7 @@ export function CameraModal({
         <div style={{ padding: '18px 22px' }}>
           <div style={{ fontWeight: 700, fontSize: 16 }}>{camera.name}</div>
           <div style={{ fontSize: 13.5, color: 'var(--tx2)', marginTop: 2 }}>
-            {camera.offline ? camera.status : describeCount(count, camera.status)}
+            {camera.offline ? camera.status : describeCount(count, camera.status, language)}
           </div>
           <div style={{ fontSize: 12.5, color: 'var(--tx3)', marginTop: 8 }}>
             {camera.offline

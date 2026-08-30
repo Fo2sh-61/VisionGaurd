@@ -22,10 +22,14 @@
 import { useMemo, useState } from 'react';
 import { useCameras } from '@/app/CameraContext';
 import { useCapability } from '@/app/CapabilityContext';
+import { useT } from '@/app/LanguageContext';
+import type { MessageKey } from '@/i18n';
 import { CamGrid } from '@/components/CamGrid';
 import { Card, DataNotice, Empty, PageHeader } from '@/components/ui';
 
-const UNASSIGNED = 'Unassigned';
+/** Sentinel for cameras with no area. The heading is wording and comes
+ *  from the catalogue; the camera's own `area` is data. */
+const UNASSIGNED = 'camera.unassignedArea';
 
 /** The colour palette, and the only names the engine accepts.
  *
@@ -36,14 +40,14 @@ const UNASSIGNED = 'Unassigned';
  *  a choice. `Any` is a gradient because it is not a colour: it is the absence
  *  of a filter, and a flat grey chip would read as "grey".
  */
-const COLOURS: { name: string; value?: string; dot: string }[] = [
-  { name: 'Any', dot: 'linear-gradient(135deg,#d7ded9,#8d9a95)' },
-  { name: 'Black', value: 'black', dot: '#2b2f2c' },
-  { name: 'Grey or white', value: 'light', dot: 'linear-gradient(135deg,#f2f4f3,#9aa3a0)' },
-  { name: 'Red', value: 'red', dot: '#c0483f' },
-  { name: 'Blue', value: 'blue', dot: '#3f6fb5' },
-  { name: 'Green', value: 'green', dot: '#3e8c5c' },
-  { name: 'Yellow', value: 'yellow', dot: '#d8b038' },
+const COLOURS: { name: MessageKey; value?: string; dot: string }[] = [
+  { name: 'lost.colour.any', dot: 'linear-gradient(135deg,#d7ded9,#8d9a95)' },
+  { name: 'lost.colour.black', value: 'black', dot: '#2b2f2c' },
+  { name: 'lost.colour.light', value: 'light', dot: 'linear-gradient(135deg,#f2f4f3,#9aa3a0)' },
+  { name: 'lost.colour.red', value: 'red', dot: '#c0483f' },
+  { name: 'lost.colour.blue', value: 'blue', dot: '#3f6fb5' },
+  { name: 'lost.colour.green', value: 'green', dot: '#3e8c5c' },
+  { name: 'lost.colour.yellow', value: 'yellow', dot: '#d8b038' },
 ];
 
 function chipStyle(on: boolean) {
@@ -67,6 +71,7 @@ const labelStyle = {
 } as const;
 
 export function LostItems() {
+  const t = useT();
   const capability = useCapability('search_lost');
   // The live roster, which is where areas actually live. The engine is never
   // asked what an area contains — it already sent the answer with the cameras.
@@ -123,17 +128,17 @@ export function LostItems() {
     <>
       <DataNotice capability={capability} />
       <PageHeader
-        title="Lost bag"
-        lead="Tick the cameras to watch and pick a colour. Any bag of that colour is outlined as it is seen. Nothing is recorded, so the bag has to still be there."
+        title={t('lost.title')}
+        lead={t('lost.lead')}
       />
 
       <Card>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
           <div>
-            <div style={labelStyle}>Where to watch</div>
+            <div style={labelStyle}>{t('lost.whereToWatch')}</div>
             {areas.length === 0 ? (
               <div style={{ fontSize: 13.5, color: 'var(--tx2)' }}>
-                There are no cameras on this engine, so there is nothing to watch.
+                {t('lost.noCameras')}
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -154,7 +159,9 @@ export function LostItems() {
                             if (el) el.indeterminate = on > 0 && on < ids.length;
                           }}
                           onChange={() => toggleArea(area.name)}
-                          aria-label={`Watch every camera in ${area.name}`}
+                          aria-label={t('lost.watchEveryCameraIn', {
+                            area: area.name === UNASSIGNED ? t(UNASSIGNED) : area.name,
+                          })}
                         />
                         <button
                           type="button"
@@ -169,7 +176,8 @@ export function LostItems() {
                           }
                           style={{ fontWeight: 600, fontSize: 13.5 }}
                         >
-                          {open ? '▾' : '▸'} {area.name}
+                          {open ? '▾' : <span className="mirror-rtl">▸</span>}{' '}
+                          {area.name === UNASSIGNED ? t(UNASSIGNED) : area.name}
                         </button>
                         <span style={{ fontSize: 12.5, color: 'var(--tx3)' }}>
                           {on > 0
@@ -178,7 +186,7 @@ export function LostItems() {
                         </span>
                       </div>
                       {open && (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, paddingLeft: 26 }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, paddingInlineStart: 26 }}>
                           {area.cameras.map((cam) => (
                             <label
                               key={cam.id}
@@ -208,7 +216,7 @@ export function LostItems() {
           </div>
 
           <div>
-            <div style={labelStyle}>Colour</div>
+            <div style={labelStyle}>{t('lost.colour')}</div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {COLOURS.map((c) => (
                 <button
@@ -227,7 +235,7 @@ export function LostItems() {
                       background: c.dot, boxShadow: 'inset 0 0 0 1px rgba(0,0,0,.18)',
                     }}
                   />
-                  {c.name}
+                  {t(c.name)}
                 </button>
               ))}
             </div>
@@ -252,19 +260,18 @@ export function LostItems() {
           {offline.length > 0 && (
             <Card>
               <div style={{ fontSize: 13, color: 'var(--tx3)' }}>
-                {offline.map((c) => c.name).join(', ')}
-                {offline.length === 1 ? ' is offline' : ' are offline'}, so nothing
-                can be checked on {offline.length === 1 ? 'it' : 'them'}.
+                {t(offline.length === 1 ? 'lost.offlineOne' : 'lost.offlineMany', {
+                  cameras: offline.map((c) => c.name).join(', '),
+                })}
               </div>
             </Card>
           )}
           <CamGrid
-            title="Watching now"
+            title={t('lost.watchingNow')}
             note={
               (colour
-                ? `A bag that could be ${chosen.name.toLowerCase()} is outlined in amber as it is seen.`
-                : 'Any bag is outlined in amber as it is seen.') +
-              ' A box means the model thinks it sees a bag, not that one is there — open a camera to look.'
+                ? t('lost.colourOutlined', { colour: t(chosen.name).toLowerCase() })
+                : t('lost.anyOutlined')) + t('lost.boxCaveat')
             }
             cameras={watching}
             only

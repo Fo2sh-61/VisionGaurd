@@ -5,8 +5,11 @@ import { getBreaches, getIntrusionCameras, getZones, setZoneEnabled } from '@/se
 import type { Breach, Camera, IntrusionWindow, Zone } from '@/types';
 import { useCapability } from '@/app/CapabilityContext';
 import { useAsync } from '@/app/useAsync';
+import { useLanguage, useT } from '@/app/LanguageContext';
+import { formatCount } from '@/services/format';
+import type { MessageKey } from '@/i18n';
 
-const WINDOWS: IntrusionWindow[] = ['Today', 'Last 7 days', 'Last 30 days'];
+const WINDOWS: IntrusionWindow[] = ['today', 'last7', 'last30'];
 
 /** A scene becomes watchable the moment the person leaves frame, which is a
  *  thing that happens while somebody is looking at this page rather than
@@ -23,17 +26,20 @@ const NO_BREACHES: Breach[] = [];
 const NO_CAMERAS: Camera[] = [];
 
 export function Intrusion() {
+  const { language } = useLanguage();
   const capability = useCapability('breaches');
-  const [when, setWhen] = useState<IntrusionWindow>('Today');
+  const t = useT();
+  const [when, setWhen] = useState<IntrusionWindow>('today');
 
   const {
     data: loadedZones, error: zonesError, loading: zonesLoading, reload: reloadZones,
   } = useAsync(() => getZones(), [], NO_ZONES, ZONE_REFRESH_MS);
   const {
     data: breaches, error: breachError, loading: breachLoading, reload: reloadBreaches,
-  } = useAsync(() => getBreaches(when), [when], NO_BREACHES, LOG_REFRESH_MS);
+  } = useAsync(() => getBreaches(when, language),
+    [when, language], NO_BREACHES, LOG_REFRESH_MS);
   const { data: cameras } = useAsync(
-    () => getIntrusionCameras(), [], NO_CAMERAS, ZONE_REFRESH_MS);
+    () => getIntrusionCameras(language), [language], NO_CAMERAS, ZONE_REFRESH_MS);
 
   // Pending toggles, laid over what the engine last told us. A camera is only
   // drawn as restricted once the engine has agreed it is.
@@ -85,22 +91,22 @@ export function Intrusion() {
     <>
       <DataNotice capability={capability} />
       <PageHeader
-        title="Restricted zones"
-        lead="Mark a camera as a restricted area. Anyone who appears there is logged and recorded."
+        title={t('intrusion.title')}
+        lead={t('intrusion.lead')}
       />
 
       <Card tight>
-        <div style={{ fontWeight: 700, fontSize: 15 }}>Restricted cameras</div>
+        <div style={{ fontWeight: 700, fontSize: 15 }}>{t('intrusion.restrictedCameras')}</div>
         <div style={{ fontSize: 13, color: 'var(--tx2)', margin: '2px 0 6px' }}>
           A camera switched on here is restricted around the clock. Switch one off during
           maintenance, then back on — pauses are visible to everyone.
         </div>
-        <LoadError error={zonesError} onRetry={reloadZones} what="the camera list" />
-        <LoadError error={toggleError} what="that change" />
-        {zonesLoading && <Empty>Loading cameras…</Empty>}
+        <LoadError error={zonesError} onRetry={reloadZones} what="load.cameraList" />
+        <LoadError error={toggleError} what="load.change" />
+        {zonesLoading && <Empty>{t('intrusion.loadingCameras')}</Empty>}
         {!zonesLoading && !zonesError && zones.length === 0 && (
           // Never demo cameras. An empty roster is an empty list.
-          <Empty>No cameras are configured yet. Add one on the Cameras page.</Empty>
+          <Empty>{t('intrusion.noCameras')}</Empty>
         )}
         {zones.map((zone) => (
           <div
@@ -118,18 +124,20 @@ export function Intrusion() {
               <div style={{ fontWeight: 600, fontSize: 14 }}>{zone.name}</div>
               <div style={{ fontSize: 12.5, color: 'var(--tx2)' }}>
                 {zone.enabled
-                  ? `The whole camera view is restricted · ${zone.detectionsToday} today`
-                  : 'Not restricted'}
+                  ? t('intrusion.wholeViewRestricted', {
+                    count: formatCount(zone.detectionsToday, language),
+                  })
+                  : t('intrusion.notRestricted')}
               </div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <Badge tone={zone.enabled ? 'good' : 'warn'} glyph={zone.enabled ? '✓' : '⏸'}>
-                {zone.enabled ? 'Protected' : 'Paused'}
+                {zone.enabled ? t('intrusion.protected') : t('intrusion.paused')}
               </Badge>
               <Toggle
                 on={zone.enabled}
                 onToggle={() => toggleZone(zone)}
-                label={`Protection for ${zone.name}`}
+                label={t('intrusion.protectionFor', { camera: zone.name })}
               />
             </div>
           </div>
@@ -150,24 +158,27 @@ export function Intrusion() {
           <div>
             <div style={{ fontWeight: 700, fontSize: 19, letterSpacing: '-.01em' }}>
               {counted
-                ? `${clips} ${clips === 1 ? 'clip' : 'clips'} · ${when.toLowerCase()}`
-                : `Clips · ${when.toLowerCase()}`}
+                ? `${clips} ${clips === 1 ? 'clip' : 'clips'} · ${t(`window.${when}` as MessageKey)}`
+                : `Clips · ${t(`window.${when}` as MessageKey)}`}
             </div>
             <div style={{ fontSize: 13.5, color: 'var(--tx2)', marginTop: 2 }}>
               {counted
                 ? running === 0
-                  ? 'Nobody is in a restricted area right now'
-                  : `${running} still in view`
+                  ? t('intrusion.nobodyInside')
+                  : t('intrusion.stillInView', {
+                    count: formatCount(running, language),
+                  })
                 : breachError
-                  ? 'Not counted — the list could not be loaded.'
-                  : 'Counting…'}
+                  ? t('intrusion.notCounted')
+                  : t('intrusion.counting')}
             </div>
           </div>
-          <Field label="Period">
+          <Field label={t('intrusion.period')}>
             <Select
               value={when}
               onChange={(v) => setWhen(v as IntrusionWindow)}
               options={WINDOWS}
+              label={(o) => t(`window.${o}` as MessageKey)}
             />
           </Field>
         </div>
@@ -177,24 +188,26 @@ export function Intrusion() {
             it just has nothing left to watch. */}
         {counted && anyRestricted && (
           <div style={{ fontSize: 12.5, color: 'var(--tx2)', marginBottom: 10 }}>
-            {when === 'Today' && detectionsToday > 0
-              ? `${detectionsToday} ${detectionsToday === 1 ? 'detection' : 'detections'} today. `
+            {when === 'today' && detectionsToday > 0
+              ? `${t(detectionsToday === 1
+                ? 'intrusion.detectionsTodayOne'
+                : 'intrusion.detectionsToday',
+              { count: formatCount(detectionsToday, language) })} `
               : ''}
-            Each camera keeps its last 3 clips — older entries drop off this list once
-            their clip is replaced.
+            {t('intrusion.keepsThreeClips')}
           </div>
         )}
 
-        <LoadError error={breachError} onRetry={reloadBreaches} what="the detection log" />
-        {breachLoading && <Empty>Loading detections…</Empty>}
+        <LoadError error={breachError} onRetry={reloadBreaches} what="load.detectionLog" />
+        {breachLoading && <Empty>{t('intrusion.loadingDetections')}</Empty>}
         {/* Two different empty states, because they mean different things. An
             empty log with nothing switched on is not the same claim as an
             empty log on a camera that has been watching all day. */}
         {counted && breaches.length === 0 && !anyRestricted && (
-          <Empty>No cameras are set as restricted areas. Switch one on above.</Empty>
+          <Empty>{t('intrusion.noneRestricted')}</Empty>
         )}
         {counted && breaches.length === 0 && anyRestricted && (
-          <Empty>Nothing has been detected since the engine started.</Empty>
+          <Empty>{t('intrusion.nothingSince')}</Empty>
         )}
 
         {breaches.map((breach) => (
@@ -224,11 +237,11 @@ export function Intrusion() {
                   setPlaying((current) => (current?.id === breach.id ? null : breach))
                 }
               >
-                {playing?.id === breach.id ? 'Hide clip' : 'Watch clip'}
+                {playing?.id === breach.id ? t('intrusion.hideClip') : t('intrusion.watchClip')}
               </button>
             ) : (
               <span style={{ fontSize: 12.5, color: 'var(--tx2)' }}>
-                {breach.clipReason ?? 'No clip was saved for this detection.'}
+                {breach.clipReason ?? t('intrusion.noClip')}
               </span>
             )}
           </div>
@@ -256,8 +269,8 @@ export function Intrusion() {
       </Card>
 
       <CamGrid
-        title="Cameras watching restricted areas"
-        note="The whole camera view is the restricted area — there is no outline, because there is no line. Boxes mark the people detected."
+        title={t('intrusion.gridTitle')}
+        note={t('intrusion.gridNote')}
         cameras={cameras}
       />
     </>

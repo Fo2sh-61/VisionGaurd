@@ -6,27 +6,23 @@ import type { DirectoryPerson, GroupSummary, PersonType } from '@/types';
 import { useAccount } from '@/app/AuthContext';
 import { useCapability } from '@/app/CapabilityContext';
 import { useAsync } from '@/app/useAsync';
+import { useLanguage, useT } from '@/app/LanguageContext';
+import type { MessageKey } from '@/i18n';
 
-const TABS: { key: PersonType | 'All'; label: string }[] = [
-  { key: 'All', label: 'All' },
-  { key: 'Student', label: 'Students' },
-  { key: 'Staff', label: 'Staff' },
-  { key: 'Visitor', label: 'Visitors' },
-];
+const TABS: (PersonType | 'All')[] = ['All', 'Student', 'Staff', 'Visitor'];
 
-/** What one tab calls the thing it is counting. Singular/plural is decided
- *  against the real number, so "1 students" cannot happen. */
-const NOUN: Record<PersonType | 'All', [one: string, many: string]> = {
-  All: ['person', 'people'],
-  Student: ['student', 'students'],
-  Staff: ['staff member', 'staff'],
-  Visitor: ['visitor', 'visitors'],
-};
+/* What one tab calls the thing it is counting used to be a table of English
+   nouns here, with singular and plural picked against the real number so
+   "1 students" could not happen. Both forms now live in the catalogue as
+   `people.count.*` and `people.countOne.*` — Arabic does not split the same
+   way English does, and the noun cannot be glued on afterwards. */
 
 const NO_PEOPLE: DirectoryPerson[] = [];
 const NO_GROUPS: GroupSummary[] = [];
 
 export function People() {
+  const { language } = useLanguage();
+  const t = useT();
   const capability = useCapability('people');
   const navigate = useNavigate();
   // A hint for the interface, never a permission: the engine refuses a
@@ -41,10 +37,10 @@ export function People() {
 
   const {
     data: people, error: peopleError, loading: peopleLoading, reload: reloadPeople,
-  } = useAsync(() => getPeople(), [], NO_PEOPLE);
+  } = useAsync(() => getPeople(language), [language], NO_PEOPLE);
   const {
     data: groups, error: groupsError, loading: groupsLoading, reload: reloadGroups,
-  } = useAsync(() => getGroups(), [], NO_GROUPS);
+  } = useAsync(() => getGroups(language), [language], NO_GROUPS);
 
   /** The row is the link. History works for staff and visitors exactly as it
    *  does for students — the page was the only thing gating it. */
@@ -90,20 +86,23 @@ export function People() {
   // there. A directory that invents its own size is exactly the fixture the
   // constitution forbids.
   const known = !peopleLoading && !peopleError;
-  const [one, many] = NOUN[tab];
-  const counted = filtered.length === 1 ? `1 ${one}` : `${filtered.length} ${many}`;
+  const counted = filtered.length === 1
+    ? t(`people.countOne.${tab}` as MessageKey)
+    : t(`people.count.${tab}` as MessageKey, { count: filtered.length });
   const heading = !known
-    ? peopleError ? 'People' : 'Counting…'
-    : counted + (query.trim() ? ` · matching “${query.trim()}”` : '');
+    ? peopleError ? t('people.title') : t('people.counting')
+    : query.trim()
+      ? t('people.matching', { counted, query: query.trim() })
+      : counted;
 
   return (
     <>
       <DataNotice capability={capability} />
-      <LoadError error={peopleError} onRetry={reloadPeople} what="the people directory" />
-      <LoadError error={removeError} what="that removal" />
+      <LoadError error={peopleError} onRetry={reloadPeople} what="load.peopleDirectory" />
+      <LoadError error={removeError} what="load.removal" />
       <PageHeader
-        title="People"
-        lead="Everyone in your school — students, staff and registered visitors. Records come from the school database; this console reads them."
+        title={t('people.title')}
+        lead={t('people.lead')}
       />
 
       <Card tight>
@@ -112,18 +111,18 @@ export function People() {
             className="input"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search by name…"
+            placeholder={t('people.searchByName')}
             style={{ flex: 1, minWidth: 200, height: 44, borderRadius: 11, fontSize: 14.5 }}
           />
           <div style={{ display: 'flex', gap: 6 }}>
-            {TABS.map((t) => (
+            {TABS.map((key) => (
               <button
-                key={t.key}
+                key={key}
                 type="button"
-                className={`chip-btn ${tab === t.key ? 'chip-btn--on' : 'chip-btn--off'}`}
-                onClick={() => setTab(t.key)}
+                className={`chip-btn ${tab === key ? 'chip-btn--on' : 'chip-btn--off'}`}
+                onClick={() => setTab(key)}
               >
-                {t.label}
+                {t(`people.tab.${key}` as MessageKey)}
               </button>
             ))}
           </div>
@@ -150,7 +149,7 @@ export function People() {
             className="row row--click"
             role="button"
             tabIndex={0}
-            aria-label={`Open ${p.name}`}
+            aria-label={t('people.open', { name: p.name })}
             onClick={() => openHistory(p)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' || e.key === ' ') {
@@ -169,7 +168,7 @@ export function People() {
             </span>
             <span>
               <Badge tone={p.type === 'Student' ? 'good' : p.type === 'Staff' ? 'neutral' : 'warn'}>
-                {p.type}
+                {t(`person.type.${p.type}` as MessageKey)}
               </Badge>
             </span>
             {/* What the cameras can actually do with this person, in a
@@ -249,7 +248,7 @@ export function People() {
                     void remove(p);
                   }}
                 >
-                  {removing ? 'Removing…' : 'Remove'}
+                  {t(removing ? 'people.removing' : 'action.remove')}
                 </button>
                 <button
                   type="button"
@@ -260,39 +259,39 @@ export function People() {
                     setConfirming(null);
                   }}
                 >
-                  Cancel
+                  {t('action.cancel')}
                 </button>
               </span>
             )}
           </div>
         ))}
 
-        {peopleLoading && <Empty>Loading the directory…</Empty>}
+        {peopleLoading && <Empty>{t('people.loadingDirectory')}</Empty>}
         {peopleError && !peopleLoading && (
-          <Empty>Nobody is listed, because the directory could not be loaded.</Empty>
+          <Empty>{t('people.notListed')}</Empty>
         )}
         {known && filtered.length === 0 && (
           <Empty>
             {query.trim()
-              ? 'Nobody matches that name.'
+              ? t('people.noMatch')
               : people.length === 0
-                ? 'The directory is empty. Nobody has been added yet.'
-                : `No ${many} in the directory.`}
+                ? t('people.empty')
+                : t('people.noneOfType', {
+                  noun: t(`people.noun.${tab}` as MessageKey),
+                })}
           </Empty>
         )}
       </Card>
 
       <Card>
-        <div style={{ fontWeight: 700, fontSize: 15 }}>Groups &amp; grades</div>
+        <div style={{ fontWeight: 700, fontSize: 15 }}>{t('people.groupsTitle')}</div>
         <div style={{ fontSize: 13, color: 'var(--tx2)', margin: '2px 0 6px' }}>
-          Everyone holds the whole school. A grade or a group is something extra on
-          top, so these rows overlap and do not add up to the roll. Open one to see
-          who is in it — attendance and counting can answer for any of them.
+          {t('people.groupsLead')}
         </div>
-        <LoadError error={groupsError} onRetry={reloadGroups} what="the group list" />
-        {groupsLoading && <Empty>Loading groups…</Empty>}
+        <LoadError error={groupsError} onRetry={reloadGroups} what="load.groupList" />
+        {groupsLoading && <Empty>{t('people.loadingGroups')}</Empty>}
         {!groupsLoading && !groupsError && groups.length === 0 && (
-          <Empty>No groups have been set up yet.</Empty>
+          <Empty>{t('people.noGroups')}</Empty>
         )}
         {groups.map((g) => (
           <button
@@ -304,7 +303,10 @@ export function People() {
             <span className="row__name">{g.name}</span>
             <span style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
               <span style={{ color: 'var(--tx2)', fontSize: 13 }}>{g.count}</span>
-              <span style={{ color: 'var(--ac)', fontWeight: 600, fontSize: 13 }}>See who’s in it →</span>
+              <span style={{ color: 'var(--ac)', fontWeight: 600, fontSize: 13 }}>
+                {t('people.seeWhoIsInIt')}{' '}
+                <span className="mirror-rtl" aria-hidden="true">→</span>
+              </span>
             </span>
           </button>
         ))}

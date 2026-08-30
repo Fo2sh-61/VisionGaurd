@@ -1,8 +1,10 @@
 import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/app/AuthContext';
+import { useLanguage } from '@/app/LanguageContext';
 import { Logo } from '@/components/Logo';
 import { useSiteName } from '@/app/SiteContext';
+import { LANGUAGES } from '@/i18n';
 
 /** Shortest password the engine will hash — `auth/passwords.MIN_LENGTH`.
  *
@@ -44,6 +46,7 @@ const hintStyle = {
 export function Login() {
   const siteName = useSiteName();
   const { signIn, register } = useAuth();
+  const { language, setLanguage, t } = useLanguage();
   const navigate = useNavigate();
   // Signing in is the common case, so it is the one the page opens on.
   const [mode, setMode] = useState<Mode>('in');
@@ -81,11 +84,11 @@ export function Login() {
       // Checked here because the engine never sees the second box — it is a
       // typo guard for the person typing, not a rule the server enforces.
       if (password !== confirm) {
-        setError('The two passwords are not the same.');
+        setError(t('login.passwordsDiffer'));
         return;
       }
       if (password.length < MIN_PASSWORD) {
-        setError(`Password must be at least ${MIN_PASSWORD} characters.`);
+        setError(t('login.passwordTooShort', { min: MIN_PASSWORD }));
         return;
       }
     }
@@ -110,9 +113,7 @@ export function Login() {
       setError(
         caught instanceof Error
           ? caught.message
-          : signingUp
-            ? 'Could not create the account.'
-            : 'Could not sign in.',
+          : t(signingUp ? 'login.couldNotCreate' : 'login.couldNotSignIn'),
       );
     } finally {
       setBusy(false);
@@ -131,6 +132,30 @@ export function Login() {
       }}
     >
       <div style={{ width: '100%', maxWidth: 410 }}>
+        {/* Before anybody signs in there is no account to hold a language, so
+            this reads the browser copy instead. Without it an Arabic-reading
+            guard would have to get through an English sign-in form to reach
+            the setting that would have made it Arabic (P11-FR-016). */}
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'center',
+            gap: 6,
+            marginBottom: 18,
+          }}
+        >
+          {LANGUAGES.map((k) => (
+            <button
+              key={k}
+              type="button"
+              className={`chip-btn ${language === k ? 'chip-btn--on' : 'chip-btn--off'}`}
+              onClick={() => setLanguage(k)}
+            >
+              {t(`settings.language.${k}`)}
+            </button>
+          ))}
+        </div>
+
         <div
           style={{
             display: 'flex',
@@ -163,7 +188,7 @@ export function Login() {
           }}
         >
           <div style={{ fontWeight: 700, fontSize: 17, marginBottom: siteName ? 0 : 22 }}>
-            {signingUp ? 'Create an account' : 'Sign in'}
+            {t(signingUp ? 'login.createAccountTitle' : 'login.signIn')}
           </div>
           {/* No site name until a deployment sets one. The product name is
               already above the card, so repeating it here says nothing. */}
@@ -175,7 +200,7 @@ export function Login() {
 
           {signingUp && (
             <label style={{ display: 'block', marginBottom: 14 }}>
-              <span style={labelStyle}>Full name</span>
+              <span style={labelStyle}>{t('login.fullName')}</span>
               <input
                 type="text"
                 autoComplete="name"
@@ -187,7 +212,7 @@ export function Login() {
           )}
 
           <label style={{ display: 'block', marginBottom: 14 }}>
-            <span style={labelStyle}>Email</span>
+            <span style={labelStyle}>{t('login.email')}</span>
             <input
               type="email"
               autoComplete={signingUp ? 'email' : 'username'}
@@ -198,7 +223,7 @@ export function Login() {
           </label>
 
           <label style={{ display: 'block', marginBottom: signingUp ? 14 : 18 }}>
-            <span style={labelStyle}>Password</span>
+            <span style={labelStyle}>{t('login.password')}</span>
             <input
               type="password"
               autoComplete={signingUp ? 'new-password' : 'current-password'}
@@ -213,7 +238,7 @@ export function Login() {
 
           {signingUp && (
             <label style={{ display: 'block', marginBottom: 18 }}>
-              <span style={labelStyle}>Confirm password</span>
+              <span style={labelStyle}>{t('login.confirmPassword')}</span>
               <input
                 type="password"
                 autoComplete="new-password"
@@ -256,8 +281,8 @@ export function Login() {
             }}
           >
             {signingUp
-              ? (busy ? 'Creating account…' : 'Create account')
-              : (busy ? 'Signing in…' : 'Sign in')}
+              ? t(busy ? 'login.creating' : 'login.createAccount')
+              : t(busy ? 'login.signingIn' : 'login.signIn')}
           </button>
 
           <div
@@ -272,30 +297,29 @@ export function Login() {
                     actually find: the read-only half of the product. Enrolment,
                     cameras and accounts stay with an administrator, and the
                     engine enforces that whatever this page draws. */}
-                New accounts get limited access. Enrolling faces, adding cameras
-                and managing accounts stay with an administrator.
+                {t('login.limitedAccess')}
                 <div style={{ marginTop: 10 }}>
-                  Already have an account?{' '}
+                  {t('login.haveAccount')}{' '}
                   <button
                     type="button"
                     className="linkbtn"
                     onClick={() => switchTo('in')}
                     disabled={busy}
                   >
-                    Sign in
+                    {t('login.signIn')}
                   </button>
                 </div>
               </>
             ) : (
               <>
-                Don&rsquo;t have an account?{' '}
+                {t('login.noAccount')}{' '}
                 <button
                   type="button"
                   className="linkbtn"
                   onClick={() => switchTo('up')}
                   disabled={busy}
                 >
-                  Create one
+                  {t('login.createOne')}
                 </button>
               </>
             )}

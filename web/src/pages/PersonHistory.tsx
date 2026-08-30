@@ -1,11 +1,14 @@
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { Badge, Card, DataNotice, Empty, LoadError, PageHeader, Stats } from '@/components/ui';
+import { useLanguage, useT } from '@/app/LanguageContext';
 import { getHistory } from '@/services/api';
 import type { PersonHistory as PersonHistoryData } from '@/types';
 import { useCapability } from '@/app/CapabilityContext';
 import { useAsync } from '@/app/useAsync';
 
 export function PersonHistory() {
+  const { language } = useLanguage();
+  const t = useT();
   const capability = useCapability('attendance');
   const { name = '' } = useParams();
   const navigate = useNavigate();
@@ -14,8 +17,8 @@ export function PersonHistory() {
   const person = decodeURIComponent(name);
 
   const { data: history, error, loading, reload } = useAsync<PersonHistoryData | null>(
-    () => getHistory(person),
-    [person],
+    () => getHistory(person, language),
+    [person, language],
     null,
   );
 
@@ -38,15 +41,15 @@ export function PersonHistory() {
           </button>
         </div>
         <DataNotice capability={capability} />
-        <LoadError error={error} onRetry={reload} what={`${person}'s history`} />
-        <PageHeader title={person} lead="Attendance this term" />
+        <LoadError error={error} onRetry={reload} what="load.personHistory" whatArgs={{ person }} />
+        <PageHeader title={person} lead={t('people.attendanceThisTerm')} />
         <Card>
           {loading ? (
-            <Empty>Loading attendance history…</Empty>
+            <Empty>{t('people.loadingHistory')}</Empty>
           ) : error ? (
-            <Empty>No history is shown, because it could not be loaded.</Empty>
+            <Empty>{t('people.noHistory')}</Empty>
           ) : (
-            <Empty>No attendance history for {person} yet.</Empty>
+            <Empty>{t('people.noHistoryFor', { person })}</Empty>
           )}
         </Card>
       </>
@@ -61,7 +64,7 @@ export function PersonHistory() {
         </button>
       </div>
       <DataNotice capability={capability} />
-      <LoadError error={error} onRetry={reload} what={`${person}'s history`} />
+      <LoadError error={error} onRetry={reload} what="load.personHistory" whatArgs={{ person }} />
       <PageHeader title={history.name} lead={`${history.sub} · attendance this term`} />
 
       <Card>
@@ -88,7 +91,7 @@ export function PersonHistory() {
               <span
                 style={{
                   width: 64,
-                  textAlign: 'right',
+                  textAlign: 'end',
                   fontSize: 13,
                   fontWeight: 600,
                   flexShrink: 0,

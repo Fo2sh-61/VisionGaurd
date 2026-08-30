@@ -1,6 +1,7 @@
 import { useState, type KeyboardEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAccount } from '@/app/AuthContext';
+import { useT } from '@/app/LanguageContext';
 import { homeTools, pathFor } from '@/app/navigation';
 import { Badge } from '@/components/ui';
 import { ask } from '@/services/ask';
@@ -9,6 +10,7 @@ import { useAttention } from '@/app/useAttention';
 import type { ToolId } from '@/types';
 
 export function Home() {
+  const t = useT();
   const account = useAccount();
   const navigate = useNavigate();
   const [question, setQuestion] = useState('');
@@ -26,7 +28,7 @@ export function Home() {
     // An empty box is the commonest way to press this button by accident.
     // Saying so beats routing nowhere and looking broken.
     if (!text.trim()) {
-      setNote('Type a question first — or tap one of the examples.');
+      setNote(t('home.typeSomething'));
       return;
     }
     const outcome = await ask(text, account.role);
@@ -34,7 +36,7 @@ export function Home() {
       setNote('');
       open(outcome.tool);
     } else if (outcome.kind === 'note') {
-      setNote(outcome.message);
+      setNote(t(outcome.message));
     }
   }
 
@@ -45,10 +47,10 @@ export function Home() {
   return (
     <>
       <h1 style={{ fontWeight: 700, fontSize: 29, letterSpacing: '-.02em', margin: 0 }}>
-        Good morning, {firstName}.
+        {t('home.greeting', { name: firstName })}
       </h1>
       <p style={{ fontSize: 15, color: 'var(--tx2)', marginTop: 5 }}>
-        Ask in plain words — I’ll open the right tool.
+        {t('home.lead')}
       </p>
 
       <div style={{ display: 'flex', gap: 10, margin: '24px 0 12px', maxWidth: 700 }}>
@@ -56,8 +58,8 @@ export function Home() {
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
           onKeyDown={onKeyDown}
-          placeholder="e.g. Who was absent today?"
-          aria-label="Ask a question"
+          placeholder={t('home.askPlaceholder')}
+          aria-label={t('home.askLabel')}
           style={{
             flex: 1,
             height: 56,
@@ -77,7 +79,7 @@ export function Home() {
           style={{ height: 56, borderRadius: 14, padding: '0 26px', fontSize: 15 }}
           onClick={() => void submit(question)}
         >
-          Ask
+          {t('home.ask')}
         </button>
       </div>
 
@@ -103,8 +105,9 @@ export function Home() {
             type="button"
             key={q}
             onClick={() => {
-              setQuestion(q);
-              void submit(q);
+              // The list holds keys; the ask bar takes words.
+              setQuestion(t(q));
+              void submit(t(q));
             }}
             style={{
               padding: '7px 14px',
@@ -117,15 +120,17 @@ export function Home() {
               cursor: 'pointer',
             }}
           >
-            {q}
+            {t(q)}
           </button>
         ))}
       </div>
 
       <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 12 }}>
-        Needs your attention{' '}
+        {t('home.needsAttention')}{' '}
         <span style={{ fontWeight: 500, color: 'var(--tx3)', fontSize: 13.5 }}>
-          · {attention.length} items, that’s all
+          {attention.length === 1
+            ? t('home.attentionCountOne')
+            : t('home.attentionCount', { count: attention.length })}
         </span>
       </div>
       <div className="grid-2" style={{ marginBottom: 42 }}>
@@ -149,13 +154,14 @@ export function Home() {
               {item.sub}
             </div>
             <button type="button" className="linkbtn" onClick={() => open(item.to)}>
-              {item.action} →
+              {item.action}{' '}
+              <span className="mirror-rtl" aria-hidden="true">→</span>
             </button>
           </div>
         ))}
       </div>
 
-      <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 12 }}>Tools</div>
+      <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 12 }}>{t('home.tools')}</div>
       <div className="grid-4" style={{ marginBottom: 0 }}>
         {tools.map((tool) => (
           <button
@@ -169,12 +175,12 @@ export function Home() {
               boxShadow: 'var(--sh)',
               border: 'none',
               cursor: 'pointer',
-              textAlign: 'left',
+              textAlign: 'start',
               color: 'var(--tx)',
             }}
           >
-            <div style={{ fontWeight: 600, fontSize: 13.5 }}>{tool.label}</div>
-            <div style={{ fontSize: 12, color: 'var(--tx3)', marginTop: 2 }}>{tool.blurb}</div>
+            <div style={{ fontWeight: 600, fontSize: 13.5 }}>{t(`nav.${tool.id}.label`)}</div>
+            <div style={{ fontSize: 12, color: 'var(--tx3)', marginTop: 2 }}>{t(`nav.${tool.id}.blurb`)}</div>
           </button>
         ))}
       </div>

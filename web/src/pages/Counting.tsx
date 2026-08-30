@@ -6,14 +6,29 @@ import { getCount } from '@/services/api';
 import { useChoice, usePlaces } from '@/app/useOptions';
 import type { CountArea, CountResult, CountWindow, Tone } from '@/types';
 import { useCapability } from '@/app/CapabilityContext';
+import { useLanguage, useT } from '@/app/LanguageContext';
+import type { MessageKey } from '@/i18n';
 
 const WINDOWS: CountWindow[] = ['Right now', 'Today by hour', 'This week by day'];
+
+/* `CountWindow` is still an English label because `/count?when=` takes one —
+   the same disease the intrusion and weapons windows were cured of on
+   28 Aug 2026, in the one place that also needs `MockStore` to change. Until
+   then the value stays English on the wire and only the wording is looked up,
+   so an Arabic reader sees Arabic and the engine still understands. */
+const WINDOW_KEY: Record<CountWindow, MessageKey> = {
+  'Right now': 'counting.window.now',
+  'Today by hour': 'counting.window.todayByHour',
+  'This week by day': 'counting.window.weekByDay',
+};
 
 /** Colours for the per-area segments of a stacked bar. Distinct hues, not a
  *  gradient of one — these identify places, they do not rank them. */
 const SEGMENT = ['#33705b', '#5b9bd8', '#8a6a14', '#a5372c', '#6b5b95', '#3e8c8c'];
 
 export function Counting() {
+  const { language } = useLanguage();
+  const t = useT();
   const capability = useCapability('count');
   const places = usePlaces();
   const [place, setPlace] = useState('');
@@ -26,11 +41,11 @@ export function Counting() {
   const run = useCallback(async () => {
     setLoading(true);
     try {
-      setResult(await getCount({ place: selectedPlace, when }));
+      setResult(await getCount({ place: selectedPlace, when }, language));
     } finally {
       setLoading(false);
     }
-  }, [selectedPlace, when]);
+  }, [selectedPlace, when, language]);
 
   useAutoRun(run);
 
@@ -45,37 +60,42 @@ export function Counting() {
     if (when !== 'Right now') return;
     let alive = true;
     const tick = () => {
-      void getCount({ place: selectedPlace, when })
+      void getCount({ place: selectedPlace, when }, language)
         .then((next) => { if (alive) setResult(next); })
         .catch(() => { /* a dropped poll should not blank the page */ });
     };
     const id = window.setInterval(tick, 1000);
     return () => { alive = false; window.clearInterval(id); };
-  }, [selectedPlace, when]);
+  }, [selectedPlace, when, language]);
 
   return (
     <>
       <DataNotice capability={capability} />
       <PageHeader
-        title="People counting"
-        lead="How many people are in a place, now or at any past time."
+        title={t('counting.title')}
+        lead={t('counting.lead')}
       />
 
       <Card tight>
         <div className="filters">
-          <Field label="Place">
+          <Field label={t('counting.place')}>
             <Select value={selectedPlace} onChange={setPlace} options={places} />
           </Field>
-          <Field label="When">
-            <Select value={when} onChange={(v) => setWhen(v as CountWindow)} options={WINDOWS} />
+          <Field label={t('counting.when')}>
+            <Select
+              value={when}
+              onChange={(v) => setWhen(v as CountWindow)}
+              options={WINDOWS}
+              label={(o) => t(WINDOW_KEY[o as CountWindow])}
+            />
           </Field>
           <button type="button" className="btn" onClick={() => void run()} disabled={loading}>
-            {loading ? 'Counting…' : 'Show'}
+            {t(loading ? 'counting.counting' : 'counting.show')}
           </button>
         </div>
       </Card>
 
-      {!result && !loading && <Empty>Pick a place and a time range.</Empty>}
+      {!result && !loading && <Empty>{t('counting.pickPlace')}</Empty>}
 
       {result && (
         <>
@@ -130,7 +150,7 @@ export function Counting() {
                             ))
                           )}
                         </div>
-                        <span style={{ width: 44, textAlign: 'right', fontSize: 13, fontWeight: 600, flexShrink: 0 }}>
+                        <span style={{ width: 44, textAlign: 'end', fontSize: 13, fontWeight: 600, flexShrink: 0 }}>
                           {bar.value}
                         </span>
                       </div>
@@ -170,15 +190,15 @@ export function Counting() {
           {result.cameras.length === 0 ? (
             <Card>
               <CardHeader
-                title="Cameras counting this area"
-                sub="A box round every person the counter can see. This is how many are in view, not how many have passed through."
+                title={t('counting.camerasHere')}
+                sub={t('counting.camerasHereNote')}
               />
-              <Empty>No camera watches this area yet, so its number is a demo figure.</Empty>
+              <Empty>{t('counting.noCameraHere')}</Empty>
             </Card>
           ) : (
             <CamGrid
-              title="Cameras counting this area"
-              note="Click a camera to enlarge it, with a box round every person the counter can see. This is how many are in view, not how many have passed through."
+              title={t('counting.camerasHere')}
+              note={t('counting.camerasHereNoteClick')}
               cameras={result.cameras}
               only
               feature="counting"
@@ -213,6 +233,7 @@ const TONE_TEXT: Record<Tone, string> = {
  *  "where", the list gives you "how full", and they never disagree because
  *  both read the same areas. */
 function CampusPlan({ areas }: { areas: CountArea[] }) {
+  const t = useT();
   return (
     <div className="plan">
       <div style={{ background: 'var(--bg)', borderRadius: 12, padding: 14 }}>
@@ -272,12 +293,12 @@ function CampusPlan({ areas }: { areas: CountArea[] }) {
             color: 'var(--tx2)',
           }}
         >
-          <PlanKey tone="good" label="Quiet" />
-          <PlanKey tone="warn" label="Busy" />
-          <PlanKey tone="bad" label="Over comfortable capacity" />
+          <PlanKey tone="good" label={t('counting.quiet')} />
+          <PlanKey tone="warn" label={t('counting.busy')} />
+          <PlanKey tone="bad" label={t('counting.overCapacity')} />
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <span style={{ width: 11, height: 11, borderRadius: 3, border: '1.5px dashed var(--tx3)' }} />
-            Demo figure — no camera watches this area yet
+            {t('counting.demoFigure')}
           </span>
         </div>
       </div>
@@ -297,7 +318,7 @@ function CampusPlan({ areas }: { areas: CountArea[] }) {
             <span style={{ flex: 1, minWidth: 0, fontSize: 13.5, fontWeight: 600 }}>
               {a.name}
               {!a.live && (
-                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--am)', marginLeft: 8 }}>
+                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--am)', marginInlineStart: 8 }}>
                   demo figure
                 </span>
               )}
@@ -305,7 +326,7 @@ function CampusPlan({ areas }: { areas: CountArea[] }) {
             <div className="bar-track" style={{ flex: 'none', width: 96, height: 8 }}>
               <div className="bar-fill" style={{ width: `${a.pct}%`, background: TONE_BORDER[a.tone] }} />
             </div>
-            <span style={{ width: 36, textAlign: 'right', fontSize: 13.5, fontWeight: 700, flexShrink: 0 }}>
+            <span style={{ width: 36, textAlign: 'end', fontSize: 13.5, fontWeight: 700, flexShrink: 0 }}>
               {a.value}
             </span>
           </div>

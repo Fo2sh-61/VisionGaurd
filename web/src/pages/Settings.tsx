@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useLanguage } from '@/app/LanguageContext';
 import { useTheme } from '@/app/ThemeContext';
 import { Card, Empty, LoadError, PageHeader, Toggle } from '@/components/ui';
+import { LANGUAGES } from '@/i18n';
 import { getAlertRules, getDeliveryTargets, getSchoolProfile, getZones } from '@/services/api';
+import { formatDayMonthYear } from '@/services/format';
 import type { AlertChannel, AlertRule, DeliveryTarget, SchoolProfile, Zone } from '@/types';
 
 const EMPTY_PROFILE: SchoolProfile = {
@@ -37,14 +40,9 @@ function fmtTime(t: string) {
   return `${h12}:${m}${ap}`;
 }
 
-function fmtDate(d: string) {
-  if (!d) return '';
-  return new Date(`${d}T00:00:00`).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
-}
+// Dates go through `format.ts` like every other rendered value. This was
+// `toLocaleDateString('en-US', …)`, which showed an Arabic reader an American
+// date - and an English one a format the rest of the console does not use.
 
 type ProfileKey = 'name' | 'hours' | 'term' | 'cutoff';
 
@@ -117,7 +115,7 @@ export function Settings() {
   const [quietTo, setQuietTo] = useState('07:00');
   const [quietEditing, setQuietEditing] = useState(false);
 
-  const [lang, setLang] = useState<'en' | 'ar'>('en');
+  const { language, setLanguage, t } = useLanguage();
 
   const zonesPaused = zones.filter((z) => !z.enabled).length;
   // "0 protected areas · all active" is a reassuring sentence to print when
@@ -154,7 +152,14 @@ export function Settings() {
     {
       key: 'term',
       label: 'Term',
-      display: `${fmtDate(profile.termFrom)} – ${fmtDate(profile.termTo)}`,
+      // Through the message catalogue rather than joined here, so the two
+      // dates are isolated from the Arabic around them. A range built with a
+      // bare dash reorders in right-to-left text and reads back to front -
+      // a term that appears to end before it starts.
+      display: t('settings.termRange', {
+        from: formatDayMonthYear(profile.termFrom, language),
+        to: formatDayMonthYear(profile.termTo, language),
+      }),
     },
     {
       key: 'cutoff',
@@ -242,7 +247,7 @@ export function Settings() {
             )}
 
             <span
-              style={{ color: 'var(--ac)', fontWeight: 600, fontSize: 13, cursor: 'pointer', textAlign: 'right' }}
+              style={{ color: 'var(--ac)', fontWeight: 600, fontSize: 13, cursor: 'pointer', textAlign: 'end' }}
               onClick={() => setEditKey(editKey === row.key ? null : row.key)}
             >
               {editKey === row.key ? 'Done' : 'Edit'}
@@ -404,7 +409,8 @@ export function Settings() {
             <div style={{ fontSize: 13, color: 'var(--tx2)', marginTop: 2 }}>{zoneSummary}</div>
           </div>
           <button type="button" className="linkbtn" style={{ whiteSpace: 'nowrap' }} onClick={() => navigate('/intrusion')}>
-            Manage on Restricted zones →
+            {t('settings.manageOnRestricted')}{' '}
+            <span className="mirror-rtl" aria-hidden="true">→</span>
           </button>
         </div>
       </Card>
@@ -440,22 +446,20 @@ export function Settings() {
           }}
         >
           <div style={{ flex: 1, minWidth: 220 }}>
-            <div style={{ fontWeight: 600, fontSize: 14 }}>Language</div>
+            <div style={{ fontWeight: 600, fontSize: 14 }}>{t('settings.language')}</div>
             <div style={{ fontSize: 12.5, color: 'var(--tx2)' }}>
-              {lang === 'ar'
-                ? 'Arabic numbers and dates switch now — full right-to-left layout lands next build, honestly noted.'
-                : 'Interface language for this account.'}
+              {t('settings.language.lead')}
             </div>
           </div>
           <div style={{ display: 'flex', gap: 6 }}>
-            {(['en', 'ar'] as const).map((k) => (
+            {LANGUAGES.map((k) => (
               <button
                 key={k}
                 type="button"
-                className={`chip-btn ${lang === k ? 'chip-btn--on' : 'chip-btn--off'}`}
-                onClick={() => setLang(k)}
+                className={`chip-btn ${language === k ? 'chip-btn--on' : 'chip-btn--off'}`}
+                onClick={() => setLanguage(k)}
               >
-                {k === 'en' ? 'English' : 'العربية'}
+                {t(`settings.language.${k}`)}
               </button>
             ))}
           </div>

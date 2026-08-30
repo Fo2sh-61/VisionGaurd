@@ -45,6 +45,7 @@ import * as W from './wire';
 export type CameraFeature = 'attendance' | 'track' | 'counting' | 'intrusion' | 'weapons' | 'lost' | 'vehicles';
 import { ApiError, apiBase, assetUrl, del, download, get, patch, post, postFile, request, setSessionToken } from './http';
 import type { Account } from '@/app/AuthContext';
+import { translate, type Language } from '@/i18n';
 import type { Role, Tone } from '@/types';
 import {
   attendanceLabel,
@@ -100,8 +101,8 @@ export async function getCameraDetections(
  *
  *  The roster, not a query result — `CameraProvider` polls this so the grid is
  *  populated on every page regardless of what that page's own request did. */
-export async function getCameras(): Promise<Camera[]> {
-  return toCameras(await get<W.CameraView[]>('/cameras'));
+export async function getCameras(lang: Language): Promise<Camera[]> {
+  return toCameras(await get<W.CameraView[]>('/cameras'), lang);
 }
 
 /** Add a camera. It starts being watched immediately and appears everywhere. */
@@ -136,7 +137,10 @@ export const getCameraCounts = () => get<Record<string, number | null>>('/camera
 
 /* ---------- attendance ---------- */
 
-export async function getAttendance(query: AttendanceQuery): Promise<AttendanceResult> {
+export async function getAttendance(
+  query: AttendanceQuery,
+  lang: Language,
+): Promise<AttendanceResult> {
   const subject = query.mode === 'person' ? query.person : query.group;
   const result = await get<W.AttendanceResult>('/attendance', {
     mode: query.mode,
@@ -144,26 +148,26 @@ export async function getAttendance(query: AttendanceQuery): Promise<AttendanceR
     date: query.date,
   });
 
-  const cameras = toCameras(result.cameras);
-  const stats = formatMetrics(result.metrics);
+  const cameras = toCameras(result.cameras, lang);
+  const stats = formatMetrics(result.metrics, lang);
 
   if (result.mode === 'person') {
     const days: AttendanceDay[] = result.days.map((d) => ({
-      date: formatShortDate(d.date),
+      date: formatShortDate(d.date, lang),
       where: d.location ?? '—',
-      time: d.seenAt ? formatTime(d.seenAt) : '—',
-      status: attendanceLabel(d.status),
+      time: d.seenAt ? formatTime(d.seenAt, lang) : '—',
+      status: attendanceLabel(d.status, lang),
       tone: attendanceTone(d.status),
     }));
     const firstSeen = result.days.find((d) => d.seenAt);
     return {
       mode: 'person',
       heading: firstSeen
-        ? `${result.subject} arrived at ${formatTime(firstSeen.seenAt)}`
+        ? `${result.subject} arrived at ${formatTime(firstSeen.seenAt, lang)}`
         : `${result.subject} was not seen`,
       sub: firstSeen?.location
         ? `Recognised at ${firstSeen.location}`
-        : formatLongDate(result.date),
+        : formatLongDate(result.date, lang),
       stats,
       days,
       cameras,
@@ -172,15 +176,15 @@ export async function getAttendance(query: AttendanceQuery): Promise<AttendanceR
 
   const rows: AttendanceRow[] = result.records.map((r) => ({
     name: r.person.name ?? 'Unknown',
-    status: attendanceLabel(r.status),
+    status: attendanceLabel(r.status, lang),
     tone: attendanceTone(r.status),
-    time: r.seenAt ? formatTime(r.seenAt) : '—',
+    time: r.seenAt ? formatTime(r.seenAt, lang) : '—',
   }));
 
   return {
     mode: 'group',
-    heading: `${formatCount(result.present)} of ${formatCount(result.expected)} arrived`,
-    sub: `${result.subject} · ${formatLongDate(result.date)}`,
+    heading: `${formatCount(result.present, lang)} of ${formatCount(result.expected, lang)} arrived`,
+    sub: `${result.subject} · ${formatLongDate(result.date, lang)}`,
     stats,
     rows,
     cameras,
@@ -224,7 +228,7 @@ export async function exportAttendance(query: AttendanceQuery): Promise<void> {
 
 /* ---------- people counting ---------- */
 
-export async function getCount(query: CountQuery): Promise<CountResult> {
+export async function getCount(query: CountQuery, lang: Language): Promise<CountResult> {
   const result = await get<W.CountResult>('/count', {
     place: query.place,
     when: query.when,
@@ -267,15 +271,15 @@ export async function getCount(query: CountQuery): Promise<CountResult> {
 
   return {
     place: result.place,
-    heading: `${formatCount(result.count)} people in the ${result.place.toLowerCase()}`,
+    heading: `${formatCount(result.count, lang)} people in the ${result.place.toLowerCase()}`,
     sub: capacity
       ? `${pct}% of safe capacity (${capacity})${result.deduplicated ? ' · counted once across overlapping cameras' : ''}`
-      : `Measured ${formatTime(result.measuredAt)}`,
-    stats: formatMetrics(result.metrics),
+      : `Measured ${formatTime(result.measuredAt, lang)}`,
+    stats: formatMetrics(result.metrics, lang),
     barsTitle: result.barsTitle ?? undefined,
     bars,
     areas,
-    cameras: toCameras(result.cameras),
+    cameras: toCameras(result.cameras, lang),
   };
 }
 
@@ -299,19 +303,22 @@ export async function setZoneEnabled(id: string, enabled: boolean): Promise<void
   await patch<W.Zone>(`/zones/${encodeURIComponent(id)}`, { enabled });
 }
 
-export async function getBreaches(window: IntrusionWindow): Promise<Breach[]> {
+export async function getBreaches(
+  window: IntrusionWindow,
+  lang: Language,
+): Promise<Breach[]> {
   const breaches = await get<W.Breach[]>('/breaches', { window });
   return breaches.map((b) => ({
     id: b.id,
     zone: b.zoneName,
-    time: formatEventTime(b.at),
+    time: formatEventTime(b.at, lang),
     who: b.subject.name
       ? `Matched: ${b.subject.name}${b.subject.type ? ` (${b.subject.type})` : ''}`
       : 'Unidentified person',
     status: b.status === 'open' ? 'Still there' : b.status === 'authorised' ? 'Authorised' : 'Left',
     tone: severityToNeutralTone(b.severity),
     people: b.people ?? 1,
-    duration: formatDuration(b.dwellSeconds),
+    duration: formatDuration(b.dwellSeconds, lang),
     // Same-origin, through the same helper the camera streams use. A <video>
     // cannot send an Authorization header, so an absolute engine URL would
     // play for nobody — that is the trap that once blacked out every stream.
@@ -321,8 +328,8 @@ export async function getBreaches(window: IntrusionWindow): Promise<Breach[]> {
 }
 
 /** CHANGED: was synchronous. The engine has to be asked. */
-export async function getIntrusionCameras(): Promise<Camera[]> {
-  return toCameras(await get<W.CameraView[]>('/intrusion/cameras'));
+export async function getIntrusionCameras(lang: Language): Promise<Camera[]> {
+  return toCameras(await get<W.CameraView[]>('/intrusion/cameras'), lang);
 }
 
 /* ---------- weapons ---------- */
@@ -335,10 +342,10 @@ export async function getIntrusionCameras(): Promise<Camera[]> {
  *  fans out and it fans out to nothing yet. It was deleted rather than
  *  reworded, because a sentence promising a call that is not happening is the
  *  most dangerous thing this page could say. */
-function weaponStatus(d: W.WeaponDetection): string {
+function weaponStatus(d: W.WeaponDetection, lang: Language): string {
   if (d.verdict === 'confirmed') {
     const who = d.reviewedBy ? ` by ${d.reviewedBy}` : '';
-    const when = d.reviewedAt ? ` · ${formatEventTime(d.reviewedAt)}` : '';
+    const when = d.reviewedAt ? ` · ${formatEventTime(d.reviewedAt, lang)}` : '';
     return `Confirmed${who}${when}`;
   }
   if (d.verdict === 'dismissed') {
@@ -355,19 +362,19 @@ function weaponTone(d: W.WeaponDetection): Tone {
   return 'warn';
 }
 
-function toWeapon(d: W.WeaponDetection): WeaponDetection {
+function toWeapon(d: W.WeaponDetection, lang: Language): WeaponDetection {
   return {
     id: d.id,
     camera: d.cameraName,
     area: d.location,
-    time: formatEventTime(d.at),
-    duration: formatDuration(d.seconds ?? 0),
-    confidence: formatPercent(d.confidence),
-    status: weaponStatus(d),
+    time: formatEventTime(d.at, lang),
+    duration: formatDuration(d.seconds ?? 0, lang),
+    confidence: formatPercent(d.confidence, lang),
+    status: weaponStatus(d, lang),
     tone: weaponTone(d),
     verdict: d.verdict,
     reviewer: d.reviewedBy ?? undefined,
-    reviewedAt: d.reviewedAt ? formatEventTime(d.reviewedAt) : undefined,
+    reviewedAt: d.reviewedAt ? formatEventTime(d.reviewedAt, lang) : undefined,
     running: !d.endedAt,
     cut: d.endReason === 'limit',
     // Only a saved video has a `clip`; everything else carries a reason
@@ -377,10 +384,13 @@ function toWeapon(d: W.WeaponDetection): WeaponDetection {
   };
 }
 
-export async function getWeaponDetections(window: WeaponWindow): Promise<WeaponDetection[]> {
+export async function getWeaponDetections(
+  window: WeaponWindow,
+  lang: Language,
+): Promise<WeaponDetection[]> {
   // Dismissed detections come back too. False alarms stay in the history.
   const detections = await get<W.WeaponDetection[]>('/weapons/detections', { window });
-  return detections.map(toWeapon);
+  return detections.map((d) => toWeapon(d, lang));
 }
 
 /** The human gate. Nothing downstream fires until this is called — the
@@ -392,6 +402,7 @@ export async function getWeaponDetections(window: WeaponWindow): Promise<WeaponD
 export async function reviewWeapon(
   id: string,
   verdict: 'confirmed' | 'dismissed',
+  lang: Language,
   reason?: string,
 ): Promise<WeaponDetection> {
   return toWeapon(
@@ -399,12 +410,13 @@ export async function reviewWeapon(
       verdict,
       reason,
     }),
+    lang,
   );
 }
 
 /** CHANGED: was synchronous. */
-export async function getWeaponCameras(): Promise<Camera[]> {
-  return toCameras(await get<W.CameraView[]>('/weapons/cameras'));
+export async function getWeaponCameras(lang: Language): Promise<Camera[]> {
+  return toCameras(await get<W.CameraView[]>('/weapons/cameras'), lang);
 }
 
 /* ---------- vehicle gate ---------- */
@@ -452,8 +464,8 @@ export async function deleteVehiclePass(id: string): Promise<void> {
 }
 
 /** Gate cameras only. A camera with no gate number is not watching a gate. */
-export async function getVehicleCameras(): Promise<Camera[]> {
-  return toCameras(await get<W.CameraView[]>('/vehicles/cameras'));
+export async function getVehicleCameras(lang: Language): Promise<Camera[]> {
+  return toCameras(await get<W.CameraView[]>('/vehicles/cameras'), lang);
 }
 
 /** Every read attempt, including the ones that came to nothing.
@@ -677,7 +689,7 @@ export async function getCapabilities(): Promise<W.Capability[]> {
   }
 }
 
-export async function getSystemHealth(): Promise<SystemHealth> {
+export async function getSystemHealth(lang: Language): Promise<SystemHealth> {
   const health = await get<W.SystemHealth>('/system/health');
 
   const broken = health.pipeline.filter((p) => !p.healthy);
@@ -694,7 +706,7 @@ export async function getSystemHealth(): Promise<SystemHealth> {
     summary: parts.length
       ? `${parts.join('; ')}.`
       : 'Everything is recording and being analysed.',
-    stats: formatMetrics(health.metrics),
+    stats: formatMetrics(health.metrics, lang),
     recorders: health.recorders.map((r) => ({
       id: r.id,
       name: r.name,
@@ -710,19 +722,33 @@ export async function getSystemHealth(): Promise<SystemHealth> {
       // into one colour.
       tone: p.healthy ? ('good' as const) : severityToTone(p.severity),
       action: p.restartable ? 'Restart' : undefined,
+      workers: p.workers?.map((w) => ({
+        name: w.name,
+        cameras: w.cameras,
+        framesProcessed: w.framesProcessed,
+        lastInferenceMs: w.lastInferenceMs,
+        queueDepth: w.queueDepth,
+        queueMax: w.queueMax,
+        framesDropped: w.framesDropped,
+        // The engine omits `behind` when it could not read a counter. Absent
+        // is not the same as false, but the row only ever draws a warning,
+        // so treating unknown as "no warning" is the honest direction to
+        // round in - the stage detail still names anything genuinely behind.
+        behind: w.behind === true,
+      })),
     })),
-    cameras: toCameras(health.cameras),
+    cameras: toCameras(health.cameras, lang),
   };
 }
 
-export async function getUsers(): Promise<User[]> {
+export async function getUsers(lang: Language): Promise<User[]> {
   const users = await get<W.User[]>('/users');
   return users.map((u) => ({
     id: u.id,
     name: u.name,
     role: u.role,
     email: u.email,
-    lastActive: u.lastActive ? formatEventTime(u.lastActive) : '—',
+    lastActive: u.lastActive ? formatEventTime(u.lastActive, lang) : '—',
   }));
 }
 
@@ -749,13 +775,13 @@ function recognitionLine(p: W.DirectoryPerson): string {
  *  Never a dash. A value the system does not have is stated in words, so the
  *  reader knows it was looked for and genuinely is not there — which is a
  *  different fact from a column nobody ever filled in. */
-function lastSeenLine(p: W.DirectoryPerson): string {
+function lastSeenLine(p: W.DirectoryPerson, lang: Language): string {
   if (!p.lastSeen) return 'Not seen yet';
-  const when = formatEventTime(p.lastSeen);
+  const when = formatEventTime(p.lastSeen, lang);
   return p.lastCamera ? `${p.lastCamera} · ${when}` : when;
 }
 
-function toDirectoryPerson(p: W.DirectoryPerson): DirectoryPerson {
+function toDirectoryPerson(p: W.DirectoryPerson, lang: Language): DirectoryPerson {
   const status = p.attendanceToday ?? null;
   return {
     id: p.id,
@@ -766,18 +792,18 @@ function toDirectoryPerson(p: W.DirectoryPerson): DirectoryPerson {
     recognition: recognitionLine(p),
     // Empty, not a placeholder: the row simply drops the line rather than
     // printing a shrug where a date belongs.
-    enrolled: p.enrolledAt ? `Enrolled ${formatEventTime(p.enrolledAt)}` : '',
-    lastSeen: lastSeenLine(p),
+    enrolled: p.enrolledAt ? `Enrolled ${formatEventTime(p.enrolledAt, lang)}` : '',
+    lastSeen: lastSeenLine(p, lang),
     // Nothing recording attendance is not the same as being absent, so the
     // row says nothing at all rather than guessing.
-    today: status ? attendanceLabel(status) : '',
+    today: status ? attendanceLabel(status, lang) : '',
     todayTone: status ? attendanceTone(status) : 'neutral',
   };
 }
 
-export async function getPeople(): Promise<DirectoryPerson[]> {
+export async function getPeople(lang: Language): Promise<DirectoryPerson[]> {
   const people = await get<W.DirectoryPerson[]>('/people');
-  return people.map(toDirectoryPerson);
+  return people.map((p) => toDirectoryPerson(p, lang));
 }
 
 /** Remove someone from the system.
@@ -975,28 +1001,32 @@ export async function removeEnrolmentPhoto(
   return del<W.EnrolmentSession>(`/enrolment/sessions/${sessionId}/photos/${photoId}`);
 }
 
-export async function commitEnrolment(sessionId: string): Promise<DirectoryPerson> {
+export async function commitEnrolment(
+  sessionId: string,
+  lang: Language,
+): Promise<DirectoryPerson> {
   const p = await post<W.DirectoryPerson>(`/enrolment/sessions/${sessionId}/commit`);
-  return toDirectoryPerson(p);
+  return toDirectoryPerson(p, lang);
 }
 
 export async function cancelEnrolment(sessionId: string): Promise<void> {
   await del<void>(`/enrolment/sessions/${sessionId}`);
 }
 
-export async function getGroups(): Promise<GroupSummary[]> {
+export async function getGroups(lang: Language): Promise<GroupSummary[]> {
   const groups = await get<W.GroupSummary[]>('/groups');
   return groups.map((g) => ({
     name: g.name,
     count: g.classes
-      ? `${formatCount(g.people)} students · ${g.classes} classes`
-      : `${formatCount(g.people)} people`,
+      ? `${formatCount(g.people, lang)} students · ${g.classes} classes`
+      : `${formatCount(g.people, lang)} people`,
     here: g.here,
   }));
 }
 
 export async function getGroup(
   name: string,
+  lang: Language,
 ): Promise<{ summary: GroupSummary; roster: GroupMember[] }> {
   const detail = await get<W.GroupDetail>(`/groups/${encodeURIComponent(name)}`);
   const g = detail.summary;
@@ -1004,39 +1034,39 @@ export async function getGroup(
     summary: {
       name: g.name,
       count: g.classes
-        ? `${formatCount(g.people)} students · ${g.classes} classes`
-        : `${formatCount(g.people)} people`,
+        ? `${formatCount(g.people, lang)} students · ${g.classes} classes`
+        : `${formatCount(g.people, lang)} people`,
       here: g.here,
     },
     roster: detail.roster.map((r) => ({
-      name: r.person.name ?? 'Unknown',
+      name: r.person.name ?? translate(lang, 'person.unknown'),
       sub: r.location ?? '',
-      status: attendanceStatusLine(r.status, r.seenAt),
+      status: attendanceStatusLine(r.status, r.seenAt, lang),
       tone: attendanceTone(r.status),
     })),
   };
 }
 
-export async function getHistory(name: string): Promise<PersonHistory> {
+export async function getHistory(name: string, lang: Language): Promise<PersonHistory> {
   const h = await get<W.PersonHistory>(`/people/${encodeURIComponent(name)}/history`);
   return {
     name: h.person.name,
     sub: personSub(h.person),
     heading: `${h.presentDays} of ${h.totalDays} days present`,
     lead: h.periodLabel,
-    stats: formatMetrics(h.metrics),
+    stats: formatMetrics(h.metrics, lang),
     // One person on one day is here or not, so the bar is full or empty and
     // the colour carries the rest. A percentage per day would have read as
     // "60% present on Tuesday", which means nothing for one child.
     bars: h.trend.map((t) => ({
       date: t.date,
       day: t.label,
-      label: attendanceLabel(t.status),
+      label: attendanceLabel(t.status, lang),
       pct: t.status === 'absent' ? 0 : 100,
       tone: attendanceTone(t.status),
     })),
     flags: h.flags.map((f) => ({
-      date: formatShortDate(f.date),
+      date: formatShortDate(f.date, lang),
       detail: f.detail,
       badge: f.kind,
       tone: severityToTone(f.severity),
@@ -1055,13 +1085,13 @@ export async function getHistory(name: string): Promise<PersonHistory> {
  *  three never throw for that case; they throw only when the engine cannot be
  *  reached at all. */
 
-function toRecording(r: W.Recording): Recording {
+function toRecording(r: W.Recording, lang: Language): Recording {
   return {
     id: r.id,
     cameraId: r.cameraId,
     cameraName: r.cameraName ?? null,
     state: r.state,
-    startedAt: formatTime(r.startedAt),
+    startedAt: formatTime(r.startedAt, lang),
     seconds: Math.round(r.seconds),
     frames: r.frames,
     file: r.file ?? null,
@@ -1070,23 +1100,28 @@ function toRecording(r: W.Recording): Recording {
   };
 }
 
-function toRecordingResult(result: W.RecordingResult): RecordingResult {
+function toRecordingResult(result: W.RecordingResult, lang: Language): RecordingResult {
   return {
     ok: result.ok,
-    recording: result.recording ? toRecording(result.recording) : null,
+    recording: result.recording ? toRecording(result.recording, lang) : null,
     reason: result.reason ?? null,
   };
 }
 
-export async function getRecording(cameraId: string): Promise<RecordingResult> {
+export async function getRecording(
+  cameraId: string,
+  lang: Language,
+): Promise<RecordingResult> {
   return toRecordingResult(
     await get<W.RecordingResult>(`/cameras/${encodeURIComponent(cameraId)}/recording`),
+    lang,
   );
 }
 
 export async function startRecording(
   cameraId: string,
   actor: string,
+  lang: Language,
 ): Promise<RecordingResult> {
   return toRecordingResult(
     await post<W.RecordingResult>(
@@ -1094,18 +1129,21 @@ export async function startRecording(
       undefined,
       { actor },
     ),
+    lang,
   );
 }
 
 export async function stopRecording(
   cameraId: string,
   actor: string,
+  lang: Language,
 ): Promise<RecordingResult> {
   return toRecordingResult(
     await del<W.RecordingResult>(
       `/cameras/${encodeURIComponent(cameraId)}/recording`,
       { actor },
     ),
+    lang,
   );
 }
 
@@ -1164,21 +1202,22 @@ export async function testConnection(params: {
   source: string;
   username?: string;
   password?: string;
-}): Promise<Camera> {
+}, lang: Language): Promise<Camera> {
   const result = await post<W.TestConnectionResult>('/sources/test', params);
 
   if (!result.ok || !result.camera) {
     return {
       id: 'test-frame',
       name: 'Test frame',
-      status: result.error ?? 'Could not connect',
+      status: result.error ?? translate(lang, 'camera.couldNotConnect'),
       offline: true,
       boxes: [],
     };
   }
 
-  const latency = result.latencyMs ? ` · ${Math.round(result.latencyMs)}ms` : '';
-  return toCamera(result.camera, `Connection OK${latency}`);
+  return toCamera(result.camera, lang, result.latencyMs
+    ? translate(lang, 'camera.connectionOkLatency', { ms: Math.round(result.latencyMs) })
+    : translate(lang, 'camera.connectionOk'));
 }
 
 /* ---------- home ---------- */
@@ -1248,5 +1287,14 @@ function toAccount(wire: W.Account): Account {
     email: wire.email,
     role: wire.role as Role,
     initials: wire.initials,
+    language: wire.language,
   };
+}
+
+/** Change the signed-in account's language.
+ *
+ *  Only ever your own — the endpoint takes no account id, which is what keeps
+ *  a display preference out of the permission surface. */
+export async function setAccountLanguage(language: Language): Promise<Account> {
+  return toAccount(await post<W.Account>('/auth/language', { language }));
 }

@@ -3,19 +3,21 @@ import { useCameras } from '@/app/CameraContext';
 import { addCamera, connectDvr, getAreaOptions, getCameraSources, removeCamera, scanNetwork, testConnection } from '@/services/api';
 import type { Camera, CameraSource, DvrChannel, FoundDevice, SourceMode } from '@/types';
 import { CamGrid } from './CamGrid';
+import { useLanguage, useT } from '@/app/LanguageContext';
+import type { MessageKey } from '@/i18n';
 import { Badge } from './ui';
 
-const MODE_LABEL: Record<SourceMode, string> = {
-  scan: 'Scan network',
-  dvr: 'Add DVR / NVR',
-  ip: 'Add IP camera',
-  rtsp: 'Paste RTSP URL',
+const MODE_LABEL: Record<SourceMode, MessageKey> = {
+  scan: 'source.mode.scan',
+  dvr: 'source.mode.dvr',
+  ip: 'source.mode.ip',
+  rtsp: 'source.mode.rtsp',
 };
 
 function badgeFor(status: CameraSource['status']) {
-  if (status === 'ok') return { tone: 'good' as const, label: '✓ Connected' };
-  if (status === 'down') return { tone: 'bad' as const, label: '✕ Offline' };
-  return { tone: 'warn' as const, label: '! Wrong password' };
+  if (status === 'ok') return { tone: 'good' as const, label: 'source.status.connected' as MessageKey };
+  if (status === 'down') return { tone: 'bad' as const, label: 'source.status.offline' as MessageKey };
+  return { tone: 'warn' as const, label: 'source.status.wrongPassword' as MessageKey };
 }
 
 /** The connection form.
@@ -49,13 +51,15 @@ const EMPTY_FORM: ConnectForm = {
 };
 
 /** What a camera can be watched for, and what each costs to run. */
-const FEATURES: { key: string; label: string; cost: string }[] = [
-  { key: 'counting', label: 'People counting', cost: 'person detector' },
-  { key: 'intrusion', label: 'Restricted areas', cost: 'shares the person detector' },
-  { key: 'attendance', label: 'Face recognition', cost: 'needs faces ~80px wide' },
+const FEATURES: { key: string; label: MessageKey; cost: MessageKey }[] = [
+  { key: 'counting', label: 'source.feature.counting', cost: 'source.feature.counting.cost' },
+  { key: 'intrusion', label: 'source.feature.intrusion', cost: 'source.feature.intrusion.cost' },
+  { key: 'attendance', label: 'source.feature.attendance', cost: 'source.feature.attendance.cost' },
 ];
 
 export function CameraSources() {
+  const t = useT();
+  const { language } = useLanguage();
   const [sources, setSources] = useState<CameraSource[]>([]);
   const [mode, setMode] = useState<SourceMode | null>(null);
   const [areaOpts, setAreaOpts] = useState<string[]>([]);
@@ -176,6 +180,7 @@ export function CameraSources() {
       mode === 'rtsp'
         ? { source: form.rtspUrl }
         : { source: form.host, username: form.username, password: form.password },
+      language,
     )
       .then((cam) => {
         setTestCam(cam);
@@ -200,7 +205,10 @@ export function CameraSources() {
       name: form.name || (mode === 'rtsp' ? 'RTSP stream' : `Camera ${form.host}`),
       source,
       kind: mode === 'rtsp' ? 'RTSP' : 'IP camera',
-      area: form.area || 'Unassigned',
+      // Empty, not the word "Unassigned": absence is absence, and CamGrid
+      // supplies the heading. Storing the English word would put cameras in
+      // two different groups meaning the same thing.
+      area: form.area,
       features: form.features,
       username: mode === 'ip' ? form.username : undefined,
       password: mode === 'ip' ? form.password : undefined,
@@ -239,10 +247,9 @@ export function CameraSources() {
     <div className="card">
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
         <div>
-          <div style={{ fontWeight: 700, fontSize: 19, letterSpacing: '-.01em' }}>Camera sources</div>
+          <div style={{ fontWeight: 700, fontSize: 19, letterSpacing: '-.01em' }}>{t('source.title')}</div>
           <div style={{ fontSize: 13.5, color: 'var(--tx2)', marginTop: 2 }}>
-            {total} cameras across {sources.length} sources · works with any DVR, NVR or IP camera
-            that speaks ONVIF or RTSP.
+            {t('source.subtitle', { cameras: total, sources: sources.length })}
           </div>
         </div>
       </div>
@@ -277,8 +284,8 @@ export function CameraSources() {
           ✓
         </span>
         <span style={{ fontSize: 13, color: 'var(--tx2)' }}>
-          <b style={{ color: 'var(--tx)' }}>Capture service — running on this server</b> · 192.168.1.10
-          · same network as the cameras, published at your school domain for remote access.
+          <b style={{ color: 'var(--tx)' }}>{t('source.captureService')}</b> · 192.168.1.10
+          · {t('source.captureServiceLead')}
         </span>
       </div>
 
@@ -299,21 +306,23 @@ export function CameraSources() {
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: 600, fontSize: 14 }}>{src.name}</div>
               <div style={{ fontSize: 12.5, color: 'var(--tx3)' }}>
-                {src.type} · {src.ip} · {src.channels} {src.channels === 1 ? 'channel' : 'channels'}
+                {src.type} · {src.ip} · {src.channels === 1
+                  ? t('source.channelCountOne')
+                  : t('source.channelCount', { count: src.channels })}
               </div>
             </div>
-            <Badge tone={badge.tone}>{badge.label}</Badge>
+            <Badge tone={badge.tone}>{t(badge.label)}</Badge>
             {src.status !== 'ok' && (
               // Reconnection is the engine's job — it retries with backoff on
               // its own. A "Retry" button that only flipped a local flag to
               // green was worse than no button: it made a broken camera look
               // fixed. Show the reason instead.
               <span style={{ fontSize: 12.5, color: 'var(--tx3)', whiteSpace: 'nowrap' }}>
-                {src.status === 'down' ? 'Retrying…' : 'Check the password'}
+                {t(src.status === 'down' ? 'source.status.retrying' : 'source.status.checkPassword')}
               </span>
             )}
             <button type="button" className="linkbtn linkbtn--quiet" onClick={() => removeSource(src.id)}>
-              Remove
+              {t('source.remove')}
             </button>
           </div>
         );
@@ -328,7 +337,7 @@ export function CameraSources() {
             style={{ height: 38, padding: '0 16px' }}
             onClick={() => openMode(m)}
           >
-            {MODE_LABEL[m]}
+            {t(MODE_LABEL[m])}
           </button>
         ))}
       </div>
@@ -338,16 +347,16 @@ export function CameraSources() {
           {scanState === 'idle' && (
             <>
               <div style={{ fontSize: 13.5, color: 'var(--tx2)', marginBottom: 12 }}>
-                Looks for ONVIF cameras and recorders on the school network. Takes about a minute.
+                {t('source.scanLead')}
               </div>
               <button type="button" className="btn" onClick={startScan}>
-                Start scan
+                {t('source.startScan')}
               </button>
             </>
           )}
           {scanState === 'run' && (
             <>
-              <div style={{ fontWeight: 600, fontSize: 14 }}>Scanning 192.168.1.0/24…</div>
+              <div style={{ fontWeight: 600, fontSize: 14 }}>{t('source.scanning', { range: '192.168.1.0/24' })}</div>
               <div className="progress" style={{ marginTop: 10 }}>
                 <div className="progress__scanner" />
               </div>
@@ -355,7 +364,7 @@ export function CameraSources() {
           )}
           {scanState === 'done' && (
             <>
-              <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>{found.length} devices found</div>
+              <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>{t('source.devicesFound', { count: found.length })}</div>
               {found.map((f, i) => (
                 <div
                   key={f.ip}
@@ -364,16 +373,18 @@ export function CameraSources() {
                   <div>
                     <div style={{ fontWeight: 600, fontSize: 13.5 }}>{f.name}</div>
                     <div style={{ fontSize: 12, color: 'var(--tx3)' }}>
-                      {f.ip} · {f.channels} {f.channels === 1 ? 'channel' : 'channels'}
+                      {f.ip} · {f.channels === 1
+                        ? t('source.channelCountOne')
+                        : t('source.channelCount', { count: f.channels })}
                     </div>
                   </div>
                   {!f.duplicate && !f.added ? (
                     <button type="button" className="btn btn--ghost" style={{ height: 32, padding: '0 14px', fontSize: 12.5 }} onClick={() => addFound(i)}>
-                      Add
+                      {t('source.add')}
                     </button>
                   ) : (
                     <span style={{ fontSize: 12.5, color: 'var(--tx3)', whiteSpace: 'nowrap' }}>
-                      {f.duplicate ? 'Already added' : '✓ Added'}
+                      {t(f.duplicate ? 'source.alreadyAdded' : 'source.added')}
                     </span>
                   )}
                 </div>
@@ -388,24 +399,23 @@ export function CameraSources() {
           {dvrStep === 'form' && (
             <>
               <div style={{ fontSize: 13.5, color: 'var(--tx2)', marginBottom: 12 }}>
-                Connect a recorder and every camera plugged into it comes along — including old
-                analog ones.
+                {t('source.dvrLead')}
               </div>
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-                <Labeled label="IP address">
+                <Labeled label={t('source.field.ip')}>
                   <input className="input" style={{ width: 150, fontFamily: 'ui-monospace, Menlo, monospace' }} {...field('host')} />
                 </Labeled>
-                <Labeled label="Port">
+                <Labeled label={t('source.field.port')}>
                   <input className="input" style={{ width: 70, fontFamily: 'ui-monospace, Menlo, monospace' }} {...field('port')} />
                 </Labeled>
-                <Labeled label="Username">
+                <Labeled label={t('source.field.username')}>
                   <input className="input" style={{ width: 120 }} {...field('username')} />
                 </Labeled>
-                <Labeled label="Password">
+                <Labeled label={t('source.field.password')}>
                   <input className="input" type="password" style={{ width: 120 }} {...field('password')} />
                 </Labeled>
                 <button type="button" className="btn" style={{ whiteSpace: 'nowrap' }} onClick={startDvrConnect}>
-                  Connect &amp; pull channels
+                  {t('source.connectAndPull')}
                 </button>
               </div>
               {connectError && <ConnectError message={connectError} />}
@@ -413,7 +423,7 @@ export function CameraSources() {
           )}
           {dvrStep === 'connecting' && (
             <>
-              <div style={{ fontWeight: 600, fontSize: 14 }}>Connecting to recorder…</div>
+              <div style={{ fontWeight: 600, fontSize: 14 }}>{t('source.connecting')}</div>
               <div className="progress" style={{ marginTop: 10 }}>
                 <div className="progress__scanner" />
               </div>
@@ -421,10 +431,9 @@ export function CameraSources() {
           )}
           {dvrStep === 'channels' && (
             <>
-              <div style={{ fontWeight: 600, fontSize: 14 }}>Recorder connected · 8 channels found</div>
+              <div style={{ fontWeight: 600, fontSize: 14 }}>{t('source.recorderConnected', { channels: dvrChannels.length })}</div>
               <div style={{ fontSize: 13, color: 'var(--tx2)', margin: '2px 0 8px' }}>
-                Name each camera and say where it is — this is what powers “cafeteria” and “Building
-                B” in the tools.
+                {t('source.nameEachCamera')}
               </div>
               {dvrChannels.map((ch, i) => (
                 <div key={ch.channel} style={{ display: 'grid', gridTemplateColumns: '52px 1fr 1fr 44px', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
@@ -448,7 +457,7 @@ export function CameraSources() {
                 </div>
               ))}
               <button type="button" className="btn" style={{ marginTop: 14 }} onClick={addDvr}>
-                Add {dvrChannels.filter((c) => c.enabled).length} cameras
+                {t('source.addNCameras', { count: dvrChannels.filter((c) => c.enabled).length })}
               </button>
             </>
           )}
@@ -461,25 +470,24 @@ export function CameraSources() {
             <>
               {mode === 'rtsp' && (
                 <div style={{ fontSize: 13.5, color: 'var(--tx2)', marginBottom: 12 }}>
-                  The escape hatch — works with anything that produces a video stream, whatever the
-                  brand.
+                  {t('source.rtspLead')}
                 </div>
               )}
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
                 {mode === 'ip' ? (
                   <>
-                    <Labeled label="IP address">
+                    <Labeled label={t('source.field.ip')}>
                       <input className="input" style={{ width: 150, fontFamily: 'ui-monospace, Menlo, monospace' }} {...field('host')} />
                     </Labeled>
-                    <Labeled label="Username">
+                    <Labeled label={t('source.field.username')}>
                       <input className="input" style={{ width: 120 }} {...field('username')} />
                     </Labeled>
-                    <Labeled label="Password">
+                    <Labeled label={t('source.field.password')}>
                       <input className="input" type="password" style={{ width: 120 }} {...field('password')} />
                     </Labeled>
                   </>
                 ) : (
-                  <Labeled label="RTSP URL">
+                  <Labeled label={t('source.field.rtspUrl')}>
                     <input
                       className="input"
                       style={{ minWidth: 280, flex: 1, fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 13 }}
@@ -488,7 +496,7 @@ export function CameraSources() {
                   </Labeled>
                 )}
                 <button type="button" className="btn" style={{ whiteSpace: 'nowrap' }} onClick={runTest}>
-                  {mode === 'ip' ? 'Test connection' : 'Test stream'}
+                  {t(mode === 'ip' ? 'source.testConnection' : 'source.testStream')}
                 </button>
               </div>
               {connectError && <ConnectError message={connectError} />}
@@ -497,7 +505,7 @@ export function CameraSources() {
           {test === 'run' && (
             <>
               <div style={{ fontWeight: 600, fontSize: 14 }}>
-                {mode === 'ip' ? 'Fetching a test frame…' : 'Opening the stream…'}
+                {t(mode === 'ip' ? 'source.fetchingFrame' : 'source.openingStream')}
               </div>
               <div className="progress" style={{ marginTop: 10 }}>
                 <div className="progress__scanner" />
@@ -508,29 +516,29 @@ export function CameraSources() {
             <div style={{ display: 'grid', gridTemplateColumns: '240px 1fr', gap: 16, alignItems: 'start' }}>
               <CamGrid title="" cameras={[testCam]} only />
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 20 }}>
-                <Labeled label="Camera name">
+                <Labeled label={t('source.field.cameraName')}>
                   <input
                     className="input"
                     style={{ maxWidth: 280 }}
-                    placeholder="Main entrance"
+                    placeholder={t('source.placeholder.mainEntrance')}
                     {...field('name')}
                   />
                 </Labeled>
-                <Labeled label="Where is it?">
+                <Labeled label={t('source.field.whereIsIt')}>
                   <select
                     className="input"
                     style={{ maxWidth: 280 }}
                     value={form.area}
                     onChange={(e) => setForm((c) => ({ ...c, area: e.target.value }))}
                   >
-                    <option value="">Unassigned</option>
+                    <option value="">{t('camera.unassignedArea')}</option>
                     {areaOpts.map((a) => (
                       <option key={a}>{a}</option>
                     ))}
                   </select>
                 </Labeled>
 
-                <Labeled label="Watch this camera for">
+                <Labeled label={t('source.field.watchFor')}>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingTop: 2 }}>
                     {FEATURES.map((f) => (
                       <label
@@ -550,12 +558,12 @@ export function CameraSources() {
                           }
                         />
                         <span>
-                          {f.label}
+                          {t(f.label)}
                           {/* Every feature loads models and costs GPU. Saying
                               so here stops "tick everything" being the
                               default, which is how a 208-camera site becomes
                               unaffordable one checkbox at a time. */}
-                          <span style={{ color: 'var(--tx3)' }}> · {f.cost}</span>
+                          <span style={{ color: 'var(--tx3)' }}> · {t(f.cost)}</span>
                         </span>
                       </label>
                     ))}
@@ -569,7 +577,7 @@ export function CameraSources() {
                   onClick={addSingle}
                   disabled={busy}
                 >
-                  {busy ? 'Adding…' : 'Add camera'}
+                  {t(busy ? 'source.adding' : 'source.addCamera')}
                 </button>
                 {connectError && <ConnectError message={connectError} />}
               </div>

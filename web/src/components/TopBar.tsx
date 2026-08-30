@@ -1,9 +1,11 @@
 import { useAccount } from '@/app/AuthContext';
+import { useT } from '@/app/LanguageContext';
 import { useSite } from '@/app/SiteContext';
 
 export function TopBar() {
   const account = useAccount();
   const { site, error, todayLabel } = useSite();
+  const t = useT();
 
   const online = site?.camerasOnline ?? 0;
   const total = site?.camerasTotal ?? 0;
@@ -13,12 +15,12 @@ export function TopBar() {
   const color = error ? 'var(--bd)' : allWell ? 'var(--ac)' : 'var(--am)';
 
   const cameraLabel = error
-    ? 'Engine unreachable'
+    ? t('topbar.engineUnreachable')
     : !site
-      ? 'Checking cameras…'
+      ? t('topbar.checkingCameras')
       : allWell
-        ? `All ${total} cameras up`
-        : `${online} of ${total} cameras up`;
+        ? t('topbar.allCamerasUp', { total })
+        : t('topbar.someCamerasUp', { online, total });
 
   return (
     <header className="topbar">
@@ -44,10 +46,10 @@ export function TopBar() {
         </span>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-          <div style={{ textAlign: 'right' }}>
+          <div style={{ textAlign: 'end' }}>
             <div style={{ fontSize: 13, fontWeight: 600, lineHeight: 1.2 }}>{account.name}</div>
             <div style={{ fontSize: 11.5, color: 'var(--tx3)' }}>
-              {account.role === 'admin' ? 'Administrator' : 'IT'}
+              {t(account.role === 'admin' ? 'role.admin' : 'role.it')}
             </div>
           </div>
           <div className="avatar">{account.initials}</div>

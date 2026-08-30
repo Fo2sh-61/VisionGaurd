@@ -28,6 +28,7 @@ import {
   getMe, register as apiRegister, signIn as apiSignIn, signOut as apiSignOut,
 } from '@/services/api';
 import { setUnauthorisedHandler } from '@/services/http';
+import type { Language } from '@/i18n';
 import type { Role } from '@/types';
 
 export interface Account {
@@ -36,6 +37,10 @@ export interface Account {
   role: Role;
   initials: string;
   email: string;
+  /** Which language this person reads the console in. Held by the engine,
+   *  because the gate station is shared and a browser-wide setting would
+   *  hand the next guard the previous guard's language. */
+  language: Language;
 }
 
 interface AuthValue {

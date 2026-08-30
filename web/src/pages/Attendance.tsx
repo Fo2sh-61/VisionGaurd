@@ -8,13 +8,16 @@ import { useChoice, useGroupNames, usePersonNames } from '@/app/useOptions';
 import { useToday } from '@/app/SiteContext';
 import type { AttendanceMode, AttendanceResult } from '@/types';
 import { useCapability } from '@/app/CapabilityContext';
+import { useLanguage, useT } from '@/app/LanguageContext';
+import type { MessageKey } from '@/i18n';
 
-const MODES: Record<string, AttendanceMode> = {
-  'A whole group': 'group',
-  'One person': 'person',
-};
+/* The picker's values are the modes themselves; the wording comes from the
+   catalogue, so a rewording cannot silently change which query runs. */
+const MODES: AttendanceMode[] = ['group', 'person'];
 
 export function Attendance() {
+  const t = useT();
+  const { language } = useLanguage();
   const capability = useCapability('attendance');
   const account = useAccount();
 
@@ -22,7 +25,7 @@ export function Attendance() {
   const people = usePersonNames();
   const today = useToday();
 
-  const [modeLabel, setModeLabel] = useState('A whole group');
+  const [mode, setMode] = useState<AttendanceMode>('group');
   const [group, setGroup] = useState('');
   const [person, setPerson] = useState('');
   const [date, setDate] = useState('');
@@ -33,7 +36,6 @@ export function Attendance() {
   const [result, setResult] = useState<AttendanceResult | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const mode = MODES[modeLabel];
 
   const run = useCallback(async () => {
     setLoading(true);
@@ -44,7 +46,7 @@ export function Attendance() {
           group: selectedGroup,
           person: selectedPerson,
           date: selectedDate,
-        }),
+        }, language),
       );
     } finally {
       setLoading(false);
@@ -67,7 +69,7 @@ export function Attendance() {
         date: selectedDate,
       });
     } catch (error) {
-      setExportError(error instanceof Error ? error.message : 'Export failed');
+      setExportError(error instanceof Error ? error.message : t('attendance.exportFailed'));
     } finally {
       setExporting(false);
     }
@@ -85,21 +87,26 @@ export function Attendance() {
 
       <Card tight>
         <div className="filters">
-          <Field label="Show me">
-            <Select value={modeLabel} onChange={setModeLabel} options={Object.keys(MODES)} />
+          <Field label={t('attendance.showMe')}>
+            <Select
+              value={mode}
+              onChange={(v) => setMode(v as AttendanceMode)}
+              options={MODES}
+              label={(o) => t(`attendance.mode.${o}` as MessageKey)}
+            />
           </Field>
 
           {mode === 'group' ? (
-            <Field label="Group">
+            <Field label={t('attendance.group')}>
               <Select value={selectedGroup} onChange={setGroup} options={groups} />
             </Field>
           ) : (
-            <Field label="Person">
+            <Field label={t('attendance.person')}>
               <Select value={selectedPerson} onChange={setPerson} options={people} />
             </Field>
           )}
 
-          <Field label="Date">
+          <Field label={t('attendance.date')}>
             <input
               className="input"
               type="date"
@@ -109,7 +116,7 @@ export function Attendance() {
           </Field>
 
           <button type="button" className="btn" onClick={() => void run()} disabled={loading}>
-            {loading ? 'Checking…' : 'Show'}
+            {t(loading ? 'attendance.checking' : 'attendance.show')}
           </button>
 
           <button
@@ -119,9 +126,11 @@ export function Attendance() {
             // Only offer the download once there is a result on screen, so the
             // file always matches what was just looked at.
             disabled={!result || exporting}
-            title={result ? `Download ${selectedDate} as CSV` : 'Show a register first'}
+            title={result
+              ? t('attendance.downloadCsv', { date: selectedDate })
+              : t('attendance.showRegisterFirst')}
           >
-            {exporting ? 'Preparing…' : 'Export sheet'}
+            {t(exporting ? 'attendance.preparing' : 'attendance.exportSheet')}
           </button>
         </div>
 
@@ -139,7 +148,7 @@ export function Attendance() {
         )}
       </Card>
 
-      {!result && !loading && <Empty>Choose a group and date, then press Show.</Empty>}
+      {!result && !loading && <Empty>{t('attendance.chooseFirst')}</Empty>}
 
       {result && (
         <>
@@ -149,7 +158,7 @@ export function Attendance() {
 
             {result.rows && (
               <>
-                <div className="section-title">Needs follow-up</div>
+                <div className="section-title">{t('attendance.needsFollowUp')}</div>
                 {result.rows.map((row) => (
                   <div
                     key={row.name}
@@ -173,12 +182,12 @@ export function Attendance() {
                         type="button"
                         className="linkbtn"
                         disabled
-                        title="Parent contacts and message sending are not set up yet, so nothing can be sent."
+                        title={t('attendance.notifyParentWhy')}
                       >
-                        Notify parent
+                        {t('attendance.notifyParent')}
                       </button>
                     ) : (
-                      <span style={{ color: 'var(--tx3)', fontSize: 13 }}>Admin only</span>
+                      <span style={{ color: 'var(--tx3)', fontSize: 13 }}>{t('attendance.adminOnly')}</span>
                     )}
                   </div>
                 ))}
@@ -187,7 +196,7 @@ export function Attendance() {
 
             {result.days && (
               <>
-                <div className="section-title">Recent days</div>
+                <div className="section-title">{t('attendance.recentDays')}</div>
                 {result.days.map((day) => (
                   <div
                     key={day.date}
@@ -209,8 +218,8 @@ export function Attendance() {
           </Card>
 
           <CamGrid
-            title="Entrance cameras"
-            note="Face recognition runs on these 4 cameras only. Green box = recognised, red = not enrolled."
+            title={t('attendance.entranceCameras')}
+            note={t('attendance.entranceCamerasNote')}
             cameras={result.cameras}
           />
         </>

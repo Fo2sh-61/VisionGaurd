@@ -30,6 +30,19 @@ export interface Instant {
   tzOffsetMinutes: number;
 }
 
+/** An explanation the console says in whichever language is active.
+ *
+ *  The engine sends the `code` and the facts; every word comes from
+ *  `web/src/i18n/`. That is what lets "no exit camera, so cars leaving are not
+ *  being counted" appear in Arabic without the engine knowing Arabic exists.
+ *
+ *  `args` are facts — a camera name, a count — never phrases. The codes are
+ *  declared in `engine/vg/api/notes.py` and mirrored as `NoteCode`. */
+export interface Note {
+  code: string;
+  args: Record<string, string | number>;
+}
+
 /** Fractions of the frame, origin top-left. Multiply by 100 for the UI. */
 export interface Box {
   x: number;
@@ -322,6 +335,25 @@ export interface Recorder {
   ip?: string | null;
 }
 
+/** What one feature worker is costing right now.
+ *
+ *  There is deliberately no per-worker processor share. Workers are threads
+ *  inside one engine process, so the operating system has no per-worker
+ *  number to give and inventing one would be a fabricated measurement. What
+ *  identifies the expensive worker is its inference time, queue and drops. */
+export interface WorkerLoad {
+  name: string;
+  cameras: number;
+  framesProcessed: number;
+  lastInferenceMs: number;
+  queueDepth: number;
+  queueMax: number;
+  framesDropped: number;
+  /** Behind, not merely busy. Absent when a counter could not be read —
+   *  `false` would read as "keeping up", which is a claim. */
+  behind?: boolean | null;
+}
+
 export interface PipelineStage {
   key: string;
   name: string;
@@ -330,6 +362,8 @@ export interface PipelineStage {
   severity: Severity;
   restartable: boolean;
   modelVersion?: string | null;
+  /** Only the `workers` stage fills this. Empty everywhere else. */
+  workers?: WorkerLoad[];
 }
 
 /** Where a page's data came from. There is no fourth answer.
@@ -693,6 +727,13 @@ export interface PathAnchor {
   facePx: number;
 }
 
+/** Which cameras could put a name on a body while a path was built.
+ *
+ *  A FACT the engine sends; the sentence is built in `format.ts`. 'identity'
+ *  means the patrol tier is off, so only doorway cameras ran a recogniser and
+ *  a corridor sighting is a body with no name. */
+export type NameSource = 'all' | 'identity';
+
 export interface PathSkeleton {
   subject: PersonRef;
   date: string;
@@ -701,6 +742,8 @@ export interface PathSkeleton {
   anchors: PathAnchor[];
   appearance: TrackStop[];
   cameras: CameraView[];
+  /** Absent on older engines, which always ran both tiers. */
+  namesFrom?: NameSource;
 }
 
 /* ---------- following one person, live ----------
@@ -844,6 +887,7 @@ export interface Account {
   email: string;
   role: string;
   initials: string;
+  language: 'en' | 'ar';
 }
 
 export interface LoginResult {

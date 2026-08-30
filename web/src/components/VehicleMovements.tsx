@@ -25,6 +25,7 @@
  */
 
 import { useState } from 'react';
+import { useLanguage, useT } from '@/app/LanguageContext';
 import { Plate } from '@/components/Plate';
 import { VehiclePassesCard } from '@/components/VehiclePasses';
 import { Badge, Card, CardHeader, Empty, LoadError } from '@/components/ui';
@@ -54,7 +55,8 @@ const inputStyle = {
 /** How long a car has been here, or was. `null` when the engine did not
  *  compute one — rendered as a dash, never as "0 minutes". */
 function length(minutes: number | null): string {
-  return minutes === null ? '—' : formatDuration(minutes * 60);
+  const { language } = useLanguage();
+  return minutes === null ? '—' : formatDuration(minutes * 60, language);
 }
 
 /** "8am" · "12pm" — the hour labels under the traffic chart. */
@@ -169,6 +171,8 @@ function VisitRow({ visit, showLeft, isAdmin, onRemoved }: {
   isAdmin?: boolean;
   onRemoved?: () => void;
 }) {
+  const { language } = useLanguage();
+  const t = useT();
   const [removing, setRemoving] = useState(false);
 
   async function remove() {
@@ -201,21 +205,21 @@ function VisitRow({ visit, showLeft, isAdmin, onRemoved }: {
       <Plate display={visit.plateDisplay} />
       <span style={{ minWidth: 0 }}>
         <span style={{ fontWeight: 600, fontSize: 14, display: 'block' }}>
-          {visit.owner ?? 'Not in the register'}
+          {visit.owner ?? t('passes.notInRegister')}
         </span>
         <span style={{ fontSize: 12.5, color: 'var(--tx3)' }}>
           {visit.unit ?? '—'}
         </span>
       </span>
       <span style={{ fontSize: 13, color: 'var(--tx2)' }}>
-        in at {formatTime(visit.entered)}
+        in at {formatTime(visit.entered, language)}
         <span style={{ display: 'block', fontSize: 12, color: 'var(--tx3)' }}>
           gate {visit.entryGate}
         </span>
       </span>
       {showLeft && (
         <span style={{ fontSize: 13, color: 'var(--tx2)' }}>
-          out at {formatTime(visit.leftAt)}
+          out at {formatTime(visit.leftAt, language)}
           <span style={{ display: 'block', fontSize: 12, color: 'var(--tx3)' }}>
             {visit.exitGate === null ? 'gate not observed' : `gate ${visit.exitGate}`}
           </span>
@@ -228,7 +232,7 @@ function VisitRow({ visit, showLeft, isAdmin, onRemoved }: {
         {/* An exit nobody watched. Said out loud rather than folded into the
             same badge as an observed one. */}
         {visit.inferred && (
-          <Badge tone="warn">Exit estimated</Badge>
+          <Badge tone="warn">{t('moves.exitEstimated')}</Badge>
         )}
         <span style={{ fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap' }}>
           {length(visit.minutes)}
@@ -239,10 +243,10 @@ function VisitRow({ visit, showLeft, isAdmin, onRemoved }: {
             className="linkbtn"
             disabled={removing}
             onClick={() => { void remove(); }}
-            title="This car has gone. Removes its pass, photograph and crop. Permanent."
+            title={t('moves.goneTitle')}
             style={{ color: 'var(--rd)' }}
           >
-            {removing ? 'Removing…' : 'Gone'}
+            {t(removing ? 'passes.removing' : 'moves.gone')}
           </button>
         )}
       </span>
@@ -254,6 +258,7 @@ export function VehicleMovementsTab({ isAdmin, summary }: {
   isAdmin: boolean;
   summary: W.GateSummary | null;
 }) {
+  const t = useT();
   // Empty means today. Kept empty rather than filled with today's date so the
   // engine decides what "today" is — the site's midnight, not the browser's.
   const [day, setDay] = useState('');
@@ -310,7 +315,7 @@ export function VehicleMovementsTab({ isAdmin, summary }: {
         day, gate: gate ? Number(gate) : undefined,
       });
     } catch (err) {
-      setProblem(err instanceof Error ? err.message : 'The export did not run.');
+      setProblem(err instanceof Error ? err.message : t('moves.exportFailed'));
     } finally {
       setExporting(false);
     }
@@ -355,7 +360,7 @@ export function VehicleMovementsTab({ isAdmin, summary }: {
               onChange={(e) => setGate(e.target.value)}
               style={inputStyle}
             >
-              <option value="">All gates</option>
+              <option value="">{t('moves.allGates')}</option>
               {gates.map((row) => (
                 <option key={row.gate} value={String(row.gate)}>{row.name}</option>
               ))}
@@ -372,7 +377,7 @@ export function VehicleMovementsTab({ isAdmin, summary }: {
               disabled={exporting}
               style={{ height: 40, padding: '0 18px', borderRadius: 10 }}
             >
-              {exporting ? 'Preparing…' : 'Export this day'}
+              {t(exporting ? 'moves.preparing' : 'moves.exportThisDay')}
             </button>
           )}
         </div>
@@ -392,9 +397,8 @@ export function VehicleMovementsTab({ isAdmin, summary }: {
               + 'completed visits. The chart and the gate totals stay on the '
               + 'whole day.'
             : day
-              ? 'Everything below is that day, except “inside now”, which is '
-                + 'always now.'
-              : 'Everything below is today.'}
+              ? t('moves.everythingIsThatDay')
+              : t('moves.everythingIsToday')}
         </div>
       </Card>
 
@@ -405,12 +409,12 @@ export function VehicleMovementsTab({ isAdmin, summary }: {
 
       <Card>
         <CardHeader
-          title="Traffic through the day"
-          sub="In above the line, out below it. Only hours something happened in are drawn."
+          title={t('moves.traffic')}
+          sub={t('moves.trafficNote')}
         />
         {hours.length === 0 ? (
           <Empty>
-            {notReading ?? 'Nothing passed a gate on this day.'}
+            {notReading ?? t('moves.nothingPassed')}
           </Empty>
         ) : (
           <TrafficChart hours={hours} />
@@ -419,15 +423,14 @@ export function VehicleMovementsTab({ isAdmin, summary }: {
 
       <Card>
         <CardHeader
-          title="Gate by gate"
-          sub="Counted from the passes recorded at each gate."
+          title={t('moves.gateByGate')}
+          sub={t('moves.gateByGateNote')}
         />
 
         {gates.length === 0 && (
           <Empty>
             {notReading
-              ?? 'No gate recorded anything on this day. Totals appear here as '
-                + 'cars pass.'}
+              ?? t('moves.noGateRecorded')}
           </Empty>
         )}
 
@@ -485,16 +488,16 @@ export function VehicleMovementsTab({ isAdmin, summary }: {
             display: 'flex', gap: 24, alignItems: 'baseline', marginTop: 16,
             paddingTop: 14, borderTop: '2px solid var(--line)', fontSize: 14,
           }}>
-            <span style={{ fontWeight: 700 }}>All gates</span>
-            <span><b>{totals.entered}</b> in</span>
-            <span><b>{totals.left}</b> out</span>
+            <span style={{ fontWeight: 700 }}>{t('moves.allGates')}</span>
+            <span><b>{totals.entered}</b> {t('moves.in')}</span>
+            <span><b>{totals.left}</b> {t('moves.out')}</span>
             <span>
               {/* One gate without an exit camera makes the total unknowable,
                   not smaller — so it is a dash, not a partial sum. */}
               <b style={{ color: totals.inside === null ? 'var(--tx3)' : 'var(--ac)' }}>
                 {totals.inside === null ? '—' : totals.inside}
               </b>
-              {' '}inside
+              {' '}{t('moves.inside')}
             </span>
           </div>
         )}
@@ -502,8 +505,8 @@ export function VehicleMovementsTab({ isAdmin, summary }: {
 
       <Card>
         <CardHeader
-          title="Inside now"
-          sub="Cars seen coming in with no exit recorded since. Always now, whichever day is picked above."
+          title={t('moves.insideNow')}
+          sub={t('moves.insideNowNote')}
         />
 
         {insideError && <LoadError error={insideError} />}
@@ -536,11 +539,9 @@ export function VehicleMovementsTab({ isAdmin, summary }: {
         {insideShown.length === 0 && !insideError && (
           <Empty>
             {filtering
-              ? 'No car inside matches that search.'
-              : notReading ?? (paired
-                ? 'No car is inside. Every car that came in today has been '
-                  + 'seen leaving.'
-                : 'No car has come in today.')}
+              ? t('moves.noInsideMatch')
+              : notReading ?? t(paired
+                ? 'moves.noCarInside' : 'moves.noCarCameIn')}
           </Empty>
         )}
 
@@ -557,15 +558,15 @@ export function VehicleMovementsTab({ isAdmin, summary }: {
 
       <Card>
         <CardHeader
-          title="Completed visits"
-          sub="Came in and left again. An exit the cameras never saw is marked estimated."
+          title={t('moves.completedVisits')}
+          sub={t('moves.completedVisitsNote')}
         />
 
         {visitsShown.length === 0 && (
           <Empty>
             {filtering
-              ? 'No completed visit matches that search.'
-              : notReading ?? 'No visit was completed on this day.'}
+              ? t('moves.noVisitMatch')
+              : notReading ?? t('moves.noVisitCompleted')}
           </Empty>
         )}
 

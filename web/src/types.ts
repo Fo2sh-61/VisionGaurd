@@ -206,18 +206,23 @@ export interface Breach {
   clipReason?: string;
 }
 
-export type IntrusionWindow = 'Today' | 'Last 7 days' | 'Last 30 days';
+/** Window tokens, not the words on the button.
+ *
+ *  These go to the engine as `?window=last30`. The wording lives in
+ *  `web/src/i18n/` under `window.*`, so a rewording - or an Arabic one -
+ *  never touches the API. */
+export type IntrusionWindow = 'today' | 'last7' | 'last30';
 
 /* ---------- weapons ---------- */
 
 export type WeaponWindow =
-  | 'Today'
-  | 'Yesterday'
-  | 'Last 7 days'
-  | 'Last 30 days'
-  | 'Last 90 days'
-  | 'This school year'
-  | 'All';
+  | 'today'
+  | 'yesterday'
+  | 'last7'
+  | 'last30'
+  | 'last90'
+  | 'schoolYear'
+  | 'all';
 
 /** Where a detection has got to. Nothing moves back out of the last two.
  *
@@ -288,6 +293,21 @@ export interface Recorder {
   online: boolean;
 }
 
+/** One feature worker's load, ready to render.
+ *
+ *  Every figure is a real counter. Nothing here is derived from a sample or
+ *  an average, so a number on this row can be checked against the engine. */
+export interface WorkerLoadItem {
+  name: string;
+  cameras: number;
+  framesProcessed: number;
+  lastInferenceMs: number;
+  queueDepth: number;
+  queueMax: number;
+  framesDropped: number;
+  behind: boolean;
+}
+
 export interface PipelineItem {
   name: string;
   detail: string;
@@ -297,6 +317,8 @@ export interface PipelineItem {
    *  badge - the engine did the honest work and the UI discarded it. */
   tone: Tone;
   action?: string;
+  /** Only the feature-workers row carries these. */
+  workers?: WorkerLoadItem[];
 }
 
 export interface SystemHealth {

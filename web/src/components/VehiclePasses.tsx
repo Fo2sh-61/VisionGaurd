@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useLanguage, useT } from '@/app/LanguageContext';
 import { Plate } from '@/components/Plate';
 import { PlateEditor } from '@/components/PlateEditor';
 import { Badge, Card, CardHeader, Empty, LoadError } from '@/components/ui';
@@ -38,6 +39,8 @@ export function VehiclePassesCard({ isAdmin, day }: {
   /** Empty means today. Follows the day picker above it. */
   day: string;
 }) {
+  const { language } = useLanguage();
+  const t = useT();
   const [removing, setRemoving] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -55,7 +58,7 @@ export function VehiclePassesCard({ isAdmin, day }: {
       reload();
     } catch (err) {
       setProblem(err instanceof Error
-        ? err.message : 'That plate could not be saved.');
+        ? err.message : t('passes.plateNotSaved'));
     } finally {
       setSaving(false);
     }
@@ -69,7 +72,7 @@ export function VehiclePassesCard({ isAdmin, day }: {
       reload();
     } catch (err) {
       setProblem(err instanceof Error
-        ? err.message : 'That row could not be removed.');
+        ? err.message : t('passes.rowNotRemoved'));
     } finally {
       setRemoving(null);
     }
@@ -78,10 +81,8 @@ export function VehiclePassesCard({ isAdmin, day }: {
   return (
     <Card>
       <CardHeader
-        title="Every car recorded"
-        sub={isAdmin
-          ? 'Newest first. Remove takes the row, its photograph and its plate crop for good — one click, no undo. The audit entry naming the plate stays.'
-          : 'Newest first, with the photograph each one was recorded from.'}
+        title={t('passes.title')}
+        sub={t(isAdmin ? 'passes.leadAdmin' : 'passes.lead')}
       />
 
       {error && <LoadError error={error} />}
@@ -157,7 +158,7 @@ export function VehiclePassesCard({ isAdmin, day }: {
             {/* Never blank. "Not in the register" is a fact about the car; an
                 empty cell reads as data we failed to load. */}
             <span style={{ fontWeight: 600, fontSize: 14, display: 'block' }}>
-              {pass.owner ?? 'Not in the register'}
+              {pass.owner ?? t('passes.notInRegister')}
             </span>
             <span style={{ fontSize: 12.5, color: 'var(--tx3)' }}>
               {pass.gateName}
@@ -175,7 +176,7 @@ export function VehiclePassesCard({ isAdmin, day }: {
             fontSize: 13, color: 'var(--tx2)',
             fontFamily: 'ui-monospace, Menlo, monospace',
           }}>
-            {formatTime(pass.at)}
+            {formatTime(pass.at, language)}
           </span>
 
           <span style={{
@@ -191,9 +192,9 @@ export function VehiclePassesCard({ isAdmin, day }: {
                 type="button"
                 className="linkbtn"
                 onClick={() => setEditing(pass.id)}
-                title="The reader got this wrong — type what the photograph shows"
+                title={t('passes.fixTitle')}
               >
-                Fix
+                {t('reader.fix')}
               </button>
             )}
 
@@ -207,10 +208,10 @@ export function VehiclePassesCard({ isAdmin, day }: {
                 className="linkbtn"
                 disabled={removing === pass.id}
                 onClick={() => { void remove(pass); }}
-                title="Remove this row, its photograph and its plate crop. Permanent."
+                title={t('passes.removeTitle')}
                 style={{ color: 'var(--rd)' }}
               >
-                {removing === pass.id ? 'Removing…' : 'Remove'}
+                {t(removing === pass.id ? 'passes.removing' : 'action.remove')}
               </button>
             )}
           </span>

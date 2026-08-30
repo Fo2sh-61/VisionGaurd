@@ -1,4 +1,6 @@
 import type { ReactNode } from 'react';
+import { useT } from '@/app/LanguageContext';
+import type { MessageArgs, MessageKey } from '@/i18n';
 import type { Capability } from '@/services/wire';
 import type { Stat, Tone } from '@/types';
 
@@ -114,16 +116,23 @@ export function Select({
   value,
   onChange,
   options,
+  label,
 }: {
   value: string;
   onChange: (value: string) => void;
   options: readonly string[];
+  /** How to say an option, when the value is a token rather than the wording.
+   *
+   *  Window pickers send `last30` to the engine and show "Last 30 days" or
+   *  "آخر ٣٠ يومًا" depending on who is reading. Options that are already
+   *  their own wording — a camera name, a group — need nothing here. */
+  label?: (option: string) => string;
 }) {
   return (
     <select className="input" value={value} onChange={(e) => onChange(e.target.value)}>
       {options.map((o) => (
         <option key={o} value={o}>
-          {o}
+          {label ? label(o) : o}
         </option>
       ))}
     </select>
@@ -164,6 +173,7 @@ export function Toggle({
  *  Amber, not red: an unbuilt feature is not a fault, and an operator should
  *  not be waiting for it to come back. */
 export function DataNotice({ capability }: { capability: Capability | null }) {
+  const t = useT();
   if (!capability || capability.state === 'live') return null;
 
   const demo = capability.state === 'demo';
@@ -178,9 +188,12 @@ export function DataNotice({ capability }: { capability: Capability | null }) {
       }}
     >
       <span style={{ fontWeight: 700, whiteSpace: 'nowrap' }}>
-        {demo ? 'Demo data' : 'Not available'}
+        {t(demo ? 'state.demoData' : 'state.notAvailable')}
       </span>
-      <span>{capability.reason ?? `${capability.name} is not available.`}</span>
+      <span>
+        {capability.reason
+          ?? t('state.featureNotAvailable', { feature: capability.name })}
+      </span>
     </div>
   );
 }
@@ -207,12 +220,21 @@ export function LoadError({
   error,
   onRetry,
   what,
+  whatArgs,
 }: {
   error: string | null;
   onRetry?: () => void;
-  /** What could not be loaded, e.g. "the register". Used in the sentence. */
-  what?: string;
+  /** What could not be loaded, as a **key** — `'load.cameraList'`.
+   *
+   *  A key rather than the words, because it is dropped into the middle of
+   *  `state.couldNotLoad`. Passing the English phrase would glue a sentence
+   *  together in code, and Arabic does not put the pieces in that order.
+   *  P11-FR-001. */
+  what?: MessageKey;
+  /** Facts the `what` wording needs — a person's name, a group. */
+  whatArgs?: MessageArgs;
 }) {
+  const t = useT();
   if (!error) return null;
 
   return (
@@ -226,7 +248,9 @@ export function LoadError({
       }}
     >
       <span style={{ fontWeight: 700, whiteSpace: 'nowrap' }}>
-        {what ? `Could not load ${what}` : 'Could not load this'}
+        {what
+          ? t('state.couldNotLoad', { what: t(what, whatArgs) })
+          : t('state.couldNotLoadThis')}
       </span>
       <span>{error}</span>
       {onRetry && (
@@ -236,7 +260,7 @@ export function LoadError({
           onClick={onRetry}
           style={{ color: 'inherit', fontWeight: 600, textDecoration: 'underline' }}
         >
-          Try again
+          {t('state.tryAgain')}
         </button>
       )}
     </div>
