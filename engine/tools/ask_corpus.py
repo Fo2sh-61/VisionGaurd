@@ -42,6 +42,13 @@ def main() -> int:
                     help="override engine.yaml's ask.model")
     ap.add_argument("--dry-run", action="store_true",
                     help="mask and report only — no key, no network, no cost")
+    ap.add_argument("--delay", type=float, default=4.0,
+                    help="seconds between questions (default 4). The free "
+                         "tier is far tighter than the blogs claim — measured "
+                         "at 20 requests for gemini-3.7-flash — so firing the "
+                         "corpus off in one go just spends the quota on 429s")
+    ap.add_argument("--retries", type=int, default=2,
+                    help="how many times to wait out a 429 per question")
     args = ap.parse_args()
 
     corpus = yaml.safe_load(CORPUS.read_text(encoding="utf-8"))
@@ -55,15 +62,19 @@ def main() -> int:
 
     import os
 
-    key = os.environ.get("GEMINI_API_KEY", "").strip()
-    if not key:
-        print("No GEMINI_API_KEY set. Use --dry-run to check the masking "
-              "without sending anything.")
-        return 2
-
+    # Config FIRST, because loading it is what reads engine/.env — and .env is
+    # where the key belongs, since engine.yaml is in git and a key in git is a
+    # key to rotate. Reading the environment before this looked correct and
+    # quietly ignored a key that was sitting right there.
     from vg import config as vgconfig
 
     cfg = vgconfig.load()
+
+    key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if not key:
+        print("No GEMINI_API_KEY found in the environment or in engine/.env.\n"
+              "Use --dry-run to check the masking without sending anything.")
+        return 2
     parser = CloudParser(
         model=args.model or cfg.ask.model,
         api_key=key,
@@ -75,15 +86,15 @@ def main() -> int:
 
     by_lang: dict[str, list[bool]] = {}
     wrong: list[str] = []
-    for case in cases:
+    for index, case in enumerate(cases):
         masked, _ = mask(case["ask"], dictionary)
-        try:
-            parsed = parser.parse(masked)
-            got = parsed.query
-        except ParserUnavailable as exc:
-            got = f"<unavailable: {exc.reason}>"
+        got = _route(parser, masked, args.retries, args.delay)
+        print(f"  [{index + 1}/{len(cases)}] {got}", flush=True)
         want = case["query"]
-        ok = got == want
+        # Some questions have more than one correct route. Scoring a right
+        # answer as wrong would make the model look worse than it is and hide
+        # the failures that matter.
+        ok = got == want or got in (case.get("accept") or [])
         by_lang.setdefault(case.get("lang", "?"), []).append(ok)
         if not ok:
             wrong.append(f"  {case['ask']}\n      wanted {want!r}, got {got!r}")
@@ -107,6 +118,35 @@ def main() -> int:
         print("\n".join(wrong))
 
     return 0 if score >= 95 else 1
+
+
+def _route(parser, masked: str, retries: int, delay: float) -> str:
+    """One question, waiting out the free tier's rate limit rather than
+    counting a 429 as a wrong answer.
+
+    A rate limit is not a routing failure. Scoring it as one would report 0%
+    and blame the model for something that is entirely about the plan the key
+    is on — which is exactly what the first run of this tool did.
+    """
+    import time
+
+    for attempt in range(retries + 1):
+        try:
+            return parser.parse(masked).query
+        except ParserUnavailable as exc:
+            # "offline" and "timeout" are transient too. Counting a dropped
+            # connection as a wrong route is how the second run of this tool
+            # reported 83.8% when the model had actually answered 31 of the
+            # 34 questions that reached it.
+            transient = exc.reason in {"busy", "offline", "timeout"}
+            if not transient or attempt == retries:
+                return f"<unavailable: {exc.reason}>"
+            wait = 30.0 * (attempt + 1) if exc.reason == "busy" else 5.0
+            print(f"      {exc.reason}, waiting {wait:.0f}s", flush=True)
+            time.sleep(wait)
+        finally:
+            time.sleep(delay)
+    return "<unavailable: busy>"
 
 
 def _dry_run(cases, dictionary) -> int:

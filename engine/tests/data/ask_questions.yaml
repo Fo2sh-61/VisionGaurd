@@ -50,6 +50,10 @@ questions:
   - ask: who is absent from Grade 8 today
     lang: en
     query: attendance
+    # `group_roster` returns who is in the group AND who is present today, so
+    # it answers this question just as truthfully. A corpus that insists on
+    # one of two correct routes measures my preference, not the model.
+    accept: [group_roster]
 
   # -- where somebody went. "track X" is the shape everything is held to -----
   - ask: track Ali Hassan

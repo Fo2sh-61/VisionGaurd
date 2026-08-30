@@ -283,6 +283,17 @@ def instructions_for(queries) -> str:
         "Rules:",
         "- Choose exactly one query id from the list, or null if the question "
         "is not one of them. Never invent an id.",
+        "- The system records WHAT happened, never WHY, and never what will "
+        "happen. Answer null for any question asking for a reason, a cause, a "
+        "motive, an opinion, a judgement or a prediction — 'why was she late', "
+        "'is he a good student', 'what will happen tomorrow'. These look like "
+        "supported questions because they name a person and a day, and "
+        "answering one with the register would give a true answer to a "
+        "question nobody asked.",
+        "- If the question clearly means one of the queries but leaves out "
+        "something it needs, still choose that query and name the missing "
+        "parameter in `missing`. Do NOT answer null. 'How many?' with no place "
+        "is a headcount missing its place, not an unsupported question.",
         "- Copy parameter values from the question. Never invent one.",
         "- Tokens like PERSON_1 and PLATE_1 are placeholders for real names "
         "and plates. Copy them EXACTLY. Never translate, expand or guess what "

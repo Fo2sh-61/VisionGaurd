@@ -29,9 +29,14 @@ model, so `Parsed.model_json_schema()` **is** the schema — no second definitio
 keep in step. A reply outside the menu fails validation, and a validation failure is
 `unsupported`, not something to salvage from a half-parsed string.
 
-*The free tier is far larger than the need.* 1,500 requests a day and 15 a minute, no
-credit card. A school realistically asks ~100 questions a day — fifteen times the
-headroom. Flash-Lite doubles the per-minute limit if bursts ever matter.
+*The free tier was believed to be far larger than the need.* **That was wrong, and
+it was measured wrong on 30 Aug 2026.** The 1,500-requests-a-day figure came from
+aggregator articles; Google does not publish per-model free-tier numbers, and the
+API itself returns `limit: 20` for `gemini-3.7-flash` — still refusing 35 seconds
+later, so a daily cap. One corpus run is 37 questions, so the configured model
+cannot complete a single run for free. `gemini-3.5-flash-lite` has a materially
+larger allowance and completed two runs on the same key. See
+[evidence/routing.md](./evidence/routing.md).
 
 *Arabic.* No public benchmark settles Egyptian dialect plus Franco-Arabic for this
 exact task, so SC-003 on our own corpus remains the decider. The prior favours Gemini:
