@@ -31,12 +31,19 @@ export function Home() {
       setNote(t('home.typeSomething'));
       return;
     }
+    setNote(t('ask.asking'));
     const outcome = await ask(text, account.role);
     if (outcome.kind === 'route') {
       setNote('');
-      open(outcome.tool);
+      // The whole path, parameters included — not just the tool. Opening
+      // Track a Person empty and leaving you to retype the name you had just
+      // typed is what this bar used to do, and it is why it felt like it had
+      // not understood.
+      navigate(outcome.to, { state: { autoRun: true } });
     } else if (outcome.kind === 'note') {
-      setNote(t(outcome.message));
+      setNote(t(outcome.message, outcome.args));
+    } else {
+      setNote('');
     }
   }
 

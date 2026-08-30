@@ -196,6 +196,42 @@ class TestMenu:
             f"that has data: {thin}. A link is not an answer."
         )
 
+    def test_every_deep_link_is_read_by_the_page_it_points_at(self):
+        """A link nothing reads is decoration, and it looked like it worked.
+
+        Ask produced `/track?person=Mohamed%20Fouad`, the console navigated
+        there, and Track a Person ignored the whole query string — so "where
+        is Mohamed" opened an empty form and the operator retyped the name
+        they had just typed. Nothing failed; it simply did nothing.
+
+        This pins the contract from the other side: a parameter a route puts
+        in the URL must be one the page actually looks for.
+        """
+        pages = pathlib.Path(__file__).resolve().parents[2] / "web" / "src" / "pages"
+        if not pages.is_dir():           # engine checked out on its own
+            pytest.skip("no web/ in this tree")
+
+        # Which page each route lands on, and what it reads today.
+        reads: dict[str, str] = {
+            "/track": "TrackPerson.tsx",
+            "/attendance": "Attendance.tsx",
+            "/counting": "Counting.tsx",
+        }
+        missed: list[str] = []
+        for query in QUERIES:
+            params = {p.name: "x" for p in query.params}
+            route = query.route(params)
+            path = route.split("?")[0]
+            page = reads.get(path)
+            if page is None:
+                continue                  # not yet wired; not a regression
+            source = (pages / page).read_text(encoding="utf-8")
+            for name in params:
+                if f"'{name}'" not in source:
+                    missed.append(f"{query.id} -> {path} sends {name!r}, "
+                                  f"{page} never reads it")
+        assert not missed, "; ".join(missed)
+
     def test_only_a_feature_that_records_nothing_is_exempt(self):
         exempt = [q.id for q in QUERIES if q.stores_nothing]
         assert exempt == ["lost_item"], (

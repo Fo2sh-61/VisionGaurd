@@ -29,8 +29,6 @@ const ICON = {
   // A car, from the side: roof line over a body, two wheels.
   vehicles: 'M2.5 11 H15.5 M3.5 11 V8.5 L5.5 5.5 H12 L14.5 8.5 V11 M6 13 a1.3 1.3 0 1 0 .01 0 M12 13 a1.3 1.3 0 1 0 .01 0',
   system: 'M2.5 9.5 H6 L8 5 L10.5 13 L12.5 9.5 H15.5',
-  // A speech bubble with a question mark: you type, it answers.
-  ask: 'M2.5 4 H15.5 V12 H9 L5.5 15 V12 H2.5 Z M7.6 6.6 a1.4 1.4 0 1 1 1.4 1.6 V9.2 M9 10.6 v.01',
   people:
     'M6.2 3.5 a2.3 2.3 0 1 0 0.01 0 M2.8 14.5 c0-2.6 1.7-4 3.4-4 s3.4 1.4 3.4 4 M12.3 5.5 a2 2 0 1 0 0.01 0 M11.5 11.3 c1.9 .3 3.4 1.5 3.4 3.2',
   settings: 'M3 6.2 H15 M3 11.8 H15 M7 4.6 a1.6 1.6 0 1 0 0.01 0 M11.5 10.2 a1.6 1.6 0 1 0 0.01 0',
@@ -39,9 +37,6 @@ const ICON = {
 export const HOME_ICON = ICON.home;
 
 export const NAV: NavEntry[] = [
-  // First in its section on purpose: Ask exists for the guard who does not
-  // know which of the pages below holds the answer.
-  { id: 'ask', path: '/ask', section: 'ask', icon: ICON.ask },
   { id: 'attendance', path: '/attendance', section: 'ask', icon: ICON.attendance },
   { id: 'counting', path: '/counting', section: 'ask', icon: ICON.counting },
   { id: 'lost-items', path: '/lost-items', section: 'ask', icon: ICON['lost-items'] },

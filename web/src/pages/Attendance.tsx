@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useAccount } from '@/app/AuthContext';
 import { useAutoRun } from '@/app/useAutoRun';
 import { CamGrid } from '@/components/CamGrid';
@@ -25,10 +26,19 @@ export function Attendance() {
   const people = usePersonNames();
   const today = useToday();
 
-  const [mode, setMode] = useState<AttendanceMode>('group');
-  const [group, setGroup] = useState('');
-  const [person, setPerson] = useState('');
-  const [date, setDate] = useState('');
+  // Ask arrives here with the question already resolved: `?mode=person
+  // &subject=Sara Ahmed&date=2026-08-30`. Reading them is what turns "was
+  // Sara late today" into an answer instead of an empty form and a name the
+  // operator has to type a second time.
+  const [params] = useSearchParams();
+  const asked = params.get('subject') ?? '';
+  const askedMode = params.get('mode');
+
+  const [mode, setMode] = useState<AttendanceMode>(
+    askedMode === 'person' || askedMode === 'group' ? askedMode : 'group');
+  const [group, setGroup] = useState(askedMode === 'group' ? asked : '');
+  const [person, setPerson] = useState(askedMode === 'person' ? asked : '');
+  const [date, setDate] = useState(params.get('date') ?? '');
 
   const selectedGroup = useChoice(groups, group);
   const selectedPerson = useChoice(people, person);

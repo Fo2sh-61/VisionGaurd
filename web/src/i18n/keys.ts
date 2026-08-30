@@ -40,23 +40,6 @@ type LostColourKey =
 export type UiKey =
   // -- navigation and chrome ------------------------------------------------
   | 'nav.home'
-  // -- Ask ------------------------------------------------------------------
-  | 'ask.title'
-  | 'ask.blurb'
-  | 'ask.placeholder'
-  | 'ask.submit'
-  | 'ask.thinking'
-  | 'ask.understoodAs'
-  | 'ask.openPage'
-  | 'ask.results'
-  | 'ask.noResults'
-  | 'ask.sentOffSite'
-  | 'ask.sentNothing'
-  | `ask.query.${'attendance' | 'headcount' | 'zone_breaches' | 'weapons'
-    | 'vehicle_passes' | 'vehicles_inside' | 'gate_totals' | 'vehicle_registered'
-    | 'person_path' | 'person_history' | 'person_directory' | 'group_roster'
-    | 'lost_item' | 'system_state'}`
-  | 'ask.assumed'
   | `nav.section.${'ask' | 'watch' | 'manage'}`
   | `nav.${ToolId}.label`
   | `nav.${ToolId}.blurb`
@@ -89,6 +72,8 @@ export type UiKey =
   | 'attention.action.system'
   | 'attention.action.open'
   | 'ask.noMatch'
+  | 'ask.asking'
+  | 'ask.engineUnreachable'
   | 'ask.q.absent'
   | 'ask.q.cafeteria'
   | 'ask.q.lab'

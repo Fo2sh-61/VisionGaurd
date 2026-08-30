@@ -3,7 +3,6 @@ import { AppShell } from './AppShell';
 import { useAuth } from './AuthContext';
 import { Login } from '@/pages/Login';
 import { Home } from '@/pages/Home';
-import { Ask } from '@/pages/Ask';
 import { Attendance } from '@/pages/Attendance';
 import { Counting } from '@/pages/Counting';
 import { Intrusion } from '@/pages/Intrusion';
@@ -72,7 +71,6 @@ export function AppRoutes() {
 
       <Route element={<RequireSignIn><AppShell /></RequireSignIn>}>
         <Route index element={<Home />} />
-        <Route path="ask" element={<Ask />} />
         <Route path="attendance" element={<Attendance />} />
         <Route path="counting" element={<Counting />} />
         <Route path="intrusion" element={<Intrusion />} />

@@ -1,82 +1,61 @@
 /** The "ask in plain words" router.
  *
- *  Today: keyword matching, exactly as the design prototype did.
- *  Later: this is the natural home for an LLM intent call — keep the signature
- *  (`string -> AskOutcome`) and the Home page needs no changes.
+ *  **This was keyword matching, and it is now the engine's `/ask`.** Its own
+ *  note said so: *"Later: this is the natural home for an LLM intent call —
+ *  keep the signature (`string -> AskOutcome`) and the Home page needs no
+ *  changes."* The signature is kept and the Home page changed only in what it
+ *  does with a route: it now carries the parameters.
  *
- *  Both languages, because a bar that only understands English is not usable
- *  by the people this console is for. The Arabic keywords below are **drafted
- *  and not yet reviewed** — they are matching data rather than wording, so
- *  they do not live in `i18n/ar.draft.ts` and are not counted by the coverage
- *  card. They need the same read-through by a native speaker before release. */
+ *  The difference that matters is not the model. Keywords could tell you the
+ *  question was about tracking; nothing could tell you it was about **Mohamed**,
+ *  so the bar opened Track a Person empty and left you to type the name you had
+ *  just typed. The engine resolves the person, the day and the place, and the
+ *  page opens with the query already run.
+ *
+ *  Everything the engine sends is a code or a value. No sentence crosses this
+ *  file — `Home` words the outcome through `i18n`, in whichever language is on. */
 
+import { ask as askEngine } from '@/services/api';
+import type * as W from '@/services/wire';
 import type { MessageKey } from '@/i18n';
-import type { Role, ToolId } from '@/types';
+import type { Role } from '@/types';
 
 export type AskOutcome =
-  | { kind: 'route'; tool: ToolId }
+  /** Go here, with these parameters already applied, and run it. */
+  | { kind: 'route'; to: string; answer: W.AskAnswer }
   /** A key, not a sentence — Home says it in whichever language is active. */
-  | { kind: 'note'; message: MessageKey }
+  | { kind: 'note'; message: MessageKey; args?: Record<string, string | number> }
   | { kind: 'ignore' };
 
-const INTENTS: { keywords: string[]; tool: ToolId }[] = [
-  {
-    keywords: [
-      'absent', 'attendance', 'present', 'arrive', 'late', 'who came',
-      'غائب', 'غياب', 'الحضور', 'حضر', 'متأخر', 'تأخر',
-    ],
-    tool: 'attendance',
-  },
-  {
-    keywords: [
-      'how many', 'count', 'busy', 'crowd', 'occupancy',
-      'كم', 'عدد', 'ازدحام', 'مزدحم', 'مكتظ',
-    ],
-    tool: 'counting',
-  },
-  {
-    keywords: [
-      'intrusion', 'restricted', 'breach', 'entered', 'forbidden',
-      'محظور', 'ممنوع', 'اقتحام', 'تسلل', 'دخل',
-    ],
-    tool: 'intrusion',
-  },
-  {
-    keywords: ['weapon', 'gun', 'knife', 'armed', 'سكين', 'سلاح', 'مسدس'],
-    tool: 'weapons',
-  },
-  {
-    keywords: [
-      'lost', 'missing', 'left behind', 'backpack', 'bag', 'phone', 'jacket', 'laptop',
-      'مفقود', 'ضاع', 'حقيبة', 'شنطة', 'هاتف', 'جاكيت', 'لابتوب',
-    ],
-    tool: 'lost-items',
-  },
-  {
-    keywords: [
-      'track', 'where did', 'path', 'follow', 'went', 'movement',
-      'تتبع', 'أين', 'اين', 'مسار', 'ذهب', 'تحرك',
-    ],
-    tool: 'track',
-  },
-  {
-    keywords: [
-      'camera offline', 'server', 'gpu', 'system', 'recorder',
-      'كاميرا', 'الخادم', 'النظام', 'مسجل',
-    ],
-    tool: 'system',
-  },
-];
-
-/** `role` is unused today — every tool in the design is open to both roles —
- *  but it stays in the signature because an LLM intent call will want it. */
+/** `role` is unused: the engine decides what this account may read, from the
+ *  session, and the menu is restricted to what the weakest role can already
+ *  see. Deciding it here would be a second place where a role is decided. */
 export async function ask(question: string, role: Role): Promise<AskOutcome> {
   void role;
-  const q = question.trim().toLowerCase();
-  if (!q) return { kind: 'ignore' };
+  if (!question.trim()) return { kind: 'ignore' };
 
-  for (const intent of INTENTS) {
-    if (intent.keywords.some((k) => q.includes(k))) return { kind: 'route', tool: intent.tool };
+  let answer: W.AskAnswer;
+  try {
+    answer = await askEngine(question);
+  } catch {
+    // The endpoint answers 200 for every degradation it knows about, so
+    // reaching here means the engine itself is unreachable — a different
+    // thing from "Ask is unavailable", and it must not be dressed up as one.
+    return { kind: 'note', message: 'ask.engineUnreachable' };
+  }
+
+  // A note always wins the message slot: it is the engine explaining itself,
+  // and it is more specific than anything this file could say.
+  if (answer.note) {
+    return {
+      kind: 'note',
+      message: `note.${answer.note.code}` as MessageKey,
+      args: answer.note.args,
+    };
+  }
+
+  if (answer.outcome === 'answered' && answer.deepLink) {
+    return { kind: 'route', to: answer.deepLink, answer };
   }
 
   return { kind: 'note', message: 'ask.noMatch' };

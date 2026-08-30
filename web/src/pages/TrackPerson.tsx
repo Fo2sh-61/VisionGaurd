@@ -26,6 +26,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useCameras } from '@/app/CameraContext';
 import { useCapability } from '@/app/CapabilityContext';
 import { useToday } from '@/app/SiteContext';
@@ -107,7 +108,13 @@ export function TrackPerson() {
   const people = usePersonNames();
   const { cameras } = useCameras();
 
-  const [mode, setMode] = useState<Mode>('live');
+  // Ask arrives with the question resolved: `?person=Mohamed Fouad&date=...`.
+  // A named person means the past-mode question — where they went — so the
+  // page opens on that tab rather than on the live wall, which would show a
+  // camera and none of what was asked for.
+  const [params] = useSearchParams();
+  const askedPerson = params.get('person') ?? '';
+  const [mode, setMode] = useState<Mode>(askedPerson ? 'past' : 'live');
 
   return (
     <>
@@ -136,7 +143,8 @@ export function TrackPerson() {
 
       {mode === 'live' && <LiveMode cameras={cameras} />}
       {mode === 'past' && (
-        <PastMode people={people} today={today} cameras={cameras} />
+        <PastMode people={people} today={today} cameras={cameras}
+                  asked={askedPerson} askedDate={params.get('date') ?? ''} />
       )}
       {mode === 'find' && <BrowseFootage cameras={cameras} today={today} />}
 
@@ -637,14 +645,20 @@ function PastMode({
   people,
   today,
   cameras,
+  asked = '',
+  askedDate = '',
 }: {
   people: string[];
   today: string;
   cameras: Camera[];
+  /** A person Ask already resolved. Empty when somebody opened this tab
+   *  themselves, which is the ordinary case. */
+  asked?: string;
+  askedDate?: string;
 }) {
   const t = useT();
-  const [who, setWho] = useState('');
-  const [date, setDate] = useState(today);
+  const [who, setWho] = useState(asked);
+  const [date, setDate] = useState(askedDate || today);
   const [from, setFrom] = useState('07:00');
   const [to, setTo] = useState('08:15');
   const [path, setPath] = useState<W.PathSkeleton | null>(null);

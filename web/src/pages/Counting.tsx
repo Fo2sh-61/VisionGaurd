@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useAutoRun } from '@/app/useAutoRun';
 import { CamGrid } from '@/components/CamGrid';
 import { Card, CardHeader, DataNotice, Empty, Field, PageHeader, Select, Stats } from '@/components/ui';
@@ -31,10 +32,16 @@ export function Counting() {
   const t = useT();
   const capability = useCapability('count');
   const places = usePlaces();
-  const [place, setPlace] = useState('');
+  // `?place=Main entrance` from Ask. See Attendance for why.
+  const [params] = useSearchParams();
+  const [place, setPlace] = useState(params.get('place') ?? '');
   // Hold a valid choice while the options are still arriving.
   const selectedPlace = useChoice(places, place);
-  const [when, setWhen] = useState<CountWindow>('Right now');
+  const askedWhen = params.get('when');
+  const [when, setWhen] = useState<CountWindow>(
+    askedWhen === 'Today by hour' || askedWhen === 'This week by day'
+      ? askedWhen
+      : 'Right now');
   const [result, setResult] = useState<CountResult | null>(null);
   const [loading, setLoading] = useState(false);
 
