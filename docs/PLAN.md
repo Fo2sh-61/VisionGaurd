@@ -291,6 +291,15 @@ Alert rules + delivery log · in-app delivery · email/SMS only if required · m
 
 Operations runbook · failure drills · on-site calibration · parallel-run attendance against a manual roll call for 5 days · residual-risk review · constitution compliance review.
 
+### P11 — Arabic console · 1.5–2 wk · `specs/008-arabic-console`
+
+The school is Arabic-speaking and every word in the console is English — including the sentences that explain why a figure is incomplete. A guard who cannot read "no exit camera, so cars leaving are not being counted" is looking at a number that is wrong in a way the screen already told him about.
+
+Message catalogue with an English and an Arabic column · right-to-left layout · dates and numbers through `Intl` · language held per account. The load-bearing half is a **contract change**: the engine writes 65 English sentences into `reason` / `detail` / `note` fields and ships them to the screen. Those become a code plus its facts, and the console builds the sentence — which is also what would let an Ask-bar agent reason about them.
+
+**Done when:** a guard who reads no English can work a full shift, every engine explanation appears in Arabic with its consequence intact, and the camera picture is never mirrored.
+
+
 ---
 
 ## 6. Honesty acceptance tests
@@ -332,6 +341,79 @@ walk-through clip:
 | `yolov8s.pt` (person) | 17.7 ms | 22.3 ms | 54.5 frames/sec |
 | `knifebest.pt` (knife) | 15.8 ms | 17.4 ms | 61.4 frames/sec |
 | `bagsearch.pt` (bags) | 27.9 ms | 30.9 ms | 35.3 frames/sec |
+
+**Re-measured 30 Aug 2026**, same clip, same machine, during workload placement:
+
+| Model | p50 | p95 | throughput |
+|---|---|---|---|
+| person | 12.2 ms | 16.6 ms | 81.8 frames/sec |
+| bags, TensorRT | 22.3 ms | 23.3 ms | 44.8 frames/sec |
+| bags, PyTorch CUDA | 21.5 ms | 29.0 ms | 44.2 frames/sec |
+
+Nothing in that work touched a model's settings, so the person row moving is
+**not** an improvement anybody earned — most likely a TensorRT engine present
+now that was not in August. Treat the two blocks as two states of one laptop
+rather than a trend.
+
+The bag rows settle a question the workload plan got wrong: the compiled plan
+was supposed to be costing ~31%. It is not. The medians are within noise and
+TensorRT is better on p95, which is the figure a budget is set from.
+
+### The hardware decision, 29 Aug 2026
+
+Two reviews sit untracked in the repository root —
+`VisionGuard-Deployment-Decision.html` and `VisionGuard-Hardware-Buildlist.html`.
+Their load-bearing conclusions, recorded here so they can be cited without
+opening a file that is not in git. **Commit them or delete them; untracked
+evidence is not evidence.**
+
+**Own the hardware, do not rent cloud inference.** This is a 24/7/365 workload.
+A single cloud GPU costs $4,600–8,800 a year at that duty cycle and pays for a
+whole workstation in 7–14 months. Cloud's one advantage is elastic scaling, and
+it is worth nothing when the load never drops.
+
+**The right shape is inference at the edge, management in the cloud** — remote
+access without a child's face ever leaving the building.
+
+**The "18× this machine" row above is a worst case, not a forecast.** A realistic
+200-camera school needs roughly **two modern L4/A10-class GPUs**. The gap between
+2 and 18 is software choices, not a hardware wall — which is exactly what
+`specs/009-workload-placement` went and measured.
+
+**What one camera costs the GPU**, in relative work units at 2 passes/second:
+
+| Camera job | Runs | Units |
+|---|---|---|
+| Counting / intrusion | person detection (shared) | 2 |
+| Entrance / attendance | person + face | 2 — face is on the CPU, so ~0 extra GPU |
+| Weapon watch | person + knife, person-gated | 2.7 |
+| **Gate / plates** | plate finder + character reader @ 5 Hz | **20** |
+
+Plates are ten times heavier than anything else. Put them only at real gates.
+The GPU is 60–70% of the bill; everything else is a fixed supporting cast.
+
+### Whole-site demand, 30 Aug 2026
+
+Per-model milliseconds do not answer "how many boxes do we buy". This does:
+
+```powershell
+python engine/tools/benchmark.py --site 100
+```
+
+It takes a camera count and a per-feature mix and prints seconds of processor
+time per second, the same figure per camera, and how many cameras one box
+carries. **The camera count is an argument, never a constant** — the site has
+not fixed one, and a tool with 208 written into it would need editing the day
+that changed.
+
+| 100 cameras | site s/s | per camera | cameras per 8-core box |
+|---|---|---|---|
+| Before workload placement | 23.03 | 0.230 | 34 |
+| After | 9.17 | 0.092 | 87 |
+
+Decode was **65%** of the before figure — frames pulled off cameras nobody was
+watching and discarded. Full breakdown and caveats in
+`specs/009-workload-placement/measurements.md`.
 
 The knife model costs the same as the person model, and it ran on that clip without
 a single detection — which is the right answer, because there is no knife in it.

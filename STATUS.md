@@ -47,7 +47,7 @@
 | P1-01 | one detection pass per frame, one thread in the model | done |
 | P1-02 | overlay freshness (`age_ms`) in API and UI | not started |
 | P1-03 | private `_tracked_boxes` reach-in removed | done |
-| P1-04 | latency / queue / drop metrics on System Health | not started |
+| P1-04 | latency / queue / drop metrics on System Health | **done** (P8, 30 Aug 2026) |
 | P1-05 | isolation test: kill one feature, prove the other survives | not started |
 | P1-06 | measure and publish the latency budgets | done |
 
@@ -64,6 +64,61 @@ role, account or token.
 ```powershell
 python engine/tools/create_user.py
 ```
+
+## Workload placement (30 Aug 2026) — `specs/009-workload-placement`
+
+Removing processor work nothing reads. Measured before and after with
+`benchmark.py --site`; full figures in `specs/009-workload-placement/measurements.md`.
+
+| | |
+|---|---|
+| Before, 100 cameras | **23.03 s** of processor time per second — 3 boxes |
+| After | **9.17 s/s** — 2 boxes; one 8-core box carries 87 cameras, up from 34 |
+
+23.03 corroborates the Workload Plan's ~25 figure, which matters because that
+document is not in this repository.
+
+**Decode was 65% of the bill** — frames pulled off cameras nobody was watching
+and thrown away. Unwatched cameras now grab every frame (so no lag builds up)
+and decode only at the analytics rate. That one change is most of the saving.
+
+| Change | State |
+|---|---|
+| Patrol face recognition off | **on** — `patrol_hz: 0` is now the default |
+| Capture unwatched at the analytics rate | **on** — `live_capture: watched` |
+| Batch the shared person pass | shipped, **off**, and buys nothing yet — see below |
+| Face detection gated to person crops | shipped, **off** by default — see below |
+| Bag TensorRT removal | **rejected on measurement** |
+
+**Face gating is off because it cannot prove it is safe.** `compare_detections.py
+--gate-check` finds every face either way — 60 of 60 — but boxes land up to 11px
+apart, because YuNet on a crop is a different computation from YuNet on a frame.
+That moves the landmarks, and the landmarks decide which patch gets embedded. It
+waits on a measurement against a real enrolled roll.
+
+**Batching cannot work on TensorRT.** The compiled engines have a fixed batch size of 1 and raise when handed several frames. That exception lands where `FeatureWorker` catches it per frame, so switching batching on would have made detection **quietly stop** — a log line nobody reads and boxes silently missing. It now detects this once, says so, and runs one frame at a time. Rebuilding the engines with a dynamic batch would unlock it; P8-FR-018 says not before the GPU driver is current.
+
+**The capture change nearly cost more than it saved.** Skipping the decode only helps if grabbing a frame WAITS for one. On RTSP it does; on a webcam it returns instantly, and the loop spun at 658,000 grabs a second - a whole core per camera, which would have looked like a busy machine rather than a bug. It now paces itself: 653 grabs where there were 1.3 million, same 5 Hz decoded.
+
+**The bag TensorRT claim was wrong.** Deleting the engine was supposed to be "a
+free ~31%". Measured: TensorRT 23.3 ms p95, PyTorch 29.0 ms. No saving, and
+TensorRT is better where it counts. Reverted.
+
+**SC-001 is not met.** The target was ≤5 s/s and the result is 9.17. The gap is
+face gating, which is off for the reason above. 60% of the waste is gone, not 80%.
+
+**Patrol off is visible, not silent.** Track a Person now says when only the
+entrance cameras were looking for faces, so a thinner path cannot read as a
+person who was not there.
+
+**System Health shows real load** — per worker: frames processed, last inference
+ms, queue depth, dropped frames, and whether it is behind. Frames deliberately
+not decoded are counted separately from frames dropped; they are not the same
+thing. Per-worker processor share is **not** shown: workers are threads in one
+process, so that number could only be invented.
+
+Found and not fixed: **`accelerate: false` is silently ignored for the bag and
+person models** — neither passes it to `load_model`. It works for plates only.
 
 ## Next 3 things
 

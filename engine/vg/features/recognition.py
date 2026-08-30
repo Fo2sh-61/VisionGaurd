@@ -17,7 +17,10 @@ a frame; inline it would drag capture down to match.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from collections.abc import Sequence
+from dataclasses import dataclass, replace
+
+import numpy as np
 
 from vg.config import AnchorGates
 from vg.events.anchors import AnchorAccumulator, FaceMatch
@@ -71,6 +74,55 @@ class FacesResult:
         return sum(1 for f in self.faces if f.identified)
 
 
+#: How much bigger than the person box the face crop is taken.
+#:
+#: A person box is a BODY box and the head sits hard against its top edge.
+#: Cropping tight to it hands YuNet a face clipped at the eyebrows, which it
+#: then does not find - so the gated path would quietly find FEWER faces than
+#: the ungated one. That is a changed detection result, which this feature is
+#: not allowed to produce. 12% is enough to clear the head at the distances
+#: these cameras see people at.
+CROP_PAD = 0.12
+
+
+def person_crops(
+    image: np.ndarray,
+    boxes: Sequence[tuple[float, float, float, float]],
+    pad: float = CROP_PAD,
+) -> list[tuple[np.ndarray, tuple[int, int]]]:
+    """The parts of the frame worth looking for a face in.
+
+    Takes person boxes as fractions and returns `(crop, (x, y))` pairs, where
+    `(x, y)` is the crop's top-left corner in the FRAME. The caller needs
+    that origin to put the face back where it belongs; without it every box
+    is drawn relative to the crop and lands in the wrong place.
+
+    Two rules that are not preferences:
+
+    - **Never resize.** `tracking.identity.face_px` is a measured pixel floor
+      - engine.yaml records that at 40px the same person scores 0.23-0.48
+      against themselves. Scaling a crop changes what that floor means and
+      moves identities with it.
+    - **Never leave the frame.** Numpy slices happily from the far side of an
+      image, so an unclamped negative origin produces a real-looking crop of
+      the wrong wall.
+    """
+    height, width = image.shape[:2]
+    crops: list[tuple[np.ndarray, tuple[int, int]]] = []
+
+    for bx, by, bw, bh in boxes:
+        px, py = bw * pad, bh * pad
+        x0 = max(0, int((bx - px) * width))
+        y0 = max(0, int((by - py) * height))
+        x1 = min(width, int((bx + bw + px) * width))
+        y1 = min(height, int((by + bh + py) * height))
+        if x1 <= x0 or y1 <= y0:
+            continue
+        crops.append((image[y0:y1, x0:x1], (x0, y0)))
+
+    return crops
+
+
 class RecognitionWorker(FeatureWorker[FacesResult]):
     """Face recognition for attendance."""
 
@@ -87,6 +139,8 @@ class RecognitionWorker(FeatureWorker[FacesResult]):
         gates: AnchorGates | None = None,
         anchors=None,
         name: str = "recognition",
+        shared=None,
+        gated: Sequence[str] = (),
     ) -> None:
         super().__init__(name, bus, cameras or [], rate_hz, boost_hz)
         self.gallery = gallery
@@ -115,10 +169,63 @@ class RecognitionWorker(FeatureWorker[FacesResult]):
         # too tight for these cameras and the numbers need moving.
         self.names_withheld = 0
 
+        # Where to look for faces, per camera.
+        #
+        # `shared` is a SharedDetection - a MODEL with its own lock and cache,
+        # not a feature worker. That distinction is the whole reason this is
+        # allowed to exist. features/base.py records what happened last time:
+        # person detection lived inside this worker, so a camera configured
+        # for counting alone was processed by nothing at all. Features share
+        # models; they never depend on each other's workers.
+        #
+        # So `shared` being None is a normal state, not a broken one -
+        # recognition falls back to the whole frame and carries on. Nothing
+        # here requires counting, tracking or intrusion to be switched on.
+        self.shared = shared
+        self.gated = frozenset(gated)
+        # Frames where the shared pass found nobody, so no face work was done.
+        # The saving, counted rather than assumed.
+        self.frames_skipped = 0
+
+    def _look(self, frame: Frame):
+        """Where this frame's faces are looked for.
+
+        Ungated, that is the whole picture - which is what this did before,
+        and is still what a camera with no person pass to share does.
+
+        Gated, it is the people the shared detection pass already found. The
+        same trade knives and plate characters already make: a second model
+        only ever runs on a crop the first one returned. On a corridor camera
+        with nobody in shot that is the difference between running the face
+        pipeline on every frame and running it on none.
+
+        Every face comes back in FULL-FRAME coordinates either way. That is
+        `offset`'s job and it is the load-bearing line in this method: get it
+        wrong and the boxes are plausible and misplaced, and the embedding is
+        taken from the wrong patch of image.
+        """
+        if self.shared is None or frame.camera_id not in self.gated:
+            return self.pipeline.observe(frame.image)
+
+        boxes = self.shared.detect(frame)
+        crops = person_crops(frame.image, [(b.x, b.y, b.w, b.h) for b in boxes])
+        if not crops:
+            self.frames_skipped += 1
+            return []
+
+        seen: list = []
+        for crop, (ox, oy) in crops:
+            for observation in self.pipeline.observe(crop):
+                # The face, moved back into the frame it came from. `embed`
+                # already ran against the crop, so the embedding is correct;
+                # what has to be corrected is where the face IS.
+                seen.append(replace(observation, face=observation.face.offset(ox, oy)))
+        return seen
+
     def analyse(self, frame: Frame) -> FacesResult:
         faces: list[RecognisedFace] = []
 
-        for observation in self.pipeline.observe(frame.image):
+        for observation in self._look(frame):
             match = self.gallery.match(observation.embedding, observation.model)
             fx, fy, fw, fh = observation.face.to_fractions(frame.width, frame.height)
 

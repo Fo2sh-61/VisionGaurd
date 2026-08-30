@@ -152,6 +152,32 @@ class Instant(Wire):
     tz_offset_minutes: int = 0
 
 
+class Note(Wire):
+    """An explanation the console can say in any language.
+
+    The engine says *what happened*; the console says it *in a language*. The
+    code is the contract, the wording is not - changing an English sentence
+    must never need an engine deploy, and every wording lives in
+    `web/src/i18n/`.
+
+    `code` must be declared in `notes.py`; `note()` refuses anything else and
+    `engine/tests/test_notes.py` catches an unregistered one without having to
+    execute the branch that emits it.
+
+    `args` are **facts** - a camera name, a count, a number of minutes. Never a
+    phrase: an English phrase smuggled through `args` is untranslatable, and if
+    something needs saying it needs its own code.
+
+    Nothing on the wire carries this yet. The fields that should are listed in
+    `specs/008-arabic-console/data-model.md`; converting them is one
+    coordinated change across both stores and both front ends, and it is
+    deliberately not half-done.
+    """
+
+    code: str
+    args: dict[str, str | int | float] = Field(default_factory=dict)
+
+
 class Box(Wire):
     """A detection box in fractions of the frame, origin top-left."""
 
@@ -609,6 +635,28 @@ class TrackStop(Wire):
     clip: Clip | None = None
 
 
+class NameSource(str, Enum):
+    """Which cameras in this result were able to put a name on a body.
+
+    A FACT, not a sentence - the console builds the wording, in whichever
+    language it is showing. The engine only knows which cameras were running
+    a recogniser.
+
+    ALL       every enabled camera could name somebody: the identity tier at
+              the doorways, and the patrol tier everywhere else.
+    IDENTITY  only the `faces: true` / attendance cameras. Patrol is off, so
+              a corridor sighting is a body without a name.
+
+    This exists because switching patrol off makes a path quietly THINNER -
+    the same person, fewer named stops - and a result that is quietly thinner
+    is indistinguishable from a person who genuinely was not seen. Saying
+    which is which is the difference between an honest answer and a wrong one.
+    """
+
+    ALL = "all"
+    IDENTITY = "identity"
+
+
 class TrackResult(Wire):
     subject: PersonRef
     date: str
@@ -622,6 +670,10 @@ class TrackResult(Wire):
     metrics: list[Metric] = Field(default_factory=list)
     path: list[TrackStop] = Field(default_factory=list)
     cameras: list[CameraView] = Field(default_factory=list)
+    #: Which cameras could name somebody while this path was built. IDENTITY
+    #: means patrol was off and corridor stops carry no name - the console
+    #: must say so rather than let a thinner answer read as a fuller one.
+    names_from: NameSource = NameSource.ALL
 
 
 # ---------------------------------------------------------------------------
@@ -634,6 +686,36 @@ class Recorder(Wire):
     cameras: int
     online: bool
     ip: str | None = None
+
+
+class WorkerLoad(Wire):
+    """What one feature worker is actually costing, right now.
+
+    Every number here is a counter that was already being kept and never
+    shown. `frames_processed` and `last_inference_ms` come off the worker,
+    the queue figures and `frames_dropped` off its frame-bus subscription.
+
+    There is deliberately **no per-worker processor share**. Feature workers
+    are threads inside one process and the operating system attributes CPU to
+    the process, not the thread - so a per-worker percentage would be a
+    number this engine made up. The process figure sits on `SystemHealth`
+    instead, and what identifies the expensive worker here is its inference
+    time, its queue and its drops, which are all real.
+    """
+
+    #: The worker's own name - "recognition", "people", "weapons".
+    name: str
+    cameras: int
+    frames_processed: int
+    last_inference_ms: float
+    queue_depth: int
+    queue_max: int
+    #: Frames the bus discarded because this worker was still busy. Non-zero
+    #: with a full queue is what "behind" means.
+    frames_dropped: int
+    #: Behind, not merely busy. Omitted rather than guessed when a counter
+    #: cannot be read - false would read as "keeping up", which is a claim.
+    behind: bool | None = None
 
 
 class PipelineStage(Wire):
@@ -650,6 +732,8 @@ class PipelineStage(Wire):
     severity: Severity
     restartable: bool = False
     model_version: str | None = None
+    #: Only the workers stage fills this. Empty everywhere else.
+    workers: list[WorkerLoad] = Field(default_factory=list)
 
 
 class DataState(str, Enum):
@@ -1096,6 +1180,13 @@ class PathSkeleton(Wire):
     appearance: list[TrackStop] = Field(default_factory=list)
     #: Which cameras appear, for the tiles the page draws beside the path.
     cameras: list[CameraView] = Field(default_factory=list)
+    #: Which cameras could name somebody while this path was built.
+    #:
+    #: IDENTITY means the patrol tier is off, so only the doorway cameras ran
+    #: a recogniser and a corridor sighting is a body with no name. The page
+    #: must say so: an anchor list that is short because nobody was looking
+    #: reads exactly like one that is short because nobody was there.
+    names_from: NameSource = NameSource.ALL
 
 # ---------------------------------------------------------------------------
 # the video behind a stop
@@ -1394,6 +1485,19 @@ class EnrolmentSessionView(Wire):
 # auth
 # ---------------------------------------------------------------------------
 
+class LanguageRequest(Wire):
+    """Change your own language.
+
+    No `user_id`. A caller changes their own preference and nobody else's,
+    which keeps this endpoint off the permission surface entirely; an
+    administrator who wants to change a colleague's language asks them.
+    `Wire` forbids extras, so a smuggled id is a 422 rather than a quiet
+    write to somebody else's row.
+    """
+
+    language: Literal["en", "ar"]
+
+
 class LoginRequest(Wire):
     """What the sign-in form sends.
 
@@ -1417,6 +1521,9 @@ class Account(Wire):
     email: str
     role: str
     initials: str
+    #: Which language this person reads the console in. A preference, not a
+    #: permission - `auth/deps.py` decides access by path and never reads this.
+    language: Literal["en", "ar"] = "en"
 
 
 class LoginResult(Wire):

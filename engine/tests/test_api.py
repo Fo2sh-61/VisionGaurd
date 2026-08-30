@@ -35,7 +35,7 @@ class TestWireShape:
     def test_everything_is_camel_case(self, client):
         # The front end is TypeScript; snake_case leaking through would force
         # a translation layer nobody wants to maintain.
-        breach = client.get("/breaches?window=Last 30 days").json()[0]
+        breach = client.get("/breaches?window=last30").json()[0]
         assert "zoneId" in breach and "zone_id" not in breach
         assert "dwellSeconds" in breach
 
@@ -51,23 +51,23 @@ class TestWireShape:
     def test_time_is_utc_plus_an_explicit_site_offset(self, client):
         # A phone in another timezone must render the school's local time, not
         # its own. That needs the offset to travel with the instant.
-        at = client.get("/breaches?window=Last 30 days").json()[0]["at"]
+        at = client.get("/breaches?window=last30").json()[0]["at"]
         assert at["utc"].endswith("Z") or "+00:00" in at["utc"]
         assert isinstance(at["tzOffsetMinutes"], int)
 
     def test_every_surfaced_detection_carries_a_confidence(self, client):
-        for w in client.get("/weapons/detections?window=This school year").json():
+        for w in client.get("/weapons/detections?window=schoolYear").json():
             assert 0.0 <= w["confidence"] <= 1.0
 
     def test_severity_is_a_backend_decision(self, client):
         # The engine emits severity; the UI maps it to a colour. Thresholds stay
         # server-side and auditable, and the UI keeps naming its own palette.
         allowed = {"info", "warn", "critical"}
-        for b in client.get("/breaches?window=Last 30 days").json():
+        for b in client.get("/breaches?window=last30").json():
             assert b["severity"] in allowed
 
     def test_ids_are_opaque_strings(self, client):
-        for b in client.get("/breaches?window=Last 30 days").json():
+        for b in client.get("/breaches?window=last30").json():
             assert isinstance(b["id"], str) and b["id"]
 
 
@@ -81,7 +81,7 @@ class TestBehaviouralContract:
         client.post("/weapons/w3/review",
                     json={"verdict": "dismissed", "actor": "Mohamed Fouad",
                           "reason": "kitchen utensil"})
-        history = client.get("/weapons/detections?window=This school year").json()
+        history = client.get("/weapons/detections?window=schoolYear").json()
         assert "w3" in [w["id"] for w in history]
 
         # And there is no route that could remove it.
@@ -102,7 +102,7 @@ class TestBehaviouralContract:
     def test_a_detection_starts_unreviewed_and_only_a_human_moves_it(self, client):
         # The detector alone never confirms. `pending` is the only state the
         # engine can write; confirmed/dismissed require the review endpoint.
-        detections = client.get("/weapons/detections?window=This school year").json()
+        detections = client.get("/weapons/detections?window=schoolYear").json()
         assert all(d["verdict"] in {"pending", "confirmed", "dismissed"}
                    for d in detections)
         for d in detections:
@@ -216,7 +216,7 @@ class TestValidation:
     def test_unknown_window_is_rejected_with_the_valid_options(self, client):
         r = client.get("/breaches?window=Since forever")
         assert r.status_code == 422
-        assert "Last 7 days" in r.text
+        assert "last7" in r.text
 
     def test_unknown_ids_are_404_not_500(self, client):
         assert client.patch("/zones/nope", json={"enabled": True}).status_code == 404

@@ -801,7 +801,7 @@ class TestNamesAndTimes:
                 return 120 if when >= switch else 60
 
         clock = ChangeoverClock()
-        since, until = weapon_window("Today", clock, "")
+        since, until = weapon_window("today", clock, "")
 
         # Whatever instant we call the start of the day, the site's own clock
         # must agree that it IS midnight there. That is the only invariant that
@@ -813,7 +813,7 @@ class TestNamesAndTimes:
 
         # Yesterday must butt up against it exactly - no gap, no overlap, or an
         # hour of entries is listed twice or not at all.
-        y_since, y_until = weapon_window("Yesterday", clock, "")
+        y_since, y_until = weapon_window("yesterday", clock, "")
         assert y_until == since
         y_local = clock.local(y_since)
         assert (y_local.hour, y_local.minute) == (0, 0)
@@ -1197,19 +1197,19 @@ class TestWindows:
                                              microsecond=0)
                     .replace(tzinfo=timezone.utc) - timedelta(minutes=180))
 
-        since, until = weapon_window("Today", clock, "")
+        since, until = weapon_window("today", clock, "")
         assert since == midnight
         assert until is None
 
-        since, until = weapon_window("Yesterday", clock, "")
+        since, until = weapon_window("yesterday", clock, "")
         assert since == midnight - timedelta(days=1)
         assert until == midnight
 
-        since, until = weapon_window("Last 7 days", clock, "")
+        since, until = weapon_window("last7", clock, "")
         assert until is None
         assert abs((now - since).total_seconds() - 7 * 86400) < 5
 
-        since, until = weapon_window("All", clock, "")
+        since, until = weapon_window("all", clock, "")
         assert (since, until) == (None, None)
 
     def test_this_school_year_uses_the_configured_term_start(self):
@@ -1217,7 +1217,7 @@ class TestWindows:
         from vg.clock import FixedClock
 
         clock = FixedClock(180)
-        since, until = weapon_window("This school year", clock, "2025-09-01")
+        since, until = weapon_window("schoolYear", clock, "2025-09-01")
         assert until is None
         # Local midnight on 1 September, expressed as an instant.
         assert since == datetime(2025, 8, 31, 21, 0, tzinfo=timezone.utc)
@@ -1226,7 +1226,7 @@ class TestWindows:
         # that never filled in the term date should see a plausible year, not
         # every row there has ever been under a label that says "this year".
         now = datetime.now(timezone.utc)
-        since, until = weapon_window("This school year", clock, "")
+        since, until = weapon_window("schoolYear", clock, "")
         assert until is None
         assert abs((now - since).total_seconds() - 365 * 86400) < 5
 
@@ -1245,9 +1245,9 @@ class TestWindows:
         response = client.get("/weapons/detections", params={"window": "Last century"})
         assert response.status_code == 422
         detail = str(response.json()["detail"])
-        for label in ("Today", "Yesterday", "Last 7 days", "Last 30 days",
-                      "Last 90 days", "This school year", "All"):
-            assert label in detail
+        for token in ("today", "yesterday", "last7", "last30",
+                      "last90", "schoolYear", "all"):
+            assert token in detail
 
         app_module.set_store(MockStore())
 

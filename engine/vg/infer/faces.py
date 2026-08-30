@@ -88,6 +88,41 @@ class DetectedFace:
             min(1.0, self.h / frame_h),
         )
 
+    def offset(self, dx: int, dy: int) -> "DetectedFace":
+        """The same face, expressed in the coordinates of a larger image.
+
+        Run YuNet on a crop and every coordinate it returns is relative to
+        THE CROP. Convert those against the full frame and the box lands in
+        the wrong place - and plausibly, which is the dangerous part: a box
+        that is merely misplaced looks like a detection, not like a fault.
+
+        Three things move together and it is a bug if they ever do not:
+
+          - the box, which is what the operator sees drawn
+          - `landmarks`, which is what the overlay draws the five points from
+          - `raw`, which is what `alignCrop` warps the face upright with
+
+        Leaving `raw` behind is the worst of the three, because nothing looks
+        wrong. The box is right, the picture is right, and the embedding is
+        computed from the wrong patch of image - so the wrong person is
+        named. Width, height and score are not coordinates and do not move.
+        """
+        moved = self.raw.copy()
+        moved[0] += dx
+        moved[1] += dy
+        # Landmarks are five (x, y) pairs at indices 4..13.
+        moved[4:14:2] += dx
+        moved[5:14:2] += dy
+        return DetectedFace(
+            x=self.x + dx,
+            y=self.y + dy,
+            w=self.w,
+            h=self.h,
+            confidence=self.confidence,
+            landmarks=self.landmarks + np.array([dx, dy], dtype=np.float32),
+            raw=moved,
+        )
+
 
 class FaceDetector:
     """YuNet.

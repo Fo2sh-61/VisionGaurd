@@ -179,6 +179,17 @@ def _parse_time(raw: Any, where: str) -> dtime | None:
 #: - see `CameraConfig.direction`.
 GATE_DIRECTIONS: tuple[str, ...] = ("entry", "exit")
 
+#: Where face detection looks. "" means "decide from the feature list".
+FACE_GATES: frozenset[str] = frozenset({"", "person", "frame"})
+
+#: Whether every frame is decoded, or only the ones something reads.
+LIVE_CAPTURE: frozenset[str] = frozenset({"watched", "always"})
+
+#: Features that already run the shared person pass. A camera carrying
+#: one of these has person boxes going spare; a camera carrying none
+#: would have to start the person model just to gate faces.
+PERSON_FEATURES: frozenset[str] = frozenset({"counting", "intrusion", "track"})
+
 
 @dataclass(frozen=True)
 class CameraConfig:
@@ -215,6 +226,33 @@ class CameraConfig:
     gate: int | None = None
     direction: str | None = None
 
+    # Where face detection looks on this camera.
+    #
+    #   person   only inside the people the shared detection pass already
+    #            found - the same gating knives and plate characters use
+    #   frame    the whole picture, which is what this did before
+    #
+    # Empty means "decide from the feature list": `person` where the camera
+    # already runs person detection for something else, `frame` otherwise.
+    # That default matters. On a camera carrying ONLY `attendance` there is
+    # no person pass to share, so gating would ADD the person model and a GPU
+    # dependency to a camera that today runs two small models and no GPU at
+    # all - costing time rather than saving it.
+    face_gate: str = ""
+
+    # How often frames are DECODED when nobody is looking at this camera.
+    #
+    #   watched  decode every frame only while an operator has it open;
+    #            otherwise decode at `fps`
+    #   always   decode every frame, which is what this did before
+    #
+    # Frames are still GRABBED at the camera's own rate either way. That is
+    # the whole trick: `cap.read()` returns the next buffered frame rather
+    # than the newest, so skipping reads makes the stream fall further behind
+    # every second. Grabbing keeps the buffer drained; only the decode is
+    # skipped. See CameraSource.frames() for the trap this avoids.
+    live_capture: str = "watched"
+
     @property
     def is_gate(self) -> bool:
         """Is this camera actually usable as a gate camera?
@@ -229,6 +267,30 @@ class CameraConfig:
             and self.direction is not None
             and "vehicles" in self.features
         )
+
+    @property
+    def gates_faces(self) -> bool:
+        """Does face detection run on person crops on this camera?
+
+        **Off unless asked for**, and that is a measured decision rather than
+        caution. `engine/tools/compare_detections.py --gate-check` runs both
+        paths over the labelled clip: gating finds every face the whole-frame
+        pass finds - 60 of 60, so the crop padding and the offset arithmetic
+        are right - but the boxes land up to 11 pixels away, 5 on average.
+
+        That is inherent, not a bug. YuNet is told its input size, so a
+        160x240 crop is a different computation from a 640x480 frame. The
+        shift moves the five landmarks, `alignCrop` then warps a slightly
+        different patch, and the embedding that decides WHO a face is
+        changes with it.
+
+        Nobody has shown that never flips an identity, and P8-FR-002 says a
+        change that cannot demonstrate an unchanged result is rejected rather
+        than shipped behind a default. So the machinery is here, tested, and
+        switched off until somebody measures identities across a real
+        enrolled roll.
+        """
+        return self.face_gate == "person"
 
     @classmethod
     def parse(cls, raw: dict[str, Any], where: str) -> "CameraConfig":
@@ -268,6 +330,20 @@ class CameraConfig:
                     f"got {direction!r}{extra}"
                 )
 
+        face_gate = str(raw.get("face_gate", "") or "").strip().lower()
+        if face_gate not in FACE_GATES:
+            raise ConfigError(
+                f"{where}.face_gate: expected one of {sorted(FACE_GATES - {''})}, "
+                f"got {face_gate!r}"
+            )
+
+        live_capture = str(raw.get("live_capture", "watched")).strip().lower()
+        if live_capture not in LIVE_CAPTURE:
+            raise ConfigError(
+                f"{where}.live_capture: expected one of {sorted(LIVE_CAPTURE)}, "
+                f"got {live_capture!r}"
+            )
+
         features = tuple(raw.get("features", ()))
         has_gate = gate is not None and direction is not None
         if "vehicles" in features and not has_gate:
@@ -296,6 +372,8 @@ class CameraConfig:
             neighbours=tuple(str(n) for n in raw.get("neighbours", ())),
             gate=gate,
             direction=direction,
+            face_gate=face_gate,
+            live_capture=live_capture,
         )
 
     def redacted_source(self) -> str:
@@ -424,6 +502,13 @@ class ModelConfig:
     #: model that decides which of 38 characters a 20-pixel glyph is has less,
     #: and the difference shows up as a plate that is nearly right.
     accelerate: bool = True
+    #: Run frames that are already waiting on the model as one call.
+    #:
+    #: Throughput only. Only threads ALREADY blocked are collected, so a
+    #: lone caller never waits for company and no latency is added. The
+    #: cache key is untouched, so which boxes belong to which frame does
+    #: not change. False restores one frame per call.
+    batch: bool = False
     version: str = "unversioned"
 
     @classmethod
@@ -450,6 +535,7 @@ class ModelConfig:
             device=str(raw.get("device", "auto")),
             half=bool(raw.get("half", True)),
             accelerate=bool(raw.get("accelerate", True)),
+            batch=bool(raw.get("batch", False)),
             version=str(raw.get("version", "unversioned")),
         )
 
@@ -696,7 +782,7 @@ class TrackingConfig:
     #: `faces:` camera. Slow on purpose: patrol exists so "where did they go"
     #: can be answered later, not so that anybody is watched now. 0 switches
     #: the tier off entirely.
-    patrol_hz: float = 0.5
+    patrol_hz: float = 0.0
     identity: AnchorGates = field(default_factory=AnchorGates)
     patrol: AnchorGates = field(default_factory=lambda: PATROL_GATES)
 
@@ -711,7 +797,7 @@ class TrackingConfig:
         if unknown:
             raise ConfigError(f"{where}: unknown key(s) {unknown}")
 
-        patrol_hz = float(raw.get("patrol_hz", 0.5))
+        patrol_hz = float(raw.get("patrol_hz", 0.0))
         if not 0 <= patrol_hz <= 30:
             raise ConfigError(
                 f"{where}.patrol_hz: expected 0 <= patrol_hz <= 30, got "

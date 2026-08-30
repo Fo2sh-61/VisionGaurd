@@ -172,8 +172,25 @@ class SharedDetection:
     rather than a convention somebody remembers.
     """
 
-    def __init__(self, detector: PersonDetector) -> None:
+    def __init__(self, detector: PersonDetector, batch: bool = False) -> None:
         self.detector = detector
+        # Run frames that are ALREADY waiting as one model call.
+        #
+        # Throughput only, and deliberately not a scheduler: nothing is ever
+        # held back hoping a second frame turns up. A caller that finds the
+        # model free runs alone, immediately, exactly as before. A caller that
+        # finds it busy joins whoever else is queued and they go in together.
+        # So there is no window to tune and no latency to trade away.
+        self.batch = batch
+        # Set once, if the loaded model turns out to refuse a batch.
+        #
+        # A TensorRT plan is compiled at a FIXED batch size - 1, as
+        # `build_engines.py` builds them - and handed three images it raises
+        # rather than adapting. That exception would be caught per frame by
+        # FeatureWorker and logged, so the visible symptom would be detection
+        # quietly stopping on a camera. Falling back to one-at-a-time keeps
+        # the answers and loses only the speed-up that was never available.
+        self.batch_unavailable: str | None = None
         # Guards the model itself. Global rather than per-camera because there
         # is one model shared by every camera, so two cameras calling at once
         # is the same hazard as two features on one camera.
@@ -185,8 +202,17 @@ class SharedDetection:
         # instead of starting a duplicate pass. A camera never blocks another.
         self._compute_locks: dict[str, threading.Lock] = {}
         # Counts real model calls. The call-count test reads this to prove one
-        # pass per frame; System Health can report it later.
+        # pass per frame; System Health reports it.
         self.passes = 0
+        # Frames whose thread is blocked on `_model_lock` right now, and the
+        # answers left for them. Guarded by `_cache_lock`, which is only ever
+        # held for a dict operation and never across a model call.
+        self._waiting: dict[str, object] = {}
+        self._batched: dict[str, object] = {}
+        # How many frames the last batched call carried. System Health reads
+        # it; a value of 1 means batching is on and finding nothing to batch,
+        # which is the honest answer for a single-camera site.
+        self.last_batch = 0
 
     # -- internals ----------------------------------------------------------
 
@@ -227,13 +253,97 @@ class SharedDetection:
             if hit:
                 return boxes
 
-            with self._model_lock:
-                boxes = self.detector.raw_boxes(frame.image)
-                self.passes += 1
+            boxes = self._run(frame)
 
             with self._cache_lock:
                 self._cache[frame.camera_id] = _Cached(frame.sequence, boxes)
             return boxes
+
+    def _run(self, frame):
+        """One frame through the model, batched with whoever else is waiting.
+
+        Adds no scheduling. A caller announces the frame it is holding, takes
+        the model lock, and sweeps up every OTHER frame announced meanwhile.
+        Those threads are already blocked, so running their work costs nothing
+        extra and saves them a call each.
+
+        Everything here is keyed by the FRAME, never by the camera. That is
+        not a detail. Keyed by camera, two frames from one camera collide: the
+        second thread pops the first one's answer, throws it away because it
+        does not match the frame it is holding, and the first thread wakes to
+        find nothing waiting for it. `--batch-check` caught exactly that -
+        frames coming back empty - and an empty answer means "nobody in this
+        picture", which is a wrong detection, not a slow one.
+        """
+        if not self.batch:
+            with self._model_lock:
+                boxes = self.detector.raw_boxes(frame.image)
+                self.passes += 1
+            return boxes
+
+        token = id(frame)
+        with self._cache_lock:
+            self._waiting[token] = frame
+
+        with self._model_lock:
+            with self._cache_lock:
+                # Only ever our own answer. Popping somebody else's is the
+                # bug described above.
+                if token in self._batched:
+                    self._waiting.pop(token, None)
+                    return self._batched.pop(token)
+
+                mine_pending = self._waiting.pop(token, None)
+                others = list(self._waiting.items())
+                for other_token, _ in others:
+                    self._waiting.pop(other_token, None)
+
+            batch = [frame] if mine_pending is None else [mine_pending]
+            tokens = [token]
+            for other_token, other in others:
+                batch.append(other)
+                tokens.append(other_token)
+
+            if len(batch) == 1 or self.batch_unavailable:
+                answers = [self.detector.raw_boxes(f.image) for f in batch]
+            else:
+                try:
+                    answers = self.detector.raw_boxes_many(
+                        [f.image for f in batch])
+                except Exception as exc:
+                    # Once, loudly, then never again. Every frame in this
+                    # batch still gets its own answer - the fallback runs
+                    # them singly rather than dropping them.
+                    self.batch_unavailable = str(exc)
+                    log.warning(
+                        "batched detection is not available on this model "
+                        "(%s) - running one frame at a time. A TensorRT plan "
+                        "is compiled at a fixed batch size; rebuild it with a "
+                        "dynamic batch, or set models.person.batch: false to "
+                        "stop asking.", exc,
+                    )
+                    answers = [self.detector.raw_boxes(f.image) for f in batch]
+            # Real model invocations, not trips through the lock. One batched
+            # call is one; a fallback that ran three images singly is three.
+            # This number reaches System Health, and a saving that did not
+            # happen must not be reported as one.
+            single = len(batch) == 1 or bool(self.batch_unavailable)
+            self.passes += len(batch) if single else 1
+            self.last_batch = 1 if single else len(batch)
+
+            mine = None
+            with self._cache_lock:
+                for other_token, other, result in zip(tokens, batch, answers):
+                    if other_token == token:
+                        mine = result
+                    else:
+                        # Left for its own thread, which is still blocked
+                        # behind us on the model lock. Keyed by frame, so it
+                        # can only ever be collected by the thread that asked.
+                        self._batched[other_token] = result
+                        self._cache[other.camera_id] = _Cached(
+                            other.sequence, result)
+            return mine
 
     def detect(self, frame, min_area: float = 0.0) -> list[DetectedPerson]:
         """People in this frame as fractions, from the shared pass."""

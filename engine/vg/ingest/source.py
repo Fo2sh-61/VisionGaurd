@@ -22,6 +22,7 @@ import logging
 import re
 import threading
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
@@ -87,6 +88,11 @@ class SourceHealth:
     reconnects: int = 0
     frames_read: int = 0
     frames_dropped: int = 0
+    #: Frames pulled off the device and deliberately NOT decoded, because
+    #: nobody was looking at this camera and the analytics rate had been met.
+    #: Not a drop and not a fault - the saving, made visible so it can be
+    #: checked rather than believed.
+    frames_skipped: int = 0
     opened_at: datetime | None = None
 
     @property
@@ -101,7 +107,20 @@ class SourceHealth:
             "reconnects": self.reconnects,
             "framesRead": self.frames_read,
             "framesDropped": self.frames_dropped,
+            "framesSkipped": self.frames_skipped,
         }
+
+
+#: A grab faster than this did not wait for a frame, so the backend is not
+#: pacing us and the loop would spin. 4 ms is comfortably under one frame at
+#: 120 fps and comfortably over the cost of a real blocking grab returning
+#: from a buffer that already had a frame ready.
+_NONBLOCKING_GRAB_SECONDS = 0.004
+
+#: How long to wait after such a grab. Short enough that a frame is never
+#: more than this stale when the decode is due, long enough to turn a busy
+#: loop into nothing measurable.
+_IDLE_GRAB_SLEEP = 0.002
 
 
 def parse_source(spec: str) -> tuple[SourceKind, str | int]:
@@ -168,6 +187,7 @@ class CameraSource:
         loop_files: bool = True,
         open_timeout_ms: int = 5000,
         read_timeout_ms: int = 5000,
+        live_capture: str = "watched",
     ) -> None:
         self.camera_id = camera_id
         self.source_spec = source
@@ -190,6 +210,19 @@ class CameraSource:
         self._next_frame_due = 0.0
         self._backoff_index = 0
         self._stop = threading.Event()
+
+        # Whether every frame is DECODED, or only the ones something reads.
+        #
+        # `watched` is the saving and `always` is what this did before. Note
+        # what it does NOT change: frames are grabbed off the device at its
+        # own rate either way. That is the whole design. `cap.read()` returns
+        # the next BUFFERED frame rather than the newest, so a loop that
+        # reads less often falls further behind every second - see frames()
+        # for the trap. Grabbing keeps the buffer drained; skipping only the
+        # decode takes the cost without taking the lag.
+        self.live_capture = live_capture
+        self._watchers = 0
+        self._decode_due = 0.0
 
         self._has_credentials = bool(
             isinstance(self.handle, str) and _CREDENTIALS.search(self.handle)
@@ -270,6 +303,54 @@ class CameraSource:
 
     # -- reading ------------------------------------------------------------
 
+    @property
+    def watchers(self) -> int:
+        """How many people currently have this camera's picture open."""
+        with self._lock:
+            return self._watchers
+
+    @contextmanager
+    def watched(self):
+        """Mark this camera as being looked at for the life of the block.
+
+        A context manager rather than a pair of calls, because the usual way
+        an MJPEG response ends is the client vanishing mid-frame. A leaked
+        watcher would pin a camera at full decode for the life of the
+        process, and nothing would look broken - which is exactly the kind of
+        cost that never gets found.
+        """
+        with self._lock:
+            self._watchers += 1
+        try:
+            yield self
+        finally:
+            with self._lock:
+                self._watchers = max(0, self._watchers - 1)
+
+    def wants_decode(self, now: float | None = None) -> bool:
+        """Should the frame just grabbed actually be turned into pixels?
+
+        Yes if somebody is watching - the live view needs every frame to look
+        smooth. Yes if this camera is set to `always`. Otherwise only at the
+        analytics rate, because that is all anything downstream reads.
+
+        Not a throttle on capture. The frame has already been pulled off the
+        device by the time this is asked; the only question is whether to pay
+        for the decode.
+        """
+        if self.live_capture == "always" or self._watchers > 0:
+            return True
+        interval = 1.0 / self.target_fps if self.target_fps > 0 else 0.0
+        if interval <= 0:
+            return True
+        now = time.monotonic() if now is None else now
+        if now < self._decode_due:
+            return False
+        # Anchored to now rather than advanced by one interval, so a camera
+        # that has been idle does not owe a burst of catch-up decodes.
+        self._decode_due = now + interval
+        return True
+
     def read(self) -> Frame | None:
         """Read one frame.
 
@@ -282,7 +363,43 @@ class CameraSource:
 
         assert self._cap is not None
         try:
-            ok, image = self._cap.read()
+            # Grab, then decide, then decode. `grab()` pulls the next frame
+            # off the device without turning it into pixels; `retrieve()` is
+            # the expensive half. Splitting them is the whole of change 4:
+            # the buffer is drained at the camera's own rate whatever
+            # happens, so no lag builds up, but on a camera nobody is looking
+            # at we skip the decode for five frames in six.
+            #
+            # Both halves are needed. Skipping the GRAB is the classic OpenCV
+            # latency bug - see frames() - and skipping only the decode
+            # avoids it entirely.
+            ok, image = False, None
+            while not self._stop.is_set():
+                started = time.monotonic()
+                ok = self._cap.grab()
+                if not ok:
+                    break
+                if self.wants_decode():
+                    ok, image = self._cap.retrieve()
+                    break
+                # Grabbed and thrown away without decoding. Counted, not
+                # silent: this is the saving, and an operator seeing it climb
+                # on a camera they are watching would be seeing a bug.
+                self.health.frames_skipped += 1
+
+                # Do not spin.
+                #
+                # On an RTSP stream `grab()` blocks for a frame interval, so
+                # this loop paces itself and the buffer is genuinely drained -
+                # which is the whole reason for grabbing rather than sleeping.
+                # On a webcam it can return instantly, and then this loop
+                # burns a core: measured at 658,000 grabs a second, which
+                # would cost far more than the decodes it saves.
+                #
+                # So the sleep is conditional on the evidence. A backend that
+                # blocks never reaches it; one that does not gets paced.
+                if time.monotonic() - started < _NONBLOCKING_GRAB_SECONDS:
+                    time.sleep(_IDLE_GRAB_SLEEP)
         except Exception as exc:
             ok, image = False, None
             self.health.last_error = f"{type(exc).__name__}: {exc}"

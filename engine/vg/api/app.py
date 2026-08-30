@@ -19,7 +19,7 @@ import threading
 from pathlib import Path
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta, timezone
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -45,13 +45,22 @@ log = logging.getLogger(__name__)
 
 # Windows for the three history endpoints, mapped to days. The UI sends its
 # own label strings; translating them here keeps that vocabulary out of the store.
+#: A window token to a rolling number of days.
+#:
+#: Tokens, not the words on the button. Until 28 Aug 2026 these keys were the
+#: English labels themselves - `?window=Last 30 days` - which meant the console
+#: could not reword a button without breaking the API, and an Arabic console
+#: would have had to send English behind the user's back. The wording now lives
+#: in `web/src/i18n/`, where changing it costs nothing.
 WINDOW_DAYS = {
-    "Today": 1,
-    "Last 7 days": 7,
-    "Last 30 days": 30,
-    "Last 90 days": 90,
-    "This school year": 365,
+    "today": 1,
+    "last7": 7,
+    "last30": 30,
+    "last90": 90,
+    "schoolYear": 365,
 }
+
+WindowToken = Literal["today", "last7", "last30", "last90", "schoolYear"]
 
 #: The knife page's periods. Seven, not the five in `WINDOW_DAYS`, and three
 #: of them are not "N days ago" at all: Today and Yesterday are calendar days
@@ -59,14 +68,18 @@ WINDOW_DAYS = {
 #: than widening it, because every other page's window genuinely is a rolling
 #: number of days and would have to grow a clock to use this.
 WEAPON_WINDOWS: tuple[str, ...] = (
-    "Today",
-    "Yesterday",
-    "Last 7 days",
-    "Last 30 days",
-    "Last 90 days",
-    "This school year",
-    "All",
+    "today",
+    "yesterday",
+    "last7",
+    "last30",
+    "last90",
+    "schoolYear",
+    "all",
 )
+
+WeaponWindowToken = Literal[
+    "today", "yesterday", "last7", "last30", "last90", "schoolYear", "all",
+]
 
 
 def weapon_window(label: str, clock, term_from: str | None) -> tuple:
@@ -89,19 +102,19 @@ def weapon_window(label: str, clock, term_from: str | None) -> tuple:
         )
 
     now = datetime.now(timezone.utc)
-    if label == "All":
+    if label == "all":
         return None, None
 
     midnight = _local_midnight(now, clock)
-    if label == "Today":
+    if label == "today":
         return midnight, None
-    if label == "Yesterday":
+    if label == "yesterday":
         return midnight - timedelta(days=1), midnight
-    if label == "This school year":
+    if label == "schoolYear":
         start = _term_start(term_from, clock)
         return (start if start is not None else now - timedelta(days=365)), None
 
-    days = {"Last 7 days": 7, "Last 30 days": 30, "Last 90 days": 90}[label]
+    days = {"last7": 7, "last30": 30, "last90": 90}[label]
     return now - timedelta(days=days), None
 
 
@@ -369,6 +382,11 @@ async def lifespan(app: FastAPI):
         ) = _start_recognition(
             cfg, registry, roster, face=(face_pipeline, face_gallery),
             tracking=tracking, anchors=anchors,
+            # The person pass the people worker already built. Sharing the
+            # MODEL, not the worker: `people` being None (counting switched
+            # off, or its model missing) simply means recognition looks at
+            # whole frames, which is what it did before this change.
+            detector=getattr(people, "detector", None),
         )
 
         # The second tier. Same class, same gallery, same pipeline — a lower
@@ -406,6 +424,7 @@ async def lifespan(app: FastAPI):
             lost=app.state.lost,
             vehicles=app.state.vehicles,
             vehicle_store=app.state.vehicle_store,
+            patrol=patrol,
         )
         store.recognition_error = app.state.recognition_error
         store.people_error = app.state.people_error
@@ -537,12 +556,19 @@ def _start_people(cfg, registry, roster):
         # the SharedDetection, so counting and tracking on one camera cost one
         # detection pass rather than two, and no two threads can be inside the
         # model at the same time. See vg/infer/shared.py - this is finding F2.
+        # Kept on one line deliberately - `test_app_wraps_the_detector_before_
+        # any_worker_sees_it` greps this file for `SharedDetection(PersonDetector(`
+        # to prove the raw detector is never handed to a worker.
         detector = SharedDetection(PersonDetector(
             weights=spec.weights if spec else None,
             device=spec.device if spec else "auto",
             imgsz=spec.imgsz if spec else 640,
             conf=spec.conf if spec else 0.35,
-        ))
+        ),
+            # `models.person.batch`. Off by default: it is a throughput change
+            # and a single-camera machine has nothing to batch.
+            batch=spec.batch if spec else False,
+        )
 
         zones = {cid: cfg.zones_for(cid) for cid in cameras}
         rate = min((c.fps for c in roster if c.id in cameras), default=2.0)
@@ -572,7 +598,7 @@ def _start_people(cfg, registry, roster):
 
 
 def _start_recognition(cfg, registry, roster=None, face=None, tracking=None,
-                       anchors=None):
+                       anchors=None, detector=None):
     """Bring up face recognition on the cameras that ask for it.
 
     Returns `(gallery, sightings, recogniser, error)`; the first three may be
@@ -658,6 +684,14 @@ def _start_recognition(cfg, registry, roster=None, face=None, tracking=None,
             # same class with the easier `tracking.patrol` numbers.
             gates=cfg.tracking.identity,
             anchors=anchors,
+            # The shared person pass, so faces are looked for inside people
+            # rather than across the whole picture. A MODEL, not a worker -
+            # see RecognitionWorker's comment. None here is a normal state:
+            # recognition falls back to whole-frame detection and nothing
+            # about attendance depends on counting being switched on.
+            shared=detector,
+            gated=[c.id for c in all_cameras
+                   if c.id in cameras and c.gates_faces],
         )
         recogniser.start()
         log.info(
@@ -1572,7 +1606,8 @@ def _issue_session(store, user, response: Response) -> S.LoginResult:
             tz_offset_minutes=getattr(get_store(), "_offset", 0),
         ),
         user=S.Account(id=user.id, name=user.name, email=user.email,
-                       role=user.role, initials=user.initials),
+                       role=user.role, initials=user.initials,
+                         language=user.language),
     )
 
 
@@ -1701,7 +1736,35 @@ def _mount(app: FastAPI) -> None:
         edit it; this is the answer that counts.
         """
         return S.Account(id=user.id, name=user.name, email=user.email,
-                         role=user.role, initials=user.initials)
+                         role=user.role, initials=user.initials,
+                         language=user.language)
+
+    @app.post("/auth/language", tags=["auth"], summary="Set your language")
+    async def set_language(
+        request: Request,
+        body: S.LanguageRequest,
+        user: auth_deps.CurrentUser,
+    ) -> S.Account:
+        """Change the language of the account that is asking. Only that one.
+
+        There is no `user_id` parameter and there will not be one: this is a
+        display preference, so keeping it to "yourself" keeps it out of
+        `ADMIN_PREFIXES` and out of the permission surface altogether.
+
+        Not audited. The trail records decisions about people and evidence -
+        a track search, a dismissed alert, a deleted pass. Filling it with
+        appearance settings makes the entries that matter harder to find.
+        """
+        store = getattr(request.app.state, "users", None)
+        if store is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Sign-in is unavailable. See System Health.",
+            )
+        store.set_language(user.id, body.language)
+        return S.Account(id=user.id, name=user.name, email=user.email,
+                         role=user.role, initials=user.initials,
+                         language=body.language)
 
     @app.get("/site", response_model=S.SiteInfo, tags=["meta"])
     async def get_site(store: StoreDep) -> S.SiteInfo:
@@ -1779,29 +1842,42 @@ def _mount(app: FastAPI) -> None:
             # Two exits: the viewer closed the tab, or the server is stopping.
             # Without the second one this loop outlives Ctrl-C and holds the
             # whole process open.
-            while not SHUTTING_DOWN.is_set():
-                if await request.is_disconnected():
-                    break
-
-                frame = await asyncio.to_thread(
-                    worker.source.wait_for_frame, last_sequence, 2.0
-                )
-                if frame is None:
-                    # No new frame within the timeout — the stream is down.
-                    # Send the last one so the viewer sees NO SIGNAL over a
-                    # still image rather than a dead connection.
-                    jpeg = worker.snapshot_jpeg(quality=70, max_width=960)
-                    if jpeg is None:
+            #
+            # `watched()` for the life of the response is what tells the
+            # capture loop to decode every frame for this camera. An open
+            # MJPEG response IS somebody looking at the picture, which is a
+            # different question from `note_interest` - that one asks whether
+            # a WORKER should run faster, and a knife overlay poll on a grid
+            # tile is not somebody watching the video. Conflating them is how
+            # every camera on screen ends up at the expensive rate.
+            #
+            # A context manager because the usual ending here is the client
+            # vanishing mid-frame; a leaked watcher would pin the camera at
+            # full decode for the life of the process, invisibly.
+            with worker.source.watched():
+                while not SHUTTING_DOWN.is_set():
+                    if await request.is_disconnected():
                         break
-                else:
-                    last_sequence = frame.sequence
-                    jpeg = worker.encode_jpeg(frame, quality=70, max_width=960)
 
-                if jpeg:
-                    yield (
-                        f"--{boundary}\r\nContent-Type: image/jpeg\r\n"
-                        f"Content-Length: {len(jpeg)}\r\n\r\n"
-                    ).encode() + jpeg + b"\r\n"
+                    frame = await asyncio.to_thread(
+                        worker.source.wait_for_frame, last_sequence, 2.0
+                    )
+                    if frame is None:
+                        # No new frame within the timeout — the stream is down.
+                        # Send the last one so the viewer sees NO SIGNAL over a
+                        # still image rather than a dead connection.
+                        jpeg = worker.snapshot_jpeg(quality=70, max_width=960)
+                        if jpeg is None:
+                            break
+                    else:
+                        last_sequence = frame.sequence
+                        jpeg = worker.encode_jpeg(frame, quality=70, max_width=960)
+
+                    if jpeg:
+                        yield (
+                            f"--{boundary}\r\nContent-Type: image/jpeg\r\n"
+                            f"Content-Length: {len(jpeg)}\r\n\r\n"
+                        ).encode() + jpeg + b"\r\n"
 
         return StreamingResponse(
             frames(),
@@ -1986,7 +2062,7 @@ def _mount(app: FastAPI) -> None:
     @app.get("/breaches", response_model=list[S.Breach], tags=["intrusion"])
     async def get_breaches(
         store: StoreDep,
-        window: Annotated[str, Query(description="Today | Last 7 days | Last 30 days")] = "Today",
+        window: Annotated[WindowToken, Query()] = "today",
     ) -> list[S.Breach]:
         return store.breaches(window_days(window))
 
@@ -2018,7 +2094,7 @@ def _mount(app: FastAPI) -> None:
              tags=["weapons"])
     async def get_weapons(
         store: StoreDep,
-        window: Annotated[str, Query()] = "Last 30 days",
+        window: Annotated[WeaponWindowToken, Query()] = "last30",
     ) -> list[S.WeaponDetection]:
         """Detection history, dismissed ones included.
 

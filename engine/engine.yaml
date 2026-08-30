@@ -72,10 +72,19 @@ storage:
 # be set. Delete the whole section and nothing changes.
 # ---------------------------------------------------------------------------
 tracking:
-  # How often the patrol recogniser looks at a non-`faces:` camera. Slow on
-  # purpose: patrol exists so "where did they go" can be answered later, not
-  # so anybody is watched now. 0 switches the patrol tier off entirely.
-  patrol_hz: 0.5
+  # How often the patrol recogniser looks at a non-`faces:` camera. 0 switches
+  # the patrol tier off entirely, and 0 is now the default.
+  #
+  # OFF because it was measured, not because it was disliked. Patrol ran the
+  # face pipeline on every camera that is NOT `faces: true` - which is most of
+  # them, and they are exactly the cameras whose faces are too small and too
+  # side-on to identify anybody. It was the largest single processor line in
+  # the engine and almost nothing read its answer.
+  #
+  # What is lost: "Track a person" no longer attaches names from corridor
+  # cameras, only from the doorway ones. The page says so rather than quietly
+  # returning fewer named stops. Set any value 0 < x <= 30 to bring it back.
+  patrol_hz: 0
 
   identity:
     # Measured with engine/tools/calibrate_faces.py: the enrolled person

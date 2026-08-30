@@ -89,6 +89,30 @@ def _day_label(iso_date: str) -> str:
     return f"{day.strftime('%a')} {day.day}"
 
 
+
+def _process_cpu() -> float | None:
+    """This process's share of one second of processor time, or None.
+
+    None is a real answer and the UI renders it as unavailable with a reason.
+    It must never become 0.0: a machine at 90% and a machine nobody can
+    measure would then look identical, and the second one is the dangerous
+    case.
+
+    Process-level rather than per-worker on purpose. Feature workers are
+    threads inside this process, so the operating system has no per-worker
+    number to give - see `WorkerLoad`. Inventing one would be exactly the
+    kind of confident fiction Principle III forbids.
+    """
+    try:
+        import psutil
+    except Exception:
+        return None
+    try:
+        return float(psutil.Process().cpu_percent(interval=None))
+    except Exception:
+        return None
+
+
 class LiveStore(MockStore):
     """Real cameras; demo data for everything not yet built."""
 
@@ -114,6 +138,7 @@ class LiveStore(MockStore):
         lost=None,
         vehicles=None,
         vehicle_store=None,
+        patrol=None,
     ) -> None:
         super().__init__()
         # Accounts. Real since P2, so the Users page stops saying the feature
@@ -124,6 +149,12 @@ class LiveStore(MockStore):
         self.gallery = gallery
         self.sightings = sightings
         self.recogniser = recogniser
+        # The second recognition tier, or None when it is switched off.
+        # Two things read it: the workers stage on System Health, and
+        # `_name_source` - because with patrol off a tracked path comes back
+        # with fewer NAMED stops, and that has to be visible rather than
+        # looking like a person who was not seen.
+        self.patrol = patrol
         # Runtime camera roster. Without it the console can still show the
         # YAML cameras, it just cannot add or remove any.
         self.cameras = cameras
@@ -2291,6 +2322,73 @@ class LiveStore(MockStore):
             healthy=True, severity=S.Severity.INFO, restartable=False,
         )
 
+    def _workers_stage(self) -> S.PipelineStage:
+        """What each feature worker is costing, and whether it is keeping up.
+
+        Rule 7 and Principle IV: overload has to be visible. Before this, a
+        saturated engine and a comfortable one produced the same page - the
+        counters existed, nothing read them, and the only symptom was that
+        overlays quietly went stale.
+
+        A worker that is not running is ABSENT from the list rather than
+        present with zeros. "Stopped" and "idle" are different answers and a
+        row of zeros reads as the second one.
+        """
+        # `getattr`, because a store built before a subsystem existed simply
+        # does not carry the attribute - and a health page that raises
+        # AttributeError is a degradation answered with a 500, which rule 7
+        # forbids. The whole point of this stage is to survive absence.
+        candidates = [
+            getattr(self, name, None) for name in (
+                "recogniser", "patrol", "people_worker", "tracking",
+                "weapons_worker", "vehicles_worker", "lost_watch",
+            )
+        ]
+
+        loads: list[S.WorkerLoad] = []
+        for worker in candidates:
+            if worker is None:
+                continue
+            try:
+                stats = worker.stats
+            except Exception:
+                # A worker that cannot describe itself is not a reason to
+                # fail the health page. Skipping it leaves it absent, which
+                # is the same honest answer as "not running".
+                continue
+            loads.append(S.WorkerLoad(
+                name=str(stats.get("name", "worker")),
+                cameras=int(stats.get("cameras", 0)),
+                frames_processed=int(stats.get("frames_processed", 0)),
+                last_inference_ms=float(stats.get("last_inference_ms", 0.0)),
+                queue_depth=int(stats.get("queue_depth", 0)),
+                queue_max=int(stats.get("queue_max", 0)),
+                frames_dropped=int(stats.get("frames_dropped", 0)),
+                behind=stats.get("behind"),
+            ))
+
+        if not loads:
+            return S.PipelineStage(
+                key="workers", name="Feature workers",
+                detail="Nothing is running.",
+                healthy=False, severity=S.Severity.WARN, restartable=False,
+            )
+
+        behind = [w.name for w in loads if w.behind]
+        if behind:
+            detail = (f"{len(loads)} running - behind on "
+                      f"{', '.join(sorted(behind))}")
+        else:
+            detail = f"{len(loads)} running, all keeping up"
+
+        return S.PipelineStage(
+            key="workers", name="Feature workers", detail=detail,
+            healthy=not behind,
+            severity=S.Severity.WARN if behind else S.Severity.INFO,
+            restartable=False,
+            workers=loads,
+        )
+
     def health(self) -> S.SystemHealth:
         online, total = self.registry.online, self.registry.total
         sources = self.sources()
@@ -2309,13 +2407,26 @@ class LiveStore(MockStore):
             self._weapons_stage(),
             self._vehicles_stage(),
             self._lost_stage(),
+            self._workers_stage(),
         ]
+
+        # A page that says "all good" over a machine that is dropping frames
+        # is the exact failure this feature exists to remove. Any stage that
+        # is unhealthy raises the summary with it.
+        struggling = any(not stage.healthy for stage in pipeline)
+        dropped = sum(w.source.health.frames_dropped
+                      for w in self.registry.workers.values())
+        skipped = sum(getattr(w.source.health, "frames_skipped", 0)
+                      for w in self.registry.workers.values())
 
         return S.SystemHealth(
             cameras_online=online, cameras_total=total,
             recorders_online=sum(1 for s in sources if s.status is S.SourceStatus.OK),
             recorders_total=len(sources),
-            severity=S.Severity.WARN if online < total else S.Severity.INFO,
+            severity=(S.Severity.WARN if (online < total or struggling)
+                      else S.Severity.INFO),
+            cpu_percent=_process_cpu(),
+            gpu_percent=None,
             metrics=[
                 S.Metric(key="cameras", label="Cameras up", value=online, total=total),
                 S.Metric(key="frames", label="Frames read",
@@ -2324,6 +2435,14 @@ class LiveStore(MockStore):
                 S.Metric(key="reconnects", label="Reconnects",
                          value=sum(w.source.health.reconnects
                                    for w in self.registry.workers.values())),
+                S.Metric(key="dropped", label="Frames dropped", value=dropped,
+                         severity=(S.Severity.WARN if dropped
+                                   else S.Severity.INFO)),
+                # NOT a drop. Frames pulled off the camera and deliberately
+                # not decoded because nobody was watching it - the saving,
+                # shown so it can be checked rather than believed.
+                S.Metric(key="skipped", label="Frames not decoded",
+                         value=skipped),
             ],
             recorders=[
                 S.Recorder(id=s.id, name=s.name, cameras=s.channels,
@@ -2843,7 +2962,24 @@ class LiveStore(MockStore):
             ],
             path=stops,
             cameras=[v for v in (self.camera_view(c) for c in sorted(cameras)) if v],
+            names_from=self._name_source(),
         )
+
+    def _name_source(self) -> S.NameSource:
+        """Which cameras could put a name on a body while this path was built.
+
+        With the patrol tier off, only the doorway cameras run a recogniser.
+        A corridor sighting is then a body with no name, and the path comes
+        back with fewer named stops than it would have had.
+
+        That is a legitimate trade - patrol was the largest processor line in
+        the engine and almost nothing read it - but it is NOT allowed to be
+        invisible. A quietly thinner answer looks exactly like a person who
+        was not there, and an operator has no way to tell the two apart. So
+        the fact travels with the result and the console says which it is.
+        """
+        patrol = getattr(self, "patrol", None)
+        return S.NameSource.ALL if patrol is not None else S.NameSource.IDENTITY
 
     def _resolve_person(self, query: S.TrackQuery):
         """`person_id` or `who` -> (id, name). Names travel in URLs today."""
@@ -3089,6 +3225,7 @@ class LiveStore(MockStore):
             anchors=[self._path_anchor(a) for a in anchors],
             appearance=stops,
             cameras=[v for v in (self.camera_view(c) for c in sorted(cameras)) if v],
+            names_from=self._name_source(),
         )
 
     def _path_anchor(self, anchor) -> S.PathAnchor:

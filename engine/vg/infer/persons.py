@@ -145,6 +145,38 @@ class PersonDetector:
         # that chose the device.
         return results[0].boxes.cpu()
 
+    def raw_boxes_many(self, images: list[np.ndarray]) -> list:
+        """`raw_boxes` for several frames in one model call.
+
+        Same arguments, same thresholds, same post-processing as the single
+        version - the ONLY difference is how many images go in at once. That
+        matters more than it looks: this is the path `SharedDetection` uses
+        when several cameras are waiting, and if it differed from `raw_boxes`
+        in any parameter the boxes would differ too, and "detect once" would
+        quietly become "detect differently".
+
+        Returns one entry per image, IN THE ORDER GIVEN. The caller maps them
+        back to frames positionally, so this order is load-bearing.
+        """
+        if not images:
+            return []
+        results = self.model.predict(
+            images,
+            device=self.device,
+            imgsz=self.imgsz,
+            conf=self.conf,
+            iou=self.iou,
+            quantize=16 if self.half else 32,
+            classes=[COCO_PERSON_CLASS],
+            verbose=False,
+        )
+        # A short result list would silently shift every frame's boxes onto
+        # its neighbour. Pad rather than zip, so a missing answer reads as
+        # "nothing found" for that frame and never as somebody else's boxes.
+        out = [r.boxes.cpu() for r in (results or [])]
+        out.extend([None] * (len(images) - len(out)))
+        return out[:len(images)]
+
     def detect(self, image: np.ndarray, min_area: float = 0.0) -> list[DetectedPerson]:
         """People in a BGR frame, largest first.
 
