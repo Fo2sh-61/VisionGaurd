@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { CamGrid } from '@/components/CamGrid';
 import { Badge, Card, DataNotice, Empty, Field, LoadError, PageHeader, Select, Toggle, toneGlyph } from '@/components/ui';
 import { getBreaches, getIntrusionCameras, getZones, setZoneEnabled } from '@/services/api';
@@ -29,7 +30,13 @@ export function Intrusion() {
   const { language } = useLanguage();
   const capability = useCapability('breaches');
   const t = useT();
-  const [when, setWhen] = useState<IntrusionWindow>('today');
+  // Ask lands here with the question resolved. See Attendance for why
+  // reading these matters: a link nothing reads is decoration.
+  const [params] = useSearchParams();
+  const asked = params.get('window');
+  const [when, setWhen] = useState<IntrusionWindow>(
+    asked === 'today' || asked === 'last7' || asked === 'last30'
+      ? asked : 'today');
 
   const {
     data: loadedZones, error: zonesError, loading: zonesLoading, reload: reloadZones,

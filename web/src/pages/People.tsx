@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Badge, Card, DataNotice, Empty, LoadError, PageHeader } from '@/components/ui';
 import { getGroups, getPeople, removePerson } from '@/services/api';
 import type { DirectoryPerson, GroupSummary, PersonType } from '@/types';
@@ -29,7 +29,10 @@ export function People() {
   // non-administrator whatever this console decides to draw.
   const isAdmin = useAccount().role === 'admin';
   const [tab, setTab] = useState<PersonType | 'All'>('All');
-  const [query, setQuery] = useState('');
+  // Ask lands here with the question resolved. See Attendance for why
+  // reading these matters: a link nothing reads is decoration.
+  const [params] = useSearchParams();
+  const [query, setQuery] = useState(params.get('query') ?? '');
   // Which row is mid-confirmation, and what the last removal said if it failed.
   const [confirming, setConfirming] = useState<string | null>(null);
   const [removing, setRemoving] = useState(false);

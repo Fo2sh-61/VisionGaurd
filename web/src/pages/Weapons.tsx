@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { CamGrid } from '@/components/CamGrid';
 import { Badge, Card, DataNotice, Empty, Field, LoadError, PageHeader, Select, toneGlyph } from '@/components/ui';
 import { getWeaponCameras, getWeaponDetections, reviewWeapon } from '@/services/api';
@@ -39,7 +40,12 @@ export function Weapons() {
   // `clip_retention_days`; a number typed in here would be a promise the
   // engine is not required to keep.
   const retentionDays = useSite().site?.clipRetentionDays;
-  const [when, setWhen] = useState<WeaponWindow>('last30');
+  // Ask lands here with the question resolved. See Attendance for why
+  // reading these matters: a link nothing reads is decoration.
+  const [params] = useSearchParams();
+  const asked = params.get('window') as WeaponWindow | null;
+  const [when, setWhen] = useState<WeaponWindow>(
+    asked && WINDOWS.includes(asked) ? asked : 'last30');
 
   const { data: cameras } = useAsync(
     () => getWeaponCameras(language), [language], NO_CAMERAS, CAMERA_REFRESH_MS);

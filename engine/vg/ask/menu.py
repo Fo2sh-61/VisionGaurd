@@ -31,6 +31,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any, Callable
+from urllib.parse import quote
 
 from vg.api import schemas as S
 
@@ -148,7 +149,7 @@ def _run_headcount(store: Any, p: dict[str, str]) -> Answer:
 # ---------------------------------------------------------------------------
 
 def _run_breaches(store: Any, p: dict[str, str]) -> Answer:
-    days = int(p.get("days") or 7)
+    days = WINDOWS.get(p.get("window", "last7"), 7)
     rows = [
         S.AskRow(
             label=b.zone_name,
@@ -166,6 +167,23 @@ def _run_breaches(store: Any, p: dict[str, str]) -> Answer:
 # weapons
 # ---------------------------------------------------------------------------
 
+#: Period names the Weapons and Restricted-zones pages already use, and how
+#: many days back each one means. Ask must pick from this list rather than
+#: invent its own, or the page it links to would show a different period from
+#: the answer above it — the one thing SC-001 forbids.
+WINDOWS: dict[str, int] = {
+    "today": 1, "yesterday": 2, "last7": 7, "last30": 30, "last90": 90,
+}
+
+
+def _since(window: str) -> Any:
+    """The window's start as an instant, or None for "everything"."""
+    from datetime import datetime, timedelta, timezone
+
+    days = WINDOWS.get(window)
+    return None if days is None else datetime.now(timezone.utc) - timedelta(days=days)
+
+
 def _run_weapons(store: Any, p: dict[str, str]) -> Answer:
     rows = [
         S.AskRow(
@@ -175,7 +193,7 @@ def _run_weapons(store: Any, p: dict[str, str]) -> Answer:
             confidence=d.confidence,
             clip_url=d.clip.url if d.clip else None,
         )
-        for d in store.weapons(None, None)
+        for d in store.weapons(_since(p.get("window", "last30")), None)
     ]
     return Answer(rows=rows)
 
@@ -347,21 +365,20 @@ QUERIES: tuple[AskQuery, ...] = (
     AskQuery(
         id="zone_breaches",
         describe="Who entered a restricted area, and when.",
-        params=(
-            Param("days", "how many days back to look, as a number",
-                  default="7"),
-        ),
+        params=(Param("window", "the period: today, last7 or last30",
+                      default="last7"),),
         reads="/breaches",
         run=_run_breaches,
-        route=lambda p: "/intrusion",
+        route=lambda p: "/intrusion" + _q(p, "window"),
     ),
     AskQuery(
         id="weapons",
         describe="Knife detections and whether a person has reviewed them.",
-        params=(),
+        params=(Param("window", "the period: today, yesterday, last7, last30 "
+                                "or last90", default="last30"),),
         reads="/weapons/detections",
         run=_run_weapons,
-        route=lambda p: "/weapons",
+        route=lambda p: "/weapons" + _q(p, "window"),
     ),
     AskQuery(
         id="vehicle_passes",
@@ -374,7 +391,11 @@ QUERIES: tuple[AskQuery, ...] = (
         ),
         reads="/vehicles/passes",
         run=_run_passes,
-        route=lambda p: "/vehicles" + _q(p, "plate", "gate", "direction"),
+        # `direction` is deliberately absent: the movements tab has no
+        # direction filter, and a parameter nothing reads is the decoration
+        # this whole exercise was about removing.
+        route=lambda p: "/vehicles" + _q(
+            {**p, "tab": "movements"}, "tab", "plate", "gate", "date"),
     ),
     AskQuery(
         id="vehicles_inside",
@@ -382,7 +403,7 @@ QUERIES: tuple[AskQuery, ...] = (
         params=(),
         reads="/vehicles/inside",
         run=_run_inside,
-        route=lambda p: "/vehicles",
+        route=lambda p: "/vehicles?tab=movements",
     ),
     AskQuery(
         id="gate_totals",
@@ -390,7 +411,7 @@ QUERIES: tuple[AskQuery, ...] = (
         params=(Param("date", "the day, as YYYY-MM-DD", default=TODAY),),
         reads="/vehicles/gates",
         run=_run_gate_totals,
-        route=lambda p: "/vehicles",
+        route=lambda p: "/vehicles?tab=movements",
     ),
     AskQuery(
         id="vehicle_registered",
@@ -398,7 +419,8 @@ QUERIES: tuple[AskQuery, ...] = (
         params=(Param("plate", "the number plate", required=True),),
         reads="/vehicles/register",
         run=_run_registered,
-        route=lambda p: "/vehicles" + _q(p, "plate"),
+        route=lambda p: "/vehicles" + _q({**p, "tab": "register"},
+                                         "tab", "plate"),
     ),
     AskQuery(
         id="person_path",
@@ -423,7 +445,9 @@ QUERIES: tuple[AskQuery, ...] = (
         params=(Param("person", "the person's name", required=True),),
         reads="/people",
         run=_run_history,
-        route=lambda p: "/people" + _q(p, "person"),
+        # The page for one person's history already exists and already reads
+        # the name out of its own path. Nothing to teach it.
+        route=lambda p: f"/people/history/{quote(p.get('person', ''))}",
     ),
     AskQuery(
         id="person_directory",
@@ -431,7 +455,7 @@ QUERIES: tuple[AskQuery, ...] = (
         params=(Param("person", "the person's name"),),
         reads="/people",
         run=_run_directory,
-        route=lambda p: "/people" + _q(p, "person"),
+        route=lambda p: "/people" + _q({"query": p.get("person", "")}, "query"),
     ),
     AskQuery(
         id="group_roster",
@@ -440,7 +464,7 @@ QUERIES: tuple[AskQuery, ...] = (
                       required=True),),
         reads="/people",
         run=_run_group,
-        route=lambda p: "/people" + _q(p, "group"),
+        route=lambda p: f"/people/groups/{quote(p.get('group', ''))}",
     ),
     AskQuery(
         id="lost_item",

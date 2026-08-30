@@ -25,6 +25,7 @@
  */
 
 import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useLanguage, useT } from '@/app/LanguageContext';
 import { Plate } from '@/components/Plate';
 import { VehiclePassesCard } from '@/components/VehiclePasses';
@@ -261,9 +262,12 @@ export function VehicleMovementsTab({ isAdmin, summary }: {
   const t = useT();
   // Empty means today. Kept empty rather than filled with today's date so the
   // engine decides what "today" is — the site's midnight, not the browser's.
-  const [day, setDay] = useState('');
-  const [query, setQuery] = useState('');
-  const [gate, setGate] = useState('');
+  // Ask lands here with the question resolved — `?plate=...&gate=1&date=...`.
+  // A link nothing reads is decoration, which is what these were before.
+  const [params] = useSearchParams();
+  const [day, setDay] = useState(params.get('date') ?? '');
+  const [query, setQuery] = useState(params.get('plate') ?? '');
+  const [gate, setGate] = useState(params.get('gate') ?? '');
   const [exporting, setExporting] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
 

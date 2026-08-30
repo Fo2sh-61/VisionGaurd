@@ -207,29 +207,48 @@ class TestMenu:
         This pins the contract from the other side: a parameter a route puts
         in the URL must be one the page actually looks for.
         """
-        pages = pathlib.Path(__file__).resolve().parents[2] / "web" / "src" / "pages"
-        if not pages.is_dir():           # engine checked out on its own
+        web = pathlib.Path(__file__).resolve().parents[2] / "web" / "src"
+        if not web.is_dir():             # engine checked out on its own
             pytest.skip("no web/ in this tree")
 
-        # Which page each route lands on, and what it reads today.
-        reads: dict[str, str] = {
-            "/track": "TrackPerson.tsx",
-            "/attendance": "Attendance.tsx",
-            "/counting": "Counting.tsx",
+        # Which files each route lands on. A page plus the components it
+        # delegates its tabs to — the gate reads its filters in
+        # `VehicleMovements`, and to the operator that is the same screen.
+        reads: dict[str, tuple[str, ...]] = {
+            "/track": ("pages/TrackPerson.tsx",),
+            "/attendance": ("pages/Attendance.tsx",),
+            "/counting": ("pages/Counting.tsx",),
+            "/intrusion": ("pages/Intrusion.tsx",),
+            "/weapons": ("pages/Weapons.tsx",),
+            "/vehicles": ("pages/VehicleGate.tsx",
+                          "components/VehicleMovements.tsx"),
+            "/people": ("pages/People.tsx",),
+            "/lost-items": ("pages/LostItems.tsx",),
+            "/system": ("pages/SystemHealth.tsx",),
         }
+        from urllib.parse import parse_qs, urlparse
+
         missed: list[str] = []
         for query in QUERIES:
-            params = {p.name: "x" for p in query.params}
-            route = query.route(params)
-            path = route.split("?")[0]
-            page = reads.get(path)
-            if page is None:
-                continue                  # not yet wired; not a regression
-            source = (pages / page).read_text(encoding="utf-8")
+            route = query.route({p.name: "x" for p in query.params})
+            parsed = urlparse(route)
+            path = parsed.path
+            # What the URL actually carries, not what the query calls its
+            # parameters — a route may rename one on the way out, and the page
+            # only ever sees the name in the URL.
+            params = parse_qs(parsed.query)
+            files = reads.get(path)
+            if files is None:
+                # A path parameter — `/people/history/<name>` — is read by the
+                # router from the URL itself, so there is nothing for a page
+                # to look up and nothing here to check.
+                continue
+            source = "".join((web / f).read_text(encoding="utf-8")
+                             for f in files)
             for name in params:
                 if f"'{name}'" not in source:
                     missed.append(f"{query.id} -> {path} sends {name!r}, "
-                                  f"{page} never reads it")
+                                  f"{' or '.join(files)} never reads it")
         assert not missed, "; ".join(missed)
 
     def test_only_a_feature_that_records_nothing_is_exempt(self):

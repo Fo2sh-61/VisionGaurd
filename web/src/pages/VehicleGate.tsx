@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { CamGrid } from '@/components/CamGrid';
 import { VehicleAlerts } from '@/components/VehicleAlerts';
 import { VehicleMovementsTab } from '@/components/VehicleMovements';
@@ -69,7 +70,12 @@ export function VehicleGate() {
   const { language } = useLanguage();
   const t = useT();
   const capability = useCapability('vehicles');
-  const [tab, setTab] = useState<Tab>('live');
+  // Ask lands here with the question resolved. See Attendance for why
+  // reading these matters: a link nothing reads is decoration.
+  const [params] = useSearchParams();
+  const askedTab = params.get('tab');
+  const [tab, setTab] = useState<Tab>(
+    askedTab === 'movements' || askedTab === 'register' ? askedTab : 'live');
   // An interface hint only. The server decides, and refuses a write from a
   // guard whatever this page draws.
   const isAdmin = useAccount().role === 'admin';
@@ -78,7 +84,10 @@ export function VehicleGate() {
   // gone this is the only route from "a car nobody knows just drove in" to a
   // register entry, which is why the alert carries the action rather than
   // merely announcing the problem.
-  const prefill = useRef<string | null>(null);
+  // Seeded from the URL when Ask sent us here to look a plate up, and
+  // overwritten by the live alerts when somebody clicks one. Same field,
+  // two ways of filling it.
+  const prefill = useRef<string | null>(params.get('plate'));
 
   const { data: summary, error: summaryError } = useAsync(
     () => getVehicleSummary(), [], null, SUMMARY_REFRESH_MS);

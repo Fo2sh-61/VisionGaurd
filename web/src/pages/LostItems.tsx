@@ -20,6 +20,7 @@
  */
 
 import { useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useCameras } from '@/app/CameraContext';
 import { useCapability } from '@/app/CapabilityContext';
 import { useT } from '@/app/LanguageContext';
@@ -79,7 +80,11 @@ export function LostItems() {
 
   const [ticked, setTicked] = useState<Set<string>>(new Set());
   const [openAreas, setOpenAreas] = useState<Set<string>>(new Set());
-  const [colour, setColour] = useState<string | undefined>(undefined);
+  // Ask lands here with the question resolved. See Attendance for why
+  // reading these matters: a link nothing reads is decoration.
+  const [params] = useSearchParams();
+  const [colour, setColour] = useState<string | undefined>(
+    params.get('colour') ?? undefined);
 
   /** Areas in roster order, each with its cameras. `Unassigned` is a real
    *  group, not a leftover: today it is almost every camera, and hiding them
