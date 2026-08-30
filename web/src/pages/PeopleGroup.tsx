@@ -4,6 +4,7 @@ import { getGroup } from '@/services/api';
 import type { GroupMember, GroupSummary } from '@/types';
 import { useCapability } from '@/app/CapabilityContext';
 import { useAsync } from '@/app/useAsync';
+import { useLanguage, useT } from '@/app/LanguageContext';
 
 interface Group {
   summary: GroupSummary | null;
@@ -13,14 +14,16 @@ interface Group {
 const NO_GROUP: Group = { summary: null, roster: [] };
 
 export function PeopleGroup() {
+  const { language } = useLanguage();
+  const t = useT();
   const capability = useCapability('groups');
   const { name = '' } = useParams();
   const navigate = useNavigate();
   const group = decodeURIComponent(name);
 
   const { data, error, loading, reload } = useAsync<Group>(
-    () => getGroup(group).then((r) => ({ summary: r.summary, roster: r.roster })),
-    [group],
+    () => getGroup(group, language).then((r) => ({ summary: r.summary, roster: r.roster })),
+    [group, language],
     NO_GROUP,
   );
   const { summary, roster } = data;
@@ -37,24 +40,26 @@ export function PeopleGroup() {
         </button>
       </div>
       <DataNotice capability={capability} />
-      <LoadError error={error} onRetry={reload} what={`the ${group} roster`} />
+      <LoadError error={error} onRetry={reload} what="load.groupRoster" whatArgs={{ group }} />
       <PageHeader
         title={summary?.name ?? group}
         lead={
           !summary
             ? loading
-              ? 'Loading…'
-              : 'Roster unavailable.'
+              ? t('people.loading')
+              : t('people.rosterUnavailable')
             : summary.here === null
               ? summary.count
-              : `${summary.count} · ${summary.here} on campus today`
+              : t('people.onCampusToday', {
+                count: summary.count, here: summary.here,
+              })
         }
       />
 
       <Card>
-        {loading && <Empty>Loading the roster…</Empty>}
+        {loading && <Empty>{t('people.loadingRoster')}</Empty>}
         {!loading && !error && roster.length === 0 && (
-          <Empty>Nobody is in this group yet.</Empty>
+          <Empty>{t('people.groupEmpty')}</Empty>
         )}
 
         {roster.map((member) => (
@@ -98,7 +103,8 @@ export function PeopleGroup() {
                 })
               }
             >
-              Attendance history →
+              {t('people.attendanceHistory')}{' '}
+              <span className="mirror-rtl" aria-hidden="true">→</span>
             </button>
           </div>
         ))}

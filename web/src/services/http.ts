@@ -27,10 +27,10 @@
  *  another origin, and expect the live views to be blank if you do. */
 const BASE = (import.meta.env.VITE_API_BASE ?? '').replace(/\/$/, '');
 
-/** How long before we give up. Lost-item search runs over stored footage and is
- *  allowed a minute; everything else should be quick or is broken. */
+/** How long before we give up. Everything should be quick or is broken:
+ *  the lost-bag search that once needed ninety seconds now starts a job and
+ *  returns at once, so nothing is left that waits on a long answer. */
 const DEFAULT_TIMEOUT_MS = 15_000;
-export const SEARCH_TIMEOUT_MS = 90_000;
 
 /** The session token, held in memory for the life of the page.
  *
@@ -176,10 +176,14 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
       // This used to fall through to the network-error branch below and say
       // "Cannot reach the engine. Is it running?" - which sent people to look
       // at an engine that was running perfectly. Say what actually happened.
+      const prefix = `/${path.replace(/^\//, '').split('/')[0]}`;
       throw new ApiError(
-        'The engine did not answer — the dev server did. Restart it: '
-        + '`.\dev.ps1 down` then `.\dev.ps1 up -Clip`. '
-        + '(Vite reloads source automatically but not its proxy settings.)',
+        `The engine did not answer — the dev server did, for ${prefix}. `
+        + `Two causes, in the order they happen: ${prefix} may be missing from `
+        + 'API_PATHS in web/vite.config.ts (a new endpoint the proxy has never '
+        + 'been told about), or the dev server is running with an older copy of '
+        + 'that list. Add it if absent, then restart `npm run dev` either way — '
+        + 'Vite reloads source on save but never its own proxy settings.',
         response.status,
         false,
         `${method} ${path} returned ${response.headers.get('content-type') ?? 'no content-type'}`,
@@ -221,6 +225,56 @@ export const postFile = <T>(path: string, file: Blob, filename = 'photo.jpg') =>
   form.append('file', file, filename);
   return request<T>(path, { method: 'POST', body: form, timeoutMs: 30_000 });
 };
+
+/** Fetch a file the engine builds, and hand it to the browser to save.
+ *
+ *  `request()` cannot do this: it parses every reply as JSON, and a CSV is
+ *  not one. This carries the same session — the Authorization header **and**
+ *  the cookie — because a bare `fetch` sends neither to another origin, which
+ *  is a 401 the moment the engine is not being proxied. */
+export async function download(
+  path: string,
+  options: { method?: 'GET' | 'POST'; query?: RequestOptions['query']; fallbackName: string },
+): Promise<void> {
+  const headers: Record<string, string> = {};
+  if (sessionToken) headers.Authorization = `Bearer ${sessionToken}`;
+
+  const response = await fetch(buildUrl(path, options.query), {
+    method: options.method ?? 'GET',
+    headers: Object.keys(headers).length ? headers : undefined,
+    credentials: 'include',
+  });
+
+  if (!response.ok) {
+    let message = `Download failed (${response.status})`;
+    try {
+      const problem = await response.json();
+      if (typeof problem?.detail === 'string') message = problem.detail;
+    } catch {
+      /* a non-JSON error body is not worth failing over */
+    }
+    if (response.status === 401) {
+      sessionToken = null;
+      onUnauthorised?.();
+    }
+    throw new ApiError(message, response.status, response.status >= 500);
+  }
+
+  // Use the filename the engine chose, so the file is named after what is in
+  // it rather than after the endpoint.
+  const disposition = response.headers.get('Content-Disposition') ?? '';
+  const named = /filename="([^"]+)"/.exec(disposition)?.[1];
+  const href = URL.createObjectURL(await response.blob());
+
+  const link = document.createElement('a');
+  link.href = href;
+  link.download = named ?? options.fallbackName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  // Revoking immediately can cancel the download in some browsers.
+  setTimeout(() => URL.revokeObjectURL(href), 10_000);
+}
 
 /** Absolute URL for a snapshot, clip or stream path the engine handed back. */
 export function assetUrl(path: string | null | undefined): string | undefined {

@@ -1,8 +1,8 @@
 # Model inventory
 
-Generated 2026-08-05T06:15:09+00:00 by `engine/tools/audit_models.py`. Do not hand-edit — regenerate after adding or replacing a weight file.
+Generated 2026-08-24T10:45:04+00:00 by `engine/tools/audit_models.py`. Do not hand-edit — regenerate after adding or replacing a weight file.
 
-18 files, 1.2 GB total.
+24 files, 1.6 GB total.
 
 ## Summary
 
@@ -12,12 +12,18 @@ Generated 2026-08-05T06:15:09+00:00 by `engine/tools/audit_models.py`. Do not ha
 | `yolov8m-worldv2-search-960.engine` | 55.9 MB | tensorrt | 35 | GPU/TRT-locked — rebuild on target |
 | `yolov8n-oiv7.engine` | 8.5 MB | tensorrt | 601 | GPU/TRT-locked — rebuild on target |
 | `yolov8s-480.engine` | 22.9 MB | tensorrt | 80 | GPU/TRT-locked — rebuild on target |
+| `yolov8s-640.engine` | 222.7 MB | tensorrt | 80 | GPU/TRT-locked — rebuild on target |
 | `yolov8s-pose-640.engine` | 24.2 MB | tensorrt | 1 | GPU/TRT-locked — rebuild on target |
-| `face_detection_yunet_2023mar.onnx` | 227.1 KB | onnx | — | onnx package not installed; header not parsed |
-| `face_recognition_sface_2021dec.onnx` | 36.9 MB | onnx | — | onnx package not installed; header not parsed |
-| `yolov8m-worldv2-search.onnx` | 107.4 MB | onnx | — | onnx package not installed; header not parsed |
-| `yolov8s-pose.onnx` | 44.6 MB | onnx | — | onnx package not installed; header not parsed |
-| `yolov8s.onnx` | 42.8 MB | onnx | — | onnx package not installed; header not parsed |
+| `face_detection_yunet_2023mar.onnx` | 227.1 KB | onnx | — |  |
+| `face_recognition_sface_2021dec.onnx` | 36.9 MB | onnx | — |  |
+| `yolov8m-worldv2-search.onnx` | 107.4 MB | onnx | 35 |  |
+| `yolov8s-pose.onnx` | 44.6 MB | onnx | 1 |  |
+| `yolov8s.onnx` | 42.8 MB | onnx | 80 |  |
+| `bagbest.pt` | 54.5 MB | pytorch | 11 |  |
+| `bagsearch.pt` | 54.4 MB | pytorch | 10 |  |
+| `char_detector.pt` | 38.5 MB | pytorch | 38 |  |
+| `knifebest.pt` | 21.5 MB | pytorch | 1 |  |
+| `plate_detector.pt` | 38.4 MB | pytorch | 1 |  |
 | `yolo11m.pt` | 38.8 MB | pytorch | 80 |  |
 | `yolov8m-worldv2-school.pt` | 343.2 MB | pytorch | 18 |  |
 | `yolov8m-worldv2-search.pt` | 343.2 MB | pytorch | 35 |  |
@@ -93,6 +99,22 @@ person, bicycle, fire hydrant, stop sign, parking meter, bench, bird, cat, dog, 
 
 </details>
 
+### `yolov8s-640.engine`
+
+- **size** 222.7 MB (233,504,327 bytes)
+- **modified** 2026-08-24T09:33:12+00:00
+- **sha256 (first 64 MB)** `4ca3e31d8d7888ac`
+- **format** tensorrt
+- **build metadata** `{'description': 'Ultralytics YOLOv8s model trained on coco.yaml', 'author': 'Ultralytics', 'date': '2026-08-24T12:31:32.540678+03:00', 'version': '8.4.127', 'license': 'AGPL-3.0 License (https://ultralytics.com/license)', 'docs': 'https://docs.ultralytics.com', 'stride': 32, 'task': 'detect', 'head': 'Detect', 'batch': 1, 'imgsz': [640, 640], 'args': {'data': None, 'batch': 1, 'fraction': 1.0, 'quantize': None, 'dynamic': False, 'simplify': True, 'opset': None, 'workspace': 4, 'nms': False}, 'channels': 3, 'end2end': False}`
+
+<details><summary>80 classes</summary>
+
+```
+person, bicycle, fire hydrant, stop sign, parking meter, bench, bird, cat, dog, horse, sheep, cow, car, elephant, bear, zebra, giraffe, backpack, umbrella, handbag, tie, suitcase, frisbee, motorcycle, skis, snowboard, sports ball, kite, baseball bat, baseball glove, skateboard, surfboard, tennis racket, bottle, airplane, wine glass, cup, fork, knife, spoon, bowl, banana, apple, sandwich, orange, bus, broccoli, carrot, hot dog, pizza, donut, cake, chair, couch, potted plant, bed, train, dining table, toilet, tv, laptop, mouse, remote, keyboard, cell phone, microwave, oven, truck, toaster, sink, refrigerator, book, clock, vase, scissors, teddy bear, hair drier, toothbrush, boat, traffic light
+```
+
+</details>
+
 ### `yolov8s-pose-640.engine`
 
 - **size** 24.2 MB (25,392,542 bytes)
@@ -115,7 +137,8 @@ person
 - **modified** 2026-04-26T16:19:52+00:00
 - **sha256 (first 64 MB)** `8f2383e4dd3cfbb4`
 - **format** onnx
-- **note** onnx package not installed; header not parsed
+- **inputs** `{'input': [1, 3, 640, 640]}`
+- **outputs** `{'cls_8': [1, 6400, 1], 'cls_16': [1, 1600, 1], 'cls_32': [1, 400, 1], 'obj_8': [1, 6400, 1], 'obj_16': [1, 1600, 1], 'obj_32': [1, 400, 1], 'bbox_8': [1, 6400, 4], 'bbox_16': [1, 1600, 4], 'bbox_32': [1, 400, 4], 'kps_8': [1, 6400, 10], 'kps_16': [1, 1600, 10], 'kps_32': [1, 400, 10]}`
 
 ### `face_recognition_sface_2021dec.onnx`
 
@@ -123,7 +146,8 @@ person
 - **modified** 2026-04-26T16:24:52+00:00
 - **sha256 (first 64 MB)** `0ba9fbfa01b5270c`
 - **format** onnx
-- **note** onnx package not installed; header not parsed
+- **inputs** `{'data': [1, 3, 112, 112], 'scalar_op1': [1], 'scalar_op2': [1], 'conv_1_conv2d_weight': [32, 3, 3, 3], 'conv_1_batchnorm_gamma': [32], 'conv_1_batchnorm_beta': [32], 'conv_1_batchnorm_moving_mean': [32], 'conv_1_batchnorm_moving_var': [32], 'conv_1_relu_gamma': [32, 1, 1], 'conv_2_dw_conv2d_weight': [32, 1, 3, 3], 'conv_2_dw_batchnorm_gamma': [32], 'conv_2_dw_batchnorm_beta': [32], 'conv_2_dw_batchnorm_moving_mean': [32], 'conv_2_dw_batchnorm_moving_var': [32], 'conv_2_dw_relu_gamma': [32, 1, 1], 'conv_2_conv2d_weight': [64, 32, 1, 1], 'conv_2_batchnorm_gamma': [64], 'conv_2_batchnorm_beta': [64], 'conv_2_batchnorm_moving_mean': [64], 'conv_2_batchnorm_moving_var': [64], 'conv_2_relu_gamma': [64, 1, 1], 'conv_3_dw_conv2d_weight': [64, 1, 3, 3], 'conv_3_dw_batchnorm_gamma': [64], 'conv_3_dw_batchnorm_beta': [64], 'conv_3_dw_batchnorm_moving_mean': [64], 'conv_3_dw_batchnorm_moving_var': [64], 'conv_3_dw_relu_gamma': [64, 1, 1], 'conv_3_conv2d_weight': [128, 64, 1, 1], 'conv_3_batchnorm_gamma': [128], 'conv_3_batchnorm_beta': [128], 'conv_3_batchnorm_moving_mean': [128], 'conv_3_batchnorm_moving_var': [128], 'conv_3_relu_gamma': [128, 1, 1], 'conv_4_dw_conv2d_weight': [128, 1, 3, 3], 'conv_4_dw_batchnorm_gamma': [128], 'conv_4_dw_batchnorm_beta': [128], 'conv_4_dw_batchnorm_moving_mean': [128], 'conv_4_dw_batchnorm_moving_var': [128], 'conv_4_dw_relu_gamma': [128, 1, 1], 'conv_4_conv2d_weight': [128, 128, 1, 1], 'conv_4_batchnorm_gamma': [128], 'conv_4_batchnorm_beta': [128], 'conv_4_batchnorm_moving_mean': [128], 'conv_4_batchnorm_moving_var': [128], 'conv_4_relu_gamma': [128, 1, 1], 'conv_5_dw_conv2d_weight': [128, 1, 3, 3], 'conv_5_dw_batchnorm_gamma': [128], 'conv_5_dw_batchnorm_beta': [128], 'conv_5_dw_batchnorm_moving_mean': [128], 'conv_5_dw_batchnorm_moving_var': [128], 'conv_5_dw_relu_gamma': [128, 1, 1], 'conv_5_conv2d_weight': [256, 128, 1, 1], 'conv_5_batchnorm_gamma': [256], 'conv_5_batchnorm_beta': [256], 'conv_5_batchnorm_moving_mean': [256], 'conv_5_batchnorm_moving_var': [256], 'conv_5_relu_gamma': [256, 1, 1], 'conv_6_dw_conv2d_weight': [256, 1, 3, 3], 'conv_6_dw_batchnorm_gamma': [256], 'conv_6_dw_batchnorm_beta': [256], 'conv_6_dw_batchnorm_moving_mean': [256], 'conv_6_dw_batchnorm_moving_var': [256], 'conv_6_dw_relu_gamma': [256, 1, 1], 'conv_6_conv2d_weight': [256, 256, 1, 1], 'conv_6_batchnorm_gamma': [256], 'conv_6_batchnorm_beta': [256], 'conv_6_batchnorm_moving_mean': [256], 'conv_6_batchnorm_moving_var': [256], 'conv_6_relu_gamma': [256, 1, 1], 'conv_7_dw_conv2d_weight': [256, 1, 3, 3], 'conv_7_dw_batchnorm_gamma': [256], 'conv_7_dw_batchnorm_beta': [256], 'conv_7_dw_batchnorm_moving_mean': [256], 'conv_7_dw_batchnorm_moving_var': [256], 'conv_7_dw_relu_gamma': [256, 1, 1], 'conv_7_conv2d_weight': [512, 256, 1, 1], 'conv_7_batchnorm_gamma': [512], 'conv_7_batchnorm_beta': [512], 'conv_7_batchnorm_moving_mean': [512], 'conv_7_batchnorm_moving_var': [512], 'conv_7_relu_gamma': [512, 1, 1], 'conv_8_dw_conv2d_weight': [512, 1, 3, 3], 'conv_8_dw_batchnorm_gamma': [512], 'conv_8_dw_batchnorm_beta': [512], 'conv_8_dw_batchnorm_moving_mean': [512], 'conv_8_dw_batchnorm_moving_var': [512], 'conv_8_dw_relu_gamma': [512, 1, 1], 'conv_8_conv2d_weight': [512, 512, 1, 1], 'conv_8_batchnorm_gamma': [512], 'conv_8_batchnorm_beta': [512], 'conv_8_batchnorm_moving_mean': [512], 'conv_8_batchnorm_moving_var': [512], 'conv_8_relu_gamma': [512, 1, 1], 'conv_9_dw_conv2d_weight': [512, 1, 3, 3], 'conv_9_dw_batchnorm_gamma': [512], 'conv_9_dw_batchnorm_beta': [512], 'conv_9_dw_batchnorm_moving_mean': [512], 'conv_9_dw_batchnorm_moving_var': [512], 'conv_9_dw_relu_gamma': [512, 1, 1], 'conv_9_conv2d_weight': [512, 512, 1, 1], 'conv_9_batchnorm_gamma': [512], 'conv_9_batchnorm_beta': [512], 'conv_9_batchnorm_moving_mean': [512], 'conv_9_batchnorm_moving_var': [512], 'conv_9_relu_gamma': [512, 1, 1], 'conv_10_dw_conv2d_weight': [512, 1, 3, 3], 'conv_10_dw_batchnorm_gamma': [512], 'conv_10_dw_batchnorm_beta': [512], 'conv_10_dw_batchnorm_moving_mean': [512], 'conv_10_dw_batchnorm_moving_var': [512], 'conv_10_dw_relu_gamma': [512, 1, 1], 'conv_10_conv2d_weight': [512, 512, 1, 1], 'conv_10_batchnorm_gamma': [512], 'conv_10_batchnorm_beta': [512], 'conv_10_batchnorm_moving_mean': [512], 'conv_10_batchnorm_moving_var': [512], 'conv_10_relu_gamma': [512, 1, 1], 'conv_11_dw_conv2d_weight': [512, 1, 3, 3], 'conv_11_dw_batchnorm_gamma': [512], 'conv_11_dw_batchnorm_beta': [512], 'conv_11_dw_batchnorm_moving_mean': [512], 'conv_11_dw_batchnorm_moving_var': [512], 'conv_11_dw_relu_gamma': [512, 1, 1], 'conv_11_conv2d_weight': [512, 512, 1, 1], 'conv_11_batchnorm_gamma': [512], 'conv_11_batchnorm_beta': [512], 'conv_11_batchnorm_moving_mean': [512], 'conv_11_batchnorm_moving_var': [512], 'conv_11_relu_gamma': [512, 1, 1], 'conv_12_dw_conv2d_weight': [512, 1, 3, 3], 'conv_12_dw_batchnorm_gamma': [512], 'conv_12_dw_batchnorm_beta': [512], 'conv_12_dw_batchnorm_moving_mean': [512], 'conv_12_dw_batchnorm_moving_var': [512], 'conv_12_dw_relu_gamma': [512, 1, 1], 'conv_12_conv2d_weight': [512, 512, 1, 1], 'conv_12_batchnorm_gamma': [512], 'conv_12_batchnorm_beta': [512], 'conv_12_batchnorm_moving_mean': [512], 'conv_12_batchnorm_moving_var': [512], 'conv_12_relu_gamma': [512, 1, 1], 'conv_13_dw_conv2d_weight': [512, 1, 3, 3], 'conv_13_dw_batchnorm_gamma': [512], 'conv_13_dw_batchnorm_beta': [512], 'conv_13_dw_batchnorm_moving_mean': [512], 'conv_13_dw_batchnorm_moving_var': [512], 'conv_13_dw_relu_gamma': [512, 1, 1], 'conv_13_conv2d_weight': [1024, 512, 1, 1], 'conv_13_batchnorm_gamma': [1024], 'conv_13_batchnorm_beta': [1024], 'conv_13_batchnorm_moving_mean': [1024], 'conv_13_batchnorm_moving_var': [1024], 'conv_13_relu_gamma': [1024, 1, 1], 'conv_14_dw_conv2d_weight': [1024, 1, 3, 3], 'conv_14_dw_batchnorm_gamma': [1024], 'conv_14_dw_batchnorm_beta': [1024], 'conv_14_dw_batchnorm_moving_mean': [1024], 'conv_14_dw_batchnorm_moving_var': [1024], 'conv_14_dw_relu_gamma': [1024, 1, 1], 'conv_14_conv2d_weight': [1024, 1024, 1, 1], 'conv_14_batchnorm_gamma': [1024], 'conv_14_batchnorm_beta': [1024], 'conv_14_batchnorm_moving_mean': [1024], 'conv_14_batchnorm_moving_var': [1024], 'conv_14_relu_gamma': [1024, 1, 1], 'bn1_gamma': [1024], 'bn1_beta': [1024], 'bn1_moving_mean': [1024], 'bn1_moving_var': [1024], 'pre_fc1_weight': [128, 50176], 'pre_fc1_bias': [128], 'fc1_gamma': [128], 'fc1_beta': [128], 'fc1_moving_mean': [128], 'fc1_moving_var': [128]}`
+- **outputs** `{'fc1': [1, 128]}`
 
 ### `yolov8m-worldv2-search.onnx`
 
@@ -131,7 +155,16 @@ person
 - **modified** 2026-05-09T08:46:18+00:00
 - **sha256 (first 64 MB)** `ff23067f71a6ad44`
 - **format** onnx
-- **note** onnx package not installed; header not parsed
+- **inputs** `{'images': [1, 3, 960, 960]}`
+- **outputs** `{'output0': [1, 39, 18900]}`
+
+<details><summary>35 classes</summary>
+
+```
+person, t-shirt, shirt, jacket, coat, hoodie, sweater, vest, dress, pants, shorts, skirt, shoes, boots, sandals, cap, hat, helmet, hijab, glasses, sunglasses, mask, scarf, belt, tie, backpack, handbag, suitcase, umbrella, phone, bottle, book, laptop, cup, sports ball
+```
+
+</details>
 
 ### `yolov8s-pose.onnx`
 
@@ -139,15 +172,136 @@ person
 - **modified** 2026-05-09T10:28:59+00:00
 - **sha256 (first 64 MB)** `aea35bdc3c64721a`
 - **format** onnx
-- **note** onnx package not installed; header not parsed
+- **inputs** `{'images': [1, 3, 640, 640]}`
+- **outputs** `{'output0': [1, 56, 8400]}`
+
+<details><summary>1 classes</summary>
+
+```
+person
+```
+
+</details>
 
 ### `yolov8s.onnx`
 
-- **size** 42.8 MB (44,869,868 bytes)
-- **modified** 2026-05-17T10:55:02+00:00
-- **sha256 (first 64 MB)** `023c2e8ab435bdf4`
+- **size** 42.8 MB (44,842,834 bytes)
+- **modified** 2026-08-24T09:31:34+00:00
+- **sha256 (first 64 MB)** `40e57cdf8ec3b8ce`
 - **format** onnx
-- **note** onnx package not installed; header not parsed
+- **inputs** `{'images': [1, 3, 640, 640]}`
+- **outputs** `{'output0': [1, 84, 8400]}`
+
+<details><summary>80 classes</summary>
+
+```
+person, bicycle, car, motorcycle, airplane, bus, train, truck, boat, traffic light, fire hydrant, stop sign, parking meter, bench, bird, cat, dog, horse, sheep, cow, elephant, bear, zebra, giraffe, backpack, umbrella, handbag, tie, suitcase, frisbee, skis, snowboard, sports ball, kite, baseball bat, baseball glove, skateboard, surfboard, tennis racket, bottle, wine glass, cup, fork, knife, spoon, bowl, banana, apple, sandwich, orange, broccoli, carrot, hot dog, pizza, donut, cake, chair, couch, potted plant, bed, dining table, toilet, tv, laptop, mouse, remote, keyboard, cell phone, microwave, oven, toaster, sink, refrigerator, book, clock, vase, scissors, teddy bear, hair drier, toothbrush
+```
+
+</details>
+
+### `bagbest.pt`
+
+- **size** 54.5 MB (57,100,016 bytes)
+- **modified** 2026-08-07T13:36:28+00:00
+- **sha256 (first 64 MB)** `9b028e9dda6de471`
+- **format** pytorch
+- **architecture** WorldModel
+- **parameters** 28,376,158
+- **date** 2026-08-07T10:37:09.732716+00:00
+- **version** 8.4.115
+- **train args** `{'data': 'merged_dataset/data.yaml', 'epochs': '50', 'imgsz': '640', 'batch': '16', 'model': 'yolov8m-worldv2.pt', 'task': 'detect', 'mode': 'train', 'device': ''}`
+- **train metrics** `{'metrics/precision(B)': 0.9013, 'metrics/recall(B)': 0.8174, 'metrics/mAP50(B)': 0.8936, 'metrics/mAP50-95(B)': 0.6888, 'val/box_loss': 0.9095, 'val/cls_loss': 0.6259, 'val/dfl_loss': 1.236, 'fitness': 0.6888}`
+- **open-vocab buffers** `{'txt_feats': '(1, 11, 512)', 'clip_model': 'NoneType'}`
+
+<details><summary>11 classes</summary>
+
+```
+backpack, laptop, jacket, key, handbag, suitcase, cup, book, shoes, cap, glasses
+```
+
+</details>
+
+### `bagsearch.pt`
+
+- **size** 54.4 MB (57,083,659 bytes)
+- **modified** 2026-08-23T11:44:21+00:00
+- **sha256 (first 64 MB)** `f66b97b43f9d6f53`
+- **format** pytorch
+- **architecture** WorldModel
+- **parameters** 28,376,158
+- **open-vocab buffers** `{'txt_feats': '(1, 10, 512)', 'clip_model': 'NoneType'}`
+
+<details><summary>10 classes</summary>
+
+```
+person, bag, backpack, handbag, suitcase, duffel bag, shopping bag, tote bag, luggage, briefcase
+```
+
+</details>
+
+### `char_detector.pt`
+
+- **size** 38.5 MB (40,382,758 bytes)
+- **modified** 2026-08-24T10:44:33+00:00
+- **sha256 (first 64 MB)** `eb6ffb2cc0839785`
+- **format** pytorch
+- **architecture** DetectionModel
+- **parameters** 20,059,330
+- **date** 2024-10-17T15:42:09.494947
+- **version** 8.3.15
+- **train args** `{'data': '/ultralytics/ultralytics/cfg/datasets/coco.yaml', 'epochs': '600', 'imgsz': '640', 'batch': '128', 'model': 'yolo11m.yaml', 'task': 'detect', 'mode': 'train', 'device': '3'}`
+- **train metrics** `{'metrics/precision(B)': 0.7378, 'metrics/recall(B)': 0.6169, 'metrics/mAP50(B)': 0.6844, 'metrics/mAP50-95(B)': 0.5144, 'val/box_loss': 0.9051, 'val/cls_loss': 0.864, 'val/dfl_loss': 1.0449, 'fitness': 0.9798, 'lr/pg0': 0.0001, 'lr/pg1': 0.0001, 'lr/pg2': 0.0001, 'train/seg_loss': 1.8583, 'train/cls_loss': 0.7547, 'train/dfl_loss': 1.0318, 'train/box_loss': 0.8688}`
+
+<details><summary>38 classes</summary>
+
+```
+0, 1, 2, 3, 4, 5, 6, 7, 7aa, 8, 9, Taa, Thaa, ain, alif, baa, daad, daal, faa, ghayn, haa, jeem, kaaf, khaa, laam, meem, noon, qaaf, raa, saad, seen, sheen, taa, thaa, waw, yaa, zaal, zay
+```
+
+</details>
+
+### `knifebest.pt`
+
+- **size** 21.5 MB (22,516,010 bytes)
+- **modified** 2026-08-22T08:27:12+00:00
+- **sha256 (first 64 MB)** `92b4b241ff20b8bb`
+- **format** pytorch
+- **architecture** DetectionModel
+- **parameters** 11,135,987
+- **date** 2026-08-13T08:17:06.143441+00:00
+- **version** 8.4.118
+- **train args** `{'data': 'combined_knife_dataset/data.yaml', 'epochs': '80', 'imgsz': '640', 'batch': '16', 'model': '/content/drive/MyDrive/knife_training_v2/train/weights/best.pt', 'task': 'detect', 'mode': 'train', 'device': ''}`
+- **train metrics** `{'metrics/precision(B)': 0.8652, 'metrics/recall(B)': 0.8592, 'metrics/mAP50(B)': 0.9217, 'metrics/mAP50-95(B)': 0.667, 'val/box_loss': 0.9453, 'val/cls_loss': 0.6534, 'val/dfl_loss': 1.2019, 'fitness': 0.667}`
+
+<details><summary>1 classes</summary>
+
+```
+knife
+```
+
+</details>
+
+### `plate_detector.pt`
+
+- **size** 38.4 MB (40,311,178 bytes)
+- **modified** 2026-08-24T10:44:26+00:00
+- **sha256 (first 64 MB)** `b0459e237bd68e70`
+- **format** pytorch
+- **architecture** DetectionModel
+- **parameters** 20,030,803
+- **date** 2024-10-16T12:25:07.159663
+- **version** 8.3.13
+- **train args** `{'data': '/ultralytics/ultralytics/cfg/datasets/coco.yaml', 'epochs': '600', 'imgsz': '640', 'batch': '128', 'model': 'yolo11m.yaml', 'task': 'detect', 'mode': 'train', 'device': '3'}`
+- **train metrics** `{'metrics/precision(B)': 0.7378, 'metrics/recall(B)': 0.6169, 'metrics/mAP50(B)': 0.6844, 'metrics/mAP50-95(B)': 0.5144, 'val/box_loss': 0.9051, 'val/cls_loss': 0.864, 'val/dfl_loss': 1.0449, 'fitness': 0.9798, 'lr/pg0': 0.0001, 'lr/pg1': 0.0001, 'lr/pg2': 0.0001, 'train/seg_loss': 1.8583, 'train/cls_loss': 0.7547, 'train/dfl_loss': 1.0318, 'train/box_loss': 0.8688}`
+
+<details><summary>1 classes</summary>
+
+```
+car_plate
+```
+
+</details>
 
 ### `yolo11m.pt`
 

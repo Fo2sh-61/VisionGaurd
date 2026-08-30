@@ -1,288 +1,104 @@
 import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { CamGrid } from '@/components/CamGrid';
-import { RecordButton } from '@/components/RecordButton';
-import { Badge, Card, DataNotice, Empty, Field, LoadError, PageHeader, Select } from '@/components/ui';
-import { getWeaponCameras, getWeaponDetections } from '@/services/api';
-import { WEAPON_STEPS } from '@/services/content';
-import { useSite } from '@/app/SiteContext';
-import type { Camera, WeaponDetection, WeaponState, WeaponWindow } from '@/types';
+import { Badge, Card, DataNotice, Empty, Field, LoadError, PageHeader, Select, toneGlyph } from '@/components/ui';
+import { getWeaponCameras, getWeaponDetections, reviewWeapon } from '@/services/api';
+import type { Camera, WeaponDetection, WeaponWindow } from '@/types';
 import { useCapability } from '@/app/CapabilityContext';
+import { useSite } from '@/app/SiteContext';
 import { useAsync } from '@/app/useAsync';
+import { useLanguage, useT } from '@/app/LanguageContext';
+import type { MessageKey } from '@/i18n';
 
-const WINDOWS: WeaponWindow[] = ['Last 30 days', 'Last 90 days', 'This school year'];
+const WINDOWS: WeaponWindow[] = [
+  'today',
+  'yesterday',
+  'last7',
+  'last30',
+  'last90',
+  'schoolYear',
+  'all',
+];
+
+/** A scene becomes watchable the moment the knife leaves view, which happens
+ *  while somebody is looking at this page rather than because they did
+ *  anything. Without a poll the only way to see a new video was to navigate
+ *  away and come back. P6-FR-016. */
+const LOG_REFRESH_MS = 3_000;
+
+/** The camera list changes when somebody edits the roster, not on its own. */
+const CAMERA_REFRESH_MS = 15_000;
 
 const NO_DETECTIONS: WeaponDetection[] = [];
 const NO_CAMERAS: Camera[] = [];
 
 export function Weapons() {
+  const { language } = useLanguage();
   const capability = useCapability('weapons');
-  const [when, setWhen] = useState<WeaponWindow>('Last 90 days');
-  const [state, setState] = useState<WeaponState>('clear');
-  const cameraTotal = useSite().site?.camerasTotal ?? 0;
+  const t = useT();
+  // Read, never printed. The engine deletes by its own configured
+  // `clip_retention_days`; a number typed in here would be a promise the
+  // engine is not required to keep.
+  const retentionDays = useSite().site?.clipRetentionDays;
+  // Ask lands here with the question resolved. See Attendance for why
+  // reading these matters: a link nothing reads is decoration.
+  const [params] = useSearchParams();
+  const asked = params.get('window') as WeaponWindow | null;
+  const [when, setWhen] = useState<WeaponWindow>(
+    asked && WINDOWS.includes(asked) ? asked : 'last30');
 
-  const { data: cameras } = useAsync(() => getWeaponCameras(), [], NO_CAMERAS);
+  const { data: cameras } = useAsync(
+    () => getWeaponCameras(language), [language], NO_CAMERAS, CAMERA_REFRESH_MS);
   const {
     data: detections, error, loading, reload,
-  } = useAsync(() => getWeaponDetections(when), [when], NO_DETECTIONS);
+  } = useAsync(() => getWeaponDetections(when, language),
+    [when, language], NO_DETECTIONS, LOG_REFRESH_MS);
 
-  // Nothing on this page may claim the campus is clear unless the detector is
-  // actually running. It used to render a green tick reading "No knife
-  // detected on campus - monitoring all N cameras - last check 2 seconds ago"
-  // from a `useState('clear')` that nothing ever changed, while the weapons
-  // worker did not exist. That is the most dangerous sentence in the console:
-  // it is a safety assurance produced by no measurement at all.
-  //
-  // The review workflow below it is driven by the same unchanging state, so it
-  // is gated on the same condition rather than left to contradict the notice
-  // sitting directly above it.
-  const watching = capability?.state === 'live';
-  // Only claim a number when the engine actually answered with one.
+  // The whole entry, not just its id: the log refreshes underneath the player,
+  // and looking the entry up each render would make the video vanish mid-watch
+  // if the list moved.
+  const [playing, setPlaying] = useState<WeaponDetection | null>(null);
+  const [reviewing, setReviewing] = useState<string | null>(null);
+  const [reasons, setReasons] = useState<Record<string, string>>({});
+  const [reviewError, setReviewError] = useState<string | null>(null);
+
+  // Nothing on this page may claim the school is clear unless the detector is
+  // actually running. An empty list from a feature that never started is not
+  // an all-clear, and on this feature above all others that difference is the
+  // whole point.
+  const running = capability?.state === 'live';
+  const notRunning = capability?.reason ?? t('weapons.notRunning');
   const counted = !loading && !error;
+  const stillListed = playing !== null && detections.some((d) => d.id === playing.id);
+  const inView = detections.filter((d) => d.running).length;
+
+  async function decide(entry: WeaponDetection, verdict: 'confirmed' | 'dismissed') {
+    setReviewError(null);
+    setReviewing(entry.id);
+    try {
+      await reviewWeapon(entry.id, verdict, language, reasons[entry.id]?.trim() || undefined);
+      // Re-read rather than patching in place: the verdict, the reviewer and
+      // the time all come from the engine, and inventing them here is how a
+      // page ends up showing a save that did not happen.
+      reload();
+    } catch (err) {
+      setReviewError(
+        t('weapons.verdictNotSaved', {
+          reason: err instanceof Error ? err.message : t('common.engineRefused'),
+        }),
+      );
+    } finally {
+      setReviewing(null);
+    }
+  }
 
   return (
     <>
       <DataNotice capability={capability} />
       <PageHeader
-        title="Knife detection"
-        lead={
-          watching
-            ? `Looks for knife-shaped objects on all ${cameraTotal} cameras. Every detection is reviewed by a person before anything happens.`
-            : 'Looks for knife-shaped objects and sends every detection to a person for review. Not running at the moment, so nothing is being watched.'
-        }
+        title={t('weapons.title')}
+        lead={t('weapons.lead')}
       />
-
-      {watching && state === 'clear' && (
-        <Card tight className="weapons-status">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            <div
-              style={{
-                width: 44,
-                height: 44,
-                borderRadius: '50%',
-                background: 'var(--chip)',
-                color: 'var(--ac)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: 19,
-                flexShrink: 0,
-              }}
-            >
-              ✓
-            </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 600, fontSize: 15.5 }}>No knife detected on campus</div>
-              <div style={{ fontSize: 13.5, color: 'var(--tx2)' }}>
-                Monitoring all {cameraTotal} cameras
-              </div>
-            </div>
-            <button
-              type="button"
-              className="linkbtn linkbtn--quiet"
-              style={{ whiteSpace: 'nowrap' }}
-              onClick={() => setState('live')}
-            >
-              Show a live detection →
-            </button>
-          </div>
-        </Card>
-      )}
-
-      {watching && state === 'live' && (
-        <div
-          className="card"
-          style={{ border: '2px solid var(--rd)', padding: 24 }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
-            <span
-              aria-hidden="true"
-              style={{
-                width: 26,
-                height: 26,
-                borderRadius: '50%',
-                background: 'var(--rd)',
-                color: 'var(--card)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: 15,
-                fontWeight: 800,
-                flexShrink: 0,
-              }}
-            >
-              !
-            </span>
-            <div style={{ fontWeight: 700, fontSize: 21, letterSpacing: '-.01em', color: 'var(--rd)' }}>
-              Possible knife — Main gate
-            </div>
-          </div>
-          <div style={{ fontSize: 13.5, color: 'var(--tx2)', marginBottom: 18 }}>
-            Detected 14 seconds ago · knife-shaped object, 78% confidence · nobody has been alerted
-            yet.
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 1fr', gap: 18, alignItems: 'start' }}>
-            <CamGrid title="" cameras={cameras.slice(0, 1)} only />
-            <div>
-              <div style={{ fontWeight: 700, fontSize: 14.5, marginBottom: 8 }}>
-                Before anything happens, a person decides
-              </div>
-              <div style={{ fontSize: 13.5, color: 'var(--tx2)', lineHeight: 1.5, marginBottom: 16 }}>
-                The system will not call anyone, lock anything, or notify a parent on its own. Watch
-                the clip and say what you see.
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-                <button
-                  type="button"
-                  className="btn"
-                  style={{ background: 'var(--rd)', width: '100%' }}
-                  onClick={() => setState('confirmed')}
-                >
-                  This is a knife — alert the team
-                </button>
-                <button
-                  type="button"
-                  className="btn btn--ghost"
-                  style={{ width: '100%' }}
-                  onClick={() => setState('dismissed')}
-                >
-                  Not a knife — false alarm
-                </button>
-                <button
-                  type="button"
-                  className="linkbtn linkbtn--quiet"
-                  style={{ height: 40, width: '100%' }}
-                  onClick={() => setState('dismissed')}
-                >
-                  Not sure yet — keep watching
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {watching && state === 'confirmed' && (
-        <Card>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-            <span
-              aria-hidden="true"
-              style={{
-                width: 22,
-                height: 22,
-                borderRadius: '50%',
-                background: 'var(--rd)',
-                color: 'var(--card)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: 12,
-                fontWeight: 800,
-                flexShrink: 0,
-              }}
-            >
-              !
-            </span>
-            <div style={{ fontWeight: 700, fontSize: 19, letterSpacing: '-.01em' }}>
-              Confirmed by you at 8:47am — team alerted
-            </div>
-          </div>
-          <div style={{ fontSize: 13.5, color: 'var(--tx2)', marginBottom: 16 }}>
-            Mohamed Fouad confirmed this detection. Everything below is now recorded against the
-            incident.
-          </div>
-
-          {WEAPON_STEPS.map((step) => (
-            <div
-              key={step.title}
-              style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 0', borderBottom: '1px solid var(--line)' }}
-            >
-              <span
-                aria-hidden="true"
-                style={{
-                  width: 20,
-                  height: 20,
-                  borderRadius: '50%',
-                  background:
-                    step.tone === 'bad' ? 'var(--rd)' : step.tone === 'warn' ? 'var(--am)' : 'var(--bg)',
-                  color: step.tone === 'neutral' ? 'var(--tx2)' : 'var(--card)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: 11,
-                  fontWeight: 800,
-                  flexShrink: 0,
-                }}
-              >
-                {step.icon}
-              </span>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 600, fontSize: 14 }}>{step.title}</div>
-                <div style={{ fontSize: 12.5, color: 'var(--tx3)' }}>{step.sub}</div>
-              </div>
-            </div>
-          ))}
-
-          <div
-            style={{
-              display: 'flex',
-              gap: 9,
-              marginTop: 16,
-              flexWrap: 'wrap',
-              alignItems: 'flex-start',
-            }}
-          >
-            <button type="button" className="btn btn--ghost" onClick={() => setState('clear')}>
-              Close incident
-            </button>
-            {/* The detection has already happened and nothing is buffered, so
-                it is not in the video. Said here rather than left to be
-                discovered by whoever opens the file afterwards. */}
-            <RecordButton
-              cameraId={cameras[0]?.id ?? ''}
-              disabled={cameras.length === 0}
-              note="Records from now on. The detection above already happened and will not be in the video."
-            />
-          </div>
-        </Card>
-      )}
-
-      {watching && state === 'dismissed' && (
-        <Card tight>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            <div
-              style={{
-                width: 40,
-                height: 40,
-                borderRadius: '50%',
-                background: 'var(--chip)',
-                color: 'var(--ac)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: 17,
-                flexShrink: 0,
-              }}
-            >
-              ✓
-            </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 600, fontSize: 15 }}>Marked as a false alarm — nobody was alerted</div>
-              <div style={{ fontSize: 13, color: 'var(--tx2)' }}>
-                Recorded against your name at 8:47am, and added to the list below so the count stays
-                honest.
-              </div>
-            </div>
-            <button
-              type="button"
-              className="linkbtn"
-              style={{ whiteSpace: 'nowrap' }}
-              onClick={() => setState('clear')}
-            >
-              Done
-            </button>
-          </div>
-        </Card>
-      )}
 
       <Card>
         <div
@@ -292,57 +108,182 @@ export function Weapons() {
             justifyContent: 'space-between',
             gap: 12,
             flexWrap: 'wrap',
-            marginBottom: 6,
+            marginBottom: 14,
           }}
         >
           <div>
             <div style={{ fontWeight: 700, fontSize: 19, letterSpacing: '-.01em' }}>
               {counted
-                ? `${detections.length} ${detections.length === 1 ? 'detection' : 'detections'} · ${when.toLowerCase()}`
-                : `Detections · ${when.toLowerCase()}`}
+                ? t(detections.length === 1 ? 'weapons.entryCountOne' : 'weapons.entryCount', {
+                  count: detections.length,
+                  window: t(`window.${when}` as MessageKey),
+                })
+                : t('weapons.entriesHeading', {
+                  window: t(`window.${when}` as MessageKey),
+                })}
             </div>
+            {/* Never "No knife detected". What this line says is how many
+                cameras are being checked — a fact — and when nothing is
+                running it says that instead. */}
             <div style={{ fontSize: 13.5, color: 'var(--tx2)', marginTop: 2 }}>
-              {counted
-                ? 'False alarms are shown honestly — most detections turn out to be harmless.'
-                : error
-                  ? 'Not counted — the history could not be loaded.'
-                  : 'Counting…'}
+              {running
+                ? t(cameras.length === 1
+                  ? 'weapons.camerasCheckedOne' : 'weapons.camerasChecked',
+                { count: cameras.length })
+                  + (inView > 0
+                    ? ` · ${t('weapons.stillInView', { count: inView })}` : '')
+                : notRunning}
             </div>
           </div>
-          <Field label="Period">
-            <Select value={when} onChange={(v) => setWhen(v as WeaponWindow)} options={WINDOWS} />
+          <Field label={t('weapons.period')}>
+            <Select
+              value={when}
+              onChange={(v) => setWhen(v as WeaponWindow)}
+              options={WINDOWS}
+              label={(o) => t(`window.${o}` as MessageKey)}
+            />
           </Field>
         </div>
 
-        <LoadError error={error} onRetry={reload} what="the detection history" />
-        {loading && <Empty>Loading detection history…</Empty>}
-        {counted && detections.length === 0 && (
-          <Empty>
-            {watching
-              ? `No detections ${when.toLowerCase()}.`
-              : 'No detections recorded. Knife detection has not been running.'}
-          </Empty>
-        )}
+        <div style={{ fontSize: 12.5, color: 'var(--tx2)', marginBottom: 10 }}>
+          {retentionDays
+            ? `${t(retentionDays === 1
+              ? 'weapons.keptForOneDay' : 'weapons.keptForDays', { days: retentionDays })} `
+            : `${t('weapons.keptUnknown')} `}
+          {t('weapons.neverRemoved')}
+        </div>
 
-        {detections.map((d) => (
-          <div key={d.id} className="row" style={{ gridTemplateColumns: '1.1fr 1.1fr 1fr 1.4fr .7fr' }}>
-            <span className="row__muted">{d.time}</span>
-            <span className="row__name">{d.location}</span>
-            <span>{d.item}</span>
-            <span>
-              <Badge tone={d.tone}>{d.status}</Badge>
+        <LoadError error={error} onRetry={reload} what="load.detectionLog" />
+        <LoadError error={reviewError} what="load.verdict" />
+        {loading && <Empty>{t('weapons.loading')}</Empty>}
+
+        {/* Two different empty states, because they are two different claims.
+            An empty list from a running detector means nothing was seen; an
+            empty list from a detector that never started means nothing was
+            looked for, and reading the second as the first is exactly the
+            failure this page exists to avoid. */}
+        {counted && detections.length === 0 && running && (
+          <Empty>{t('weapons.nothingSeen', { window: t(`window.${when}` as MessageKey) })}</Empty>
+        )}
+        {counted && detections.length === 0 && !running && <Empty>{notRunning}</Empty>}
+
+        {detections.map((entry) => (
+          <div
+            key={entry.id}
+            className="row"
+            style={{ gridTemplateColumns: '1.1fr .9fr .9fr .8fr .6fr 1.2fr 1.4fr' }}
+          >
+            <span className="row__name">{entry.camera}</span>
+            <span className="row__muted">{entry.area}</span>
+            <span className="row__muted">{entry.time}</span>
+            <span className="row__muted">
+              {entry.duration}
+              {entry.cut && (
+                <span style={{ display: 'block', fontSize: 11.5 }}>cut at two minutes</span>
+              )}
             </span>
-            <button type="button" className="linkbtn">
-              Watch clip
-            </button>
+            <span className="row__muted">{entry.confidence}</span>
+            <span>
+              <Badge tone={entry.tone} glyph={toneGlyph[entry.tone]}>
+                {entry.status}
+              </Badge>
+            </span>
+            <span style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              {/* No dead buttons. A video either plays or the control is gone
+                  and a sentence says why. */}
+              {entry.clipUrl ? (
+                <>
+                  <button
+                    type="button"
+                    className="linkbtn"
+                    onClick={() =>
+                      setPlaying((current) => (current?.id === entry.id ? null : entry))
+                    }
+                  >
+                    {t(playing?.id === entry.id ? 'weapons.hide' : 'weapons.watch')}
+                  </button>
+                  <a href={entry.clipUrl} target="_blank" rel="noopener" className="linkbtn">
+                    {t('weapons.open')}
+                  </a>
+                </>
+              ) : (
+                <span style={{ fontSize: 12.5, color: 'var(--tx2)' }}>
+                  {entry.clipReason ?? t('weapons.noVideo')}
+                </span>
+              )}
+            </span>
+
+            {entry.verdict === 'pending' && (
+              <span
+                style={{
+                  gridColumn: '1 / -1',
+                  display: 'flex',
+                  gap: 8,
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  paddingTop: 8,
+                }}
+              >
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={reviewing === entry.id}
+                  onClick={() => decide(entry, 'confirmed')}
+                >
+                  {t('weapons.confirmKnife')}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--ghost"
+                  disabled={reviewing === entry.id}
+                  onClick={() => decide(entry, 'dismissed')}
+                >
+                  {t('weapons.falseAlarm')}
+                </button>
+                <input
+                  type="text"
+                  placeholder={t('weapons.reasonOptional')}
+                  value={reasons[entry.id] ?? ''}
+                  onChange={(e) =>
+                    setReasons((r) => ({ ...r, [entry.id]: e.target.value }))
+                  }
+                  style={{ flex: '1 1 220px', minWidth: 180 }}
+                />
+              </span>
+            )}
           </div>
         ))}
+
+        {playing?.clipUrl && (
+          <div style={{ marginTop: 12 }}>
+            <video
+              key={playing.id}
+              src={playing.clipUrl}
+              controls
+              autoPlay
+              style={{ width: '100%', maxHeight: 420, borderRadius: 8 }}
+            />
+            {/* Dropped out of the chosen period while it was being watched.
+                Saying so beats the player silently disappearing. */}
+            {!stillListed && (
+              <div style={{ fontSize: 12.5, color: 'var(--tx2)', marginTop: 6 }}>
+                {t('weapons.entryNoLongerListed', { window: t(`window.${when}` as MessageKey) })}
+              </div>
+            )}
+          </div>
+        )}
       </Card>
 
+      {/* `tileOverlay` is the one place in the product a grid tile draws its
+          own overlay. A knife is the overlay worth seeing without clicking
+          first: the question it answers is "is that a knife", and you should
+          not have to open a camera to ask it. Owner decision, 22 Aug 2026. */}
       <CamGrid
-        title="Highest-risk cameras"
-        note="Knife detection runs everywhere; entry points are shown first. Green = scanned, nothing found."
+        title={t('weapons.gridTitle')}
+        note={t('weapons.gridNote')}
         cameras={cameras}
+        feature="weapons"
+        tileOverlay
       />
     </>
   );

@@ -96,6 +96,28 @@ You **MUST** consider the user input before proceeding (if not empty).
 3. Load and analyze the implementation context:
    - **REQUIRED**: Read tasks.md for the complete task list and execution plan
    - **REQUIRED**: Read plan.md for tech stack, architecture, and file structure
+   - **IF EXISTS**: Read `context.md` **first**, before opening any source
+     file. It is the previous chat's handoff: the anchor and current shape of
+     every file this feature touches, written while that context was still
+     loaded. It exists so this chat does not rebuild it by reading whole files.
+
+   **Orienting yourself costs more than the edits do.** Measured on
+   `002-people-enrolment-ux`: ~3,500 lines of source read before the first
+   line was written, of which roughly 2,400 were avoidable. So:
+
+   - Open the **anchor**, not the file. `context.md` and tasks.md both name
+     the symbol; `Read` with `offset`/`limit`, or `Grep` with context, beats
+     reading 475 lines to change 6.
+   - Read a file whole only when you are rewriting most of it.
+   - The idioms in `AGENTS.md` — test fixtures, `_instant`, `_log`, the wire
+     rules, the CSS classes, the line-ending trap — are already loaded. Do not
+     go and re-derive them from the test files.
+   - For anything still unknown, **send an `Explore` subagent** rather than
+     searching in this thread. Its context is discarded and only the answer
+     comes back. Good: "what does X return, and who calls it?" Bad: anything
+     you already have an anchor for.
+   - Verify before trusting `context.md`. It is a snapshot of an earlier
+     commit; if it disagrees with the code, the code wins, and say so.
    - **IF EXISTS**: Read data-model.md for entities and relationships
    - **IF EXISTS**: Read contracts/ for API specifications and test requirements
    - **IF EXISTS**: Read research.md for technical decisions and constraints

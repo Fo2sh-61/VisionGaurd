@@ -218,8 +218,13 @@ class TestShippedConfig:
     """The committed engine.yaml must actually load."""
 
     def test_loads(self, loaded):
-        assert loaded.site_name
         assert loaded.cameras
+
+    def test_ships_without_a_customer_name(self, loaded):
+        # engine.yaml leaves site_name blank on purpose — the product is not
+        # sold to one school. YAML reads a blank key as None, and str(None)
+        # would print the word "None" under the product name in the console.
+        assert loaded.site_name == ""
 
     def test_every_zone_points_at_a_real_camera(self, loaded):
         ids = {c.id for c in loaded.cameras}
@@ -288,3 +293,79 @@ class TestHours:
 
     def test_shipped_config_has_usable_hours(self, loaded):
         assert loaded.hours.start < loaded.hours.late_cutoff <= loaded.hours.end
+
+
+# --- gate cameras ----------------------------------------------------------
+
+BASE_CAMERA = {"id": "g1", "name": "Gate 1 in", "source": "rtsp://x/1"}
+
+
+def camera(**extra):
+    return cfg.CameraConfig.parse({**BASE_CAMERA, **extra}, "cameras[0]")
+
+
+class TestGateCameras:
+    """`gate` and `direction` are what give a plate read its meaning.
+
+    Without them a pass is "a car went past something, somehow", which is not
+    a record of anything. These tests pin the three ways that can go wrong:
+    a guessed direction, a gate with no feature, and a feature with no gate.
+    """
+
+    def test_a_gate_camera_parses(self):
+        cam = camera(gate=1, direction="entry", features=["vehicles"])
+
+        assert cam.gate == 1
+        assert cam.direction == "entry"
+        assert cam.is_gate
+
+    def test_direction_is_case_and_space_insensitive(self):
+        assert camera(gate=2, direction="  EXIT ", features=["vehicles"]).direction == "exit"
+
+    def test_both_is_refused_and_says_why(self):
+        """The whole reason this field exists rather than being inferred.
+
+        A single camera can guess direction from whether the plate grows or
+        shrinks, and the project this technique came from calls that
+        "noticeably less reliable". A guess deciding whether a car is recorded
+        as arriving or leaving is exactly the untruth rule 4 forbids.
+        """
+        with pytest.raises(cfg.ConfigError, match="one camera per direction"):
+            camera(gate=1, direction="both", features=["vehicles"])
+
+    def test_an_unknown_direction_is_refused(self):
+        with pytest.raises(cfg.ConfigError, match="expected one of"):
+            camera(gate=1, direction="inwards", features=["vehicles"])
+
+    def test_a_gate_number_must_be_positive(self):
+        with pytest.raises(cfg.ConfigError, match="positive"):
+            camera(gate=0, direction="entry", features=["vehicles"])
+
+    def test_the_feature_without_a_gate_is_refused(self):
+        """Half-configured is worse than not configured: the worker would run
+        and have nowhere honest to file what it saw."""
+        with pytest.raises(cfg.ConfigError, match="no gate/direction"):
+            camera(features=["vehicles"])
+
+    def test_a_gate_without_the_feature_is_refused(self):
+        """Reads like a configured gate. Watches nothing."""
+        with pytest.raises(cfg.ConfigError, match="watching nothing"):
+            camera(gate=1, direction="entry")
+
+    def test_every_other_camera_is_untouched(self):
+        """The fields are additive. A camera written before Vehicle gate
+        existed must parse exactly as it did, and not become a gate."""
+        cam = camera(features=["attendance", "counting"])
+
+        assert cam.gate is None
+        assert cam.direction is None
+        assert not cam.is_gate
+
+    def test_the_shipped_config_has_one_gate_camera(self, loaded):
+        gates = [c for c in loaded.cameras if c.is_gate]
+
+        assert len(gates) == 1, "engine.yaml should ship exactly one gate camera"
+        assert gates[0].direction == "entry"
+        # There is no exit camera yet, and the Movements tab must say so
+        # rather than print a paired figure it cannot compute (P6-FR-012).
+        assert not [c for c in loaded.cameras if c.direction == "exit"]

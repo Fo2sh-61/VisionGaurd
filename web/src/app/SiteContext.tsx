@@ -13,6 +13,7 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import { getSite } from '@/services/api';
 import { formatLongDate, formatTime } from '@/services/format';
 import type { SiteInfo } from '@/services/wire';
+import { useLanguage } from '@/app/LanguageContext';
 
 interface SiteState {
   site: SiteInfo | null;
@@ -29,6 +30,7 @@ interface SiteState {
 const SiteContext = createContext<SiteState | null>(null);
 
 export function SiteProvider({ children }: { children: ReactNode }) {
+  const { language } = useLanguage();
   const [site, setSite] = useState<SiteInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -63,10 +65,10 @@ export function SiteProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<SiteState>(() => {
     const todayLabel = site
-      ? `${formatLongDate(site.today)} · ${formatTime({
+      ? `${formatLongDate(site.today, language)} · ${formatTime({
           utc: new Date().toISOString(),
           tzOffsetMinutes: site.tzOffsetMinutes,
-        })}`
+        }, language)}`
       : '';
     return {
       site,
@@ -86,9 +88,13 @@ export function useSite(): SiteState {
   return context;
 }
 
-/** The school's name, or a neutral placeholder before it has loaded. */
+/**
+ * The site's name, or '' when nobody has set one. A deployment fills in
+ * `site_name` in engine.yaml; the product ships blank, so callers must render
+ * nothing rather than an empty line where a name would be.
+ */
 export function useSiteName(): string {
-  return useSite().site?.name ?? 'VisionGuard';
+  return useSite().site?.name?.trim() ?? '';
 }
 
 /** The school's today as an ISO date — the default for every date picker. */

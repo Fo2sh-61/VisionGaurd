@@ -29,16 +29,11 @@ import type {
   GroupMember,
   GroupSummary,
   IntrusionWindow,
-  LostHit,
-  LostQuery,
-  LostResult,
   PersonHistory,
   PersonType,
   Recording,
   RecordingResult,
   SystemHealth,
-  TrackQuery,
-  TrackResult,
   User,
   WeaponDetection,
   WeaponWindow,
@@ -47,10 +42,11 @@ import type {
 import * as W from './wire';
 
 /** Which overlay a page wants on a camera. One camera, different questions. */
-export type CameraFeature = 'attendance' | 'track' | 'counting' | 'intrusion' | 'weapons';
-import { ApiError, SEARCH_TIMEOUT_MS, apiBase, del, get, patch, post, postFile, request, setSessionToken } from './http';
+export type CameraFeature = 'attendance' | 'track' | 'counting' | 'intrusion' | 'weapons' | 'lost' | 'vehicles';
+import { ApiError, apiBase, assetUrl, del, download, get, patch, post, postFile, request, setSessionToken } from './http';
 import type { Account } from '@/app/AuthContext';
-import type { Role } from '@/types';
+import { translate, type Language } from '@/i18n';
+import type { Role, Tone } from '@/types';
 import {
   attendanceLabel,
   attendanceStatusLine,
@@ -59,10 +55,10 @@ import {
   formatEventTime,
   formatLongDate,
   formatMetrics,
-  formatSchedule,
+  formatDuration,
+  formatPercent,
   formatShortDate,
   formatTime,
-  matchLabel,
   severityToNeutralTone,
   severityToTone,
   toCamera,
@@ -89,10 +85,11 @@ export const getSite = () => get<W.SiteInfo>('/site');
 export async function getCameraDetections(
   cameraId: string,
   feature?: CameraFeature,
+  colour?: string,
 ): Promise<{ boxes: DetectionBox[]; peopleCount: number | null }> {
   const result = await get<W.CameraDetections>(
     `/cameras/${encodeURIComponent(cameraId)}/detections`,
-    feature ? { feature } : undefined,
+    feature ? { feature, ...(colour ? { colour } : {}) } : undefined,
   );
   return {
     boxes: result.boxes.map(toDetectionBox),
@@ -104,8 +101,8 @@ export async function getCameraDetections(
  *
  *  The roster, not a query result — `CameraProvider` polls this so the grid is
  *  populated on every page regardless of what that page's own request did. */
-export async function getCameras(): Promise<Camera[]> {
-  return toCameras(await get<W.CameraView[]>('/cameras'));
+export async function getCameras(lang: Language): Promise<Camera[]> {
+  return toCameras(await get<W.CameraView[]>('/cameras'), lang);
 }
 
 /** Add a camera. It starts being watched immediately and appears everywhere. */
@@ -140,7 +137,10 @@ export const getCameraCounts = () => get<Record<string, number | null>>('/camera
 
 /* ---------- attendance ---------- */
 
-export async function getAttendance(query: AttendanceQuery): Promise<AttendanceResult> {
+export async function getAttendance(
+  query: AttendanceQuery,
+  lang: Language,
+): Promise<AttendanceResult> {
   const subject = query.mode === 'person' ? query.person : query.group;
   const result = await get<W.AttendanceResult>('/attendance', {
     mode: query.mode,
@@ -148,26 +148,26 @@ export async function getAttendance(query: AttendanceQuery): Promise<AttendanceR
     date: query.date,
   });
 
-  const cameras = toCameras(result.cameras);
-  const stats = formatMetrics(result.metrics);
+  const cameras = toCameras(result.cameras, lang);
+  const stats = formatMetrics(result.metrics, lang);
 
   if (result.mode === 'person') {
     const days: AttendanceDay[] = result.days.map((d) => ({
-      date: formatShortDate(d.date),
+      date: formatShortDate(d.date, lang),
       where: d.location ?? '—',
-      time: d.seenAt ? formatTime(d.seenAt) : '—',
-      status: attendanceLabel(d.status),
+      time: d.seenAt ? formatTime(d.seenAt, lang) : '—',
+      status: attendanceLabel(d.status, lang),
       tone: attendanceTone(d.status),
     }));
     const firstSeen = result.days.find((d) => d.seenAt);
     return {
       mode: 'person',
       heading: firstSeen
-        ? `${result.subject} arrived at ${formatTime(firstSeen.seenAt)}`
+        ? `${result.subject} arrived at ${formatTime(firstSeen.seenAt, lang)}`
         : `${result.subject} was not seen`,
       sub: firstSeen?.location
         ? `Recognised at ${firstSeen.location}`
-        : formatLongDate(result.date),
+        : formatLongDate(result.date, lang),
       stats,
       days,
       cameras,
@@ -176,15 +176,15 @@ export async function getAttendance(query: AttendanceQuery): Promise<AttendanceR
 
   const rows: AttendanceRow[] = result.records.map((r) => ({
     name: r.person.name ?? 'Unknown',
-    status: attendanceLabel(r.status),
+    status: attendanceLabel(r.status, lang),
     tone: attendanceTone(r.status),
-    time: r.seenAt ? formatTime(r.seenAt) : '—',
+    time: r.seenAt ? formatTime(r.seenAt, lang) : '—',
   }));
 
   return {
     mode: 'group',
-    heading: `${formatCount(result.present)} of ${formatCount(result.expected)} arrived`,
-    sub: `${result.subject} · ${formatLongDate(result.date)}`,
+    heading: `${formatCount(result.present, lang)} of ${formatCount(result.expected, lang)} arrived`,
+    sub: `${result.subject} · ${formatLongDate(result.date, lang)}`,
     stats,
     rows,
     cameras,
@@ -228,7 +228,7 @@ export async function exportAttendance(query: AttendanceQuery): Promise<void> {
 
 /* ---------- people counting ---------- */
 
-export async function getCount(query: CountQuery): Promise<CountResult> {
+export async function getCount(query: CountQuery, lang: Language): Promise<CountResult> {
   const result = await get<W.CountResult>('/count', {
     place: query.place,
     when: query.when,
@@ -271,28 +271,31 @@ export async function getCount(query: CountQuery): Promise<CountResult> {
 
   return {
     place: result.place,
-    heading: `${formatCount(result.count)} people in the ${result.place.toLowerCase()}`,
+    heading: `${formatCount(result.count, lang)} people in the ${result.place.toLowerCase()}`,
     sub: capacity
       ? `${pct}% of safe capacity (${capacity})${result.deduplicated ? ' · counted once across overlapping cameras' : ''}`
-      : `Measured ${formatTime(result.measuredAt)}`,
-    stats: formatMetrics(result.metrics),
+      : `Measured ${formatTime(result.measuredAt, lang)}`,
+    stats: formatMetrics(result.metrics, lang),
     barsTitle: result.barsTitle ?? undefined,
     bars,
     areas,
-    cameras: toCameras(result.cameras),
+    cameras: toCameras(result.cameras, lang),
   };
 }
 
 /* ---------- intrusion ---------- */
 
+/** Every camera, each with its restricted-area toggle.
+ *
+ *  Switched-off cameras are returned too — the toggle is how you tell, and a
+ *  camera that vanished when switched off would take its history with it. */
 export async function getZones(): Promise<Zone[]> {
-  // Disabled zones are returned too — a paused zone stays visible.
   const zones = await get<W.Zone[]>('/zones');
   return zones.map((z) => ({
     id: z.id,
     name: z.name,
-    hours: formatSchedule(z.schedule),
     enabled: z.enabled,
+    detectionsToday: z.breachesToday,
   }));
 }
 
@@ -300,158 +303,365 @@ export async function setZoneEnabled(id: string, enabled: boolean): Promise<void
   await patch<W.Zone>(`/zones/${encodeURIComponent(id)}`, { enabled });
 }
 
-export async function getBreaches(window: IntrusionWindow): Promise<Breach[]> {
+export async function getBreaches(
+  window: IntrusionWindow,
+  lang: Language,
+): Promise<Breach[]> {
   const breaches = await get<W.Breach[]>('/breaches', { window });
   return breaches.map((b) => ({
     id: b.id,
     zone: b.zoneName,
-    time: formatEventTime(b.at),
+    time: formatEventTime(b.at, lang),
     who: b.subject.name
       ? `Matched: ${b.subject.name}${b.subject.type ? ` (${b.subject.type})` : ''}`
       : 'Unidentified person',
-    status: b.status === 'open' ? 'Open' : b.status === 'authorised' ? 'Authorised' : 'Resolved',
+    status: b.status === 'open' ? 'Still there' : b.status === 'authorised' ? 'Authorised' : 'Left',
     tone: severityToNeutralTone(b.severity),
+    people: b.people ?? 1,
+    duration: formatDuration(b.dwellSeconds, lang),
+    // Same-origin, through the same helper the camera streams use. A <video>
+    // cannot send an Authorization header, so an absolute engine URL would
+    // play for nobody — that is the trap that once blacked out every stream.
+    clipUrl: assetUrl(b.clip?.url),
+    clipReason: b.clipReason ?? undefined,
   }));
 }
 
 /** CHANGED: was synchronous. The engine has to be asked. */
-export async function getIntrusionCameras(): Promise<Camera[]> {
-  return toCameras(await get<W.CameraView[]>('/intrusion/cameras'));
+export async function getIntrusionCameras(lang: Language): Promise<Camera[]> {
+  return toCameras(await get<W.CameraView[]>('/intrusion/cameras'), lang);
 }
 
 /* ---------- weapons ---------- */
 
-function weaponStatus(d: W.WeaponDetection): string {
-  if (d.verdict === 'confirmed') return 'Confirmed — police notified';
+/** What the entry says it is. Plain sentences, built here — the engine sends
+ *  a verdict and a flag, never a sentence.
+ *
+ *  There used to be a "Confirmed — police notified" here. Nobody is notified
+ *  by anything in this product: the review endpoint is the only thing that
+ *  fans out and it fans out to nothing yet. It was deleted rather than
+ *  reworded, because a sentence promising a call that is not happening is the
+ *  most dangerous thing this page could say. */
+function weaponStatus(d: W.WeaponDetection, lang: Language): string {
+  if (d.verdict === 'confirmed') {
+    const who = d.reviewedBy ? ` by ${d.reviewedBy}` : '';
+    const when = d.reviewedAt ? ` · ${formatEventTime(d.reviewedAt, lang)}` : '';
+    return `Confirmed${who}${when}`;
+  }
   if (d.verdict === 'dismissed') {
     return d.dismissalReason ? `False alarm — ${d.dismissalReason}` : 'False alarm';
   }
-  return 'Awaiting review';
+  // No `endedAt` means the knife has not left view yet, which is a different
+  // and more urgent thing than an incident waiting for somebody to look at it.
+  return d.endedAt ? 'Awaiting review' : 'Still in view';
 }
 
-export async function getWeaponDetections(window: WeaponWindow): Promise<WeaponDetection[]> {
+function weaponTone(d: W.WeaponDetection): Tone {
+  if (d.verdict === 'confirmed') return 'bad';
+  if (d.verdict === 'dismissed') return 'neutral';
+  return 'warn';
+}
+
+function toWeapon(d: W.WeaponDetection, lang: Language): WeaponDetection {
+  return {
+    id: d.id,
+    camera: d.cameraName,
+    area: d.location,
+    time: formatEventTime(d.at, lang),
+    duration: formatDuration(d.seconds ?? 0, lang),
+    confidence: formatPercent(d.confidence, lang),
+    status: weaponStatus(d, lang),
+    tone: weaponTone(d),
+    verdict: d.verdict,
+    reviewer: d.reviewedBy ?? undefined,
+    reviewedAt: d.reviewedAt ? formatEventTime(d.reviewedAt, lang) : undefined,
+    running: !d.endedAt,
+    cut: d.endReason === 'limit',
+    // Only a saved video has a `clip`; everything else carries a reason
+    // instead, which the page shows where the button would have been.
+    clipUrl: d.clip?.url ?? undefined,
+    clipReason: d.clipReason ?? undefined,
+  };
+}
+
+export async function getWeaponDetections(
+  window: WeaponWindow,
+  lang: Language,
+): Promise<WeaponDetection[]> {
   // Dismissed detections come back too. False alarms stay in the history.
   const detections = await get<W.WeaponDetection[]>('/weapons/detections', { window });
-  return detections.map((d) => ({
-    id: d.id,
-    time: formatEventTime(d.at),
-    location: d.location,
-    item: d.item,
-    status: weaponStatus(d),
-    tone:
-      d.verdict === 'confirmed' ? 'bad' : d.verdict === 'dismissed' ? 'neutral' : 'warn',
-  }));
+  return detections.map((d) => toWeapon(d, lang));
 }
 
-/** NEW: the human gate. Nothing downstream fires until this is called — the
- *  detector alone never notifies, calls or locks anything. */
+/** The human gate. Nothing downstream fires until this is called — the
+ *  detector alone never notifies, calls or locks anything.
+ *
+ *  No `actor`: the engine records the signed-in account from the session.
+ *  Sending a name would let a caller review as somebody else, and the server
+ *  ignores it anyway. */
 export async function reviewWeapon(
   id: string,
   verdict: 'confirmed' | 'dismissed',
-  actor: string,
+  lang: Language,
   reason?: string,
 ): Promise<WeaponDetection> {
-  const d = await post<W.WeaponDetection>(`/weapons/${encodeURIComponent(id)}/review`, {
-    verdict,
-    actor,
-    reason,
-  });
-  return {
-    id: d.id,
-    time: formatEventTime(d.at),
-    location: d.location,
-    item: d.item,
-    status: weaponStatus(d),
-    tone: d.verdict === 'confirmed' ? 'bad' : 'neutral',
-  };
+  return toWeapon(
+    await post<W.WeaponDetection>(`/weapons/${encodeURIComponent(id)}/review`, {
+      verdict,
+      reason,
+    }),
+    lang,
+  );
 }
 
 /** CHANGED: was synchronous. */
-export async function getWeaponCameras(): Promise<Camera[]> {
-  return toCameras(await get<W.CameraView[]>('/weapons/cameras'));
+export async function getWeaponCameras(lang: Language): Promise<Camera[]> {
+  return toCameras(await get<W.CameraView[]>('/weapons/cameras'), lang);
 }
 
-/* ---------- lost items ---------- */
+/* ---------- vehicle gate ---------- */
 
-export async function searchLostItem(query: LostQuery): Promise<LostResult> {
-  // Runs over stored footage, so it gets the long timeout. The UI's
-  // "Searching footage…" state covers it.
-  const result = await post<W.LostResult>(
-    '/lost-items/search',
-    {
-      item: query.item,
-      colour: query.colour === 'Any' ? null : query.colour,
-      area: query.area,
-      since: query.since,
-    },
-    undefined,
-    SEARCH_TIMEOUT_MS,
-  );
-
-  const label = `${query.colour === 'Any' ? '' : `${query.colour.toLowerCase()} `}${query.item.toLowerCase()}`;
-  const hits: LostHit[] = result.hits.map((h) => ({
-    camera: h.cameraName,
-    time: formatTime(h.at),
-    confidence: Math.round(h.confidence * 100),
-    strong: h.confidence >= 0.8,
-    note: h.note ?? '',
-  }));
-
-  return {
-    label,
-    sub: `Searching for a ${label} · ${(query.area ?? '').toLowerCase()} · ${(query.since ?? '').toLowerCase()}`,
-    hits,
-    searched: result.job.state === 'done',
-    cameras: result.cameras.map((c, i) =>
-      toCamera(c, result.hits[i] ? `${Math.round(result.hits[i].confidence * 100)}% match · ${formatTime(result.hits[i].at)}` : undefined),
-    ),
-  };
+/** The six Live tiles.
+ *
+ *  Counts arrive nullable on purpose. A null is not "zero we could not
+ *  fetch" — it is the engine declining to claim a measurement it did not
+ *  make, and `reason` says which. The page renders the reason, never a 0. */
+export async function getVehicleSummary(): Promise<W.GateSummary> {
+  return get<W.GateSummary>('/vehicles/summary');
 }
 
-/* ---------- track a person ---------- */
 
-export async function trackPerson(query: TrackQuery, actor = 'unknown'): Promise<TrackResult> {
-  const result = await post<W.TrackResult>(
-    '/track',
-    {
-      who: query.who,
-      date: query.date,
-      start: query.from,
-      end: query.to,
-    },
-    { actor },
-  );
-
-  return {
-    who: result.subject.name ?? query.who,
-    heading: `${result.subject.name ?? query.who} · ${result.sightings} sightings`,
-    sub: `${formatLongDate(result.date)} · ${query.from} to ${query.to}`,
-    stats: formatMetrics(result.metrics),
-    path: result.path.map((stop) => ({
-      time: formatTime(stop.at),
-      place: stop.place,
-      detail: `${stop.cameraName} · ${matchLabel(stop.match, stop.confidence)}`,
-      match: stop.match,
-      confidence: stop.confidence,
-      until: stop.until ? formatTime(stop.until) : undefined,
-    })),
-    cameras: result.cameras.map((c, i) =>
-      toCamera(
-        c,
-        result.path[i]
-          ? matchLabel(result.path[i].match, result.path[i].confidence)
-          : undefined,
-      ),
-    ),
-  };
+/** Every pass recorded, newest first.
+ *
+ *  Back on the console after 28 Aug. Removing the list left an entry-only
+ *  gate with nowhere at all to see its own recorded cars — "inside now" needs
+ *  an exit camera to pair against, so on a single-camera gate it can only
+ *  print the reason it cannot answer. */
+export async function getVehiclePasses(
+  filters: {
+    limit?: number; plate?: string; gate?: number;
+    direction?: string; status?: string; day?: string;
+  } = {},
+): Promise<W.VehiclePass[]> {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined && value !== '' && value !== null) {
+      query.set(key, String(value));
+    }
+  }
+  const suffix = query.toString();
+  return get<W.VehiclePass[]>(`/vehicles/passes${suffix ? `?${suffix}` : ''}`);
 }
 
-/** The audit row is written by the engine INSIDE /track, before the result is
- *  returned — ordering the UI cannot guarantee on its own. Kept for signature
- *  compatibility; `trackPerson(query, actor)` is the real path. */
-export async function recordTrackSearch(_query: TrackQuery, _actor: string): Promise<void> {
-  /* no-op: /track audits server-side and returns the auditId as the receipt */
+/** Remove one pass, with its photograph and plate crop. Administrator only.
+ *
+ *  Permanent — "inside now" and the visit lists are computed from the pass
+ *  table, so a row kept hidden would go on answering questions after somebody
+ *  deleted it. The audit entry is written before the row goes and cannot
+ *  itself be deleted. */
+export async function deleteVehiclePass(id: string): Promise<void> {
+  await del<{ ok: boolean }>(`/vehicles/passes/${encodeURIComponent(id)}`);
 }
+
+/** Gate cameras only. A camera with no gate number is not watching a gate. */
+export async function getVehicleCameras(lang: Language): Promise<Camera[]> {
+  return toCameras(await get<W.CameraView[]>('/vehicles/cameras'), lang);
+}
+
+/** Every read attempt, including the ones that came to nothing.
+ *
+ *  The pass log holds successes by construction, so it cannot tell a camera
+ *  that is too far away from a model that is failing from a subsystem that
+ *  never started. This can, which is why it is worth a poll of its own.
+ *
+ *  Polling this also *boosts* the reader, the same way a tile overlay poll
+ *  does — so watching the card is what makes the reader run fast enough for
+ *  three frames to agree. Stop polling and it goes back to idle within
+ *  seconds. */
+export async function getVehicleReader(): Promise<W.GateReaderNow> {
+  return get<W.GateReaderNow>('/vehicles/reader');
+}
+
+/** A photograph of the plate a gate camera is reading right now.
+ *
+ *  The `bust` argument is a cache-buster: the picture changes as the car
+ *  moves, and a browser reusing the last car's crop would be showing
+ *  something stale as though it were live. */
+export function vehicleCropUrl(cameraId: string, bust: number): string {
+  return assetUrl(
+    `/vehicles/cameras/${encodeURIComponent(cameraId)}/crop?t=${bust}`) ?? '';
+}
+
+/** What a plate may contain, and which characters the reader confuses.
+ *
+ *  Fetched once and reused: it is a property of the alphabet and the model,
+ *  not of any gate, so it does not change while somebody is looking at it. */
+export async function getPlateAlphabet(): Promise<W.PlateAlphabet> {
+  return get<W.PlateAlphabet>('/vehicles/alphabet');
+}
+
+/** Type in a plate after looking at the photograph.
+ *
+ *  Administrator only — this rewrites what the log says a car was. From then
+ *  on the correction outranks the reader: an automatic amendment as the car
+ *  approaches will not overwrite it. */
+export async function correctVehiclePlate(
+  passId: string, plate: string,
+): Promise<W.VehiclePass> {
+  return patch<W.VehiclePass>(
+    `/vehicles/passes/${encodeURIComponent(passId)}/plate`, { plate });
+}
+
+/** Today's passes still waiting for a person. */
+export async function getVehicleAlerts(): Promise<W.GateAlert[]> {
+  return get<W.GateAlert[]>('/vehicles/alerts');
+}
+
+/** Clear one alert, under the name of whoever cleared it.
+ *
+ *  The one write under `/vehicles` a guard may make — the person at the gate
+ *  is a guard, and an alert only an admin can clear piles up all shift until
+ *  nobody reads it. `actionTaken` distinguishes "I dealt with it" from "not
+ *  worth acting on"; both are recorded, and neither can be undone. */
+export async function dismissVehicleAlert(
+  passId: string, actionTaken = false,
+): Promise<void> {
+  await post<{ ok: boolean }>(
+    `/vehicles/alerts/${encodeURIComponent(passId)}/dismiss`,
+    undefined, { action_taken: actionTaken });
+}
+
+/** The register. A guard may read it; only an admin may change it. */
+export async function getVehicleRegister(
+  q = '', category = '',
+): Promise<W.RegisteredVehicle[]> {
+  const query = new URLSearchParams();
+  if (q) query.set('q', q);
+  if (category && category !== 'all') query.set('category', category);
+  const suffix = query.toString();
+  return get<W.RegisteredVehicle[]>(`/vehicles/register${suffix ? `?${suffix}` : ''}`);
+}
+
+export async function addVehicle(
+  body: W.VehicleRegistration,
+): Promise<W.RegisteredVehicle> {
+  return post<W.RegisteredVehicle>('/vehicles/register', body);
+}
+
+export async function editVehicle(
+  id: string, body: W.VehicleRegistration,
+): Promise<W.RegisteredVehicle> {
+  return patch<W.RegisteredVehicle>(`/vehicles/register/${encodeURIComponent(id)}`, body);
+}
+
+/** Remove an entry. The car's PASSES are kept — see the confirmation text. */
+export async function removeVehicle(id: string): Promise<void> {
+  await del<{ ok: boolean }>(`/vehicles/register/${encodeURIComponent(id)}`);
+}
+
+export async function importVehicles(file: File): Promise<W.VehicleImportResult> {
+  // `postFile` sets the multipart body and a 30s timeout — a two-thousand-row
+  // spreadsheet is slower than a normal request and must not be cut off
+  // half-loaded, which would be the partial import nobody can see.
+  return postFile<W.VehicleImportResult>('/vehicles/import', file, file.name);
+}
+
+/** Today, gate by gate.
+ *
+ *  An empty list is not "no gates" — it is the engine declining to total up
+ *  what it is not watching. `getVehicleSummary().reason` has the words. */
+export async function getVehicleGates(day = ''): Promise<W.GateTotals[]> {
+  return get<W.GateTotals[]>(`/vehicles/gates${day ? `?day=${day}` : ''}`);
+}
+
+/** One day's entries and exits by hour — the traffic chart.
+ *
+ *  Hours with nothing in them are absent rather than zero, and a day nothing
+ *  drove through is an empty list. A row of flat bars would be a drawing of
+ *  data that does not exist. */
+export async function getVehicleTraffic(day = ''): Promise<W.TrafficHour[]> {
+  return get<W.TrafficHour[]>(`/vehicles/traffic${day ? `?day=${day}` : ''}`);
+}
+
+/** Cars seen entering today and not seen leaving.
+ *
+ *  Derived from the passes on every request, never stored, so it cannot drift
+ *  out of step with the log it is computed from.
+ *
+ *  **Takes no day, deliberately.** "Inside now" is only ever now — asking it
+ *  about last Tuesday is asking who was inside at a moment that has passed,
+ *  which the pass log cannot answer and this must not pretend to. */
+export async function getVehiclesInside(): Promise<W.VehicleVisit[]> {
+  return get<W.VehicleVisit[]>('/vehicles/inside');
+}
+
+/** Today's completed visits. `inferred` marks an exit nobody actually saw. */
+export async function getVehicleVisits(day = ''): Promise<W.VehicleVisit[]> {
+  return get<W.VehicleVisit[]>(`/vehicles/visits${day ? `?day=${day}` : ''}`);
+}
+
+/** The photograph kept with one pass, for a visit row's thumbnail.
+ *
+ *  404 once the image has aged out at thirty days — the pass itself is kept
+ *  for ever, so the row stays and only the picture goes. Call this only where
+ *  the visit says it has one. */
+export function vehiclePassSnapshotUrl(passId: string): string {
+  // `assetUrl` is nullable because it takes paths the engine may not have
+  // sent. This path is built here from an id the caller already has, so it
+  // always exists — the `?? ''` is unreachable and only satisfies the type.
+  return assetUrl(`/vehicles/passes/${encodeURIComponent(passId)}/snapshot`) ?? '';
+}
+
+/** The most recent register import, or null if there has never been one.
+ *
+ *  404 from the engine means "nobody has ever imported anything", which is a
+ *  fact about a fresh register rather than a failure — so it comes back as
+ *  null and the console draws no line at all. A row of zeros would read as a
+ *  failed import rather than as an import that never happened. */
+export async function getVehicleLastImport(): Promise<W.VehicleImportRun | null> {
+  try {
+    return await get<W.VehicleImportRun>('/vehicles/import/last');
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return null;
+    throw err;
+  }
+}
+
+
+/** Download the pass log as a CSV.
+ *
+ *  A POST, and not by accident. The engine writes the audit entry before it
+ *  builds the file, and a GET that writes is a GET that lies about being
+ *  safe. It is also why only an administrator can call it. */
+export async function exportVehiclePasses(
+  filters: {
+    plate?: string; gate?: number; direction?: string; status?: string;
+    day?: string;
+  } = {},
+): Promise<void> {
+  const query: Record<string, string> = {};
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined && value !== '' && value !== null) query[key] = String(value);
+  }
+  await download('/vehicles/export', {
+    method: 'POST',
+    query,
+    fallbackName: 'vehicle-passes.csv',
+  });
+}
+
+/* ---------- track a person ----------
+ *
+ *  RETIRED. `trackPerson()` called `POST /track`, which rebuilt a path out of
+ *  every stored sighting — including the single-frame recognitions that were
+ *  never good enough to claim. The Track page now asks `GET /path/{person}`
+ *  instead, which reads the anchor table: only stops whose evidence cleared
+ *  the bar were ever written there, so a wrong leg cannot come back by
+ *  construction. See `getPathSkeleton` above.
+ *
+ *  The engine keeps serving /track — wire changes here are additive only, and
+ *  something outside this repo may still be asking. Nothing in this console
+ *  does. */
 
 /* ---------- system + users ---------- */
 
@@ -479,7 +689,7 @@ export async function getCapabilities(): Promise<W.Capability[]> {
   }
 }
 
-export async function getSystemHealth(): Promise<SystemHealth> {
+export async function getSystemHealth(lang: Language): Promise<SystemHealth> {
   const health = await get<W.SystemHealth>('/system/health');
 
   const broken = health.pipeline.filter((p) => !p.healthy);
@@ -496,7 +706,7 @@ export async function getSystemHealth(): Promise<SystemHealth> {
     summary: parts.length
       ? `${parts.join('; ')}.`
       : 'Everything is recording and being analysed.',
-    stats: formatMetrics(health.metrics),
+    stats: formatMetrics(health.metrics, lang),
     recorders: health.recorders.map((r) => ({
       id: r.id,
       name: r.name,
@@ -512,19 +722,33 @@ export async function getSystemHealth(): Promise<SystemHealth> {
       // into one colour.
       tone: p.healthy ? ('good' as const) : severityToTone(p.severity),
       action: p.restartable ? 'Restart' : undefined,
+      workers: p.workers?.map((w) => ({
+        name: w.name,
+        cameras: w.cameras,
+        framesProcessed: w.framesProcessed,
+        lastInferenceMs: w.lastInferenceMs,
+        queueDepth: w.queueDepth,
+        queueMax: w.queueMax,
+        framesDropped: w.framesDropped,
+        // The engine omits `behind` when it could not read a counter. Absent
+        // is not the same as false, but the row only ever draws a warning,
+        // so treating unknown as "no warning" is the honest direction to
+        // round in - the stage detail still names anything genuinely behind.
+        behind: w.behind === true,
+      })),
     })),
-    cameras: toCameras(health.cameras),
+    cameras: toCameras(health.cameras, lang),
   };
 }
 
-export async function getUsers(): Promise<User[]> {
+export async function getUsers(lang: Language): Promise<User[]> {
   const users = await get<W.User[]>('/users');
   return users.map((u) => ({
     id: u.id,
     name: u.name,
     role: u.role,
     email: u.email,
-    lastActive: u.lastActive ? formatEventTime(u.lastActive) : '—',
+    lastActive: u.lastActive ? formatEventTime(u.lastActive, lang) : '—',
   }));
 }
 
@@ -534,22 +758,62 @@ function personSub(p: W.DirectoryPerson): string {
   return p.detail ?? p.group ?? '';
 }
 
-function guardianLine(p: W.DirectoryPerson): string {
-  if (!p.guardianName) return '—';
-  const relation = p.guardianRelation ? ` (${p.guardianRelation})` : '';
-  const phone = p.guardianPhone ? ` · ${p.guardianPhone}` : '';
-  return `${p.guardianName}${relation}${phone}`;
+/** "Recognised · 3 photos", or why not.
+ *
+ *  "Photo on file" was always a statement about capability wearing the words
+ *  of paperwork — nobody reading it could tell it meant "the cameras can find
+ *  this person". This says the thing itself, and how well. */
+function recognitionLine(p: W.DirectoryPerson): string {
+  if (!p.photoOnFile) return 'Cannot be recognised — no face on file';
+  const photos = p.photos ?? 0;
+  if (photos <= 0) return 'Recognised';
+  return `Recognised · ${photos} ${photos === 1 ? 'photo' : 'photos'}`;
 }
 
-export async function getPeople(): Promise<DirectoryPerson[]> {
-  const people = await get<W.DirectoryPerson[]>('/people');
-  return people.map((p) => ({
+/** "Main entrance · Today, 7:42am", or "Not seen yet".
+ *
+ *  Never a dash. A value the system does not have is stated in words, so the
+ *  reader knows it was looked for and genuinely is not there — which is a
+ *  different fact from a column nobody ever filled in. */
+function lastSeenLine(p: W.DirectoryPerson, lang: Language): string {
+  if (!p.lastSeen) return 'Not seen yet';
+  const when = formatEventTime(p.lastSeen, lang);
+  return p.lastCamera ? `${p.lastCamera} · ${when}` : when;
+}
+
+function toDirectoryPerson(p: W.DirectoryPerson, lang: Language): DirectoryPerson {
+  const status = p.attendanceToday ?? null;
+  return {
+    id: p.id,
     name: p.name,
     type: p.type,
     sub: personSub(p),
-    guardian: guardianLine(p),
     photoOnFile: p.photoOnFile,
-  }));
+    recognition: recognitionLine(p),
+    // Empty, not a placeholder: the row simply drops the line rather than
+    // printing a shrug where a date belongs.
+    enrolled: p.enrolledAt ? `Enrolled ${formatEventTime(p.enrolledAt, lang)}` : '',
+    lastSeen: lastSeenLine(p, lang),
+    // Nothing recording attendance is not the same as being absent, so the
+    // row says nothing at all rather than guessing.
+    today: status ? attendanceLabel(status, lang) : '',
+    todayTone: status ? attendanceTone(status) : 'neutral',
+  };
+}
+
+export async function getPeople(lang: Language): Promise<DirectoryPerson[]> {
+  const people = await get<W.DirectoryPerson[]>('/people');
+  return people.map((p) => toDirectoryPerson(p, lang));
+}
+
+/** Remove someone from the system.
+ *
+ *  Deletes their directory entry and every face vector behind it, so the
+ *  cameras stop naming them from the next frame. Admin-only, enforced on the
+ *  server whatever this console believes, and written to the audit trail
+ *  before anything is deleted. */
+export async function removePerson(personId: string): Promise<void> {
+  await del<void>(`/people/${encodeURIComponent(personId)}`);
 }
 
 /* ---------- live tracking ----------
@@ -565,6 +829,98 @@ export const getLiveTracking = () => get<W.LiveTracking>('/tracking/live');
 export async function correctIdentity(stableId: string): Promise<void> {
   await post<void>(`/tracking/${encodeURIComponent(stableId)}/correct`);
 }
+
+/* ---------- sweeping a window ---------- */
+
+/** What that sweep would cost. Nothing runs and nobody is looked at, which is
+ *  why this one is not audited. */
+export const estimateSweep = (req: W.SweepRequest) =>
+  post<W.SweepEstimate>('/path/sweep/estimate', req);
+
+/** Run it. 422 when the same estimate says it is too big — the message
+ *  carries the arithmetic, so the operator can narrow the window. */
+export const startSweep = (req: W.SweepRequest) => post<W.SweepJob>('/path/sweep', req);
+
+export const getSweep = (jobId: string) =>
+  get<W.SweepJob>(`/path/sweep/${encodeURIComponent(jobId)}`);
+
+/** Stop it. Stopped means stopped: the hits so far are what it found, never
+ *  presented as everything there was. */
+export const stopSweep = (jobId: string) =>
+  del<W.SweepJob>(`/path/sweep/${encodeURIComponent(jobId)}`);
+
+/** Follow a body clicked in a chunk onto other cameras. Every hit comes back
+ *  as APPEARANCE and carries no name — clothing is not an identification. */
+export const followStranger = (
+  point: { jobId: string; chunk: number; x: number; y: number },
+  sweep: W.SweepRequest,
+) => post<W.SweepJob>('/path/sweep/stranger', { point, sweep });
+
+/* ---------- the video behind a stop ---------- */
+
+/** Queue the recorded video for one stop. Returns straight away with a job. */
+export const startLeg = (req: W.LegRequest) => post<W.LegJob>('/path/legs', req);
+
+/** Poll a leg. `chunkUrls` grows as pieces land. */
+export const getLeg = (jobId: string) =>
+  get<W.LegJob>(`/path/legs/${encodeURIComponent(jobId)}`);
+
+/** Absolute URL for a chunk, so a `<video>` can play it directly. */
+export const legChunkUrl = (path: string) => assetUrl(path) ?? path;
+
+/* ---------- the path behind somebody ----------
+ *
+ *  One indexed read on the engine, so this answers immediately. Empty anchors
+ *  is an ANSWER — nobody was identified in that window — and is not the same
+ *  as the 503 that means the engine cannot look at all. */
+
+export const getPathSkeleton = (
+  person: string,
+  date: string,
+  from?: string,
+  to?: string,
+) =>
+  get<W.PathSkeleton>(`/path/${encodeURIComponent(person)}`, {
+    date,
+    start: from,
+    end: to,
+  });
+
+/* ---------- following one person, live ----------
+ *
+ *  Three refusals, three meanings, and the page must not collapse them:
+ *    503  tracking is not running at all
+ *    404  nobody is standing where you clicked — retryable, they moved
+ *    409  a follow is already open, and the message names it
+ *
+ *  `ApiError.status` carries them through, so the caller decides what to say. */
+
+/** Follow whichever body is under that point. Fractions of the frame. */
+export const startFollow = (cameraId: string, x: number, y: number) =>
+  post<W.FollowView>('/tracking/follow', { cameraId, x, y });
+
+/** The follow as it stands. Returns null when nothing is being followed —
+ *  including when the engine ended it by itself, which is how a timer running
+ *  out or a lost track reaches a page that never asked. */
+export async function getFollow(): Promise<W.FollowView | null> {
+  try {
+    return await get<W.FollowView>('/tracking/follow');
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return null;
+    throw err;
+  }
+}
+
+export const endFollow = () => del<W.FollowView>('/tracking/follow');
+
+/** Record the followed person, one segment per camera they cross.
+ *
+ *  `timerSeconds` null means "until somebody presses stop". Either way the
+ *  engine stops it on its own if the track is lost, so this cannot leak. */
+export const startFollowRecording = (timerSeconds: number | null) =>
+  post<W.FollowView>('/tracking/follow/record', { timerSeconds });
+
+export const stopFollowRecording = () => del<W.FollowView>('/tracking/follow/record');
 
 /* ---------- enrolment ----------
  *
@@ -627,6 +983,17 @@ export async function captureEnrolmentPhoto(
   );
 }
 
+/** The faces in the enrolment camera's current frame, for the live overlay.
+ *
+ *  Polled a few times a second while a session is open, and only then —
+ *  nothing runs on the engine when nobody is on the page. Carries geometry
+ *  and nothing else: an enrolment preview never names who it can see. */
+export async function getEnrolmentPreview(
+  cameraId: string,
+): Promise<W.EnrolmentPreview> {
+  return get<W.EnrolmentPreview>(`/enrolment/preview/${encodeURIComponent(cameraId)}`);
+}
+
 export async function removeEnrolmentPhoto(
   sessionId: string,
   photoId: string,
@@ -634,34 +1001,32 @@ export async function removeEnrolmentPhoto(
   return del<W.EnrolmentSession>(`/enrolment/sessions/${sessionId}/photos/${photoId}`);
 }
 
-export async function commitEnrolment(sessionId: string): Promise<DirectoryPerson> {
+export async function commitEnrolment(
+  sessionId: string,
+  lang: Language,
+): Promise<DirectoryPerson> {
   const p = await post<W.DirectoryPerson>(`/enrolment/sessions/${sessionId}/commit`);
-  return {
-    name: p.name,
-    type: p.type,
-    sub: personSub(p),
-    guardian: guardianLine(p),
-    photoOnFile: p.photoOnFile,
-  };
+  return toDirectoryPerson(p, lang);
 }
 
 export async function cancelEnrolment(sessionId: string): Promise<void> {
   await del<void>(`/enrolment/sessions/${sessionId}`);
 }
 
-export async function getGroups(): Promise<GroupSummary[]> {
+export async function getGroups(lang: Language): Promise<GroupSummary[]> {
   const groups = await get<W.GroupSummary[]>('/groups');
   return groups.map((g) => ({
     name: g.name,
     count: g.classes
-      ? `${formatCount(g.people)} students · ${g.classes} classes`
-      : `${formatCount(g.people)} people`,
+      ? `${formatCount(g.people, lang)} students · ${g.classes} classes`
+      : `${formatCount(g.people, lang)} people`,
     here: g.here,
   }));
 }
 
 export async function getGroup(
   name: string,
+  lang: Language,
 ): Promise<{ summary: GroupSummary; roster: GroupMember[] }> {
   const detail = await get<W.GroupDetail>(`/groups/${encodeURIComponent(name)}`);
   const g = detail.summary;
@@ -669,39 +1034,39 @@ export async function getGroup(
     summary: {
       name: g.name,
       count: g.classes
-        ? `${formatCount(g.people)} students · ${g.classes} classes`
-        : `${formatCount(g.people)} people`,
+        ? `${formatCount(g.people, lang)} students · ${g.classes} classes`
+        : `${formatCount(g.people, lang)} people`,
       here: g.here,
     },
     roster: detail.roster.map((r) => ({
-      name: r.person.name ?? 'Unknown',
+      name: r.person.name ?? translate(lang, 'person.unknown'),
       sub: r.location ?? '',
-      status: attendanceStatusLine(r.status, r.seenAt),
+      status: attendanceStatusLine(r.status, r.seenAt, lang),
       tone: attendanceTone(r.status),
     })),
   };
 }
 
-export async function getHistory(name: string): Promise<PersonHistory> {
+export async function getHistory(name: string, lang: Language): Promise<PersonHistory> {
   const h = await get<W.PersonHistory>(`/people/${encodeURIComponent(name)}/history`);
   return {
     name: h.person.name,
     sub: personSub(h.person),
     heading: `${h.presentDays} of ${h.totalDays} days present`,
     lead: h.periodLabel,
-    stats: formatMetrics(h.metrics),
+    stats: formatMetrics(h.metrics, lang),
     // One person on one day is here or not, so the bar is full or empty and
     // the colour carries the rest. A percentage per day would have read as
     // "60% present on Tuesday", which means nothing for one child.
     bars: h.trend.map((t) => ({
       date: t.date,
       day: t.label,
-      label: attendanceLabel(t.status),
+      label: attendanceLabel(t.status, lang),
       pct: t.status === 'absent' ? 0 : 100,
       tone: attendanceTone(t.status),
     })),
     flags: h.flags.map((f) => ({
-      date: formatShortDate(f.date),
+      date: formatShortDate(f.date, lang),
       detail: f.detail,
       badge: f.kind,
       tone: severityToTone(f.severity),
@@ -720,13 +1085,13 @@ export async function getHistory(name: string): Promise<PersonHistory> {
  *  three never throw for that case; they throw only when the engine cannot be
  *  reached at all. */
 
-function toRecording(r: W.Recording): Recording {
+function toRecording(r: W.Recording, lang: Language): Recording {
   return {
     id: r.id,
     cameraId: r.cameraId,
     cameraName: r.cameraName ?? null,
     state: r.state,
-    startedAt: formatTime(r.startedAt),
+    startedAt: formatTime(r.startedAt, lang),
     seconds: Math.round(r.seconds),
     frames: r.frames,
     file: r.file ?? null,
@@ -735,23 +1100,28 @@ function toRecording(r: W.Recording): Recording {
   };
 }
 
-function toRecordingResult(result: W.RecordingResult): RecordingResult {
+function toRecordingResult(result: W.RecordingResult, lang: Language): RecordingResult {
   return {
     ok: result.ok,
-    recording: result.recording ? toRecording(result.recording) : null,
+    recording: result.recording ? toRecording(result.recording, lang) : null,
     reason: result.reason ?? null,
   };
 }
 
-export async function getRecording(cameraId: string): Promise<RecordingResult> {
+export async function getRecording(
+  cameraId: string,
+  lang: Language,
+): Promise<RecordingResult> {
   return toRecordingResult(
     await get<W.RecordingResult>(`/cameras/${encodeURIComponent(cameraId)}/recording`),
+    lang,
   );
 }
 
 export async function startRecording(
   cameraId: string,
   actor: string,
+  lang: Language,
 ): Promise<RecordingResult> {
   return toRecordingResult(
     await post<W.RecordingResult>(
@@ -759,18 +1129,21 @@ export async function startRecording(
       undefined,
       { actor },
     ),
+    lang,
   );
 }
 
 export async function stopRecording(
   cameraId: string,
   actor: string,
+  lang: Language,
 ): Promise<RecordingResult> {
   return toRecordingResult(
     await del<W.RecordingResult>(
       `/cameras/${encodeURIComponent(cameraId)}/recording`,
       { actor },
     ),
+    lang,
   );
 }
 
@@ -829,21 +1202,22 @@ export async function testConnection(params: {
   source: string;
   username?: string;
   password?: string;
-}): Promise<Camera> {
+}, lang: Language): Promise<Camera> {
   const result = await post<W.TestConnectionResult>('/sources/test', params);
 
   if (!result.ok || !result.camera) {
     return {
       id: 'test-frame',
       name: 'Test frame',
-      status: result.error ?? 'Could not connect',
+      status: result.error ?? translate(lang, 'camera.couldNotConnect'),
       offline: true,
       boxes: [],
     };
   }
 
-  const latency = result.latencyMs ? ` · ${Math.round(result.latencyMs)}ms` : '';
-  return toCamera(result.camera, `Connection OK${latency}`);
+  return toCamera(result.camera, lang, result.latencyMs
+    ? translate(lang, 'camera.connectionOkLatency', { ms: Math.round(result.latencyMs) })
+    : translate(lang, 'camera.connectionOk'));
 }
 
 /* ---------- home ---------- */
@@ -876,6 +1250,21 @@ export async function signIn(email: string, password: string): Promise<Account> 
   return toAccount(result.user);
 }
 
+/** Create an account and sign it straight in.
+ *
+ *  Sign-up is open — anyone who can reach the console can do this. The engine
+ *  fixes the role at `it`; this file does not send one and could not raise it
+ *  if it tried, because the wire type forbids the field. The response is the
+ *  same shape as a sign-in, cookie included, so nothing downstream has to
+ *  know which door the session came through. */
+export async function register(
+  name: string, email: string, password: string,
+): Promise<Account> {
+  const result = await post<W.LoginResult>('/auth/register', { name, email, password });
+  setSessionToken(result.token);
+  return toAccount(result.user);
+}
+
 export async function signOut(): Promise<void> {
   try {
     await post<{ ok: boolean }>('/auth/logout');
@@ -898,5 +1287,25 @@ function toAccount(wire: W.Account): Account {
     email: wire.email,
     role: wire.role as Role,
     initials: wire.initials,
+    language: wire.language,
   };
 }
+
+/** Change the signed-in account's language.
+ *
+ *  Only ever your own — the endpoint takes no account id, which is what keeps
+ *  a display preference out of the permission surface. */
+export async function setAccountLanguage(language: Language): Promise<Account> {
+  return toAccount(await post<W.Account>('/auth/language', { language }));
+}
+
+/* ---------- Ask ----------
+ *
+ *  Returns the wire object **unrendered**, unlike most of this file. Every
+ *  other function here turns numbers into the sentences the pages expect;
+ *  Ask must not, because its sentences come from note codes the page words
+ *  through `translate()`. Formatting them here would put English back in a
+ *  place P11 just took it out of. */
+
+export const ask = (question: string) =>
+  post<W.AskAnswer>('/ask', { question });

@@ -39,7 +39,8 @@ class CameraWorker:
         self.config = config
         self.bus = bus
         self.source = CameraSource(
-            config.id, config.source, target_fps=config.fps, rotate=config.rotate
+            config.id, config.source, target_fps=config.fps, rotate=config.rotate,
+            live_capture=config.live_capture,
         )
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()

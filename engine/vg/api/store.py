@@ -16,16 +16,31 @@ front end onto the API is a visibly no-op change.
 
 from __future__ import annotations
 
+import logging
 import random
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Protocol
 
 from vg.api import schemas as S
 
-# Cairo. The demo fixtures are written in local school time.
+log = logging.getLogger(__name__)
+
+# Cairo. The demo fixtures are written in local site time.
 TZ_OFFSET_MINUTES = 180
-SCHOOL_NAME = "Greenfield International School"
-TODAY = date(2026, 7, 29)
+# No customer is baked into the product. A deployment sets `site_name` in
+# engine.yaml; until then there is no site to name, and the console says so by
+# showing nothing rather than someone else's name.
+SCHOOL_NAME = ""
+# The demo day is the day it is served, never the day it was written. A fixed
+# anchor silently ages out: this was `date(2026, 7, 29)`, so on 29 Aug 2026 —
+# thirty days later — every demo breach fell outside the `last30` window and
+# /breaches began returning an empty list. Empty reads as "no breaches", which
+# is the demo store telling a lie about a safety feature rather than admitting
+# its fixtures expired.
+#
+# Read once, at import. A demo process left running for thirty days would go
+# empty again; demo mode is for a laptop and a browser tab, not a long run.
+TODAY = date.today()
 CAMERA_TOTAL = 208
 
 
@@ -57,6 +72,38 @@ def poly(x, y, w, h) -> list[S.Point]:
     ]
 
 
+class SubsystemUnavailable(RuntimeError):
+    """The subsystem this call needs is not running.
+
+    Deliberately not the same answer as "not found". A 404 for a person who is
+    perfectly present, on an engine where recognition never started, sends an
+    administrator hunting for a problem that is not theirs. The reason travels
+    in the message and reaches the screen.
+    """
+
+
+class NothingThere(LookupError):
+    """What was asked for is not there — 404, and usually retryable.
+
+    Separate from `SubsystemUnavailable` for the same reason that one exists:
+    "nobody is standing where you clicked" and "tracking never started" send
+    an operator to two completely different places.
+    """
+
+
+class AlreadyBusy(RuntimeError):
+    """Something is already doing this — 409. The message names what."""
+
+
+class NotAffordable(ValueError):
+    """More work than the budget allows — 422, with the arithmetic.
+
+    Distinct from `AlreadyBusy` on purpose: "come back in a minute" and
+    "narrow your question" are different instructions, and only one of them
+    is worth the operator's time to follow.
+    """
+
+
 class Store(Protocol):
     """Everything the API needs. Implement this to go live."""
 
@@ -64,21 +111,53 @@ class Store(Protocol):
     def zones(self) -> list[S.Zone]: ...
     def set_zone_enabled(self, zone_id: str, enabled: bool) -> S.Zone | None: ...
     def breaches(self, since_days: int) -> list[S.Breach]: ...
+    def clip_for_breach(self, breach_id: str): ...
     def intrusion_cameras(self) -> list[S.CameraView]: ...
 
-    def weapons(self, since_days: int) -> list[S.WeaponDetection]: ...
+    def weapons(
+        self, since: datetime | None, until: datetime | None = None
+    ) -> list[S.WeaponDetection]: ...
     def review_weapon(
-        self, detection_id: str, review: S.WeaponReview
+        self, detection_id: str, review: S.WeaponReview,
+        reviewer: str | None = None,
     ) -> S.WeaponDetection | None: ...
     def weapon_cameras(self) -> list[S.CameraView]: ...
+    def clip_for_weapon(self, detection_id: str): ...
 
 
     def attendance(
         self, mode: str, subject: str, on: str
     ) -> S.AttendanceResult: ...
     def count(self, place: str, window: str) -> S.CountResult: ...
-    def search_lost(self, query: S.LostQuery) -> S.LostResult: ...
+    def note_lost_interest(self, camera_id: str) -> None: ...
     def track(self, query: S.TrackQuery, actor: str) -> S.TrackResult: ...
+
+    def path_skeleton(
+        self, person: str, on: str, actor: str,
+        start: str | None = None, end: str | None = None,
+    ) -> S.PathSkeleton: ...
+
+    def sweep_estimate(self, req: S.SweepRequest) -> S.SweepEstimate: ...
+    def start_sweep(self, req: S.SweepRequest, actor: str) -> S.SweepJob: ...
+    def follow_stranger(
+        self, point: S.ChunkPoint, req: S.SweepRequest, actor: str
+    ) -> S.SweepJob: ...
+    def sweep(self, job_id: str) -> S.SweepJob: ...
+    def stop_sweep(self, job_id: str, actor: str) -> S.SweepJob: ...
+
+    def start_leg(self, req: S.LegRequest, actor: str) -> S.LegJob: ...
+    def leg(self, job_id: str) -> S.LegJob: ...
+    def leg_chunk(self, job_id: str, index: int): ...
+
+    def follow_start(
+        self, camera_id: str, x: float, y: float, actor: str
+    ) -> S.FollowView: ...
+    def follow_view(self) -> S.FollowView | None: ...
+    def follow_end(self, actor: str) -> S.FollowView | None: ...
+    def follow_record_start(
+        self, timer_seconds: float | None, actor: str
+    ) -> S.FollowView: ...
+    def follow_record_stop(self, actor: str) -> S.FollowView: ...
 
     def recording(self, camera_id: str) -> S.RecordingResult: ...
     def start_recording(self, camera_id: str, actor: str) -> S.RecordingResult: ...
@@ -92,10 +171,38 @@ class Store(Protocol):
     def test_connection(self, req: S.TestConnectionRequest) -> S.TestConnectionResult: ...
 
     def people(self) -> list[S.DirectoryPerson]: ...
+    def remove_person(self, person_id: str, actor: str) -> bool: ...
     def groups(self) -> list[S.GroupSummary]: ...
     def group(self, name: str) -> S.GroupDetail | None: ...
     def history(self, person: str) -> S.PersonHistory | None: ...
     def users(self) -> list[S.User]: ...
+
+    # -- vehicle gate --
+    def vehicle_summary(self) -> S.GateSummary: ...
+    def vehicle_passes(self, **filters) -> list[S.VehiclePass]: ...
+    def vehicle_cameras(self) -> list[S.CameraView]: ...
+    def vehicle_reader(self) -> S.GateReaderNow: ...
+    def vehicle_crop(self, camera_id: str) -> bytes | None: ...
+    def plate_alphabet(self) -> S.PlateAlphabet: ...
+    def correct_plate(self, pass_id: str, plate: str,
+                      actor: str) -> S.VehiclePass | None: ...
+    def vehicle_alerts(self) -> list[S.GateAlert]: ...
+    def dismiss_alert(self, pass_id: str, actor: str,
+                      action_taken: bool = False) -> bool: ...
+    def vehicle_register(self, query: str, category: str) -> list[S.RegisteredVehicle]: ...
+    def add_vehicle(self, body: S.VehicleRegistration, actor: str) -> S.RegisteredVehicle: ...
+    def edit_vehicle(self, vehicle_id: str, body: S.VehicleRegistration,
+                     actor: str) -> S.RegisteredVehicle | None: ...
+    def remove_vehicle(self, vehicle_id: str, actor: str) -> bool: ...
+    def import_vehicles(self, filename: str, data: bytes,
+                        actor: str) -> S.VehicleImportResult: ...
+    def vehicle_gates(self, day: str = "") -> list[S.GateTotals]: ...
+    def vehicles_inside(self) -> list[S.VehicleVisit]: ...
+    def vehicle_visits(self, day: str = "") -> list[S.VehicleVisit]: ...
+    def vehicle_traffic(self, day: str = "") -> list[S.TrafficHour]: ...
+    def last_import(self) -> S.VehicleImportRun | None: ...
+    def delete_pass(self, pass_id: str, actor: str) -> bool: ...
+    def export_passes(self, actor: str, **filters) -> bytes: ...
 
     def attention(self) -> list[S.AttentionItem]: ...
     def acknowledge(self, item_id: str, actor: str) -> S.AttentionItem | None: ...
@@ -104,6 +211,14 @@ class Store(Protocol):
     def delivery_targets(self) -> list[S.DeliveryTarget]: ...
     def audit(self, limit: int) -> list[S.AuditEntry]: ...
     def capabilities(self) -> list[S.Capability]: ...
+
+    # -- ask (P12) --
+    #
+    # Implemented once, on MockStore, and inherited by LiveStore. It holds no
+    # data of its own: it calls `self.attendance(...)` and the rest, which
+    # resolve to whichever store is mounted. See `MockStore.ask`.
+    def ask(self, question: str, actor: str,
+            parser: object | None = None) -> S.AskAnswer: ...
 
 
 # ===========================================================================
@@ -129,6 +244,8 @@ class MockStore:
         self._audit: list[S.AuditEntry] = []
         self._sources = self._build_sources()
         self._people = self._build_people()
+        self._follow: S.FollowView | None = None
+        self._follow_audit: str | None = None
 
     # -- overlays -----------------------------------------------------------
 
@@ -150,6 +267,108 @@ class MockStore:
 
     # -- site ---------------------------------------------------------------
 
+    # -- vehicle gate -------------------------------------------------------
+    #
+    # Deliberately empty rather than fixtured. The design file this feature
+    # was built from carries invented figures - 2,140 registered, 148 entered
+    # today - and a mock that served those would put them on screen in the one
+    # mode nobody expects to be lying to them differently. VG_MOCK=1 says the
+    # whole store is fixtures; this feature answers "nothing configured".
+
+    def vehicle_summary(self) -> S.GateSummary:
+        return S.GateSummary(
+            gates=0,
+            reason="Vehicle gate is not configured in this demo store.",
+        )
+
+    def vehicle_passes(self, **filters) -> list[S.VehiclePass]:
+        return []
+
+    def vehicle_cameras(self) -> list[S.CameraView]:
+        return []
+
+    def vehicle_reader(self) -> S.GateReaderNow:
+        return S.GateReaderNow(
+            reason="Vehicle gate is not configured in this demo store, so "
+                   "nothing is being read.",
+        )
+
+    def vehicle_crop(self, camera_id: str) -> bytes | None:
+        return None
+
+    def plate_alphabet(self) -> S.PlateAlphabet:
+        # Real, not a fixture: it is a property of the plate alphabet rather
+        # than of any gate, so the demo store can answer it honestly.
+        from vg import platetext
+
+        confusions: dict[str, list[str]] = {}
+        for a, b in platetext.CONFUSIONS:
+            confusions.setdefault(a, []).append(b)
+            confusions.setdefault(b, []).append(a)
+        return S.PlateAlphabet(
+            letters=list(platetext.LETTERS),
+            common_letters=list(platetext.STRICT_LETTERS),
+            digits=list("0123456789"),
+            confusions=confusions,
+        )
+
+    def correct_plate(self, pass_id: str, plate: str, actor: str):
+        raise SubsystemUnavailable(
+            "The vehicle log is not available in this demo store.")
+
+    def vehicle_alerts(self) -> list[S.GateAlert]:
+        return []
+
+    def dismiss_alert(self, pass_id: str, actor: str,
+                      action_taken: bool = False) -> bool:
+        raise SubsystemUnavailable(
+            "The vehicle gate is not available in this demo store.")
+
+    def vehicle_register(self, query: str = "",
+                         category: str = "") -> list[S.RegisteredVehicle]:
+        return []
+
+    def add_vehicle(self, body, actor: str):
+        raise SubsystemUnavailable(
+            "The vehicle register is not available in this demo store.")
+
+    def edit_vehicle(self, vehicle_id: str, body, actor: str):
+        raise SubsystemUnavailable(
+            "The vehicle register is not available in this demo store.")
+
+    def remove_vehicle(self, vehicle_id: str, actor: str) -> bool:
+        raise SubsystemUnavailable(
+            "The vehicle register is not available in this demo store.")
+
+    def import_vehicles(self, filename: str, data: bytes, actor: str):
+        raise SubsystemUnavailable(
+            "The vehicle register is not available in this demo store.")
+
+    def vehicle_gates(self, day: str = "") -> list[S.GateTotals]:
+        return []
+
+    def vehicles_inside(self) -> list[S.VehicleVisit]:
+        return []
+
+    def vehicle_visits(self, day: str = "") -> list[S.VehicleVisit]:
+        return []
+
+    def vehicle_traffic(self, day: str = "") -> list[S.TrafficHour]:
+        return []
+
+    def last_import(self) -> S.VehicleImportRun | None:
+        # Nobody has imported anything into a demo store, and saying so is
+        # more useful than inventing the design file's "2,140 rows".
+        return None
+
+    def delete_pass(self, pass_id: str, actor: str) -> bool:
+        raise SubsystemUnavailable(
+            "The vehicle log is not available in this demo store.")
+
+    def export_passes(self, actor: str, **filters) -> bytes:
+        raise SubsystemUnavailable(
+            "The vehicle log is not available in this demo store.")
+
     def site(self) -> S.SiteInfo:
         health = self.health()
         return S.SiteInfo(
@@ -161,6 +380,7 @@ class MockStore:
             cameras_total=health.cameras_total,
             places=["All"] + [a.name for a in self.count("Cafeteria", "Right now").areas],
             areas=self.areas(),
+            clip_retention_days=30,
         )
 
     # -- intrusion ----------------------------------------------------------
@@ -248,6 +468,10 @@ class MockStore:
         cutoff = datetime.now(timezone.utc) - timedelta(days=since_days)
         return [b for b in self._breaches if b.at.utc >= cutoff]
 
+    def clip_for_breach(self, breach_id: str):
+        """Demo mode has no files. `(path, reason)` — the reason is honest."""
+        return None, "Demo mode does not record video, so there is no clip."
+
     def intrusion_cameras(self) -> list[S.CameraView]:
         chem = next(z for z in self._zones if z.id == "chem")
         return [
@@ -306,27 +530,43 @@ class MockStore:
             ),
         ]
 
-    def weapons(self, since_days: int) -> list[S.WeaponDetection]:
-        cutoff = datetime.now(timezone.utc) - timedelta(days=since_days)
+    def weapons(
+        self, since: datetime | None, until: datetime | None = None
+    ) -> list[S.WeaponDetection]:
+        # Either bound may be None, meaning open-ended: the page's "All"
+        # period asks for every row there has ever been.
+        #
         # Dismissed detections are returned too. The product promises false
         # alarms stay in the history; there is no delete and no hiding.
-        return [w for w in self._weapons if w.at.utc >= cutoff]
+        return [
+            w for w in self._weapons
+            if (since is None or w.at.utc >= since)
+            and (until is None or w.at.utc < until)
+        ]
 
     def review_weapon(
-        self, detection_id: str, review: S.WeaponReview
+        self, detection_id: str, review: S.WeaponReview,
+        reviewer: str | None = None,
     ) -> S.WeaponDetection | None:
+        # The signed-in account wins over anything the body claims. Demo
+        # mode has no session, so it falls back to the body's `actor`.
+        who = reviewer or review.actor or "unknown"
         for i, det in enumerate(self._weapons):
             if det.id == detection_id:
                 self._weapons[i] = det.model_copy(update={
                     "verdict": review.verdict,
-                    "reviewed_by": review.actor,
+                    "reviewed_by": who,
                     "reviewed_at": now(),
                     "dismissal_reason": review.reason,
                 })
-                self._log(review.actor, f"weapon.{review.verdict.value}",
+                self._log(who, f"weapon.{review.verdict.value}",
                           detection_id, review.reason)
                 return self._weapons[i]
         return None
+
+    def clip_for_weapon(self, detection_id: str):
+        """Demo mode has no files. `(path, reason)` — the reason is honest."""
+        return None, "Demo mode does not record video, so there is no clip."
 
     def weapon_cameras(self) -> list[S.CameraView]:
         return [
@@ -472,29 +712,10 @@ class MockStore:
                                   snapshot_url="/cameras/cnt-caf/snapshot")],
         )
 
-    # -- lost items ---------------------------------------------------------
+    # -- lost bag -----------------------------------------------------------
 
-    def search_lost(self, query: S.LostQuery) -> S.LostResult:
-        hits = [
-            S.LostHit(camera_id="l-lib", camera_name="Library - east",
-                      at=at(13, 8), confidence=0.94,
-                      note="Left on a table, no owner nearby",
-                      box=box(0.55, 0.62, 0.12, 0.14, kind="object",
-                              confidence=0.94)),
-            S.LostHit(camera_id="l-corr", camera_name="Building A corridor",
-                      at=at(12, 51), confidence=0.71,
-                      note="Carried, partially occluded"),
-        ]
-        return S.LostResult(
-            job=S.SearchJob(id="job-1", state="done", progress=1.0,
-                            submitted_at=now(), clips_searched=284,
-                            clips_total=284),
-            query=query, hits=hits,
-            cameras=[S.CameraView(id="l-lib", name="Library - east",
-                                  captured_at=at(13, 8),
-                                  boxes=[h.box for h in hits if h.box],
-                                  snapshot_url="/cameras/l-lib/snapshot")],
-        )
+    def note_lost_interest(self, camera_id: str) -> None:
+        """Demo mode has no model to point at a camera."""
 
     # -- track --------------------------------------------------------------
 
@@ -532,6 +753,126 @@ class MockStore:
                            confidence=0.96, kind="match", match=S.MatchKind.FACE)],
                 snapshot_url="/cameras/c-main/snapshot")],
         )
+
+
+    def path_skeleton(
+        self, person: str, on: str, actor: str,
+        start: str | None = None, end: str | None = None,
+    ) -> S.PathSkeleton:
+        # Audit FIRST, exactly as the live store does — demo mode teaches the
+        # same habit rather than a different one.
+        entry = self._log(actor, "path.skeleton", person, f"{on} {start or ''}-{end or ''}")
+        anchors = [
+            S.PathAnchor(camera_id="c-main", camera_name="Main entrance",
+                         place="Main entrance", at=at(7, 42), until=at(7, 43),
+                         matches=6, score=0.71, face_px=112),
+            S.PathAnchor(camera_id="cnt-caf", camera_name="Cafeteria",
+                         place="Cafeteria", at=at(11, 20), until=at(11, 22),
+                         matches=4, score=0.66, face_px=94),
+        ]
+        return S.PathSkeleton(
+            subject=S.PersonRef(id="p-layla", name=person or "Layla Ahmed",
+                                type=S.PersonType.STUDENT, match=S.MatchKind.FACE),
+            date=on, audit_id=entry.id, anchors=anchors,
+            appearance=[
+                S.TrackStop(at=at(8, 3), camera_id="t-corr-a",
+                            camera_name="Building A corridor", place="Building A",
+                            match=S.MatchKind.APPEARANCE, confidence=0.89),
+            ],
+        )
+
+    NO_ARCHIVE = ("Demo mode has no recorded-video archive, so there is no "
+                  "footage to play behind a stop.")
+
+    def start_leg(self, req: S.LegRequest, actor: str) -> S.LegJob:
+        # Audited even though it refuses: an operator asking to watch somebody
+        # is the thing worth recording, and it happened.
+        self._log(actor, "path.leg", req.person_id or req.camera_id, "demo mode")
+        raise SubsystemUnavailable(self.NO_ARCHIVE)
+
+    def leg(self, job_id: str) -> S.LegJob:
+        raise SubsystemUnavailable(self.NO_ARCHIVE)
+
+    def leg_chunk(self, job_id: str, index: int):
+        return None, self.NO_ARCHIVE
+
+    def sweep_estimate(self, req: S.SweepRequest) -> S.SweepEstimate:
+        # An estimate with no measurement behind it is the one number this
+        # feature must never invent, and demo mode has no machine to measure.
+        return S.SweepEstimate(
+            seconds=0.0, camera_hours=0.0, cameras=0, allowed=False,
+            reason=("Demo mode has no recorded video to sweep and no measured "
+                    "speeds to estimate from."),
+        )
+
+    def start_sweep(self, req: S.SweepRequest, actor: str) -> S.SweepJob:
+        self._log(actor, "path.sweep", req.person, "demo mode")
+        raise SubsystemUnavailable(self.NO_ARCHIVE)
+
+    def follow_stranger(self, point: S.ChunkPoint, req: S.SweepRequest,
+                        actor: str) -> S.SweepJob:
+        self._log(actor, "path.sweep", "an unidentified person", "demo mode")
+        raise SubsystemUnavailable(self.NO_ARCHIVE)
+
+    def sweep(self, job_id: str) -> S.SweepJob:
+        raise SubsystemUnavailable(self.NO_ARCHIVE)
+
+    def stop_sweep(self, job_id: str, actor: str) -> S.SweepJob:
+        raise SubsystemUnavailable(self.NO_ARCHIVE)
+
+    # -- following one person, live -----------------------------------------
+
+    def follow_start(self, camera_id: str, x: float, y: float,
+                     actor: str) -> S.FollowView:
+        """Demo mode follows a fixture body, and audits it like the real one.
+
+        No geometry is consulted, because there are no real bodies here to
+        consult. That is the demo being a demo; the live store picks the body
+        the click actually landed on.
+        """
+        if self._follow is not None and not self._follow.ended_reason:
+            raise AlreadyBusy(
+                f"Already following {self._follow.name or self._follow.stable_id}. "
+                f"Stop that one first."
+            )
+
+        entry = self._log(actor, "track.follow", "Layla Ahmed",
+                          f"{camera_id} at {x:.2f},{y:.2f}")
+        self._follow_audit = entry.id
+        self._follow = S.FollowView(
+            stable_id="p7",
+            camera_id="c-main",
+            camera_name="Main entrance",
+            place="Main entrance",
+            since=now(),
+            person_id="p-layla",
+            name="Layla Ahmed",
+            match=S.MatchKind.FACE,
+            trail=[S.TrailHop(camera_id="c-main", camera_name="Main entrance",
+                              place="Main entrance", at=now())],
+        )
+        return self._follow
+
+    def follow_view(self) -> S.FollowView | None:
+        return self._follow
+
+    def follow_end(self, actor: str) -> S.FollowView | None:
+        if self._follow is None or self._follow.ended_reason:
+            return self._follow
+        self._log(actor, "track.follow.end", self._follow.name, "manual")
+        self._follow = self._follow.model_copy(update={"ended_reason": "manual"})
+        return self._follow
+
+    def follow_record_start(self, timer_seconds: float | None,
+                            actor: str) -> S.FollowView:
+        # The same refusal every other recording call gives in demo mode. A
+        # fabricated segment with no file behind it is the fake save rule 4
+        # forbids, and it would be fabricated exactly where an operator would
+        # go looking for evidence.
+        raise SubsystemUnavailable(self.NO_CAMERAS)
+
+    def follow_record_stop(self, actor: str) -> S.FollowView:
+        raise SubsystemUnavailable(self.NO_CAMERAS)
 
     # -- system -------------------------------------------------------------
 
@@ -572,10 +913,12 @@ class MockStore:
         ("track", "Track a person"),
         ("breaches", "Restricted zones"),
         ("weapons", "Weapon detection"),
-        ("search_lost", "Lost item search"),
+        ("search_lost", "Bag detection"),
+        ("vehicles", "Vehicle gate"),
         ("users", "Users and roles"),
         ("audit", "Audit trail"),
         ("attention", "Alerts"),
+        ("ask", "Ask"),
     )
 
     def capabilities(self) -> list[S.Capability]:
@@ -720,13 +1063,37 @@ class MockStore:
     def people(self) -> list[S.DirectoryPerson]:
         return list(self._people)
 
+    def remove_person(self, person_id: str, actor: str) -> bool:
+        """Take somebody out of the demo directory, and mean it.
+
+        The demo is a working demo: a Remove button that visibly did nothing
+        here would teach an evaluator that the feature does not work. The row
+        goes for the life of the process, and the audit entry is written first
+        exactly as the live store writes it.
+        """
+        person = next((p for p in self._people if p.id == person_id), None)
+        if person is None:
+            return False
+
+        self._log(actor, "person.remove", person.name,
+                  "removed from the directory and the face gallery")
+        self._people = [p for p in self._people if p.id != person_id]
+        return True
+
     def groups(self) -> list[S.GroupSummary]:
+        # Everyone first and holding all of them, exactly as the live store
+        # builds it — a demo that groups people differently from the product
+        # teaches an evaluator the wrong thing about the product.
+        #
+        # 507 is Grades 7-9 plus staff. Bus riders overlaps those, which is
+        # the point: the specific groups are not slices of a pie.
         return [
+            S.GroupSummary(name="Everyone", people=507, classes=None, here=480),
+            S.GroupSummary(name="All staff", people=96, classes=None, here=91),
+            S.GroupSummary(name="Bus riders", people=214, classes=None, here=203),
             S.GroupSummary(name="Grade 7", people=138, classes=5, here=130),
             S.GroupSummary(name="Grade 8", people=142, classes=5, here=133),
             S.GroupSummary(name="Grade 9", people=131, classes=5, here=126),
-            S.GroupSummary(name="All staff", people=96, classes=None, here=91),
-            S.GroupSummary(name="Bus riders", people=214, classes=None, here=203),
         ]
 
     def group(self, name: str) -> S.GroupDetail | None:
@@ -773,7 +1140,7 @@ class MockStore:
         return [
             S.User(id="u1", name="Mohamed Fouad", email="mohamed61fouad@gmail.com",
                    role=S.Role.ADMIN, last_active=now()),
-            S.User(id="u2", name="Tarek Nassar", email="t.nassar@greenfield.edu.eg",
+            S.User(id="u2", name="Tarek Nassar", email="t.nassar@example.com",
                    role=S.Role.IT, last_active=at(8, 12)),
         ]
 
@@ -848,3 +1215,263 @@ class MockStore:
                              action=action, subject=subject, detail=detail)
         self._audit.append(entry)
         return entry
+
+    # -----------------------------------------------------------------------
+    # Ask — the natural-language query console (P12)
+    #
+    # Implemented HERE, on MockStore, and deliberately not overridden on
+    # LiveStore. It looks like fixture code serving a production path, which is
+    # the bug P0-01 killed, and it is the opposite: `ask` holds no data. It
+    # masks, parses, then calls `self.attendance(...)` / `self.breaches(...)` /
+    # whichever the menu names, and Python resolves `self` to whichever store
+    # is mounted. One orchestration answers from fixtures in demo mode and from
+    # live data in production, and the result carries whatever honesty
+    # labelling that store already attaches.
+    #
+    # Writing it twice would be two orchestrations to keep in step, and the
+    # mock one would rot silently because the tests would use it.
+    # `test_ask.py` asserts `LiveStore.ask is MockStore.ask`, so the day
+    # somebody overrides it that is a decision rather than an accident.
+    # -----------------------------------------------------------------------
+
+    def ask(self, question: str, actor: str,
+            parser: object | None = None) -> S.AskAnswer:
+        """Answer one question from one existing query, or say why not."""
+        from vg.api import notes
+        from vg.ask import Dictionary, find, mask, unmask, unrecognised
+        from vg.ask.mask import AMBIGUOUS
+        from vg.ask.menu import TODAY
+        from vg.ask.parser import ParserUnavailable
+
+        # 1. Mask, locally, before anything can leave. The dictionary is built
+        #    per question and never cached: a stale one is a name that leaves.
+        dictionary = Dictionary.build(self._ask_names(), self._ask_plates())
+        masked, used = mask(question, dictionary)
+        # Words the site does not know — minus the ones it plainly does. An
+        # area or a group is not a person, and warning that "Library" left the
+        # site is noise. Noise is how a warning stops being read, and this one
+        # has a real job: it is the only sign that a visitor's name went.
+        site_words = {
+            w.casefold()
+            for name in [*self._ask_places(), *self._ask_groups()]
+            for w in str(name).split()
+        }
+        stray = [w for w in unrecognised(question, dictionary)
+                 if w.casefold() not in site_words]
+
+        # 2. Audit BEFORE the send, not after. The row records the question as
+        #    typed and the exact text about to leave, so a question asked
+        #    during an outage is still a question asked. `detail` gains the
+        #    resolved query below — the row's identity and timestamp are fixed
+        #    here and never rewritten.
+        entry = self._log(actor, "ask", question, f"sent: {masked}")
+
+        def answer(outcome: S.AskOutcome, **kw) -> S.AskAnswer:
+            note = kw.pop("note", None)
+            # The words that left are worth saying whatever else happened, but
+            # never in place of the real reason for a failure.
+            if note is None and stray and outcome is S.AskOutcome.ANSWERED:
+                note = notes.note("ask.words_left_site", words=", ".join(stray))
+            return S.AskAnswer(outcome=outcome, note=note,
+                               sent_off_site=masked, audit_id=entry.id, **kw)
+
+        # 3. Parse. Every failure is a payload, never a 5xx.
+        if parser is None:
+            parser = self._ask_parser()
+        try:
+            parsed = parser.parse(masked)
+        except ParserUnavailable as exc:
+            return answer(S.AskOutcome.UNAVAILABLE,
+                          note=notes.note("ask.cloud_unavailable",
+                                          reason=exc.reason))
+
+        query = find(parsed.query)
+        if query is None:
+            entry.detail = f"{entry.detail} -> unsupported"
+            return answer(S.AskOutcome.UNSUPPORTED,
+                          note=notes.note("ask.unsupported"))
+
+        # 4. Resolve placeholders back to real values, locally.
+        params = unmask(dict(parsed.params), used)
+        assumed: list[str] = []
+        for spec in query.params:
+            if params.get(spec.name):
+                continue
+            if spec.default == TODAY:
+                params[spec.name] = self._ask_today()
+                assumed.append(spec.name)
+            elif spec.default:
+                params[spec.name] = spec.default
+                assumed.append(spec.name)
+
+        understood = S.AskUnderstanding(query=query.id, params=params,
+                                        assumed=assumed)
+        entry.detail = f"{entry.detail} -> {query.id} {params}"
+
+        # A name two enrolled people share was masked — to nobody. The name
+        # did not leave the site, and Ask must not now pick one of them.
+        unclear = next(
+            (spec.name for spec in query.params
+             if AMBIGUOUS in str(parsed.params.get(spec.name, ""))), None)
+
+        missing = unclear or parsed.missing or next(
+            (name for name in query.required if not params.get(name)), None)
+        if missing:
+            return answer(S.AskOutcome.NEEDS_DETAIL, understood=understood,
+                          note=notes.note("ask.needs_detail", parameter=missing))
+
+        # 5. A feature that records nothing has no answer to give in any
+        #    shape. Saying "nothing found" would describe a search that never
+        #    ran, so it says what is actually true and offers the page.
+        if query.stores_nothing:
+            return answer(S.AskOutcome.UNAVAILABLE, understood=understood,
+                          deep_link=query.route(params),
+                          note=notes.note("ask.not_recorded", subject=query.id))
+
+        # 6. A value the site cannot resolve must never reach a query.
+        #
+        #    This is the most dangerous step in `ask`, because the failure is
+        #    silent and confident. `count()` answers a place it does not know
+        #    by falling back to a default one: asked for "the population of
+        #    people" it returned "Cafeteria, 372". Ask would then have shown a
+        #    real figure, from a real query, about somewhere nobody asked
+        #    about — the exact shape of untruth the constitution forbids, with
+        #    every honesty label intact.
+        bad_param, bad_value = self._ask_unresolvable(query, params)
+        if bad_param == "person":
+            # A name nobody knows is not an absence. An empty register row for
+            # somebody never enrolled reads as "they did not come".
+            return answer(S.AskOutcome.UNSUPPORTED, understood=understood,
+                          note=notes.note("ask.unknown_person", name=bad_value))
+        if bad_param:
+            return answer(S.AskOutcome.NEEDS_DETAIL, understood=understood,
+                          note=notes.note("ask.needs_detail",
+                                          parameter=bad_param))
+
+        # 7. Run the one trusted query. A subsystem that is off answers for
+        #    itself — Ask forwards its reason rather than paraphrasing it.
+        try:
+            result = query.run(self, params)
+        except SubsystemUnavailable as exc:
+            return answer(S.AskOutcome.UNAVAILABLE, understood=understood,
+                          deep_link=query.route(params),
+                          note=notes.note("ask.cloud_unavailable",
+                                          reason=str(exc)))
+        except (ValueError, TypeError, KeyError) as exc:
+            # The model handed over a value the query cannot use — "days":
+            # "next week", a gate that is not a number. That is a routing
+            # failure, not a server fault, and it must not become a 500 on an
+            # endpoint whose contract says it always answers.
+            log.warning("ask: %s rejected its parameters %s (%s)",
+                        query.id, params, exc)
+            return answer(S.AskOutcome.NEEDS_DETAIL, understood=understood,
+                          note=notes.note("ask.needs_detail",
+                                          parameter=_bad_parameter(query, params)))
+
+        return answer(S.AskOutcome.ANSWERED, understood=understood,
+                      headline=result.headline, rows=result.rows,
+                      deep_link=query.route(params))
+
+    # -- the four small things `ask` needs from the store it is running on --
+
+    def _ask_names(self) -> list[str]:
+        """Every enrolled name, for masking. Read fresh on every question."""
+        try:
+            return [p.name for p in self.people() if p.name]
+        except SubsystemUnavailable:
+            # The directory being down must not stop Ask masking what it can,
+            # and must certainly not send an unmasked question instead.
+            return []
+
+    def _ask_plates(self) -> list[str]:
+        try:
+            return [v.plate_display for v in self.vehicle_register("", "")]
+        except SubsystemUnavailable:
+            return []
+
+    def _ask_places(self) -> list[str]:
+        """The site's areas. Not personal data — a room in a building."""
+        try:
+            return [str(a) for a in self.areas()]
+        except SubsystemUnavailable:
+            return []
+
+    def _ask_groups(self) -> list[str]:
+        """The site's groups. Not personal data — a class, not a child."""
+        try:
+            return [g.name for g in self.groups()]
+        except SubsystemUnavailable:
+            return []
+
+    def _ask_today(self) -> str:
+        """The site's today. Overridden on LiveStore, which holds the clock."""
+        return str(TODAY)
+
+    def _ask_parser(self):
+        """Whatever can read a question today, or something that says it cannot.
+
+        Built per question rather than cached, because the honest answer
+        changes when the key or the config does and a cached parser would go
+        on claiming to work after somebody switched Ask off.
+        """
+        from vg.ask import build_parser
+
+        # The site's own vocabulary goes with the menu: a model cannot choose
+        # a place it does not know exists. Places and groups only — never a
+        # person, which is what the placeholders are for.
+        return build_parser({"areas": self._ask_places(),
+                             "groups": self._ask_groups()})
+
+    def _ask_unresolvable(self, query,
+                          params: dict[str, str]) -> tuple[str | None, str]:
+        """The first parameter naming something the site does not have.
+
+        Returns `(parameter, value)`, or `(None, "")` when everything resolves.
+
+        Only parameters that name a **thing the site knows** are checked — a
+        person, a place, a group. A date or a plate is not on this list: a
+        plate the register has never seen is a real and useful answer ("that
+        car is not registered"), and refusing to look it up would be worse
+        than looking.
+        """
+        def known(values) -> set[str]:
+            return {str(v).casefold() for v in values}
+
+        checks: list[tuple[str, str, set[str]]] = []
+
+        person = params.get("person") or (
+            params.get("subject") if params.get("mode") == "person" else "")
+        if person:
+            checks.append(("person", person, known(self._ask_names())))
+
+        if params.get("place"):
+            checks.append(("place", params["place"], known(self.areas())))
+
+        group = params.get("group") or (
+            params.get("subject") if params.get("mode") == "group" else "")
+        if group:
+            checks.append(("group", group, known(g.name for g in self.groups())))
+
+        for name, value, allowed in checks:
+            # An empty allow-list means the subsystem behind it is not running.
+            # Refusing every value then would turn "recognition is off" into
+            # "I have never heard of her", which is a different and wrong
+            # answer. Let the query itself report its own unavailability.
+            if allowed and value.casefold() not in allowed:
+                return name, value
+        return None, ""
+
+
+def _bad_parameter(query, params: dict[str, str]) -> str:
+    """Which parameter a query most likely choked on.
+
+    A best guess for one word on screen, not a diagnosis: the operator is
+    being asked to say the thing again more clearly, and naming the wrong
+    field is a small cost against saying nothing at all.
+    """
+    for spec in query.params:
+        value = params.get(spec.name, "")
+        if spec.name in {"days", "gate"} and value and not value.isdigit():
+            return spec.name
+    return query.required[0] if query.required else (
+        query.params[0].name if query.params else "detail")

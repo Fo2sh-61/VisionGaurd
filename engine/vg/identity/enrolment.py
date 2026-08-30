@@ -54,8 +54,25 @@ GOOD_FACE_PIXELS = 200
 
 # How many varied photos a person needs before Save unlocks. One photo is one
 # lighting condition and one angle; recognition then fails the moment they turn
-# their head. Three is the floor, five is better.
-REQUIRED_PHOTOS = 3
+# their head.
+#
+# Five, raised from three (owner decision, 2026-08-21). Three was the point at
+# which recognition became *possible*; five is where it becomes dependable
+# across the angles and lighting an entrance camera actually sees. The cost is
+# real and lands on the operator, not the engine: every photo must also differ
+# from all the others (TOO_SIMILAR), so five takes noticeably more tries at the
+# camera than three did.
+#
+# Nobody is enrolled below this. `commit()` refuses before `add_person` runs,
+# so there is never a directory row with no face behind it — a person the
+# cameras cannot recognise, sitting in a register that can only ever mark them
+# absent.
+#
+# Raising it does not invalidate anybody already enrolled: existing people keep
+# the vectors they have and stay recognisable. The People page reports the real
+# count per person, so a three-photo enrolment from before reads as exactly
+# that rather than being quietly presented as complete.
+REQUIRED_PHOTOS = 5
 
 # Sessions are abandoned all the time — an operator closes the tab mid-enrolment.
 # Without expiry the staged vectors accumulate for the life of the process.
@@ -175,6 +192,11 @@ class EnrolmentSession:
         return f"{count} usable photos across {len(angles)} angles. Ready to save."
 
 
+def _fraction(value: float) -> float:
+    """A fraction of the frame, inside 0..1 whatever the detector said."""
+    return max(0.0, min(1.0, float(value)))
+
+
 class EnrolmentService:
     """Stages, scores and commits enrolments.
 
@@ -259,6 +281,49 @@ class EnrolmentService:
         with self._lock:
             session.photos.append(photo)
         return photo
+
+    # -- live preview -------------------------------------------------------
+
+    def preview(self, frame) -> list[dict]:
+        """The faces in one frame, as fractions, for the enrolment overlay.
+
+        Geometry and nothing else. No embedding runs, no gallery is consulted,
+        and no name comes back — an enrolment preview that claimed to know who
+        it was looking at would be recognition leaking into enrolment, which is
+        the bug that once made every person on a camera read as one person.
+
+        The size floor is the same one `_assess` uses to pick a candidate, so
+        the box the operator sees is a face capture would actually accept.
+        Dropping it lower makes YuNet return dozens of "faces" on a normal
+        corridor frame — texture, distant heads, noise — and the page would
+        tell the operator there were nine people in the room.
+
+        Runs in the request, on the frame the camera already has. Nothing runs
+        when nobody is enrolling.
+        """
+        faces = []
+        for face in self.pipeline.detector.detect(frame.image, min_size=MIN_FACE_PIXELS):
+            x, y = frame.to_normalised(face.x, face.y)
+            w, h = frame.to_normalised(face.w, face.h)
+            faces.append({
+                # Clamped because a face half out of shot has a negative
+                # origin or a box past the edge, and the wire refuses anything
+                # outside 0..1 — the overlay would vanish mid-enrolment and
+                # read as "no face" when there plainly is one.
+                "x": _fraction(x),
+                "y": _fraction(y),
+                "w": _fraction(w),
+                "h": _fraction(h),
+                "confidence": max(0.0, min(1.0, float(face.confidence))),
+                "points": [
+                    {
+                        "x": _fraction(px / frame.width),
+                        "y": _fraction(py / frame.height),
+                    }
+                    for px, py in face.landmarks
+                ],
+            })
+        return faces
 
     def remove_photo(self, session_id: str, photo_id: str) -> bool:
         session = self.session(session_id)

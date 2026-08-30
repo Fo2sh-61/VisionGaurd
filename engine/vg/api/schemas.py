@@ -152,6 +152,32 @@ class Instant(Wire):
     tz_offset_minutes: int = 0
 
 
+class Note(Wire):
+    """An explanation the console can say in any language.
+
+    The engine says *what happened*; the console says it *in a language*. The
+    code is the contract, the wording is not - changing an English sentence
+    must never need an engine deploy, and every wording lives in
+    `web/src/i18n/`.
+
+    `code` must be declared in `notes.py`; `note()` refuses anything else and
+    `engine/tests/test_notes.py` catches an unregistered one without having to
+    execute the branch that emits it.
+
+    `args` are **facts** - a camera name, a count, a number of minutes. Never a
+    phrase: an English phrase smuggled through `args` is untranslatable, and if
+    something needs saying it needs its own code.
+
+    Nothing on the wire carries this yet. The fields that should are listed in
+    `specs/008-arabic-console/data-model.md`; converting them is one
+    coordinated change across both stores and both front ends, and it is
+    deliberately not half-done.
+    """
+
+    code: str
+    args: dict[str, str | int | float] = Field(default_factory=dict)
+
+
 class Box(Wire):
     """A detection box in fractions of the frame, origin top-left."""
 
@@ -161,7 +187,17 @@ class Box(Wire):
     h: Fraction
     label: str | None = None
     confidence: Confidence | None = None
-    kind: Literal["person", "weapon", "object", "face", "match"] = "person"
+    #: What this box IS, which decides how the console colours it.
+    #:
+    #: `"plate"` was missing here until 27 Aug and gate tiles had never once
+    #: drawn a box because of it: `_plate_boxes` built one, this literal
+    #: refused it, and the whole detections response raised — so a plate in
+    #: view took the overlay down rather than appearing on it. The console
+    #: half had been right all along (`boxColor()` has had its plate branch
+    #: since the feature shipped). Widen this only with a test that ends at a
+    #: validated `CameraView`; see `tests/test_vehicle_overlay.py` for why the
+    #: near end of the path is not enough.
+    kind: Literal["person", "weapon", "object", "face", "match", "plate"] = "person"
     match: MatchKind = MatchKind.NONE
     severity: Severity = Severity.INFO
     # The appearance identity following this body, e.g. "p7". Survives leaving
@@ -169,6 +205,14 @@ class Box(Wire):
     # point of tracking — so it has to reach the screen, not stop at the
     # database. None when the camera is not being tracked.
     track_id: str | None = None
+    #: How wide this plate is, in pixels of the source frame. Plate boxes only.
+    #:
+    #: Display information rather than geometry, which is why it sits beside
+    #: the fractions instead of replacing them. The console needs it to tell
+    #: an operator whether a plate is big enough to read, and a fraction
+    #: cannot answer that without the capture resolution — which the console
+    #: does not have and should not have to learn.
+    plate_width_px: int | None = None
 
 
 class Point(Wire):
@@ -201,6 +245,9 @@ class CameraView(Wire):
 
     id: str
     name: str
+    #: The named place this camera watches. What the live grid partitions by,
+    #: and the same string the counting page groups on.
+    area: str = ""
     offline: bool = False
     captured_at: Instant | None = None
     # Set when serving the last good frame of a dropped stream. The UI shows
@@ -213,6 +260,29 @@ class CameraView(Wire):
     count_line: Fraction | None = None
     snapshot_url: str | None = None
     stream_url: str | None = None
+    #: Which recognition tier this camera is in. True means faces are the
+    #: point here and it runs the recogniser at full rate; false is the patrol
+    #: tier. Shown on Settings and System Health, not on the Track page.
+    faces: bool = False
+
+
+#: Every overlay a camera tile can ask for.
+#:
+#: **One list, in one place, and the endpoint's validation is built from it.**
+#: The `feature` query parameter used to carry its own hand-written regex, and
+#: `vehicles` was added to `LiveStore._boxes` without being added there - so
+#: every plate-box poll was refused with a 422 before it reached the engine
+#: and no gate camera ever drew a box. A feature whose overlay is rejected by
+#: the front door looks exactly like a feature that found nothing.
+#:
+#: Adding a branch to `_boxes` means adding its name here. `test_api.py`
+#: checks that, by reading `_boxes` itself.
+OVERLAY_FEATURES = (
+    "attendance", "track", "counting", "intrusion", "weapons", "lost",
+    "vehicles",
+)
+
+OVERLAY_FEATURE_PATTERN = f"^({'|'.join(OVERLAY_FEATURES)})$"
 
 
 class CameraDetections(Wire):
@@ -355,6 +425,19 @@ class Breach(Wire):
     dwell_seconds: float
     clip: Clip | None = None
     model_version: str | None = None
+    # The three below are additive with defaults, so an older client keeps
+    # parsing this payload unchanged.
+    #
+    # Peak, not last: the final frame of every scene has nobody in it, so the
+    # last count would report 0 people for every entry that has ended.
+    people: int = 1
+    #: none | recording | saved | replaced | failed. Only `saved` has a file,
+    #: and `clip` is populated only then.
+    clip_state: str = "none"
+    #: Why there is no playable clip, in the operator's words. The UI shows it
+    #: beside a disabled control — a button that does nothing is worse than no
+    #: button, and a missing reason is how it becomes one.
+    clip_reason: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -384,11 +467,23 @@ class WeaponDetection(Wire):
     box: Box | None = None
     clip: Clip | None = None
     model_version: str | None = None
+    # None means the knife is still in view; the page says so rather than
+    # printing a duration that is still growing as if it were final.
+    ended_at: Instant | None = None
+    seconds: float = 0.0
+    clip_state: str = "none"
+    # Why there is no video. Rendered next to the missing button, so it has
+    # to be a sentence that explains itself with nothing around it.
+    clip_reason: str | None = None
+    end_reason: str | None = None
 
 
 class WeaponReview(Wire):
     verdict: Literal[ReviewVerdict.CONFIRMED, ReviewVerdict.DISMISSED]
-    actor: str
+    # Optional because the live engine records the signed-in account and
+    # ignores whatever the body claims — a caller cannot review as somebody
+    # else. `MockStore` still reads it, so demo mode keeps working.
+    actor: str | None = None
     reason: str | None = None
 
 
@@ -498,47 +593,23 @@ class CountResult(Wire):
 
 
 # ---------------------------------------------------------------------------
-# lost items — job-based, it runs over stored footage
+# a job that runs and finishes
 # ---------------------------------------------------------------------------
 
-class LostQuery(Wire):
-    item: str
-    colour: str | None = None
-    area: str | None = None
-    since: str | None = None
-
-
-class LostHit(Wire):
-    camera_id: str
-    camera_name: str
-    at: Instant
-    confidence: Confidence
-    note: str | None = None
-    box: Box | None = None
-    clip: Clip | None = None
-
-
 class SearchJob(Wire):
-    """POST returns one of these; the UI polls or streams until `done`.
+    """POST returns one of these; the console polls until it leaves `running`.
 
-    The Lost Items page already has a "Searching footage…" state built for
-    exactly this, and the budget is under a minute.
+    `stopped` is a finished search that was cut short by hand or replaced by
+    a newer one. It keeps its hits — stopping does not throw them away.
     """
 
     id: str
-    state: Literal["queued", "running", "done", "failed"]
+    state: Literal["queued", "running", "done", "stopped", "failed"]
     progress: Annotated[float, Field(ge=0.0, le=1.0)] = 0.0
     submitted_at: Instant
     clips_searched: int = 0
     clips_total: int = 0
     error: str | None = None
-
-
-class LostResult(Wire):
-    job: SearchJob
-    query: LostQuery
-    hits: list[LostHit] = Field(default_factory=list)
-    cameras: list[CameraView] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -564,6 +635,28 @@ class TrackStop(Wire):
     clip: Clip | None = None
 
 
+class NameSource(str, Enum):
+    """Which cameras in this result were able to put a name on a body.
+
+    A FACT, not a sentence - the console builds the wording, in whichever
+    language it is showing. The engine only knows which cameras were running
+    a recogniser.
+
+    ALL       every enabled camera could name somebody: the identity tier at
+              the doorways, and the patrol tier everywhere else.
+    IDENTITY  only the `faces: true` / attendance cameras. Patrol is off, so
+              a corridor sighting is a body without a name.
+
+    This exists because switching patrol off makes a path quietly THINNER -
+    the same person, fewer named stops - and a result that is quietly thinner
+    is indistinguishable from a person who genuinely was not seen. Saying
+    which is which is the difference between an honest answer and a wrong one.
+    """
+
+    ALL = "all"
+    IDENTITY = "identity"
+
+
 class TrackResult(Wire):
     subject: PersonRef
     date: str
@@ -577,6 +670,10 @@ class TrackResult(Wire):
     metrics: list[Metric] = Field(default_factory=list)
     path: list[TrackStop] = Field(default_factory=list)
     cameras: list[CameraView] = Field(default_factory=list)
+    #: Which cameras could name somebody while this path was built. IDENTITY
+    #: means patrol was off and corridor stops carry no name - the console
+    #: must say so rather than let a thinner answer read as a fuller one.
+    names_from: NameSource = NameSource.ALL
 
 
 # ---------------------------------------------------------------------------
@@ -589,6 +686,36 @@ class Recorder(Wire):
     cameras: int
     online: bool
     ip: str | None = None
+
+
+class WorkerLoad(Wire):
+    """What one feature worker is actually costing, right now.
+
+    Every number here is a counter that was already being kept and never
+    shown. `frames_processed` and `last_inference_ms` come off the worker,
+    the queue figures and `frames_dropped` off its frame-bus subscription.
+
+    There is deliberately **no per-worker processor share**. Feature workers
+    are threads inside one process and the operating system attributes CPU to
+    the process, not the thread - so a per-worker percentage would be a
+    number this engine made up. The process figure sits on `SystemHealth`
+    instead, and what identifies the expensive worker here is its inference
+    time, its queue and its drops, which are all real.
+    """
+
+    #: The worker's own name - "recognition", "people", "weapons".
+    name: str
+    cameras: int
+    frames_processed: int
+    last_inference_ms: float
+    queue_depth: int
+    queue_max: int
+    #: Frames the bus discarded because this worker was still busy. Non-zero
+    #: with a full queue is what "behind" means.
+    frames_dropped: int
+    #: Behind, not merely busy. Omitted rather than guessed when a counter
+    #: cannot be read - false would read as "keeping up", which is a claim.
+    behind: bool | None = None
 
 
 class PipelineStage(Wire):
@@ -605,6 +732,8 @@ class PipelineStage(Wire):
     severity: Severity
     restartable: bool = False
     model_version: str | None = None
+    #: Only the workers stage fills this. Empty everywhere else.
+    workers: list[WorkerLoad] = Field(default_factory=list)
 
 
 class DataState(str, Enum):
@@ -762,6 +891,18 @@ class DirectoryPerson(Wire):
     # Drives the UI's honest "cannot be recognised without a photo" line.
     photo_on_file: bool = False
     attendance_today: AttendanceStatus | None = None
+    #: How many faces are on file. `photo_on_file` says whether the system can
+    #: recognise this person at all; this says how well, and the console turns
+    #: it into a sentence rather than a badge nobody could interpret.
+    photos: int = 0
+    #: When they were added to the directory.
+    enrolled_at: Instant | None = None
+    #: Their most recent sighting anywhere, and the camera's display NAME.
+    #: Null means never sighted — the console says "Not seen yet" in words. A
+    #: placeholder here would travel as data and be indistinguishable from a
+    #: real answer once it left this boundary.
+    last_seen: Instant | None = None
+    last_camera: str | None = None
 
 
 class GroupSummary(Wire):
@@ -923,6 +1064,11 @@ class SiteInfo(Wire):
     cameras_total: int
     places: list[str] = Field(default_factory=list)
     areas: list[str] = Field(default_factory=list)
+    # How long recorded clips are kept, from `storage.clip_retention_days`.
+    # Site policy, so it belongs with the rest of the chrome: a page that
+    # tells an operator "videos are kept for 30 days" must be reading the
+    # number the engine actually deletes by, not one typed into the markup.
+    clip_retention_days: int = 30
 
 
 class Problem(Wire):
@@ -982,6 +1128,273 @@ class LiveTracking(Wire):
     identities: list[TrackedIdentity] = Field(default_factory=list)
 
 
+# ---------------------------------------------------------------------------
+# the path behind somebody — anchors
+# ---------------------------------------------------------------------------
+
+class PathAnchor(Wire):
+    """A stop on a path, with the evidence that earned it.
+
+    The evidence travels because the operator is entitled to ask "why do you
+    believe this?" and get an answer in their own terms — "6 matches over 4
+    seconds, best 0.71" — rather than being asked to trust a coloured dot.
+
+    Deliberately no box geometry. An anchor is a place on a path, not
+    something to draw over a frame.
+    """
+
+    camera_id: str
+    camera_name: str
+    place: str
+    at: Instant
+    until: Instant
+    #: separate looks, not frames.
+    matches: int
+    score: Confidence
+    face_px: int
+
+
+class PathSkeleton(Wire):
+    """Where somebody was, from the anchor table alone.
+
+    Two layers, never merged, because they are answers to different questions:
+
+      anchors     a face was recognised, well enough and often enough to
+                  claim it. Evidence about IDENTITY.
+      appearance  the same body was seen again. Evidence about CONTINUITY
+                  only — clothing cannot tell you which person somebody is,
+                  so nothing here is ever named.
+
+    An empty `anchors` list is an answer, not a failure: it means nobody was
+    identified in that window, which is different from the system being
+    unable to look.
+    """
+
+    subject: PersonRef
+    date: str
+    # Written BEFORE this result is returned. If the write fails the search
+    # fails — the promise that every search is recorded is only worth
+    # anything if it is ordered this way.
+    audit_id: str
+    anchors: list[PathAnchor] = Field(default_factory=list)
+    appearance: list[TrackStop] = Field(default_factory=list)
+    #: Which cameras appear, for the tiles the page draws beside the path.
+    cameras: list[CameraView] = Field(default_factory=list)
+    #: Which cameras could name somebody while this path was built.
+    #:
+    #: IDENTITY means the patrol tier is off, so only the doorway cameras ran
+    #: a recogniser and a corridor sighting is a body with no name. The page
+    #: must say so: an anchor list that is short because nobody was looking
+    #: reads exactly like one that is short because nobody was there.
+    names_from: NameSource = NameSource.ALL
+
+# ---------------------------------------------------------------------------
+# the video behind a stop
+# ---------------------------------------------------------------------------
+
+class ChunkPoint(Wire):
+    """A point inside a chunk that has already been built. Fractions, as ever."""
+
+    job_id: str
+    chunk: int
+    x: Fraction
+    y: Fraction
+
+
+class LegRequest(Wire):
+    """Fetch and process the recorded video for one stop.
+
+    `start`/`end` rather than the `from`/`to` the operator types: `from` is a
+    Python keyword, and `TrackQuery` already settled on these names.
+    """
+
+    camera_id: str
+    start: datetime
+    end: datetime
+    #: Whose leg this is, when it came from an anchor. None for the footage
+    #: browsing and stranger flows, where nobody has been identified.
+    person_id: str | None = None
+    #: A body clicked inside an existing chunk, for following a stranger. The
+    #: result is APPEARANCE evidence and never carries a name.
+    descriptor_of: ChunkPoint | None = None
+
+
+class LegJob(Wire):
+    """A leg being built, and the pieces of it that are ready.
+
+    `chunk_urls` grows while the job runs. The page plays the first the moment
+    it lands rather than waiting for the last, which is the difference between
+    a ten-second wait and a two-minute one.
+    """
+
+    job: SearchJob
+    camera_id: str
+    camera_name: str
+    place: str
+    start: Instant
+    seconds: float
+    chunks_ready: int = 0
+    chunks_total: int = 0
+    #: Pieces of the stop the archive holds no video for. A stop starts when
+    #: somebody was recognised and a recording starts when somebody pressed a
+    #: button, so a gap at the front is ordinary rather than exceptional.
+    chunks_missing: int = 0
+    #: The archive's own words about the gap, naming what it does hold.
+    gap_reason: str | None = None
+    #: Same-origin, because `<video>` cannot send an Authorization header —
+    #: exactly like breach clips and camera streams.
+    chunk_urls: list[str] = Field(default_factory=list)
+    #: The camera being warmed up for the next stop, if one is.
+    next_prefetched: str | None = None
+    #: How long this is expected to take, from what was measured on this
+    #: machine. None when nobody has measured it — never a guess.
+    estimate_seconds: float | None = None
+
+class SweepRequest(Wire):
+    """Look for somebody across several cameras and a stretch of time."""
+
+    #: Empty for a stranger search, where nobody has a name to look for.
+    person: str = ""
+    start: datetime
+    end: datetime
+    #: Explicit cameras, or every camera in these areas. One or the other.
+    camera_ids: list[str] = Field(default_factory=list)
+    areas: list[str] = Field(default_factory=list)
+
+
+class StrangerRequest(Wire):
+    """Follow the body somebody clicked in a chunk, onto other cameras.
+
+    There is no `person` here and there cannot be one. Whatever this finds is
+    evidence that the same body moved, never evidence about who it is.
+    """
+
+    point: ChunkPoint
+    sweep: SweepRequest
+
+
+class SweepEstimate(Wire):
+    """The arithmetic, shown before anything runs.
+
+    `allowed: false` always carries its reason in words, and the reason is
+    either "that is more work than the budget" with the sum, or "nobody has
+    measured this machine yet". Never a shrug, and never a number that was
+    typed rather than measured.
+    """
+
+    seconds: float
+    camera_hours: float
+    cameras: int
+    allowed: bool
+    reason: str | None = None
+    measured_at: Instant | None = None
+
+
+class SweepHit(Wire):
+    """Somebody found in recorded video, with the evidence that found them."""
+
+    camera_id: str
+    camera_name: str
+    place: str
+    at: Instant
+    until: Instant
+    matches: int
+    score: Confidence
+    face_px: int
+    #: FACE when a face cleared the bar, APPEARANCE when only a body matched.
+    #: Never merged: one says who, the other only says the same body.
+    match: MatchKind = MatchKind.FACE
+
+
+class SweepJob(Wire):
+    job: SearchJob
+    cameras: list[str] = Field(default_factory=list)
+    hits: list[SweepHit] = Field(default_factory=list)
+    segments_done: int = 0
+    segments_total: int = 0
+    #: How many of those pieces had no recorded video behind them. A sweep
+    #: that examined nothing must never be read as having found nobody, so
+    #: this travels and the page says it out loud.
+    segments_missing: int = 0
+    estimate_seconds: float | None = None
+
+# ---------------------------------------------------------------------------
+# following one person, live
+# ---------------------------------------------------------------------------
+
+class FollowRequest(Wire):
+    """Where the operator clicked, in fractions of the frame.
+
+    Fractions and never pixels: the console does not know the camera's
+    resolution and must not have to guess it.
+    """
+
+    camera_id: str
+    x: Fraction
+    y: Fraction
+
+
+class FollowRecordRequest(Wire):
+    #: None means "until somebody presses stop". A number means the engine
+    #: stops it itself, so a closed tab cannot leave a camera recording.
+    timer_seconds: float | None = Field(default=None, ge=1.0, le=3600.0)
+
+
+class TrailHop(Wire):
+    """A camera the followed person crossed, and when."""
+
+    camera_id: str
+    camera_name: str
+    place: str
+    at: Instant
+
+
+class FollowRecording(Wire):
+    """The recording riding along with a follow.
+
+    One segment per camera. Segments carry their own stop reason, because
+    "the timer ran out" and "we lost them" are different things to an operator
+    holding the file afterwards.
+    """
+
+    state: Literal["recording", "stopped"]
+    reason: str | None = None
+    #: Counts down while a timer is set. None when there is no timer, or once
+    #: it has stopped.
+    timer_seconds_left: float | None = None
+    segments: list[Recording] = Field(default_factory=list)
+
+
+class FollowView(Wire):
+    """The followed body as it stands right now.
+
+    `name` is present only after a face has been recognised well enough,
+    several times, to claim it — and it is gone the moment the track is. It is
+    an annotation on this body in these frames, never a binding that outlives
+    them.
+    """
+
+    stable_id: str
+    camera_id: str
+    camera_name: str
+    place: str
+    since: Instant
+    person_id: str | None = None
+    name: str | None = None
+    #: FACE once a name has been earned, APPEARANCE while the system is only
+    #: holding on to the clothing. Never merged — the difference is the whole
+    #: basis on which an operator decides how much to believe this.
+    match: MatchKind = MatchKind.APPEARANCE
+    trail: list[TrailHop] = Field(default_factory=list)
+    recording: FollowRecording | None = None
+    #: manual | timer | track lost. Set once, and the follow is over.
+    ended_reason: str | None = None
+
+    @property
+    def ended(self) -> bool:
+        return self.ended_reason is not None
+
+
 class StartEnrolmentRequest(Wire):
     name: str = Field(min_length=1, max_length=120)
     type: PersonType = PersonType.STUDENT
@@ -1016,6 +1429,40 @@ class EnrolmentPhoto(Wire):
     source: str = "upload"
 
 
+class PreviewFace(Wire):
+    """One face in the enrolment camera's latest frame.
+
+    Geometry only. There is deliberately no name, no person id and no match
+    here: an enrolment preview must never claim to know who it is looking at,
+    so there is nowhere for an identity to travel even if something sent one.
+    """
+
+    x: Fraction
+    y: Fraction
+    w: Fraction
+    h: Fraction
+    #: Right eye, left eye, nose, mouth corners — the order YuNet emits.
+    points: list[Point] = Field(default_factory=list)
+    confidence: Confidence = 0.0
+
+
+class EnrolmentPreview(Wire):
+    """What the enrolment page draws over the live view.
+
+    `faces: []` with `offline: false` means the engine looked and nobody was
+    there. `offline: true` means it could not look, and the page shows NO
+    SIGNAL rather than an empty overlay pretending to have checked — those are
+    different claims and only one of them is about the room.
+    """
+
+    camera_id: str
+    #: When the analysed frame was captured. Null when there is no frame: the
+    #: overlay is only ever as current as the picture it came from.
+    at: Instant | None = None
+    offline: bool = False
+    faces: list[PreviewFace] = Field(default_factory=list)
+
+
 class EnrolmentSessionView(Wire):
     """An enrolment in progress. Nothing here is in the gallery yet."""
 
@@ -1037,6 +1484,19 @@ class EnrolmentSessionView(Wire):
 # ---------------------------------------------------------------------------
 # auth
 # ---------------------------------------------------------------------------
+
+class LanguageRequest(Wire):
+    """Change your own language.
+
+    No `user_id`. A caller changes their own preference and nobody else's,
+    which keeps this endpoint off the permission surface entirely; an
+    administrator who wants to change a colleague's language asks them.
+    `Wire` forbids extras, so a smuggled id is a 422 rather than a quiet
+    write to somebody else's row.
+    """
+
+    language: Literal["en", "ar"]
+
 
 class LoginRequest(Wire):
     """What the sign-in form sends.
@@ -1061,6 +1521,9 @@ class Account(Wire):
     email: str
     role: str
     initials: str
+    #: Which language this person reads the console in. A preference, not a
+    #: permission - `auth/deps.py` decides access by path and never reads this.
+    language: Literal["en", "ar"] = "en"
 
 
 class LoginResult(Wire):
@@ -1068,3 +1531,452 @@ class LoginResult(Wire):
     expires_at: Instant
     user: Account
 
+
+class RegisterRequest(Wire):
+    """What the sign-up form sends.
+
+    There is no `role` field, and `extra="forbid"` means adding one is a 422
+    rather than a promotion. The role is decided by the server
+    (`SELF_SIGNUP_ROLE`), because the alternative is a public form that hands
+    out administrator of a system holding face data for children.
+    """
+
+    name: str
+    email: str
+    password: str
+
+
+# ---------------------------------------------------------------------------
+# vehicle gate
+# ---------------------------------------------------------------------------
+
+class VehiclePass(Wire):
+    """One car through one gate, once.
+
+    `owner` is None when the plate is not on the register, and the console
+    shows "Not in the register" rather than an empty cell — a blank reads as
+    missing data, which this is not.
+    """
+
+    id: str
+    at: Instant
+    plate: str                      # canonical, for matching
+    plate_display: str              # as it appears on the car, RTL Arabic
+    gate: int
+    gate_name: str
+    direction: str                  # entry | exit
+    status: str                     # known | unknown | blacklist | expired
+    confidence: Confidence
+    votes: int                      # how many frames agreed
+    needs_review: bool
+    owner: str | None = None
+    unit: str | None = None
+    has_snapshot: bool = False
+    #: Who typed this plate in by hand, if anybody. None is the reader's own
+    #: answer. Shown on the row so a corrected reading is visibly a person's
+    #: judgement rather than the model's, and so nobody re-corrects it.
+    corrected_by: str | None = None
+
+
+class RegisteredVehicle(Wire):
+    """A car the school knows about."""
+
+    id: str
+    plate: str
+    plate_display: str
+    category: str                   # staff | visitor | vip | blacklist
+    owner: str | None = None
+    phone: str | None = None
+    unit: str | None = None
+    car_make: str | None = None
+    car_colour: str | None = None
+    valid_until: str | None = None  # ISO date; None = no expiry
+    notes: str | None = None
+    #: Computed at read time, never stored. A stored flag needs a nightly job
+    #: to stay true and is wrong between midnight and whenever it runs.
+    expired: bool = False
+    last_seen: Instant | None = None
+
+
+class PlateCorrection(Wire):
+    """A plate somebody typed in after looking at the photograph."""
+
+    plate: str
+
+
+class PlateAlphabet(Wire):
+    """What a plate may contain, and what the reader mixes up.
+
+    Served rather than mirrored in TypeScript because the confusion table is
+    **measured** — it lists the pairs the character model actually returns for
+    one another, and it will change when the model does. A copy in the console
+    would drift, and the drift would show up as a correction picker that fails
+    to offer the one character the reader was likely to have got wrong.
+    """
+
+    #: Every letter the reader may output.
+    letters: list[str] = Field(default_factory=list)
+    #: The narrower set public sources agree is actually issued. Offered
+    #: first in a picker; the rest stay reachable.
+    common_letters: list[str] = Field(default_factory=list)
+    digits: list[str] = Field(default_factory=list)
+    #: character -> the characters it is genuinely confused with, commonest
+    #: first. One tap fixes the overwhelmingly likely mistake.
+    confusions: dict[str, list[str]] = Field(default_factory=dict)
+
+
+class VehicleRegistration(Wire):
+    """The write body. Only the plate is required; a gate log is filled in
+    over weeks, and refusing a row for a missing phone number is how a
+    register ends up half-entered on paper."""
+
+    plate: str
+    category: str = "visitor"
+    owner: str | None = None
+    phone: str | None = None
+    unit: str | None = None
+    car_make: str | None = None
+    car_colour: str | None = None
+    valid_until: str | None = None
+    notes: str | None = None
+
+
+class GateTotals(Wire):
+    """One gate's day.
+
+    `pairing_available` is false where no exit camera is configured, and
+    `inside` is then **absent** rather than zero — with nothing to pair
+    against, "0 inside" would be a number the engine cannot stand behind.
+    """
+
+    gate: int
+    name: str
+    entered: int
+    left: int
+    inside: int | None = None
+    pairing_available: bool = False
+
+
+class VehicleVisit(Wire):
+    """An entry and the exit it was paired with, if there was one.
+
+    `inferred` marks a visit closed because the car was seen entering again
+    rather than because an exit was observed. Reported, never presented as
+    observed.
+    """
+
+    plate: str
+    plate_display: str
+    entered: Instant
+    entry_gate: int
+    left_at: Instant | None = None
+    exit_gate: int | None = None
+    minutes: float | None = None
+    owner: str | None = None
+    unit: str | None = None
+    category: str | None = None
+    inferred: bool = False
+    #: The passes this visit was derived from, so a row can show the
+    #: photograph that proves it. The console links these straight at
+    #: `/vehicles/passes/{id}/snapshot` rather than the images being copied
+    #: anywhere - one store of pass images, one retention rule.
+    #:
+    #: The `has_snapshot` flags are separate from the ids because an image is
+    #: deleted at thirty days while its pass row is kept for ever. False means
+    #: "no picture to show", never "no such pass".
+    entry_pass_id: str | None = None
+    exit_pass_id: str | None = None
+    entry_has_snapshot: bool = False
+    exit_has_snapshot: bool = False
+
+
+class VehicleImportResult(Wire):
+    """What an import actually did. Every refusal is named.
+
+    A silent partial import is the worst outcome: the office believes the list
+    is loaded and finds out at the gate.
+    """
+
+    added: int
+    updated: int
+    skipped_duplicates: int
+    problems: list[str] = []
+
+
+class VehicleImportRun(Wire):
+    """The most recent register import, for the "last import" line.
+
+    The design draws "Last import: 2,140 rows · 6 skipped · 12 Aug". That is
+    either a fact or the line is absent - so this endpoint returns 404 on a
+    database nobody has ever imported into, and the console shows nothing
+    rather than a row of zeros. "0 rows imported" reads as a failed import
+    rather than as an import that never happened.
+    """
+
+    at: Instant
+    added: int
+    updated: int
+    skipped: int
+    rejected: int
+    by_who: str = ""
+
+
+class GateSummary(Wire):
+    """The six Live tiles.
+
+    **Every count is optional, and that is the point.** A tile with no number
+    renders its reason instead — "no gate camera is configured", "plates are
+    not being read". Zero is a measurement; absent is an admission. Sending 0
+    for "we do not know" is exactly the untruth SC-010 exists to prevent.
+    """
+
+    entered: int | None = None
+    left: int | None = None
+    inside: int | None = None
+    unknown: int | None = None
+    blacklist: int | None = None
+    needs_review: int | None = None
+    gates: int = 0
+    registered: int | None = None
+    #: Why any of the above are absent. None when everything is measured.
+    reason: str | None = None
+    #: False where no exit camera exists, so `inside` cannot be computed.
+    pairing_available: bool = False
+    #: How many gate cameras are actually being read, of those configured.
+    #:
+    #: The tile this feeds replaced "Needs review", which retired with the
+    #: pass list. `needs_review` above stays on the wire because the export
+    #: still reports it - a weak read is still flagged, it just no longer has
+    #: a tile. All three of these are absent, not zero, when plate reading is
+    #: not running at all: `reason` already carries that case, and "0 of 0"
+    #: would read as a measurement of a system that is not looking.
+    cameras_reading: int | None = None
+    cameras_total: int | None = None
+    #: Which camera is not being read and why. None when all of them are.
+    cameras_note: str | None = None
+
+
+class ReaderAttempt(Wire):
+    """One go at reading a plate, including the ones that came to nothing.
+
+    **This is the diagnostic surface, so a failure has to be as visible as a
+    success.** `display` empty means the reader found a plate and read no
+    characters from it; the console renders that as words, never as a blank
+    cell, because a blank reads as "we failed to load this row".
+
+    `confidence` and `plausibility` are absent rather than zero on a read that
+    produced nothing - there is no reading to be confident about.
+
+    Not stored anywhere. This is a live window onto a worker that is running
+    because somebody is watching it.
+    """
+
+    at: Instant
+    camera_id: str
+    camera_name: str
+    #: The plate as it would appear on the car. Empty = read nothing.
+    display: str = ""
+    confidence: Confidence | None = None
+    plausibility: Confidence | None = None
+    #: How wide the plate was, in pixels of the source frame. The aiming aid.
+    width_px: int = 0
+    #: What this car's vote is currently leaning towards, and how far along.
+    leader_display: str | None = None
+    votes: int = 0
+    votes_needed: int = 0
+
+
+class GateReaderCamera(Wire):
+    """Which models are actually reading at one gate camera, and how fast.
+
+    **The names are what is loaded, never what was configured.** A model that
+    fell back from its accelerated build to the supplied weights says so here,
+    on the page where its work shows, rather than only on System Health.
+
+    `read_ms` is None until the first read - a camera nobody has driven past
+    has no timing, and 0 ms would claim one.
+    """
+
+    camera_id: str
+    camera_name: str
+    gate: int
+    direction: str                  # entry | exit
+    finder: str                     # the plate detector actually loaded
+    reader: str                     # the character model actually loaded
+    form: str                       # TensorRT | PyTorch CUDA
+    read_ms: float | None = None
+    #: The car in front of this camera right now, if there is one.
+    #:
+    #: `reading_display` is the settled answer the votes have converged on —
+    #: **not** the last frame's raw read, which wobbles by a character and
+    #: was only ever a diagnostic. `has_crop` says a photograph of that plate
+    #: can be fetched; the console shows the picture beside the answer, so a
+    #: person judges the two together rather than taking either on faith.
+    reading_display: str | None = None
+    #: The same reading in canonical form — letters, space, ASCII digits.
+    #: The display form is spaced and carries Indic digits, which is right for
+    #: reading off a screen and wrong for feeding an editor; parsing it back
+    #: in the console would be a second implementation of `normalize`.
+    reading_plate: str | None = None
+    reading_votes: int = 0
+    has_crop: bool = False
+    #: The row this car was filed as, once it has been. None while the votes
+    #: are still gathering. Carrying it is what lets somebody correct the
+    #: reading from here — the same row the pass list would correct, never a
+    #: second one.
+    reading_pass_id: str | None = None
+
+
+class GateReaderNow(Wire):
+    """Everything the "what the reader is seeing now" card needs, in one poll.
+
+    `reason` set means plate reading is not running, and the card renders that
+    sentence instead of an empty table - the same wording the tiles use, from
+    the same place, so the page never gives two accounts of one situation.
+    """
+
+    cameras: list[GateReaderCamera] = Field(default_factory=list)
+    attempts: list[ReaderAttempt] = Field(default_factory=list)
+    votes_needed: int = 0
+    reason: str | None = None
+
+
+class GateAlert(Wire):
+    """A pass that is waiting for a person to deal with it.
+
+    **Derived from the pass, never stored.** An alert exists while a
+    qualifying pass of today has no dismissal against it; there is no alert
+    lifecycle to drift out of step with the log.
+
+    **The engine sends facts and the console writes the sentences** (rule:
+    `format.ts` owns every rendered string). So there is no `message` field
+    here - there are the things a message would need to be true.
+
+    `near_match_*` is filled only when exactly one registered plate is within
+    one edit of an unread-as-registered plate. Zero candidates or several and
+    it stays empty, because a guess between two cars puts a wrong name against
+    a stranger. The console must phrase it as a question; this is never a
+    claim that the two are the same car, and nothing is merged or rewritten.
+    """
+
+    pass_id: str
+    kind: str                       # unknown | blacklist | expired
+    at: Instant
+    plate: str                      # canonical, for matching
+    plate_display: str              # as it appears on the car
+    gate_name: str
+    owner: str | None = None
+    #: For `expired`: the ISO date the permit ran out.
+    permit_expired_on: str | None = None
+    near_match_display: str | None = None
+    near_match_owner: str | None = None
+    #: True only where pairing is available and the car has no exit yet, so
+    #: "and is still inside" can be said without guessing.
+    inside: bool = False
+    dismissable: bool = True
+
+
+class TrafficHour(Wire):
+    """One hour of one day at the gates. In above the line, out below it."""
+
+    hour: int                       # 0..23, site local
+    entered: int
+    left: int
+
+
+# ---------------------------------------------------------------------------
+# Ask — the natural-language query console (P12)
+# ---------------------------------------------------------------------------
+
+class AskOutcome(str, Enum):
+    """Four outcomes, four different screens.
+
+    They must never collapse into "no results". "I cannot answer that",
+    "which one did you mean?", "the counting subsystem is off" and "here is
+    the answer, and it is empty" are four different things to tell a guard,
+    and the console already keeps empty/zero/unknown apart everywhere else.
+    """
+
+    ANSWERED = "answered"
+    UNSUPPORTED = "unsupported"
+    NEEDS_DETAIL = "needs_detail"
+    UNAVAILABLE = "unavailable"
+
+
+class AskUnderstanding(Wire):
+    """What Ask decided the question was — shown to the operator, always.
+
+    This is the anti-fabrication device. Ask answers straight away rather than
+    asking for confirmation first, so a confidently wrong route would otherwise
+    produce a true answer to a question nobody asked. The operator's only
+    defence is being able to see what was actually run on their behalf, which
+    is why the console may never hide or abbreviate this line.
+    """
+
+    #: A menu id from `vg/ask/menu.py`. Never free text, never a sentence.
+    query: str
+    #: Resolved to real values — placeholders already put back, locally.
+    params: dict[str, str] = {}
+    #: Parameters Ask filled in itself rather than reading from the question,
+    #: e.g. `date` when the question said "today" or said nothing at all. A
+    #: wrong assumption has to be visible; a silent one is how a figure for
+    #: the wrong day gets believed.
+    assumed: list[str] = []
+
+
+class AskRow(Wire):
+    """One piece of evidence from the query's own result.
+
+    `label` is a **value** the query returned — a name, a plate, a zone, a
+    camera. Never a sentence: sentences are built by the console (P11).
+    """
+
+    label: str
+    at: Instant | None = None
+    camera: str | None = None
+    confidence: Confidence | None = None
+    clip_url: str | None = None
+    #: Per-row honesty, forwarded from the query: demo data, an estimated
+    #: exit, a weak plate read. A row that is less certain than its
+    #: neighbours must say so on the row, not in a footnote.
+    note: Note | None = None
+
+
+class AskAnswer(Wire):
+    """The answer to one question.
+
+    **There is no free-text field on this type, and that is the point.** Every
+    sentence the operator reads is built by the console from `note` and
+    `understood.query`. The model that read the question has nowhere to write,
+    so it cannot contribute a fact even by mistake — P12-FR-003 enforced by
+    the shape of the data rather than by review.
+    """
+
+    outcome: AskOutcome
+    understood: AskUnderstanding | None = None
+    #: The same figures the matching page shows.
+    headline: list[Metric] = []
+    rows: list[AskRow] = []
+    #: The honest state, when there is one to explain.
+    note: Note | None = None
+    #: Where to go for the fuller view. Always *additional* — never the answer
+    #: itself. A response with a deep link and no data has not answered.
+    deep_link: str | None = None
+    #: The exact text that left the site, byte for byte. Always present, even
+    #: when nothing left (then it is empty) and even when the question failed.
+    #: With unrecognised words sent as typed, this record is the only way to
+    #: know what actually went.
+    sent_off_site: str = ""
+    #: The audit receipt. Proof the entry was written before this was built.
+    audit_id: str = ""
+
+
+class AskRequest(Wire):
+    """One question, as typed.
+
+    No language field. The parser reads mixed script, and asking the console to
+    guess a language in order to help it is a way to be wrong about a sentence
+    that is half Arabic and half English — which is most of them here.
+    """
+
+    question: str = Field(min_length=1, max_length=500)

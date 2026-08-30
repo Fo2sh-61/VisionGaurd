@@ -2,13 +2,17 @@ import { CameraSources } from '@/components/CameraSources';
 import { CamGrid } from '@/components/CamGrid';
 import { Badge, Card, CardHeader, Empty, LoadError, PageHeader, Stats, toneGlyph } from '@/components/ui';
 import { getSystemHealth } from '@/services/api';
+import { formatWorkerQueue, formatWorkerThroughput } from '@/services/format';
 import type { SystemHealth as SystemHealthData } from '@/types';
 import { useAsync } from '@/app/useAsync';
+import { useLanguage, useT } from '@/app/LanguageContext';
 
 export function SystemHealth() {
+  const { language } = useLanguage();
+  const t = useT();
   const { data: health, error, loading, reload } = useAsync<SystemHealthData | null>(
-    () => getSystemHealth(),
-    [],
+    () => getSystemHealth(language),
+    [language],
     null,
   );
 
@@ -20,15 +24,14 @@ export function SystemHealth() {
   if (!health) {
     return (
       <>
-        <PageHeader title="System health" lead="Cameras, recorders and the AI server." />
-        <LoadError error={error} onRetry={reload} what="system health" />
+        <PageHeader title={t('health.title')} lead={t('health.lead')} />
+        <LoadError error={error} onRetry={reload} what="load.systemHealth" />
         <Card>
           {loading ? (
-            <Empty>Checking the system…</Empty>
+            <Empty>{t('health.checking')}</Empty>
           ) : (
             <Empty>
-              The engine did not answer, so nothing here can be reported. That is itself a
-              fault worth acting on — the engine may be stopped or unreachable.
+              {t('health.engineSilent')}
             </Empty>
           )}
         </Card>
@@ -38,19 +41,21 @@ export function SystemHealth() {
 
   return (
     <>
-      <PageHeader title="System health" lead="Cameras, recorders and the AI server." />
-      <LoadError error={error} onRetry={reload} what="the latest system health" />
+      <PageHeader title={t('health.title')} lead={t('health.lead')} />
+      <LoadError error={error} onRetry={reload} what="load.latestSystemHealth" />
 
       <Card>
         <CardHeader
-          title={`${health.camerasOnline} of ${health.camerasTotal} cameras online`}
+          title={t('health.camerasOnline', {
+            online: health.camerasOnline, total: health.camerasTotal,
+          })}
           sub={health.summary}
         />
         <Stats items={health.stats} columns={4} />
 
-        <div className="section-title">AI pipeline</div>
+        <div className="section-title">{t('health.pipeline')}</div>
         {health.pipeline.length === 0 && (
-          <Empty>No pipeline stages are running.</Empty>
+          <Empty>{t('health.noStages')}</Empty>
         )}
         {health.pipeline.map((p) => (
           <div key={p.name} className="row" style={{ gridTemplateColumns: '1.2fr 1.6fr 1fr .8fr' }}>
@@ -68,6 +73,42 @@ export function SystemHealth() {
             ) : (
               <span />
             )}
+            {/* Per-worker load, on the one row that carries it.
+                Every figure is a counter the engine already kept and never
+                showed, which is why a saturated machine used to look
+                identical to a comfortable one. `behind` is the engine's
+                call - full queue AND dropping - not a threshold invented
+                here. */}
+            {p.workers?.length ? (
+              <div className="row__sub" style={{ gridColumn: '1 / -1' }}>
+                {p.workers.map((w) => (
+                  <div
+                    key={w.name}
+                    className="row"
+                    style={{ gridTemplateColumns: '1fr 1fr 1fr 1fr' }}
+                  >
+                    <span className="row__muted">{w.name}</span>
+                    <span className="row__muted">
+                      {formatWorkerThroughput(w, language)}
+                    </span>
+                    <span className="row__muted">
+                      {formatWorkerQueue(w, language)}
+                    </span>
+                    <span>
+                      {w.behind ? (
+                        <Badge tone="warn" glyph={toneGlyph.warn}>
+                          {t('health.behind')}
+                        </Badge>
+                      ) : (
+                        <span className="row__muted">
+                          {t('health.keepingUp')}
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </div>
         ))}
       </Card>
@@ -85,8 +126,8 @@ export function SystemHealth() {
       </Card>
 
       <CamGrid
-        title="Cameras needing attention"
-        note="Offline cameras show their last received frame, clearly marked — never a frozen image pretending to be live."
+        title={t('health.camerasNeedingAttention')}
+        note={t('health.camerasNeedingAttentionNote')}
         cameras={health.cameras}
       />
     </>

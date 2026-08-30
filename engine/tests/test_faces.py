@@ -89,6 +89,86 @@ class TestGalleryBasics:
             second.close()
 
 
+class TestTheNamingBarStaysHigh:
+    """A stranger was named "Mohamed Fouad" at score 0.45.
+
+    Measured with `engine/tools/calibrate_faces.py` against the enrolled
+    gallery: the real person scores **0.725 to 0.812** against themselves.
+    The bar was 0.45, so the entire 0.45-0.72 band accepted anybody, and
+    somebody landed in it. A confident wrong name on a register gets believed;
+    that is the failure this whole subsystem exists to prevent.
+
+    These tests are a tripwire, not a measurement. Lowering the bar is a real
+    decision and should have to be made on purpose, in a diff somebody reads.
+    """
+
+    #: `calibrate_faces.py` against the enrolled gallery, 24 Aug 2026.
+    GENUINE_FLOOR = 0.725
+
+    def test_the_identity_bar_is_above_the_band_that_named_a_stranger(self):
+        from vg.config import AnchorGates
+
+        assert AnchorGates().score >= 0.60, (
+            "0.45 named a stranger. If this is being lowered, re-run "
+            "engine/tools/calibrate_faces.py first and say what it measured"
+        )
+
+    def test_the_patrol_bar_stays_below_a_real_corridor_look(self):
+        """The other half of the trade-off, and it bit during this very fix.
+
+        Raising identity to 0.60 and moving patrol to 0.55 by the same
+        reasoning broke `test_track_page.py`: a genuine corridor face scores
+        about 0.44, so a 0.55 patrol bar means corridors never anchor and
+        "Track a person" quietly stops working outside doorways.
+
+        Patrol earns its lower bar through evidence rather than score — three
+        separate looks, spread over seconds. Do not raise this to match the
+        doorway tier without re-running the corner tests.
+        """
+        from vg.config import PATROL_GATES, AnchorGates
+
+        assert PATROL_GATES.score <= 0.44, (
+            "a real corridor look scores ~0.44 - above this, corridors never "
+            "anchor; see test_track_page.py::TestTheCornerTier"
+        )
+        assert PATROL_GATES.score <= AnchorGates().score, (
+            "patrol must not be stricter than the doorway tier"
+        )
+
+    def test_the_bar_leaves_the_enrolled_person_room(self):
+        """The other direction of the trade-off, and the reason it is not 0.75.
+
+        A bar above the genuine floor rejects the person it was built for, and
+        an attendance page that never recognises anybody is not safer - it is
+        just useless in a different way.
+        """
+        from vg.config import AnchorGates
+
+        assert AnchorGates().score < self.GENUINE_FLOOR, (
+            "the bar is above the enrolled person's own worst score - they "
+            "will read as unidentified"
+        )
+
+    def test_engine_yaml_has_not_drifted_below_the_code_default(self):
+        """The config file is the bootstrap seed and can override these.
+
+        A number raised in `config.py` and left stale in `engine.yaml` would
+        look fixed in review and run at the old value, which is the worst of
+        both. Read what actually loads.
+        """
+        from vg import config as vgconfig
+
+        cfg = vgconfig.load()
+
+        assert cfg.tracking.identity.score >= 0.60, (
+            f"engine.yaml runs identity at {cfg.tracking.identity.score}"
+        )
+        assert cfg.tracking.patrol.score <= 0.44, (
+            f"engine.yaml runs patrol at {cfg.tracking.patrol.score}, above "
+            "the ~0.44 a real corridor look scores"
+        )
+
+
 class TestRefusingToGuess:
     def test_two_close_candidates_produce_no_answer(self, gallery):
         # The failure that matters: two students who look alike to the model.

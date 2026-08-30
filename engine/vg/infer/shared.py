@@ -37,10 +37,125 @@ threads are ever inside it, aligned or not.
 
 from __future__ import annotations
 
+import logging
+import os
 import threading
 from dataclasses import dataclass
+from pathlib import Path
 
 from vg.infer.persons import DetectedPerson, PersonDetector
+
+log = logging.getLogger(__name__)
+
+#: What `weights_to_load` reports back, and what System Health prints.
+TENSORRT = "TensorRT"
+UNACCELERATED = "PyTorch CUDA"
+
+
+def tensorrt_available() -> bool:
+    """Can this machine load a TensorRT engine at all?
+
+    **Importing `tensorrt` is not enough and the difference is not academic.**
+    On the cu13 build against a cu128 torch, `import tensorrt` succeeds,
+    `trt.Logger()` succeeds, and `trt.Builder()` segfaults - taking the whole
+    interpreter with it, so an export reports exit code 0 and produces no
+    file. The import is the cheap check that ultralytics itself performs; this
+    one only claims what it can see, and the build tool does the real probe.
+    """
+    try:
+        import tensorrt
+    except Exception:
+        return False
+    # Touch an attribute rather than bare-importing: an install whose native
+    # half is missing imports and then fails on first use.
+    return bool(getattr(tensorrt, "__version__", ""))
+
+
+def engine_path_for(weights: Path, imgsz: int) -> Path:
+    """Where the accelerated build for these weights and this size lives.
+
+    The size is **in the filename**, which is the whole trick. A TensorRT plan
+    has static shapes, so an engine built at 480 cannot serve a model
+    configured at 640 - and because the name carries the size, a 640 config
+    simply never names the 480 file. The rule that a wrong-size build must be
+    rejected needs no comparison logic; it enforces itself.
+
+    This is also the convention already on disk: `yolov8s-480.engine`,
+    `yolov8s-pose-640.engine`.
+    """
+    return weights.with_name(f"{weights.stem}-{imgsz}.engine")
+
+
+def weights_to_load(weights: Path, imgsz: int) -> tuple[Path, str]:
+    """The file a runner should actually open, and what to call that choice.
+
+    Prefers the accelerated build, falls back to the supplied weights **on the
+    GPU** - never to the processor. A missing engine is a slower product, not
+    a broken one, and P6-FR-033 requires the console to say which it is
+    running rather than leaving it to be discovered by timing a frame.
+
+    That is not hypothetical. This repo carried five engines that no
+    configuration referenced, loaded by a library that was not importable, one
+    of them built for the wrong input size - and nothing on any screen said
+    so. The product ran unaccelerated for months.
+    """
+    if os.getenv("VG_NO_TENSORRT") == "1":
+        # The lever for answering "is the engine costing accuracy?" without
+        # deleting a file that took ten minutes to build. A TensorRT plan is
+        # built at FP16 and its input size is fixed, so it is not bit-identical
+        # to the .pt it came from - and on a model that classifies single
+        # characters, "not identical" is a thing to be able to measure rather
+        # than argue about. `tools/compare_plates.py` sets this.
+        return weights, UNACCELERATED
+
+    engine = engine_path_for(weights, imgsz)
+    if not engine.exists():
+        return weights, UNACCELERATED
+    if not tensorrt_available():
+        log.warning(
+            "%s exists but tensorrt is not importable - running %s unaccelerated",
+            engine.name, weights.name,
+        )
+        return weights, UNACCELERATED
+    return engine, TENSORRT
+
+
+def load_model(weights: Path, imgsz: int, task: str = "detect",
+               accelerate: bool = True):
+    """Open the fastest form of these weights that actually loads.
+
+    Returns `(model, path, form)`. Tries the accelerated build first and falls
+    back to the supplied weights **on the GPU** if it will not open — which is
+    the third of the three states P6-FR-033 names, and the one a file-exists
+    check alone cannot catch. A plan built by a different library version, or
+    for a different GPU, exists and is still useless.
+
+    A failed engine load must never take the product down with it. Knife
+    detection going dark because somebody upgraded a driver would be a far
+    worse outcome than running six milliseconds slower.
+    """
+    from ultralytics import YOLO
+
+    if not accelerate:
+        # This model has asked to run as it was trained. `models/README.md`
+        # says why for the two that do.
+        return YOLO(str(weights)), weights, UNACCELERATED
+
+    chosen, form = weights_to_load(weights, imgsz)
+    if form is UNACCELERATED or chosen == weights:
+        return YOLO(str(weights)), weights, UNACCELERATED
+
+    try:
+        return YOLO(str(chosen), task=task), chosen, TENSORRT
+    except Exception as exc:
+        # Stale plan, wrong GPU, wrong library version. Say it once, loudly,
+        # and keep working - the console reports the form either way.
+        log.warning(
+            "%s exists but would not load (%s) - running %s unaccelerated. "
+            "Rebuild it with: python engine/tools/build_engines.py",
+            chosen.name, exc, weights.name,
+        )
+        return YOLO(str(weights)), weights, UNACCELERATED
 
 
 @dataclass
@@ -57,8 +172,25 @@ class SharedDetection:
     rather than a convention somebody remembers.
     """
 
-    def __init__(self, detector: PersonDetector) -> None:
+    def __init__(self, detector: PersonDetector, batch: bool = False) -> None:
         self.detector = detector
+        # Run frames that are ALREADY waiting as one model call.
+        #
+        # Throughput only, and deliberately not a scheduler: nothing is ever
+        # held back hoping a second frame turns up. A caller that finds the
+        # model free runs alone, immediately, exactly as before. A caller that
+        # finds it busy joins whoever else is queued and they go in together.
+        # So there is no window to tune and no latency to trade away.
+        self.batch = batch
+        # Set once, if the loaded model turns out to refuse a batch.
+        #
+        # A TensorRT plan is compiled at a FIXED batch size - 1, as
+        # `build_engines.py` builds them - and handed three images it raises
+        # rather than adapting. That exception would be caught per frame by
+        # FeatureWorker and logged, so the visible symptom would be detection
+        # quietly stopping on a camera. Falling back to one-at-a-time keeps
+        # the answers and loses only the speed-up that was never available.
+        self.batch_unavailable: str | None = None
         # Guards the model itself. Global rather than per-camera because there
         # is one model shared by every camera, so two cameras calling at once
         # is the same hazard as two features on one camera.
@@ -70,8 +202,17 @@ class SharedDetection:
         # instead of starting a duplicate pass. A camera never blocks another.
         self._compute_locks: dict[str, threading.Lock] = {}
         # Counts real model calls. The call-count test reads this to prove one
-        # pass per frame; System Health can report it later.
+        # pass per frame; System Health reports it.
         self.passes = 0
+        # Frames whose thread is blocked on `_model_lock` right now, and the
+        # answers left for them. Guarded by `_cache_lock`, which is only ever
+        # held for a dict operation and never across a model call.
+        self._waiting: dict[str, object] = {}
+        self._batched: dict[str, object] = {}
+        # How many frames the last batched call carried. System Health reads
+        # it; a value of 1 means batching is on and finding nothing to batch,
+        # which is the honest answer for a single-camera site.
+        self.last_batch = 0
 
     # -- internals ----------------------------------------------------------
 
@@ -112,13 +253,97 @@ class SharedDetection:
             if hit:
                 return boxes
 
-            with self._model_lock:
-                boxes = self.detector.raw_boxes(frame.image)
-                self.passes += 1
+            boxes = self._run(frame)
 
             with self._cache_lock:
                 self._cache[frame.camera_id] = _Cached(frame.sequence, boxes)
             return boxes
+
+    def _run(self, frame):
+        """One frame through the model, batched with whoever else is waiting.
+
+        Adds no scheduling. A caller announces the frame it is holding, takes
+        the model lock, and sweeps up every OTHER frame announced meanwhile.
+        Those threads are already blocked, so running their work costs nothing
+        extra and saves them a call each.
+
+        Everything here is keyed by the FRAME, never by the camera. That is
+        not a detail. Keyed by camera, two frames from one camera collide: the
+        second thread pops the first one's answer, throws it away because it
+        does not match the frame it is holding, and the first thread wakes to
+        find nothing waiting for it. `--batch-check` caught exactly that -
+        frames coming back empty - and an empty answer means "nobody in this
+        picture", which is a wrong detection, not a slow one.
+        """
+        if not self.batch:
+            with self._model_lock:
+                boxes = self.detector.raw_boxes(frame.image)
+                self.passes += 1
+            return boxes
+
+        token = id(frame)
+        with self._cache_lock:
+            self._waiting[token] = frame
+
+        with self._model_lock:
+            with self._cache_lock:
+                # Only ever our own answer. Popping somebody else's is the
+                # bug described above.
+                if token in self._batched:
+                    self._waiting.pop(token, None)
+                    return self._batched.pop(token)
+
+                mine_pending = self._waiting.pop(token, None)
+                others = list(self._waiting.items())
+                for other_token, _ in others:
+                    self._waiting.pop(other_token, None)
+
+            batch = [frame] if mine_pending is None else [mine_pending]
+            tokens = [token]
+            for other_token, other in others:
+                batch.append(other)
+                tokens.append(other_token)
+
+            if len(batch) == 1 or self.batch_unavailable:
+                answers = [self.detector.raw_boxes(f.image) for f in batch]
+            else:
+                try:
+                    answers = self.detector.raw_boxes_many(
+                        [f.image for f in batch])
+                except Exception as exc:
+                    # Once, loudly, then never again. Every frame in this
+                    # batch still gets its own answer - the fallback runs
+                    # them singly rather than dropping them.
+                    self.batch_unavailable = str(exc)
+                    log.warning(
+                        "batched detection is not available on this model "
+                        "(%s) - running one frame at a time. A TensorRT plan "
+                        "is compiled at a fixed batch size; rebuild it with a "
+                        "dynamic batch, or set models.person.batch: false to "
+                        "stop asking.", exc,
+                    )
+                    answers = [self.detector.raw_boxes(f.image) for f in batch]
+            # Real model invocations, not trips through the lock. One batched
+            # call is one; a fallback that ran three images singly is three.
+            # This number reaches System Health, and a saving that did not
+            # happen must not be reported as one.
+            single = len(batch) == 1 or bool(self.batch_unavailable)
+            self.passes += len(batch) if single else 1
+            self.last_batch = 1 if single else len(batch)
+
+            mine = None
+            with self._cache_lock:
+                for other_token, other, result in zip(tokens, batch, answers):
+                    if other_token == token:
+                        mine = result
+                    else:
+                        # Left for its own thread, which is still blocked
+                        # behind us on the model lock. Keyed by frame, so it
+                        # can only ever be collected by the thread that asked.
+                        self._batched[other_token] = result
+                        self._cache[other.camera_id] = _Cached(
+                            other.sequence, result)
+            return mine
 
     def detect(self, frame, min_area: float = 0.0) -> list[DetectedPerson]:
         """People in this frame as fractions, from the shared pass."""
@@ -142,3 +367,12 @@ class SharedDetection:
     @property
     def weights(self):
         return self.detector.weights
+
+    @property
+    def form(self) -> str:
+        """TensorRT or PyTorch CUDA, from the detector actually loaded.
+
+        Forwarded like `device` and `version` for the same reason: a feature
+        must be able to say what it is running on without holding the model.
+        """
+        return getattr(self.detector, "form", UNACCELERATED)

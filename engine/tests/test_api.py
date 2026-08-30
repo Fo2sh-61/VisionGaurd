@@ -12,6 +12,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+from vg.api import schemas as S
 from vg.api.app import app, create_app
 from vg.api.store import MockStore
 
@@ -34,7 +35,7 @@ class TestWireShape:
     def test_everything_is_camel_case(self, client):
         # The front end is TypeScript; snake_case leaking through would force
         # a translation layer nobody wants to maintain.
-        breach = client.get("/breaches?window=Last 30 days").json()[0]
+        breach = client.get("/breaches?window=last30").json()[0]
         assert "zoneId" in breach and "zone_id" not in breach
         assert "dwellSeconds" in breach
 
@@ -47,26 +48,36 @@ class TestWireShape:
                 for p in cam["zone"]["polygon"]:
                     assert 0.0 <= p["x"] <= 1.0 and 0.0 <= p["y"] <= 1.0
 
+    def test_demo_breaches_never_age_out_of_their_own_window(self, client):
+        # The demo store was anchored to a fixed date, so thirty days later
+        # every breach in it fell outside `last30` and this endpoint began
+        # returning an empty list. Empty reads as "no breaches", not as "the
+        # fixtures expired" - the demo store lying about a safety feature.
+        # Both tests either side of this one asserted on row [0] and started
+        # failing with IndexError, which is how it was found.
+        assert client.get("/breaches?window=last30").json(), (
+            "demo breaches are older than the window that asks for them")
+
     def test_time_is_utc_plus_an_explicit_site_offset(self, client):
         # A phone in another timezone must render the school's local time, not
         # its own. That needs the offset to travel with the instant.
-        at = client.get("/breaches?window=Last 30 days").json()[0]["at"]
+        at = client.get("/breaches?window=last30").json()[0]["at"]
         assert at["utc"].endswith("Z") or "+00:00" in at["utc"]
         assert isinstance(at["tzOffsetMinutes"], int)
 
     def test_every_surfaced_detection_carries_a_confidence(self, client):
-        for w in client.get("/weapons/detections?window=This school year").json():
+        for w in client.get("/weapons/detections?window=schoolYear").json():
             assert 0.0 <= w["confidence"] <= 1.0
 
     def test_severity_is_a_backend_decision(self, client):
         # The engine emits severity; the UI maps it to a colour. Thresholds stay
         # server-side and auditable, and the UI keeps naming its own palette.
         allowed = {"info", "warn", "critical"}
-        for b in client.get("/breaches?window=Last 30 days").json():
+        for b in client.get("/breaches?window=last30").json():
             assert b["severity"] in allowed
 
     def test_ids_are_opaque_strings(self, client):
-        for b in client.get("/breaches?window=Last 30 days").json():
+        for b in client.get("/breaches?window=last30").json():
             assert isinstance(b["id"], str) and b["id"]
 
 
@@ -80,24 +91,28 @@ class TestBehaviouralContract:
         client.post("/weapons/w3/review",
                     json={"verdict": "dismissed", "actor": "Mohamed Fouad",
                           "reason": "kitchen utensil"})
-        history = client.get("/weapons/detections?window=This school year").json()
+        history = client.get("/weapons/detections?window=schoolYear").json()
         assert "w3" in [w["id"] for w in history]
 
         # And there is no route that could remove it.
         assert client.delete("/weapons/w3").status_code in (404, 405)
 
     def test_weapon_review_records_who_decided_and_when(self, client):
+        # The reviewer is the SIGNED-IN account, not the request body
+        # (P6-FR-007). `actor` is still accepted so demo callers and older
+        # clients do not 422, but it is ignored: a caller must not be able
+        # to record a verdict on a weapon under somebody else's name.
         body = client.post("/weapons/w3/review",
                            json={"verdict": "confirmed",
-                                 "actor": "Mohamed Fouad"}).json()
+                                 "actor": "Mallory"}).json()
         assert body["verdict"] == "confirmed"
-        assert body["reviewedBy"] == "Mohamed Fouad"
+        assert body["reviewedBy"] == "Test Admin", "the session decides"
         assert body["reviewedAt"] is not None
 
     def test_a_detection_starts_unreviewed_and_only_a_human_moves_it(self, client):
         # The detector alone never confirms. `pending` is the only state the
         # engine can write; confirmed/dismissed require the review endpoint.
-        detections = client.get("/weapons/detections?window=This school year").json()
+        detections = client.get("/weapons/detections?window=schoolYear").json()
         assert all(d["verdict"] in {"pending", "confirmed", "dismissed"}
                    for d in detections)
         for d in detections:
@@ -211,7 +226,7 @@ class TestValidation:
     def test_unknown_window_is_rejected_with_the_valid_options(self, client):
         r = client.get("/breaches?window=Since forever")
         assert r.status_code == 422
-        assert "Last 7 days" in r.text
+        assert "last7" in r.text
 
     def test_unknown_ids_are_404_not_500(self, client):
         assert client.patch("/zones/nope", json={"enabled": True}).status_code == 404
@@ -246,7 +261,6 @@ class TestCoverage:
         ("GET", "/weapons/detections"),  # getWeaponDetections
         ("POST", "/weapons/{id}/review"),   # (new) confirm/dismiss
         ("GET", "/weapons/cameras"),     # getWeaponCameras
-        ("POST", "/lost-items/search"),  # searchLostItem
         ("POST", "/track"),              # trackPerson + recordTrackSearch
         ("GET", "/audit"),
         ("GET", "/system/health"),       # getSystemHealth
@@ -287,3 +301,59 @@ class TestCoverage:
         spec = client.get("/openapi.json")
         assert spec.status_code == 200
         assert len(spec.json()["paths"]) >= len(self.REQUIRED) - 4
+
+
+class TestEveryOverlayIsAcceptedAtTheDoor:
+    """A feature's overlay refused by request validation looks exactly like a
+    feature that found nothing.
+
+    `vehicles` was added to `LiveStore._boxes` and not to the `feature`
+    parameter's pattern, so every plate-box poll came back `422` before it
+    reached the engine and no gate camera ever drew a box. The page looked
+    like a plate reader that could not read plates.
+
+    The pattern is now built from `S.OVERLAY_FEATURES`, and the last test here
+    reads `_boxes` itself so the two cannot drift apart again.
+    """
+
+    @pytest.mark.parametrize("feature", S.OVERLAY_FEATURES)
+    def test_the_endpoint_accepts_it(self, client, feature):
+        response = client.get(
+            f"/cameras/cam-laptop/detections?feature={feature}")
+
+        assert response.status_code != 422, (
+            f"{feature!r} is a real overlay and the door refused it")
+        assert response.status_code == 200
+
+    def test_no_feature_at_all_is_still_allowed(self, client):
+        """The plain grid asks for no feature and gets faces."""
+        assert client.get(
+            "/cameras/cam-laptop/detections").status_code == 200
+
+    def test_something_invented_is_still_refused(self, client):
+        assert client.get(
+            "/cameras/cam-laptop/detections?feature=nonsense"
+        ).status_code == 422
+
+    def test_every_branch_in_boxes_is_a_listed_feature(self):
+        """The guard against the next feature repeating this.
+
+        `_boxes` dispatches on string literals. Every one of them has to be a
+        name the endpoint will accept, or that branch is unreachable from the
+        console.
+        """
+        import inspect
+        import re
+
+        from vg.api.live import LiveStore
+
+        source = inspect.getsource(LiveStore._boxes)
+        named = set(re.findall(r"""feature == ["']([a-z]+)["']""", source))
+        for group in re.findall(r"""feature in \(([^)]*)\)""", source):
+            named |= set(re.findall(r"""["']([a-z]+)["']""", group))
+
+        assert named, "no dispatch literals found - has _boxes been rewritten?"
+        missing = sorted(named - set(S.OVERLAY_FEATURES))
+        assert not missing, (
+            f"_boxes draws {missing} and the endpoint would refuse them - "
+            f"add them to S.OVERLAY_FEATURES")

@@ -29,10 +29,12 @@ const ENGINE = process.env.VITE_ENGINE_ORIGIN ?? 'http://127.0.0.1:8000';
  *  would have, at the cost of requiring HTTPS and giving up the protection.
  */
 const API_PATHS = [
+  '/ask',
   '/attendance', '/attention', '/audit', '/auth', '/breaches', '/cameras',
   '/count', '/docs', '/enrolment', '/groups', '/healthz', '/intrusion',
-  '/lost-items', '/openapi.json', '/people', '/redoc', '/settings', '/site',
-  '/sources', '/system', '/track', '/tracking', '/users', '/weapons', '/zones',
+  '/lost-items', '/openapi.json', '/path', '/people', '/redoc', '/settings',
+  '/site', '/sources', '/system', '/track', '/tracking', '/users', '/vehicles',
+  '/weapons', '/zones',
 ];
 
 export default defineConfig({

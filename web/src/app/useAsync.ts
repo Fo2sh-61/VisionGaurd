@@ -51,10 +51,20 @@ function reason(error: unknown): string {
   return 'Something went wrong loading this.';
 }
 
+/** @param refreshMs re-run `load` on this interval, for data that goes stale
+ *  on its own. A page that only fetches on mount shows whatever was true when
+ *  the operator arrived, and keeps showing it — the restricted-zone log gained
+ *  a clip the moment somebody walked out of frame, and the only way to see it
+ *  was to leave the page and come back.
+ *
+ *  A background refresh never blanks the page: `loading` stays false after the
+ *  first load, and a failed poll leaves the last good data up with the reason
+ *  beside it. So this is safe to point at a screen somebody is reading. */
 export function useAsync<T>(
   load: () => Promise<T>,
   deps: unknown[],
   initial: T,
+  refreshMs?: number,
 ): Async<T> {
   const [data, setData] = useState<T>(initial);
   const [error, setError] = useState<string | null>(null);
@@ -97,6 +107,12 @@ export function useAsync<T>(
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [...deps, tick]);
+
+  useEffect(() => {
+    if (!refreshMs) return;
+    const timer = setInterval(() => setTick((n) => n + 1), refreshMs);
+    return () => clearInterval(timer);
+  }, [refreshMs]);
 
   const reload = useCallback(() => setTick((n) => n + 1), []);
 

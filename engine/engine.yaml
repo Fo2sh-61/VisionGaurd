@@ -3,7 +3,11 @@
 # What the system is. Secrets are NOT here — reference them as ${VAR} and put
 # the values in engine/.env (gitignored). See .env.example.
 
-site_name: Greenfield International School
+# The name of the site this engine watches — a school, a campus, a company,
+# whichever it is. Left blank on purpose: VisionGuard ships without a customer
+# baked into it. Fill it in per deployment and the console shows it under the
+# product name; leave it blank and the console shows nothing there.
+site_name:
 timezone: Africa/Cairo
 
 # School hours, in site-local time.
@@ -44,13 +48,183 @@ storage:
   clip_retention_days: 30
 
 # ---------------------------------------------------------------------------
+# Tracking — the bar for putting a name on a body, and the patrol tier
+#
+# A gallery match already clears SFace's own threshold and margin. That is
+# enough to say "this frame looks like Sara". It is NOT enough to write her
+# name on a body, because one lucky frame doing exactly that is how every
+# person on screen once read as a single name.
+#
+# So there is a second bar, and it asks for evidence over time rather than a
+# bigger number: the same person, several separate looks, spread over seconds,
+# with a real gap between them. Five frames inside a third of a second are one
+# look at one moment, not five pieces of evidence.
+#
+# Two tiers, because a corridor camera sees faces smaller and more side-on
+# than a doorway does. A bar sized for the doorway would mean corridors never
+# identify anybody, which is the same as not having the feature.
+#
+#   identity   cameras with `faces: true` — people pass close and look at it
+#   patrol     everything else — easier to clear, and the evidence count
+#              carries the weight the raw score gives up
+#
+# Every value below is the default and is here to be seen, not because it must
+# be set. Delete the whole section and nothing changes.
+# ---------------------------------------------------------------------------
+tracking:
+  # How often the patrol recogniser looks at a non-`faces:` camera. 0 switches
+  # the patrol tier off entirely, and 0 is now the default.
+  #
+  # OFF because it was measured, not because it was disliked. Patrol ran the
+  # face pipeline on every camera that is NOT `faces: true` - which is most of
+  # them, and they are exactly the cameras whose faces are too small and too
+  # side-on to identify anybody. It was the largest single processor line in
+  # the engine and almost nothing read its answer.
+  #
+  # What is lost: "Track a person" no longer attaches names from corridor
+  # cameras, only from the doorway ones. The page says so rather than quietly
+  # returning fewer named stops. Set any value 0 < x <= 30 to bring it back.
+  patrol_hz: 0
+
+  identity:
+    # Measured with engine/tools/calibrate_faces.py: the enrolled person
+    # scores 0.725-0.812 against themselves. 0.45 left the whole 0.45-0.72
+    # band open, and a stranger was named inside it. Re-run that tool after
+    # enrolling a real roll rather than trusting this number.
+    score: 0.60          # cosine similarity the best match must reach
+    margin: 0.10         # how far clear of the runner-up
+    matches: 3           # how many separate looks
+    seconds: 1.5         # spread over at least this long
+    gap_seconds: 0.3     # closer together than this is one look, not two
+    # face_px cannot go below 80. Measured, not chosen: at 40px the same
+    # person scores 0.23-0.48 against themselves. Raising it is allowed.
+    face_px: 80
+
+  patrol:
+    # NOT raised with the identity tier above. A real corridor look scores
+    # ~0.44; a higher bar here means corridor cameras never anchor and
+    # "Track a person" stops working outside doorways. Patrol earns its
+    # lower bar through evidence - three looks, spread over seconds.
+    score: 0.40
+    margin: 0.07
+    matches: 3
+    seconds: 2.0
+    gap_seconds: 0.4
+    face_px: 80
+
+# ---------------------------------------------------------------------------
+# Vehicle gate — how long the same car is one arrival
+#
+# A repeated read of the same plate at the same camera inside this window is
+# one pass, not several. A car sits at a barrier for twenty seconds, so 60 is
+# comfortably clear of that: without it, every frame the car is read in
+# becomes another arrival and the log turns into noise.
+#
+# **Turn this down to 3 while testing with a plate in your hand.** Holding the
+# same plate up twice is exactly what the window is built to ignore, and at 60
+# the second attempt looks like the reader failing. 0 records every settled
+# read as its own pass.
+#
+# It does not affect reading. A plate in view is read, boxed and labelled on
+# the tile continuously whatever this says; the window only decides when a new
+# row is written.
+# ---------------------------------------------------------------------------
+vehicles:
+  dedupe_seconds: 60
+
+  # The same window for a plate that is only NEARLY the same.
+  #
+  # The reader wobbles by a character, so a car whose plate is briefly
+  # hidden can be picked up again and settle one character off - two
+  # rows for one car. Matching loosely fixes that and risks something
+  # worse: two different cars whose plates differ by one character
+  # would collapse into one row and the second car would go
+  # unrecorded. A blacklisted car vanishing is worse than a duplicate.
+  #
+  # Time separates them. A re-acquired car returns within two to four
+  # seconds; a genuinely different car has to drive up, which is ten
+  # at least. Five sits between. Set to 0 to match on the exact plate
+  # only, which is what this did before 28 Aug 2026.
+  near_dedupe_seconds: 5
+
+# ---------------------------------------------------------------------------
+# Ask — the natural-language query console (P12)
+#
+# Ask does not answer questions. It works out which EXISTING query a question
+# is, runs that query, and shows its real result. The model is a translator
+# between a sentence and a menu id, and it never sees a face, a frame or a
+# record — only a masked sentence with the names and plates taken out.
+#
+# The key is GEMINI_API_KEY in engine/.env, never here. With no key Ask says
+# so on System Health and every other feature is untouched.
+#
+# Changing `model` is the only thing needed to move to a different Gemini
+# model. Moving to a different PROVIDER is one new class in vg/ask/parser.py;
+# nothing else in Ask knows who answered.
+# ---------------------------------------------------------------------------
+ask:
+  enabled: true
+
+  # gemini-3.5-flash-lite, and the reason is measured rather than preferred.
+  #
+  # gemini-3.7-flash is the better model and is NOT usable on the free tier:
+  # Google's API returns `limit: 20` requests for it, against a corpus of 37,
+  # so it cannot answer a day's questions at a school and cannot even complete
+  # one accuracy run. flash-lite has a materially larger allowance and scored
+  # 91.9% on the corpus — the only measured number either model has.
+  #
+  # Confirm the id against the live model list rather than trusting this line;
+  # Gemini ids move quickly. A wrong one fails loudly at the first question.
+  # `python engine/tools/ask_corpus.py` is what settles a change of model, and
+  # `specs/010-ask/evidence/routing.md` holds the figures.
+  model: gemini-3.5-flash-lite
+
+  # A question is a person waiting at a screen. Better to say "temporarily
+  # unavailable" after eight seconds than to leave them looking at a spinner.
+  timeout_seconds: 8
+
+# ---------------------------------------------------------------------------
+# Archive — where recorded video comes from when somebody asks to watch a leg
+#
+#   footage   slice files already on disk under storage.footage_dir. Needs no
+#             hardware, identical every run, and it is what the tests use.
+#   dvr       pull a time range off the recorder with ffmpeg. Needs
+#             playback_url, and every DVR spells that URL differently, which
+#             is why it is a template rather than code.
+#
+# Switching to a real DVR is this section plus a run of
+# `python engine/tools/measure_track.py`, which measures how fast that
+# recorder actually hands video over. Until it has been run, the page says
+# waiting times are unavailable rather than guessing at them.
+# ---------------------------------------------------------------------------
+archive:
+  backend: footage
+
+  # For backend: dvr. {channel} is filled from `channels:` below, {start} and
+  # {end} from the span asked for. Both {start} and {end} are required — a
+  # template without them would fetch the same video every time.
+  # playback_url: "rtsp://${VG_DVR_USER}:${VG_DVR_PASS}@10.0.0.5:554/Streaming/tracks/{channel}?starttime={start}&endtime={end}"
+  # channels:
+  #   cam-rtsp-1: "101"
+
+  # How much video one processed piece covers. Playback starts as soon as the
+  # first piece lands, so this is also "how long until I see anything".
+  # measure_track.py says whether this machine sustains 30s; drop to 15 if not.
+  chunk_seconds: 30
+
+  # How many legs' worth of processed video to keep per camera. A leg can
+  # always be derived again from the archive, so this is a cache, not a record.
+  keep_legs: 3
+
+
+# ---------------------------------------------------------------------------
 # Models
 #
 # See models/README.md for what each of these actually is. Two things worth
 # repeating here:
-#   - `weapons` is YOLO-World with 18 saved text prompts. It is zero-shot, not
-#     fine-tuned, and has never seen school CCTV. Treat its scores with suspicion
-#     until the eval harness says otherwise.
+#   - `weapons` is the owner's knife model: one class, fine-tuned, trained
+#     13 Aug 2026. It is not zero-shot any more. Its accuracy on school CCTV is
+#     still unmeasured, which is why every detection waits for a person to decide.
 #   - Always point at a .pt. A .engine is compiled for one GPU and one TensorRT
 #     version; it is a build output, not an artifact.
 # ---------------------------------------------------------------------------
@@ -67,12 +241,12 @@ models:
 
   weapons:
     task: detect
-    weights: models/yolov8m-worldv2-school.pt
-    imgsz: 960                 # matches the exported engine; small objects need it
-    conf: 0.25                 # tuned for RECALL — the human gate recovers precision
+    weights: models/knifebest.pt
+    imgsz: 640
+    conf: 0.5                  # a starting value from two recorded clips, not a promise
     iou: 0.45
     half: true
-    version: worldv2-school-2026-05-06
+    version: knife-v3-2026-08-13
 
   # Trained closed-set alternative for weapons. Scored against the same golden
   # clips as `weapons` — it may well win, and it is 50x smaller.
@@ -84,12 +258,86 @@ models:
     classes: [Handgun, Rifle, Shotgun, Knife, Kitchen knife, Dagger, Sword, Axe, Weapon]
     version: oiv7-baseline
 
+  # yolov8m-worldv2 prompted with ten words - person, bag, backpack, handbag,
+  # suitcase, duffel bag, shopping bag, tote bag, luggage, briefcase - and then
+  # stripped of its CLIP text encoder by engine/tools/strip_clip.py so it loads
+  # without the clip package. `person` is filtered out in the model call; the
+  # nine bag words are all treated as one thing.
+  #
+  # Chosen over the fine-tuned models/bagbest.pt on measurement: on the two
+  # clips with no bag in them, bagbest gave 17 false bags (a black office chair
+  # read as a suitcase at 0.88, held for seconds) and this gives 1.
+  bags:
+    task: detect
+    weights: models/bagsearch.pt
+    imgsz: 640
+    conf: 0.4
+    iou: 0.45
+    half: true
+    version: bagsearch-worldv2-10prompt-2026-08-10
+
+  # History. The zero-shot search model the Lost items page was first designed
+  # around; `bags` replaced it on 23 Aug 2026 and nothing loads this entry.
   search:
     task: detect
     weights: models/yolov8m-worldv2-search.pt
     imgsz: 960
     conf: 0.25
     version: worldv2-search-2026-05-09
+
+  # Egyptian plates: letters and Indic digits, in a font no general OCR reads.
+  # Two models in a fixed order - find the plate, then read its characters -
+  # and the second only ever runs on a crop the first returned. Same gating
+  # that makes knife detection affordable.
+  #
+  # From the MIT-licensed ACLPR project, fine-tuned on the Egyptian EALPR set.
+  # Supplied by the owner; nothing here was sourced or trained.
+  # These two run EXACTLY as gate-anpr runs them, and every value below is
+  # matched to that project rather than to this file's usual defaults.
+  #
+  # The reason is measured, not cautious. Ported into this engine the same
+  # weights read plates that were close but wrong, and the differences were
+  # all in how the model was CALLED, not in the porting: this engine asked
+  # for FP16 and a TensorRT plan, and set NMS at 0.45 where ultralytics
+  # defaults to 0.7. A person detector has room for that. A model deciding
+  # which of 38 characters a twenty-pixel glyph is has less.
+  #
+  # Cost of matching: about 6 ms a frame on the plate detector, and the
+  # character model only ever runs on crops the detector returned, so the
+  # frames with no car in them cost nothing either way.
+  #
+  # Before changing any of these back, run:
+  #     python engine/tools/compare_plates.py --camera 0 --frames 20
+  # It reads the same frames four ways - theirs, ours at FP32, ours at FP16,
+  # ours on TensorRT - and names which change costs which reading.
+  plates:
+    task: detect
+    weights: models/plate_detector.pt
+    imgsz: 640
+    conf: 0.35                 # gate-anpr's min_detect_conf, exactly
+    iou: 0.7                   # ultralytics' default, which gate-anpr uses
+    half: false                # FP32, as trained
+    accelerate: false          # the .pt, not the TensorRT plan
+    classes: [car_plate]       # the model's only class
+    version: aclpr-plate-2026-08-24
+
+  # 38 classes: 10 digits + 28 Arabic letters, named as Latin transliterations
+  # (`alif`, `baa`, `7aa`) rather than Arabic glyphs. CHAR_GLYPHS in
+  # infer/plates.py is the map. A replacement model must follow the same names
+  # or emit Arabic directly.
+  plate_chars:
+    task: detect
+    weights: models/char_detector.pt
+    imgsz: 640
+    # Not used for the character pass: `infer/plates.py` calls this model at
+    # ALT_CONF (0.10) and filters at DETECT_CONF (0.25) afterwards, which is
+    # gate-anpr's two-tier rule - a weak box may only ever be an alternative
+    # reading of a character already found, never an extra character.
+    conf: 0.25
+    iou: 0.7                   # ultralytics' default, which gate-anpr uses
+    half: false                # FP32. This is the accuracy-critical model
+    accelerate: false          # the .pt, not the TensorRT plan
+    version: aclpr-chars-2026-08-24
 
   pose:
     task: pose
@@ -181,7 +429,24 @@ cameras:
     # `track` follows one person across cameras. On the webcam only for
     # now: it costs ~2 ms of CPU per frame on top of the person detector it
     # shares, and its rows are dense.
-    features: [attendance, counting, intrusion, track]
+    features: [attendance, counting, intrusion, track, vehicles]
+    # Gate 1, entry. One camera cannot honestly claim both directions - the
+    # Gate project's own docs call inferring direction from plate size
+    # "noticeably less reliable" - so a camera states what it watches and
+    # `direction: both` is rejected outright. Pairing an exit to an entry
+    # needs a second camera; until one exists the Movements tab says so
+    # rather than printing a figure it cannot compute.
+    gate: 1
+    direction: entry
+    # The identity tier. `faces: true` says people look at this camera from
+    # close enough to be identified, so it gets the recogniser at full rate
+    # and the stricter `tracking.identity` bar. Every other camera is patrol.
+    faces: true
+    # Where somebody can walk to from here. Only ever a hint: it tells the
+    # archive layer which camera to warm up next while you watch this one.
+    # Left empty until the real layout is known — an empty list falls back to
+    # the rest of the same `area`, which is honest; a guessed list is not.
+    # neighbours: [cam-rtsp-1]
 
   # The deterministic test camera. Prefer this over the webcam for everything
   # except final confirmation: it is identical every run, locks no device, runs
@@ -201,7 +466,12 @@ cameras:
     area: Development
     fps: 5
     enabled: false
-    features: [attendance, counting, intrusion]
+    # `track` here so the tracking work has a deterministic camera to run
+    # against: same frames every run, no device locked, and 21 hand-marked
+    # ground-truth points in the sidecar json to check against.
+    features: [attendance, counting, intrusion, track]
+    # Deliberately NOT `faces: true`. With two cameras running this is the one
+    # in the patrol tier, so both bars get exercised on a normal `-Clip` start.
 
   - id: cam-rtsp-1
     name: Test camera 1
@@ -210,7 +480,7 @@ cameras:
     area: Development
     fps: 5
     enabled: false             # flip to true once VG_RTSP_1 is set in .env
-    features: [intrusion, counting, weapons]
+    features: [intrusion, counting]
 
 # ---------------------------------------------------------------------------
 # Zones

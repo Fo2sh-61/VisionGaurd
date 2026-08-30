@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}نظام البوابات{% endblock %} — {{ site_name }}</title>
+<style>
+  :root{
+    --bg:#0f1720; --panel:#17212b; --panel2:#1e2b38; --line:#2a3a4a;
+    --txt:#e8eef4; --muted:#93a4b5; --accent:#3ea6ff;
+    --ok:#2ecc71; --warn:#f5a623; --danger:#ff4d4f; --info:#7aa7c7;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);
+       font-family:"Segoe UI","Tahoma",Arial,sans-serif;font-size:15px}
+  a{color:var(--accent);text-decoration:none}
+  header{background:var(--panel);border-bottom:1px solid var(--line);
+         padding:10px 18px;display:flex;align-items:center;gap:18px;
+         position:sticky;top:0;z-index:50;flex-wrap:wrap}
+  header h1{font-size:17px;margin:0;font-weight:600}
+  nav{display:flex;gap:6px;flex-wrap:wrap}
+  nav a{padding:7px 14px;border-radius:8px;color:var(--muted);font-weight:500}
+  nav a:hover{background:var(--panel2);color:var(--txt)}
+  nav a.on{background:var(--accent);color:#062033}
+  .clock{margin-inline-start:auto;color:var(--muted);font-variant-numeric:tabular-nums}
+  main{padding:18px;max-width:1500px;margin:0 auto}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+         gap:12px;margin-bottom:18px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+        padding:14px 16px}
+  .card .n{font-size:30px;font-weight:700;line-height:1.1}
+  .card .l{color:var(--muted);font-size:13px;margin-top:4px}
+  .card.ok .n{color:var(--ok)} .card.warn .n{color:var(--warn)}
+  .card.danger .n{color:var(--danger)} .card.info .n{color:var(--accent)}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+         padding:16px;margin-bottom:18px}
+  .panel h2{margin:0 0 12px;font-size:16px;font-weight:600}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{padding:9px 10px;text-align:right;border-bottom:1px solid var(--line);
+        vertical-align:middle}
+  th{color:var(--muted);font-weight:600;font-size:13px;white-space:nowrap}
+  tr:hover td{background:#1b2836}
+  .plate{font-size:19px;font-weight:700;letter-spacing:2px;
+         background:#f4f6f8;color:#111;border:2px solid #b9c4cf;border-radius:6px;
+         padding:3px 12px;display:inline-block;white-space:nowrap;
+         font-family:"Tahoma",sans-serif}
+  .plate.sm{font-size:15px;padding:2px 8px}
+  .plate .lat{font-size:11px;color:#667;letter-spacing:0}
+  .tag{display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;
+       font-weight:600}
+  .t-known{background:rgba(46,204,113,.18);color:var(--ok)}
+  .t-unknown{background:rgba(245,166,35,.18);color:var(--warn)}
+  .t-blacklist{background:rgba(255,77,79,.2);color:var(--danger)}
+  .t-expired{background:rgba(255,77,79,.14);color:#ff8a8c}
+  .t-entry{background:rgba(62,166,255,.18);color:var(--accent)}
+  .t-exit{background:rgba(147,164,181,.18);color:var(--muted)}
+  .alert{padding:11px 14px;border-radius:10px;margin-bottom:8px;
+         display:flex;align-items:center;gap:12px;
+         border-inline-start:4px solid}
+  .alert.danger{background:rgba(255,77,79,.14);border-color:var(--danger)}
+  .alert.warning{background:rgba(245,166,35,.13);border-color:var(--warn)}
+  .alert.info{background:rgba(122,167,199,.12);border-color:var(--info)}
+  .alert .msg{flex:1;font-weight:600}
+  .alert .t{color:var(--muted);font-size:12px}
+  /* Keep a busy alert list from pushing the live table off screen. */
+  #alerts{max-height:210px;overflow-y:auto;padding-inline-end:4px}
+  #alerts::-webkit-scrollbar{width:8px}
+  #alerts::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px}
+  button,.btn{background:var(--accent);color:#062033;border:0;border-radius:8px;
+        padding:8px 14px;font-weight:600;cursor:pointer;font-size:14px;
+        font-family:inherit}
+  button:hover,.btn:hover{filter:brightness(1.1)}
+  .btn-ghost{background:transparent;color:var(--muted);border:1px solid var(--line)}
+  .btn-ghost:hover{color:var(--txt)}
+  .btn-danger{background:var(--danger);color:#fff}
+  .btn-sm{padding:4px 10px;font-size:12px}
+  input,select,textarea{background:var(--panel2);border:1px solid var(--line);
+        color:var(--txt);border-radius:8px;padding:8px 10px;font-family:inherit;
+        font-size:14px;width:100%}
+  input:focus,select:focus{outline:2px solid var(--accent);outline-offset:-1px}
+  label{display:block;color:var(--muted);font-size:12px;margin-bottom:4px}
+  .grid{display:grid;gap:12px}
+  .g2{grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
+  .g4{grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+  .thumb{height:44px;border-radius:5px;border:1px solid var(--line);cursor:pointer}
+  .muted{color:var(--muted)}
+  .flash{padding:11px 14px;border-radius:9px;margin-bottom:14px;font-weight:600}
+  .flash.ok{background:rgba(46,204,113,.15);color:var(--ok)}
+  .flash.err{background:rgba(255,77,79,.15);color:var(--danger)}
+  .dot{width:9px;height:9px;border-radius:50%;display:inline-block;
+       margin-inline-end:6px}
+  .dot.on{background:var(--ok);box-shadow:0 0 7px var(--ok)}
+  .dot.off{background:var(--danger)}
+  dialog{background:var(--panel);color:var(--txt);border:1px solid var(--line);
+         border-radius:14px;padding:20px;max-width:560px;width:94%}
+  dialog::backdrop{background:rgba(0,0,0,.65)}
+  /* Cap the tile width: one camera on a wide screen would otherwise fill the
+     viewport and push the event table below the fold. */
+  .feeds{display:grid;gap:14px;justify-content:start;
+         grid-template-columns:repeat(auto-fit,minmax(300px,440px))}
+  .feed{background:#101a24;border:1px solid var(--line);border-radius:10px;
+        overflow:hidden}
+  .feed-head{display:flex;align-items:center;gap:8px;padding:8px 12px;
+             font-size:13px;flex-wrap:wrap}
+  .feed-img{width:100%;display:block;background:#000;aspect-ratio:16/9;
+            object-fit:contain}
+  .feed-off{padding:34px 12px;text-align:center;color:var(--muted);
+            background:#0b1219;font-size:13px}
+  .camcard{background:#101a24;border:1px solid var(--line);border-radius:10px;
+           padding:14px;margin-bottom:14px}
+  .camhead{display:flex;align-items:center;gap:8px;margin-bottom:12px;
+           flex-wrap:wrap;font-size:14px}
+  /* The two fields that give a camera its meaning — make them impossible to
+     miss when scanning the form. */
+  .hot input,.hot select{border-color:var(--accent)}
+  .hot label{color:var(--accent);font-weight:600}
+  .lowconf{border-inline-end:3px solid var(--warn)}
+  #newflash{position:fixed;inset-block-start:70px;inset-inline-end:20px;z-index:99;
+            background:var(--panel);border:1px solid var(--accent);
+            border-radius:12px;padding:14px 18px;display:none;
+            box-shadow:0 8px 30px rgba(0,0,0,.5)}
+  @media(max-width:700px){ th:nth-child(n+7),td:nth-child(n+7){display:none} }
+</style>
+</head>
+<body>
+<header>
+  <h1>🚗 {{ site_name }}</h1>
+  <nav>
+    <a href="/"         class="{{ 'on' if page=='live' }}">المباشر</a>
+    <a href="/events"   class="{{ 'on' if page=='events' }}">السجل</a>
+    <a href="/vehicles" class="{{ 'on' if page=='vehicles' }}">السيارات المسجلة</a>
+    <a href="/reports"  class="{{ 'on' if page=='reports' }}">التقارير</a>
+    <a href="/settings" class="{{ 'on' if page=='settings' }}">⚙ الإعدادات</a>
+  </nav>
+  <div class="clock" id="clock"></div>
+</header>
+<main>{% block body %}{% endblock %}</main>
+<script>
+function tick(){
+  const d=new Date();
+  document.getElementById('clock').textContent =
+    d.toLocaleDateString('ar-EG',{weekday:'long',day:'numeric',month:'long'})
+    + ' — ' + d.toLocaleTimeString('ar-EG');
+}
+tick(); setInterval(tick,1000);
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

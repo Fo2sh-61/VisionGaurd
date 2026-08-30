@@ -16,13 +16,32 @@ The methods still inherited from MockStore are the honest to-do list.
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timezone
+import os
+from datetime import date, datetime, timedelta, timezone
 
+from vg import platetext
 from vg.clock import Clock, clock_for
+from vg.events import vehicles as vehicle_events
 from vg.ingest.recorder import AlreadyRecording
 from vg.config import EngineConfig
 from vg.api import schemas as S
-from vg.api.store import MockStore
+from vg.api.store import (
+    AlreadyBusy,
+    MockStore,
+    NotAffordable,
+    NothingThere,
+    SubsystemUnavailable,
+)
+from vg.features.vehicles import MIN_VOTES
+from vg.ingest.archive import ArchiveUnavailable, QueueFull
+from vg.features.tracking import (
+    AlreadyFollowing as FollowExists,
+    AlreadyRecordingFollow,
+    NobodyThere,
+    NoRecorder,
+    NotFollowing,
+    NotRecordingFollow,
+)
 from vg.ingest.registry import CameraRegistry
 
 log = logging.getLogger(__name__)
@@ -40,6 +59,27 @@ def _instant(when: datetime | None, clock: Clock) -> S.Instant | None:
     return S.Instant(utc=when, tz_offset_minutes=clock.offset_minutes(when))
 
 
+def _at_on(on: str, hhmm: str | None, clock: Clock) -> datetime | None:
+    """"2026-08-21" + "07:30" -> the instant the SITE calls 07:30 that day.
+
+    The site's clock and never the viewer's: a window typed by somebody in
+    Cairo means Cairo's 07:30, and reading it as the server's would quietly
+    shift every path by the offset between them.
+    """
+    if not hhmm:
+        return None
+    try:
+        hour, minute = (int(part) for part in hhmm.split(":")[:2])
+        day = date.fromisoformat(on)
+    except (ValueError, TypeError):
+        return None
+    naive = datetime(day.year, day.month, day.day, hour, minute)
+    # The offset in force on that day, asked per instant.
+    guess = naive.replace(tzinfo=timezone.utc)
+    return naive.replace(tzinfo=timezone.utc) - timedelta(
+        minutes=clock.offset_minutes(guess)
+    )
+
 def _day_label(iso_date: str) -> str:
     """"2026-08-19" -> "Wed 19". The date is already site-local.
 
@@ -48,6 +88,30 @@ def _day_label(iso_date: str) -> str:
     """
     day = date.fromisoformat(iso_date)
     return f"{day.strftime('%a')} {day.day}"
+
+
+
+def _process_cpu() -> float | None:
+    """This process's share of one second of processor time, or None.
+
+    None is a real answer and the UI renders it as unavailable with a reason.
+    It must never become 0.0: a machine at 90% and a machine nobody can
+    measure would then look identical, and the second one is the dangerous
+    case.
+
+    Process-level rather than per-worker on purpose. Feature workers are
+    threads inside this process, so the operating system has no per-worker
+    number to give - see `WorkerLoad`. Inventing one would be exactly the
+    kind of confident fiction Principle III forbids.
+    """
+    try:
+        import psutil
+    except Exception:
+        return None
+    try:
+        return float(psutil.Process().cpu_percent(interval=None))
+    except Exception:
+        return None
 
 
 class LiveStore(MockStore):
@@ -63,9 +127,19 @@ class LiveStore(MockStore):
         cameras=None,
         people=None,
         tracking=None,
+        anchors=None,
+        archive=None,
         counts=None,
         recorder=None,
         users=None,
+        scenes=None,
+        zones=None,
+        weapons=None,
+        weapon_scenes=None,
+        lost=None,
+        vehicles=None,
+        vehicle_store=None,
+        patrol=None,
     ) -> None:
         super().__init__()
         # Accounts. Real since P2, so the Users page stops saying the feature
@@ -76,6 +150,12 @@ class LiveStore(MockStore):
         self.gallery = gallery
         self.sightings = sightings
         self.recogniser = recogniser
+        # The second recognition tier, or None when it is switched off.
+        # Two things read it: the workers stage on System Health, and
+        # `_name_source` - because with patrol off a tracked path comes back
+        # with fewer NAMED stops, and that has to be visible rather than
+        # looking like a person who was not seen.
+        self.patrol = patrol
         # Runtime camera roster. Without it the console can still show the
         # YAML cameras, it just cannot add or remove any.
         self.cameras = cameras
@@ -87,6 +167,13 @@ class LiveStore(MockStore):
         # with the worker object, so every call to /people raised
         # "'NoneType' object is not callable" and the People page 500'd.
         self.people_worker = people
+        # Where somebody has been, written by recognition when the evidence
+        # clears the bar. Absent means the past-path question has no answer
+        # rather than a made-up one.
+        self.anchors = anchors
+        # The archive job runner. Absent means recorded video cannot be
+        # fetched, which the page says rather than offering a dead control.
+        self.archive = archive
         # Track-a-person. Absent unless a camera has the `track` feature;
         # /track then falls back to fixtures rather than 500ing.
         self.tracking = tracking
@@ -97,6 +184,31 @@ class LiveStore(MockStore):
         # On-demand video recording. Absent means the console says so rather
         # than offering a button that quietly does nothing.
         self.recorder = recorder
+        # Restricted zones. `scenes` is the log; `zones_worker` is what watches.
+        # Either can be absent — the camera list and its toggle work with no
+        # worker running at all, and the page says so rather than implying the
+        # areas are being watched.
+        self.scenes = scenes
+        self.zones_worker = zones
+        # Knife detection. `weapon_scenes` is the log; `weapons_worker` is
+        # what watches. NOT `self.weapons` — that is the name of the method
+        # this class inherits from Store, and assigning it here would
+        # replace the method with the worker object, the way `self.people`
+        # once broke the People page.
+        self.weapons_worker = weapons
+        self.weapon_scenes = weapon_scenes
+        # Bag detection, on whichever cameras somebody is looking at.
+        self.lost_watch = lost
+        # Vehicle gate. `vehicle_store` is the register and the pass log;
+        # `vehicles_worker` is what reads plates. Either can be absent: the
+        # register is usable with no camera running, and the cameras are
+        # watchable with no register - and the page says which is missing
+        # rather than showing an empty tile that reads as "no cars today".
+        #
+        # NOT `self.vehicles` - that is the name of a Store method, and
+        # assigning a worker over it is what once broke the People page.
+        self.vehicles_worker = vehicles
+        self.vehicle_store = vehicle_store
         # The site's clock, asked per timestamp. Holding one number from
         # startup left every time an hour out after the October change until
         # somebody restarted the engine, and nothing said so.
@@ -107,6 +219,10 @@ class LiveStore(MockStore):
         self.recognition_error: str | None = None
         self.people_error: str | None = None
         self.tracking_error: str | None = None
+        self.zones_error: str | None = None
+        self.weapons_error: str | None = None
+        self.lost_error: str | None = None
+        self.vehicles_error: str | None = None
 
     @property
     def recognition_live(self) -> bool:
@@ -139,7 +255,8 @@ class LiveStore(MockStore):
             if disabled is None:
                 return None
             return S.CameraView(
-                id=disabled.id, name=disabled.name, offline=True, stale=True
+                id=disabled.id, name=disabled.name,
+                area=self._area_of(disabled.id), offline=True, stale=True,
             )
 
         frame = worker.last_frame()
@@ -147,6 +264,8 @@ class LiveStore(MockStore):
         return S.CameraView(
             id=worker.config.id,
             name=worker.config.name,
+            area=worker.config.area,
+            faces=worker.config.faces,
             offline=not online,
             captured_at=_instant(frame.captured_at if frame else None, self.clock),
             # Stale means "this pixel data is not current", which is true
@@ -159,7 +278,8 @@ class LiveStore(MockStore):
             stream_url=f"/cameras/{worker.config.id}/stream",
         )
 
-    def overlay(self, camera_id: str, feature: str | None = None) -> list[S.Box]:
+    def overlay(self, camera_id: str, feature: str | None = None,
+                colour: str | None = None) -> list[S.Box]:
         """The public name for `_boxes`, for callers outside this class.
 
         `app.py` needs the tracking overlay to build the identities list, so
@@ -168,9 +288,10 @@ class LiveStore(MockStore):
         through the front door, and it keeps the per-feature rule - the caller
         still has to say which feature is asking.
         """
-        return self._boxes(camera_id, feature)
+        return self._boxes(camera_id, feature, colour)
 
-    def _boxes(self, camera_id: str, feature: str | None = None) -> list[S.Box]:
+    def _boxes(self, camera_id: str, feature: str | None = None,
+               colour: str | None = None) -> list[S.Box]:
         """What to draw on a camera tile, for the page that asked.
 
         **Each feature draws its own overlay.** The same camera means different
@@ -185,9 +306,31 @@ class LiveStore(MockStore):
         """
         if feature == "track":
             return self._tracked_boxes(camera_id)
-        if feature == "counting":
+        if feature in ("counting", "intrusion"):
+            # Restricted zones ask "is there a body here", never "who is it".
+            # Face boxes on that page would put a name beside a detection this
+            # feature never made — rule 1 — and would make it need attendance
+            # switched on to draw anything at all — rule 9.
             return self._person_boxes(camera_id)
-        # attendance, intrusion, weapons and the default grid all want faces.
+        if feature == "vehicles":
+            # Above the face default, for exactly the reason the weapons
+            # branch below records: falling through would draw a person's
+            # NAME over a car.
+            return self._plate_boxes(camera_id)
+        if feature == "weapons":
+            # Above the face default on purpose. Everything unrecognised
+            # used to fall through to faces, weapons included — so this
+            # page would have drawn somebody's NAME beside a knife the
+            # recogniser never associated with them. Rule 1, and the worst
+            # sentence in the product to get wrong.
+            return self._knife_boxes(camera_id)
+        if feature == "lost":
+            # Above the face default for the same reason as weapons, and the
+            # reason is not hypothetical: knife detection shipped with this
+            # branch missing. A bag search that fell through to faces would
+            # draw somebody's NAME over a bag nobody has claimed.
+            return self._bag_boxes(camera_id, colour)
+        # attendance and the default grid want faces.
         return self._face_boxes(camera_id)
 
     def _tracked_boxes(self, camera_id: str) -> list[S.Box]:
@@ -250,6 +393,114 @@ class LiveStore(MockStore):
         return [
             S.Box(x=p.x, y=p.y, w=p.w, h=p.h, confidence=p.confidence, kind="person")
             for p in self.people_worker.people_on(camera_id)
+        ]
+
+    def _plate_boxes(self, camera_id: str) -> list[S.Box]:
+        """Number plates, coloured by whether the car is on the register.
+
+        **A plate names a car, never the person driving it.** The label is the
+        plate and the owner is deliberately absent: the register's owner field
+        belongs to the vehicle, and painting a name over a windscreen would
+        claim the system saw who was inside. Rule 1.
+
+        `kind="plate"` keeps this out of every other feature's colouring, and
+        the severity is what `boxColor()` paints - red for a withdrawn car,
+        amber for one nobody knows, green for a registered one.
+        """
+        if self.vehicles_worker is None:
+            return []
+
+        today = self._site_today()
+        boxes: list[S.Box] = []
+        for read in self.vehicles_worker.plates_on(camera_id):
+            width = max(read.box.w, 0)
+            height = max(read.box.h, 0)
+            if not width or not height:
+                continue
+
+            status = "unknown"
+            if read.text and self.vehicle_store is not None:
+                status = vehicle_events.status_for(
+                    self.vehicle_store.by_plate(read.text), today)
+
+            severity = {
+                "blacklist": S.Severity.CRITICAL,
+                "unknown": S.Severity.WARN,
+                "expired": S.Severity.WARN,
+            }.get(status, S.Severity.INFO)
+
+            frame_w, frame_h = self._frame_size(camera_id)
+            boxes.append(S.Box(
+                # Clamped before sending: `Fraction` validates 0..1 and an
+                # out-of-range value would 500 the response, which is
+                # degradation as a 5xx - the thing rule 7 forbids.
+                x=max(0.0, min(1.0, read.box.x1 / frame_w)),
+                y=max(0.0, min(1.0, read.box.y1 / frame_h)),
+                w=max(0.0, min(1.0, width / frame_w)),
+                h=max(0.0, min(1.0, height / frame_h)),
+                label=read.text and platetext.display(read.text) or "Plate",
+                confidence=max(0.0, min(1.0, read.confidence)),
+                kind="plate",
+                severity=severity,
+                # Pixels, deliberately, beside the fractions above. This is
+                # the aiming aid: it tells an operator whether the camera is
+                # close enough, which is the one accuracy problem no amount of
+                # software fixes. `read.box.w` is already source-frame pixels.
+                plate_width_px=width,
+            ))
+        return boxes
+
+    def _site_today(self) -> date:
+        """The site's today, as a `date`.
+
+        `Clock.today()` returns an ISO **string** because that is what the
+        wire wants. Permit expiry is date arithmetic, so it needs the real
+        thing — and it must come from the site's clock rather than the
+        server's, or a permit expires at the wrong midnight.
+        """
+        try:
+            return date.fromisoformat(self.clock.today())
+        except ValueError:
+            return datetime.now(timezone.utc).date()
+
+    def _frame_size(self, camera_id: str) -> tuple[int, int]:
+        """The camera's frame size, for turning pixels into fractions.
+
+        Geometry crosses the API as fractions, never pixels, and the plate
+        reader works in pixels — so the conversion has to happen here, against
+        the frame the boxes were measured on.
+
+        Falls back to 1 rather than 0: a camera that has not produced a frame
+        yet must not divide by zero inside an overlay request.
+        """
+        worker = self.registry.worker(camera_id) if self.registry else None
+        frame = worker.last_frame() if worker else None
+        if frame is not None and getattr(frame, "width", 0):
+            return max(frame.width, 1), max(frame.height, 1)
+        return 1, 1
+
+    def _knife_boxes(self, camera_id: str) -> list[S.Box]:
+        """Possible knives, on the bodies holding them. No identity, ever.
+
+        `kind="weapon"` and `severity=CRITICAL` are what `boxColor()` paints
+        red. `match=NONE` and no `track_id` are not omissions: a knife is
+        not a person, has no identity to match and is not tracked between
+        frames.
+        """
+        if self.weapons_worker is None:
+            return []
+        return [
+            S.Box(
+                x=max(0.0, min(1.0, k.x)),
+                y=max(0.0, min(1.0, k.y)),
+                w=max(0.0, min(1.0, k.w)),
+                h=max(0.0, min(1.0, k.h)),
+                label="Knife",
+                confidence=max(0.0, min(1.0, k.confidence)),
+                kind="weapon",
+                severity=S.Severity.CRITICAL,
+            )
+            for k in self.weapons_worker.knives_on(camera_id)
         ]
 
     def _face_boxes(self, camera_id: str) -> list[S.Box]:
@@ -346,7 +597,8 @@ class LiveStore(MockStore):
         return stopped or recorded
 
     def camera_detections(
-        self, camera_id: str, feature: str | None = None
+        self, camera_id: str, feature: str | None = None,
+        colour: str | None = None,
     ) -> S.CameraDetections:
         """Boxes and headcount from the same inference pass.
 
@@ -365,7 +617,7 @@ class LiveStore(MockStore):
         return S.CameraDetections(
             camera_id=camera_id,
             at=_instant(frame.captured_at if frame else None, self.clock),
-            boxes=self._boxes(camera_id, feature) if online else [],
+            boxes=self._boxes(camera_id, feature, colour) if online else [],
             people_count=self._people_count(camera_id, online),
             inference_ms=round(result.inference_ms, 1) if result else None,
         )
@@ -409,49 +661,1231 @@ class LiveStore(MockStore):
             cameras_total=self.registry.total,
             places=([self.ALL_PLACES] + areas) if areas else [],
             areas=areas,
+            clip_retention_days=self.config.storage.clip_retention_days,
         )
 
-    def zones(self) -> list[S.Zone]:
-        """Zones from engine.yaml, not fixtures.
+    # -- restricted zones ---------------------------------------------------
+    #
+    # A zone IS a camera. Switching one on makes its **whole frame** the
+    # restricted area, so there is no polygon to draw and nothing to get
+    # wrong about where the line is. The wire still carries a polygon because
+    # `Zone.polygon` requires at least three points; it carries the four frame
+    # corners, which is literally true and keeps every existing client valid.
 
-        Disabled zones are included — a paused zone stays visible.
+    #: The zone, as a polygon: the entire frame.
+    FRAME_CORNERS = ((0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0))
+
+    def _restricted_ids(self) -> set[str]:
+        """Which cameras are switched on, from the database.
+
+        Intersected with the roster, so a camera that has been removed since
+        somebody restricted it does not keep appearing as a watched area.
         """
+        if self.cameras is None:
+            return set()
+        roster = {c.id for c in self.registry.configs()}
+        return self.cameras.restricted_ids() & roster
+
+    def _start_of_today(self) -> datetime:
+        """Midnight at the *site*, as an instant.
+
+        Not the server's midnight. A school in Cairo at 00:30 local is still on
+        the previous UTC day, and counting today's scenes against the wrong
+        boundary puts last night's entries on this morning's total.
+        """
+        now = datetime.now(timezone.utc)
+        local = self.clock.local(now)
+        midnight_local = local.replace(hour=0, minute=0, second=0, microsecond=0)
+        return midnight_local.astimezone(timezone.utc)
+
+    def zones(self) -> list[S.Zone]:
+        """The real camera roster, each with its toggle. Never fixtures.
+
+        Every camera appears whether or not it is restricted — the toggle is
+        how you tell, and a camera that vanished when switched off would take
+        its history with it (P4-FR-010).
+        """
+        restricted = self._restricted_ids()
+        today = (self.scenes.counts_since(self._start_of_today())
+                 if self.scenes is not None else {})
         return [
             S.Zone(
-                id=z.id,
-                name=z.name,
-                camera_id=z.camera_id,
-                schedule=S.Schedule(
-                    mode=S.ScheduleMode(z.schedule.mode),
-                    days=list(z.schedule.days),
-                    start=z.schedule.start.strftime("%H:%M") if z.schedule.start else None,
-                    end=z.schedule.end.strftime("%H:%M") if z.schedule.end else None,
-                ),
-                enabled=z.enabled,
-                polygon=[S.Point(x=x, y=y) for x, y in z.polygon],
-                breaches_today=0,
+                id=camera.id,
+                name=camera.name,
+                camera_id=camera.id,
+                schedule=S.Schedule(mode=S.ScheduleMode.ALWAYS, days=[]),
+                enabled=camera.id in restricted,
+                polygon=[S.Point(x=x, y=y) for x, y in self.FRAME_CORNERS],
+                breaches_today=today.get(camera.id, 0),
             )
-            for z in self.config.zones
+            for camera in self.registry.configs()
         ]
 
     def set_zone_enabled(self, zone_id: str, enabled: bool) -> S.Zone | None:
-        # Config is frozen at load; the override lives in memory until the
-        # events database lands in Stage C.
-        self._zone_overrides = getattr(self, "_zone_overrides", {})
-        self._zone_overrides[zone_id] = enabled
-        for zone in self.zones():
-            if zone.id == zone_id:
-                return zone.model_copy(update={"enabled": enabled})
-        return None
+        """Flip the toggle, and make it true on the next frame.
+
+        Written to the database first, so it survives a restart, then pushed
+        into the running worker. Only writing one of the two is how a setting
+        ends up meaning different things to the page and to the engine.
+
+        Existence is checked against the **roster**, not the camera table: the
+        baseline cameras come from engine.yaml and have no row there at all, so
+        asking the table would 404 on every camera a site starts with.
+        """
+        if self.cameras is None:
+            return None
+        if not any(c.id == zone_id for c in self.registry.configs()):
+            # No such camera. The endpoint 404s rather than reporting a change
+            # it did not make.
+            return None
+
+        self.cameras.set_restricted(zone_id, enabled)
+
+        if self.zones_worker is not None:
+            self.zones_worker.set_restricted(self._restricted_ids())
+
+        return next((z for z in self.zones() if z.id == zone_id), None)
 
     def intrusion_cameras(self) -> list[S.CameraView]:
-        # The one place the zone outline IS the subject, so it is drawn here.
-        with_zones = {z.camera_id for z in self.config.zones}
-        views = [self.camera_view(cid, include_zone=True) for cid in with_zones]
-        # No `or super()`: a site with no zones drawn yet has no intrusion
+        """Tiles for the cameras that are actually restricted.
+
+        `include_zone` stays off: the zone is the frame, so drawing a rectangle
+        inside it would claim a boundary that does not exist (P4-FR-002).
+        """
+        restricted = self._restricted_ids()
+        # Roster order, not set order, so the grid does not reshuffle itself
+        # between two polls of the same unchanged data.
+        views = [self.camera_view(camera.id, feature="intrusion")
+                 for camera in self.registry.configs() if camera.id in restricted]
+        # No `or super()`: a site with nothing switched on has no restricted
         # cameras, and saying so is the truth. Demo cameras appearing here
         # once looked exactly like a working zone.
         return [v for v in views if v is not None]
+
+    def breaches(self, since_days: int) -> list[S.Breach]:
+        """The detection log: one entry per scene, newest first.
+
+        **Nobody is named here.** This feature detects bodies; it never runs a
+        face against them, so `subject` is always an unidentified match. A name
+        on one of these rows would be a claim nothing in this pipeline made —
+        rule 1, and the bug that once had every person read as one person.
+
+        **Entries whose clip has been replaced are not listed** (owner
+        decision, 2026-08-21). Each camera keeps its newest three clips, so
+        this is at most three watchable entries per camera plus anything still
+        recording or whose recording failed — a failure is news and stays.
+        The rows themselves are never deleted; `SceneStore.recent()` still
+        returns them, which is what the audit view in P3 will read.
+        """
+        if self.scenes is None:
+            return []
+
+        # From the roster, not from engine.yaml: a camera added through the
+        # console is not in the config file, and `_camera_name` falls back to
+        # the raw id for it — which would put "cam-3" on the screen where the
+        # operator typed "Back stairwell".
+        names = {c.id: c.name for c in self.registry.configs()}
+
+        out: list[S.Breach] = []
+        for scene in self.scenes.recent(since_days, include_replaced=False):
+            name = names.get(scene.camera_id) or scene.camera_id
+            out.append(S.Breach(
+                id=scene.id,
+                zone_id=scene.camera_id,
+                zone_name=name,
+                camera_id=scene.camera_id,
+                camera_name=name,
+                at=_instant(scene.started_at, self.clock),
+                subject=S.PersonRef(name="Unidentified", match=S.MatchKind.NONE),
+                # Open means somebody is still standing there, not that a human
+                # owes it a review — this feature has no review workflow.
+                status=(S.BreachStatus.OPEN if scene.running
+                        else S.BreachStatus.RESOLVED),
+                severity=S.Severity.WARN,
+                # Person detection has a confidence per box; a scene does not.
+                # Inventing one would be a number nothing measured.
+                confidence=0.0,
+                dwell_seconds=round(scene.seconds, 1),
+                people=scene.peak_people,
+                clip_state=scene.clip_state,
+                clip_reason=scene.clip_reason or self._no_clip_reason(scene),
+                clip=self._scene_clip(scene),
+            ))
+        return out
+
+    def clip_for_breach(self, scene_id: str):
+        """The file for one scene, or why there is not one.
+
+        Returns `(path, reason)` — exactly one is set. The endpoint turns a
+        reason into a 404 with those words in it, so every refusal says what
+        happened rather than "not found".
+
+        **The path is never taken from the request.** The id is looked up, the
+        stored path is checked to be inside the zones clip directory, and only
+        then is anything opened. A row is data like any other; a wrong one must
+        not become a way to read the disk.
+        """
+        if self.scenes is None:
+            return None, "The detection log is not available."
+
+        scene = self.scenes.get(scene_id)
+        if scene is None:
+            return None, f"no detection {scene_id!r}"
+        if scene.clip_state != "saved" or scene.clip_path is None:
+            return None, (
+                scene.clip_reason
+                or "There is no clip for this detection."
+            )
+
+        root = self.config.storage.zone_clips_dir
+        try:
+            path = scene.clip_path.resolve()
+            path.relative_to(root.resolve())
+        except (OSError, ValueError):
+            log.error("scene %s names a clip outside %s: %s",
+                      scene_id, root, scene.clip_path)
+            return None, "That clip is not where it should be, so it was not served."
+
+        if not path.is_file():
+            # Rule 4: never claim a file that is not there. A row can outlive
+            # its file — a disk wiped by hand, a folder moved — and the honest
+            # answer is that it is gone, not a 500 from a failed open.
+            return None, "The clip is no longer on disk."
+
+        return path, ""
+
+    @staticmethod
+    def _no_clip_reason(scene) -> str | None:
+        """A sentence for every state that has no file, so no control is bare."""
+        if scene.clip_state == "saved":
+            return None
+        if scene.clip_state == "recording":
+            return "Still recording — the clip is saved when they leave."
+        if scene.clip_state == "none":
+            return "No clip was recorded for this detection."
+        return None
+
+    def _scene_clip(self, scene) -> S.Clip | None:
+        """The playable clip, and only when there genuinely is one.
+
+        The URL is **same-origin and relative**, built like the stream URLs
+        above. A `<video src>` cannot send an Authorization header, so an
+        absolute engine URL would play for nobody — that is exactly what made
+        the camera streams go black last cycle.
+        """
+        if not scene.playable:
+            return None
+        return S.Clip(
+            id=scene.id,
+            url=f"/breaches/{scene.id}/clip",
+            duration_seconds=round(scene.seconds, 1),
+            starts_at=_instant(scene.started_at, self.clock),
+        )
+
+    # -- lost bag -----------------------------------------------------------
+
+    def note_lost_interest(self, camera_id: str) -> None:
+        """A tile asked for a bag overlay, so that camera is worth looking at.
+
+        This is the only thing that makes the bag model run. No poll, no work.
+        """
+        if self.lost_watch is not None:
+            self.lost_watch.note_interest(camera_id)
+
+    def _bag_boxes(self, camera_id: str, colour: str | None = None) -> list[S.Box]:
+        """Possible bags, on the tiles. No identity, ever.
+
+        `kind="object"` and `severity=WARN` are what `boxColor()` paints amber:
+        never green (a face), never blue (a body). `match=NONE` and no
+        `track_id` are not omissions - a bag has no identity to match and is
+        not tracked between frames.
+
+        The label is the class name, so an operator can tell a rucksack from a
+        suitcase at a glance. It is never a person's name.
+        """
+        if self.lost_watch is None:
+            return []
+        return [
+            S.Box(
+                x=max(0.0, min(1.0, hit.x)),
+                y=max(0.0, min(1.0, hit.y)),
+                w=max(0.0, min(1.0, hit.w)),
+                h=max(0.0, min(1.0, hit.h)),
+                label=hit.label.title(),
+                confidence=max(0.0, min(1.0, hit.confidence)),
+                kind="object",
+                severity=S.Severity.WARN,
+            )
+            for hit in self.lost_watch.boxes_on(camera_id, colour)
+        ]
+
+    def _lost_state(self) -> tuple[S.DataState, str | None]:
+        """Whether bags can be looked for at all, and if not, why not."""
+        if self.lost_watch is None:
+            if self.lost_error:
+                return S.DataState.UNAVAILABLE, self.lost_error
+            return (S.DataState.UNAVAILABLE,
+                    "Bag detection is not running, so no camera can be "
+                    "checked for a bag.")
+        return S.DataState.LIVE, None
+
+    @staticmethod
+    def _running_on(detector) -> str:
+        """"<version> on <device> (<form>)" for a System Health row.
+
+        The form is the half that has been missing. This repo ran every model
+        unaccelerated for months with five unused TensorRT engines sitting on
+        disk, and nothing on any screen said so - it was only findable by
+        timing a frame by hand. P6-FR-035 makes it a sentence.
+
+        `getattr` throughout because a stage may be asked about a detector
+        that failed to construct, and System Health going down with it is the
+        opposite of what this page is for.
+        """
+        version = getattr(detector, "version", "unknown")
+        device = getattr(detector, "device", "unknown")
+        form = getattr(detector, "form", None)
+        return f"{version} on {device}" + (f" ({form})" if form else "")
+
+    def _lost_stage(self) -> S.PipelineStage:
+        """Rule 8: a subsystem that failed to start says so in the UI."""
+        state, reason = self._lost_state()
+        if state is not S.DataState.LIVE:
+            return S.PipelineStage(
+                key="search_lost", name="Bag detection",
+                detail=reason or "Not running.",
+                healthy=False, severity=S.Severity.WARN, restartable=False,
+            )
+
+        stats = self.lost_watch.stats
+        detector = getattr(self.lost_watch, "detector", None)
+        cameras = stats["cameras"]
+        doing = (f"watching {cameras} camera{'' if cameras == 1 else 's'}"
+                 if cameras else "idle - nobody is looking")
+        return S.PipelineStage(
+            key="search_lost", name="Bag detection",
+            detail=f"{self._running_on(detector)} - {doing}",
+            healthy=True, severity=S.Severity.INFO, restartable=False,
+        )
+
+    # -- knife detection ----------------------------------------------------
+
+    def weapons(self, since: datetime | None,
+                until: datetime | None = None) -> list[S.WeaponDetection]:
+        """The knife log: one entry per incident, newest first.
+
+        **Nobody is named here.** This feature detects a knife on a body; it
+        never runs a face against that body, so no entry carries an identity.
+        A name on one of these rows would be a claim nothing in this pipeline
+        made — rule 1, and the bug that once had every person read as one
+        person.
+
+        **Nothing is ever removed from this list.** Not by verdict, not by
+        retention, not by anything. A dismissed detection stays, with its
+        reason and its reviewer; only the video goes, and the entry then says
+        so. A page that hides its own false alarms cannot be audited, and the
+        record of what was looked at is most of the value here.
+        """
+        if self.weapon_scenes is None:
+            return []
+
+        # Cheap on every read: one indexed query that usually matches
+        # nothing. It runs here as well as at startup because a
+        # long-running engine would otherwise keep a video past the period
+        # this very page promises.
+        self._expire_weapon_clips()
+
+        # From the roster, not from engine.yaml: a camera added through the
+        # console is not in the config file, and the raw id would put "cam-3"
+        # on the screen where the operator typed "Back stairwell".
+        names = {c.id: c.name for c in self.registry.configs()}
+
+        out: list[S.WeaponDetection] = []
+        for scene in self.weapon_scenes.recent(since, until):
+            name = names.get(scene.camera_id) or scene.camera_id
+            dismissed = scene.verdict == "dismissed"
+            out.append(S.WeaponDetection(
+                id=scene.id,
+                at=_instant(scene.started_at, self.clock),
+                camera_id=scene.camera_id,
+                camera_name=name,
+                location=self._area_of(scene.camera_id),
+                item="Knife",
+                # `Confidence` is validated 0..1 and a stored peak is a float
+                # from a model; clamping here beats a 500 on the list endpoint.
+                confidence=max(0.0, min(1.0, scene.peak_confidence)),
+                # Dismissed means a person looked and said no. Leaving it
+                # CRITICAL would keep it red in a list somebody has already
+                # cleared, and the next real one would not stand out.
+                severity=S.Severity.INFO if dismissed else S.Severity.CRITICAL,
+                verdict=S.ReviewVerdict(scene.verdict),
+                reviewed_by=scene.reviewed_by,
+                reviewed_at=_instant(scene.reviewed_at, self.clock)
+                if scene.reviewed_at else None,
+                dismissal_reason=scene.review_reason,
+                # Boxes are live overlay, not history: a box drawn over a frame
+                # that is no longer on screen is decoration.
+                box=None,
+                clip=self._weapon_clip(scene),
+                model_version=scene.model_version or None,
+                ended_at=_instant(scene.ended_at, self.clock)
+                if scene.ended_at else None,
+                seconds=round(scene.seconds, 1),
+                clip_state=scene.clip_state,
+                clip_reason=scene.clip_reason or self._no_weapon_clip_reason(scene),
+                end_reason=scene.end_reason,
+            ))
+        return out
+
+    def _expire_weapon_clips(self) -> int:
+        """Remove knife videos past the configured retention period.
+
+        The period lives in the configuration, not in the store: a site that
+        changes `clip_retention_days` must not need a code change, and the
+        store must not have to be told the number twice.
+        """
+        if self.weapon_scenes is None:
+            return 0
+        days = self.config.storage.clip_retention_days
+        return self.weapon_scenes.expire(
+            datetime.now(timezone.utc) - timedelta(days=days))
+
+    def weapon_cameras(self) -> list[S.CameraView]:
+        """The cameras actually being checked for knives.
+
+        Not the whole roster: the header says "*N* cameras being checked", and
+        a camera the worker does not serve is not being checked. Without a
+        worker the honest answer is none at all, and the capability says why.
+        """
+        if self.weapons_worker is None:
+            return []
+        out: list[S.CameraView] = []
+        for camera in self.registry.configs():
+            if not self.weapons_worker.serves(camera.id):
+                continue
+            view = self.camera_view(camera.id, feature="weapons")
+            if view is not None:
+                out.append(view)
+        return out
+
+    # -- vehicle gate -------------------------------------------------------
+
+    def _gate_cameras(self) -> list:
+        """The configured gate cameras. Empty is a real answer."""
+        return [c for c in self.registry.configs() if c.is_gate]
+
+    def _gate_name(self, gate: int) -> str:
+        """"Gate 2 - staff", from the camera names, or just "Gate 2".
+
+        Built from configuration rather than stored: a gate is not an entity
+        in this system, it is a number two cameras agree on.
+        """
+        for camera in self._gate_cameras():
+            if camera.gate == gate and " - " in camera.name:
+                return camera.name.split(" - ", 1)[0]
+        return f"Gate {gate}"
+
+    def _gate_directions(self) -> dict[int, set[str]]:
+        """Which directions each gate has a camera for."""
+        directions: dict[int, set[str]] = {}
+        for camera in self._gate_cameras():
+            directions.setdefault(camera.gate, set()).add(camera.direction)
+        return directions
+
+    def _pairing_available(self) -> bool:
+        """Is there a gate with both an entry and an exit camera?
+
+        Without one, an exit can never be matched to an entry, so "inside now"
+        is not a number this engine can produce. P6-FR-012 forbids showing a
+        paired figure with nothing to pair against, so this is what the page
+        checks before printing one.
+        """
+        return any(len(d) > 1 for d in self._gate_directions().values())
+
+    def _vehicles_state(self) -> tuple[S.DataState, str | None]:
+        """Whether plates are being read, and if not, exactly why not.
+
+        Four different nothings, and an operator can act on only some of them:
+        no gate camera is theirs to fix, a model that would not load is not.
+        Collapsing them into one empty list is what makes a page look broken
+        when it is merely unconfigured.
+        """
+        if not self._gate_cameras():
+            return (S.DataState.UNAVAILABLE,
+                    "No camera is set up as a gate, so no plates are being "
+                    "read. A gate camera needs a gate number and a direction.")
+        if self.vehicles_worker is None:
+            if self.vehicles_error:
+                return S.DataState.UNAVAILABLE, self.vehicles_error
+            return (S.DataState.UNAVAILABLE,
+                    "Plate reading is not running, so no car is being read.")
+        if self.vehicle_store is None:
+            return (S.DataState.UNAVAILABLE,
+                    "The vehicle log is not available, so nothing can be "
+                    "shown even though the gate cameras are being watched.")
+        return S.DataState.LIVE, None
+
+    def vehicle_summary(self) -> S.GateSummary:
+        """The six Live tiles.
+
+        **Absent, never zero.** Every count here is optional, and when plates
+        are not being read they are all left out and `reason` says why. A tile
+        reading `0` is a measurement - "no car came through today" - and
+        sending it for "we are not looking" is the exact untruth SC-010
+        exists to prevent.
+        """
+        gates = {c.gate for c in self._gate_cameras()}
+        state, reason = self._vehicles_state()
+        registered = self.vehicle_store.count() if self.vehicle_store else None
+
+        if state is not S.DataState.LIVE:
+            return S.GateSummary(gates=len(gates), reason=reason,
+                                 registered=registered,
+                                 pairing_available=self._pairing_available())
+
+        counts = self.vehicle_store.counts_since(self._start_of_day())
+        pairing = self._pairing_available()
+        reading, total, note = self._cameras_reading()
+        return S.GateSummary(
+            cameras_reading=reading,
+            cameras_total=total,
+            cameras_note=note,
+            entered=counts["entered"],
+            left=counts["left"] if pairing else None,
+            # Only when an exit camera exists to pair against.
+            inside=len(self.vehicle_store.inside(self._start_of_day()))
+            if pairing else None,
+            unknown=counts["unknown"],
+            blacklist=counts["blacklist"],
+            needs_review=counts["needs_review"],
+            gates=len(gates),
+            registered=registered,
+            pairing_available=pairing,
+            reason=None if pairing else (
+                "No exit camera is configured, so no car can be matched to "
+                "its exit. Cars leaving are not being counted."),
+        )
+
+    def _cameras_reading(self) -> tuple[int, int, str | None]:
+        """How many gate cameras are actually being read, of those configured.
+
+        A gate camera that is down is not reading plates, and the tile that
+        says "3 of 4" is the one place that is visible at a glance. The note
+        names which one and what it costs — an offline exit camera means cars
+        leaving that way are not counted, so "still inside" is an over-count
+        until it comes back, and an operator should be told that rather than
+        left to infer it from a figure that looks fine.
+        """
+        cameras = self._gate_cameras()
+        down: list[str] = []
+        for camera in cameras:
+            worker = self.registry.worker(camera.id) if self.registry else None
+            if worker is None or worker.status != "ok":
+                direction = camera.direction or "gate"
+                down.append(f"{camera.name} ({direction})")
+
+        if not down:
+            return len(cameras), len(cameras), None
+
+        missing = ", ".join(down)
+        exits = any("exit" in name for name in down)
+        note = (f"{missing} is offline, so plates are not being read there."
+                if len(down) == 1 else
+                f"{missing} are offline, so plates are not being read there.")
+        if exits:
+            note += (" Cars leaving that way are not being counted, so "
+                     "\"inside now\" is an over-count until it is back.")
+        return len(cameras) - len(down), len(cameras), note
+
+    def _start_of_day(self) -> datetime:
+        """Midnight, site-local, as UTC. The window every "today" count uses.
+
+        The offset comes from the site's clock. It used to come from
+        `getattr(self, "_offset", 0)`, an attribute nothing ever set - so the
+        day always turned over at **UTC** midnight, which in Cairo is 3am. A
+        car passing at 1am was counted against the day before, and "today"
+        was three hours out for the first three hours of every day.
+        """
+        today = self._site_today()
+        local_midnight = datetime(today.year, today.month, today.day,
+                                  tzinfo=timezone.utc)
+        return local_midnight - timedelta(
+            minutes=self.clock.offset_minutes(local_midnight))
+
+    def _day_bounds(self, day: str = "") -> tuple[datetime, datetime]:
+        """Site-local midnight to midnight for one day, as UTC.
+
+        Empty `day` means today, which is what every caller wanted before any
+        day could be picked. A malformed date raises `ValueError` and the
+        endpoint turns that into a 422 — silently falling back to today would
+        answer a question nobody asked, and the operator would read yesterday's
+        chart believing it was Tuesday's.
+        """
+        start = self._start_of_day()
+        if day:
+            wanted = date.fromisoformat(day)
+            local_midnight = datetime(wanted.year, wanted.month, wanted.day,
+                                      tzinfo=timezone.utc)
+            start = local_midnight - timedelta(
+                minutes=self.clock.offset_minutes(local_midnight))
+        return start, start + timedelta(days=1)
+
+    def vehicle_traffic(self, day: str = "") -> list[S.TrafficHour]:
+        """One day's entries and exits by hour — the chart on Movements.
+
+        Hours with nothing in them are absent rather than zero. A flat bar at
+        3am is noise, and an empty list is the honest shape of a day when
+        nothing drove through.
+        """
+        if self.vehicle_store is None:
+            return []
+        since, until = self._day_bounds(day)
+        # The site's offset in MINUTES, handed to the store rather than
+        # applied here. Shifting a UTC hour by `offset // 60` looks equivalent
+        # and is an hour wrong for half the clock in any half-hour zone; the
+        # store does it exactly. Same rule as every other rendered time on
+        # this page: the site experienced it, so the site's clock names it.
+        rows = self.vehicle_store.hourly(
+            since, until, self.clock.offset_minutes(since))
+        return [S.TrafficHour(hour=row["hour"], entered=row["entered"],
+                              left=row["left"])
+                for row in rows]
+
+    def vehicle_passes(self, **filters) -> list[S.VehiclePass]:
+        """The pass log, newest first."""
+        if self.vehicle_store is None:
+            return []
+        limit = int(filters.pop("limit", 100) or 100)
+        day = filters.pop("day", "")
+        applied = {k: v for k, v in filters.items() if v not in (None, "")}
+        if day:
+            applied["since"], applied["until"] = self._day_bounds(day)
+        records = self.vehicle_store.passes(limit=limit, **applied)
+        return [self._to_wire_pass(p) for p in records]
+
+    def _to_wire_pass(self, record) -> S.VehiclePass:
+        return S.VehiclePass(
+            id=record.id,
+            at=_instant(record.at, self.clock),
+            plate=record.plate,
+            plate_display=record.plate_display,
+            gate=record.gate,
+            gate_name=self._gate_name(record.gate),
+            direction=record.direction,
+            status=record.status,
+            confidence=max(0.0, min(1.0, record.confidence)),
+            votes=record.votes,
+            needs_review=record.needs_review,
+            owner=record.owner_name,
+            unit=record.unit,
+            has_snapshot=record.has_snapshot,
+            corrected_by=record.corrected_by,
+        )
+
+    def vehicle_cameras(self) -> list[S.CameraView]:
+        """The gate cameras, each labelled with what it is configured to see.
+
+        Not the whole roster - a camera with no gate number is not watching a
+        gate, and listing it would imply the plates it cannot read.
+        """
+        out: list[S.CameraView] = []
+        for camera in self._gate_cameras():
+            view = self.camera_view(camera.id, feature="vehicles")
+            if view is not None:
+                out.append(view)
+        return out
+
+    def vehicle_reader(self) -> S.GateReaderNow:
+        """What the reader is seeing now — every attempt, not just the wins.
+
+        **The pass log cannot answer the question this does.** It contains
+        successes by construction, so a gate that records nothing produces an
+        empty log whether the camera is too far away, the model is failing, or
+        nothing is running at all. Those need different fixes and this is the
+        only place they look different.
+
+        Deliberately assembled per request rather than pushed: the attempts
+        already exist as a by-product of a worker that is running anyway, so
+        this costs a dictionary lookup, and it stops entirely when the last
+        person closes the page.
+        """
+        state, reason = self._vehicles_state()
+        if state is not S.DataState.LIVE or self.vehicles_worker is None:
+            # No cameras and no attempts, with the sentence that explains it.
+            # The card renders `reason` in place of the table; an empty table
+            # would read as "the reader is looking and finding nothing".
+            return S.GateReaderNow(votes_needed=MIN_VOTES, reason=reason)
+
+        worker = self.vehicles_worker
+        reader = getattr(worker, "reader", None)
+        cameras: list[S.GateReaderCamera] = []
+        attempts: list[S.ReaderAttempt] = []
+
+        for camera in self._gate_cameras():
+            reading = worker.reading_now(camera.id)
+            cameras.append(S.GateReaderCamera(
+                camera_id=camera.id,
+                camera_name=camera.name,
+                gate=camera.gate,
+                direction=camera.direction,
+                # What is LOADED, never what was configured. A model that fell
+                # back off its accelerated build says so here, on the page
+                # where its work shows, rather than only on System Health.
+                finder=getattr(reader, "plates_loaded", None)
+                and reader.plates_loaded.stem or "unknown",
+                reader=getattr(reader, "chars_loaded", None)
+                and reader.chars_loaded.stem or "unknown",
+                form=getattr(reader, "form", "unknown"),
+                read_ms=worker.read_ms(camera.id),
+                reading_display=reading[1] if reading else None,
+                reading_votes=reading[2] if reading else 0,
+                has_crop=reading is not None,
+                reading_pass_id=reading[4] if reading else None,
+                reading_plate=reading[5] if reading else None,
+            ))
+            for attempt in worker.attempts_on(camera.id):
+                attempts.append(S.ReaderAttempt(
+                    at=_instant(attempt.at, self.clock),
+                    camera_id=attempt.camera_id,
+                    camera_name=camera.name,
+                    display=attempt.display,
+                    confidence=attempt.confidence,
+                    plausibility=attempt.plausibility,
+                    width_px=attempt.width_px,
+                    leader_display=attempt.leader_display,
+                    votes=attempt.votes,
+                    votes_needed=MIN_VOTES,
+                ))
+
+        # Newest first across every gate, so two cameras read as one stream of
+        # what just happened rather than one camera's history then another's.
+        attempts.sort(key=lambda a: a.at.utc, reverse=True)
+        return S.GateReaderNow(cameras=cameras, attempts=attempts,
+                               votes_needed=MIN_VOTES)
+
+    def vehicle_crop(self, camera_id: str) -> bytes | None:
+        """A JPEG of the plate this camera is reading right now, or None.
+
+        Served rather than embedded in the reader payload: a picture polled
+        every two seconds does not belong inside a JSON document that also
+        carries the numbers, and the browser caches and cancels an <img> far
+        better than it does a base64 blob.
+        """
+        if self.vehicles_worker is None:
+            return None
+        reading = self.vehicles_worker.reading_now(camera_id)
+        return reading[0] if reading else None
+
+    # -- movements ----------------------------------------------------------
+
+    def _to_wire_visit(self, visit, now: datetime) -> S.VehicleVisit:
+        return S.VehicleVisit(
+            plate=visit.plate,
+            plate_display=visit.plate_display,
+            entered=_instant(visit.entered, self.clock),
+            entry_gate=visit.entry_gate,
+            left_at=_instant(visit.left_at, self.clock),
+            exit_gate=visit.exit_gate,
+            minutes=visit.minutes(now),
+            entry_pass_id=visit.entry_pass_id,
+            exit_pass_id=visit.exit_pass_id,
+            entry_has_snapshot=visit.entry_has_snapshot,
+            exit_has_snapshot=visit.exit_has_snapshot,
+            owner=visit.owner_name,
+            unit=visit.unit,
+            category=visit.category,
+            inferred=visit.inferred,
+        )
+
+    def vehicle_gates(self, day: str = "") -> list[S.GateTotals]:
+        """Today, gate by gate.
+
+        Every configured gate appears, including one nothing drove through:
+        a gate camera that is watching and saw no car is a measurement, and
+        leaving the row out would read as "not configured".
+
+        `inside` is **absent** for a gate with no exit camera. There is
+        nothing to pair an entry against, so any figure would be the count of
+        cars that entered wearing the name of something else (P6-FR-012).
+        """
+        state, _ = self._vehicles_state()
+        if state is not S.DataState.LIVE or self.vehicle_store is None:
+            # Not reading plates. Zeros here would be indistinguishable from
+            # a quiet morning; `vehicle_summary().reason` carries the words.
+            return []
+
+        counted = {row["gate"]: row
+                   for row in self.vehicle_store.gates(*self._day_bounds(day))}
+        directions = self._gate_directions()
+
+        out: list[S.GateTotals] = []
+        for gate in sorted(directions):
+            row = counted.get(gate, {"entered": 0, "left": 0, "inside": 0})
+            paired = len(directions[gate]) > 1
+            out.append(S.GateTotals(
+                gate=gate,
+                name=self._gate_name(gate),
+                entered=row.get("entered", 0),
+                left=row.get("left", 0),
+                inside=row.get("inside", 0) if paired else None,
+                pairing_available=paired,
+            ))
+        return out
+
+    def vehicles_inside(self) -> list[S.VehicleVisit]:
+        """Cars that came in today and have not been seen leaving."""
+        if self.vehicle_store is None:
+            return []
+        now = datetime.now(timezone.utc)
+        return [self._to_wire_visit(v, now)
+                for v in self.vehicle_store.inside(self._start_of_day())]
+
+    def vehicle_visits(self, day: str = "") -> list[S.VehicleVisit]:
+        """Today's completed visits, newest first.
+
+        A visit closed by the car being seen entering *again* comes back with
+        `inferred` set. It is still shown - the car did leave, nobody watched
+        it - but it never claims to be an observed exit.
+        """
+        if self.vehicle_store is None:
+            return []
+        now = datetime.now(timezone.utc)
+        return [self._to_wire_visit(v, now)
+                for v in self.vehicle_store.visits(*self._day_bounds(day))
+                if not v.inside]
+
+    def delete_pass(self, pass_id: str, actor: str) -> bool:
+        """Remove one pass from the log, with its photograph and plate crop.
+
+        For the read that is plainly nonsense - a reflection, half a lorry, a
+        plate that belongs to nobody. It is permanent: `visits` and "inside
+        now" are computed from this table, so a row that stayed hidden would
+        keep answering questions after somebody deleted it.
+
+        **The audit entry is written first**, and names the plate as it was
+        read. Somebody deleting a pass is a fact whether or not the delete
+        succeeded, and the audit entry cannot itself be deleted - so the log
+        can lose a row without the system losing the knowledge that it did.
+        """
+        store = self._need_register()
+        record = store.pass_by_id(pass_id)
+        if record is None:
+            return False
+        self._log(actor, "vehicle.pass.delete", record.plate,
+                  f"{record.direction} at gate {record.gate}, "
+                  f"read {record.confidence:.2f} over {record.votes} frames")
+        return store.delete_pass(pass_id)
+
+    def plate_alphabet(self) -> S.PlateAlphabet:
+        """What a plate may contain, and what the reader mixes up.
+
+        Straight from `platetext`, so the console's correction picker offers
+        exactly the characters this model is measured to confuse rather than a
+        copy that drifts the day the model changes.
+        """
+        confusions: dict[str, list[str]] = {}
+        for a, b in platetext.CONFUSIONS:
+            confusions.setdefault(a, []).append(b)
+            confusions.setdefault(b, []).append(a)
+        return S.PlateAlphabet(
+            letters=list(platetext.LETTERS),
+            common_letters=list(platetext.STRICT_LETTERS),
+            digits=list("0123456789"),
+            confusions=confusions,
+        )
+
+    def correct_plate(self, pass_id: str, plate: str,
+                      actor: str) -> S.VehiclePass | None:
+        """Somebody looked at the photograph and typed what it says.
+
+        Audited before the write, like every other change here — and the
+        entry names **both** plates, because "who changed this and from what"
+        is the whole question anybody will ask of it later.
+        """
+        store = self._need_register()
+        record = store.pass_by_id(pass_id)
+        if record is None:
+            return None
+        self._log(actor, "vehicle.pass.correct", record.plate,
+                  f"read as {platetext.transliterate(record.plate)}, "
+                  f"corrected to {platetext.transliterate(platetext.normalize(plate))}")
+        updated = store.set_plate(pass_id, plate, actor, self._site_today())
+        return self._to_wire_pass(updated) if updated else None
+
+    # -- alerts -------------------------------------------------------------
+
+    def vehicle_alerts(self) -> list[S.GateAlert]:
+        """Today's passes that are waiting for a person, newest first.
+
+        **Derived, never stored.** An alert is a pass whose status needs
+        somebody and which nobody has dismissed. Nothing here can fall out of
+        step with the log, because there is nothing here but the log.
+
+        Blacklist alerts appear on this page *and* keep raising their Home
+        attention item: two surfaces, one security record, acknowledged
+        independently. Unknown and expired stay here — Home is for things that
+        need somebody now, and an unregistered car is a data-entry job.
+        """
+        if self.vehicle_store is None:
+            return []
+
+        since = self._start_of_day()
+        dismissed = self.vehicle_store.dismissed_alerts(since)
+        pairing = self._pairing_available()
+        inside = ({v.plate for v in self.vehicle_store.inside(since)}
+                  if pairing else set())
+
+        out: list[S.GateAlert] = []
+        for record in self.vehicle_store.passes(limit=200, since=since):
+            if record.status == "known" or record.id in dismissed:
+                continue
+
+            near_display = near_owner = None
+            if record.status == "unknown":
+                candidates = self.vehicle_store.near_matches(record.plate)
+                # Exactly one, or nothing. Two candidates is a coin toss, and
+                # a wrong name against a stranger's car is worse than silence.
+                if len(candidates) == 1:
+                    near_display = candidates[0].plate_display
+                    near_owner = candidates[0].owner_name
+
+            expired_on = None
+            if record.status == "expired":
+                vehicle = self.vehicle_store.by_plate(record.plate)
+                expired_on = vehicle.valid_until if vehicle else None
+
+            out.append(S.GateAlert(
+                pass_id=record.id,
+                kind=record.status,
+                at=_instant(record.at, self.clock),
+                plate=record.plate,
+                plate_display=record.plate_display,
+                gate_name=self._gate_name(record.gate),
+                owner=record.owner_name,
+                permit_expired_on=expired_on,
+                near_match_display=near_display,
+                near_match_owner=near_owner,
+                # Only claimable where an exit camera exists to pair against.
+                # Without one, "and is still inside" is a guess.
+                inside=pairing and record.plate in inside,
+            ))
+        return out
+
+    def dismiss_alert(self, pass_id: str, actor: str,
+                      action_taken: bool = False) -> bool:
+        """Clear one alert, under the name of whoever cleared it.
+
+        **The audit entry goes first**, as everywhere else here: somebody
+        clearing an alert is a fact whether or not the write succeeds, and a
+        dismissal that left no trace would be indistinguishable from the alert
+        never having been raised.
+        """
+        store = self._need_register()
+        record = store.pass_by_id(pass_id)
+        if record is None:
+            # KeyError, not False. "No such pass" and "somebody already dealt
+            # with it" are different answers and the endpoint owes the caller
+            # different ones - 404 against 409. Collapsing them into one
+            # falsy return is how a second click reports the alert as missing.
+            raise KeyError(pass_id)
+        self._log(actor, "vehicle.alert.dismiss", record.plate,
+                  f"{record.status} at gate {record.gate}, "
+                  + ("resolved by acting on it" if action_taken
+                     else "dismissed without acting"))
+        return store.dismiss_alert(pass_id, actor, action_taken)
+
+    def export_passes(self, actor: str, **filters) -> bytes:
+        """The pass log as a spreadsheet.
+
+        **The audit entry is written before the file is built**, not after.
+        Somebody exporting the log is a fact whether or not the CSV was
+        produced; logging afterwards means a failed export leaves no trace
+        that anyone ever asked for it. Same rule as a track search.
+        """
+        import csv
+        import io as _io
+
+        store = self._need_register()
+        applied = {k: v for k, v in filters.items() if v not in (None, "")}
+        self._log(actor, "vehicle.export", "vehicle passes",
+                  ", ".join(f"{k}={v}" for k, v in sorted(applied.items()))
+                  or "no filter")
+
+        limit = int(applied.pop("limit", 5000) or 5000)
+        # `day` is the console's word for it; the store takes a window.
+        #
+        # This runs AFTER the audit entry, which is deliberate and not an
+        # oversight: somebody asking for an export is a fact whether or not
+        # the file was ever built, so even a request that fails validation
+        # leaves a trace that it was made. `_day_bounds` raises ValueError on
+        # a bad date and the endpoint turns that into a 422.
+        day = applied.pop("day", "")
+        if day:
+            since, until = self._day_bounds(day)
+            applied["since"], applied["until"] = since, until
+        records = store.passes(limit=limit, **applied)
+
+        buffer = _io.StringIO()
+        writer = csv.writer(buffer, lineterminator="\n")
+        writer.writerow([
+            "at_local", "at_utc", "plate", "plate_display", "gate",
+            "gate_name", "direction", "status", "owner", "unit",
+            "confidence", "votes", "needs_review", "snapshot_kept",
+        ])
+
+        offset = 0
+        for record in records:
+            moment = _instant(record.at, self.clock)
+            local = ""
+            if moment is not None:
+                offset = moment.tz_offset_minutes
+                local = (moment.utc + timedelta(minutes=offset)).strftime(
+                    "%Y-%m-%d %H:%M:%S")
+            writer.writerow([
+                local,
+                record.at.isoformat(timespec="seconds"),
+                record.plate,
+                record.plate_display,
+                record.gate,
+                self._gate_name(record.gate),
+                record.direction,
+                record.status,
+                record.owner_name or "",
+                record.unit or "",
+                f"{record.confidence:.3f}",
+                record.votes,
+                "yes" if record.needs_review else "no",
+                # The row outlives its images. Saying which rows still have
+                # one is the difference between "no photo" and "no idea".
+                "yes" if record.has_snapshot else "no",
+            ])
+
+        writer.writerow([])
+        writer.writerow(["rows", len(records)])
+        writer.writerow(["exported_utc",
+                         datetime.now(timezone.utc).isoformat(timespec="seconds")])
+        writer.writerow(["timezone_offset_minutes", offset])
+        return buffer.getvalue().encode("utf-8")
+
+    # -- the register -------------------------------------------------------
+
+    def _need_register(self):
+        if self.vehicle_store is None:
+            raise SubsystemUnavailable(
+                "The vehicle register is not available, so it cannot be read "
+                "or changed.")
+        return self.vehicle_store
+
+    def _to_wire_vehicle(self, record) -> S.RegisteredVehicle:
+        return S.RegisteredVehicle(
+            id=record.id,
+            plate=record.plate,
+            plate_display=record.plate_display,
+            category=record.category,
+            owner=record.owner_name,
+            phone=record.phone,
+            unit=record.unit,
+            car_make=record.car_make,
+            car_colour=record.car_colour,
+            valid_until=record.valid_until,
+            notes=record.notes,
+            # Computed here rather than stored: a stored flag needs a nightly
+            # job to stay true and is wrong between midnight and whenever it
+            # runs.
+            expired=record.expired_on(self._site_today()),
+        )
+
+    def vehicle_register(self, query: str = "",
+                         category: str = "") -> list[S.RegisteredVehicle]:
+        if self.vehicle_store is None:
+            return []
+        return [self._to_wire_vehicle(v)
+                for v in self.vehicle_store.search(query, category)]
+
+    def add_vehicle(self, body: S.VehicleRegistration,
+                    actor: str) -> S.RegisteredVehicle:
+        """Register a car. Takes effect at the gates on its next pass."""
+        store = self._need_register()
+        self._log(actor, "vehicle.add", body.plate, body.category)
+        record = store.add(
+            plate=body.plate, owner_name=body.owner, phone=body.phone,
+            unit=body.unit, category=body.category, car_make=body.car_make,
+            car_colour=body.car_colour, valid_until=body.valid_until,
+            notes=body.notes,
+        )
+        return self._to_wire_vehicle(record)
+
+    def edit_vehicle(self, vehicle_id: str, body: S.VehicleRegistration,
+                     actor: str) -> S.RegisteredVehicle | None:
+        store = self._need_register()
+        if store.vehicle(vehicle_id) is None:
+            return None
+        self._log(actor, "vehicle.edit", body.plate, body.category)
+        record = store.update(
+            vehicle_id, plate=body.plate, owner_name=body.owner,
+            phone=body.phone, unit=body.unit, category=body.category,
+            car_make=body.car_make, car_colour=body.car_colour,
+            valid_until=body.valid_until, notes=body.notes,
+        )
+        return self._to_wire_vehicle(record) if record else None
+
+    def remove_vehicle(self, vehicle_id: str, actor: str) -> bool:
+        """Delete a register entry. **Its passes are kept.**"""
+        store = self._need_register()
+        record = store.vehicle(vehicle_id)
+        if record is None:
+            return False
+        self._log(actor, "vehicle.remove", record.plate,
+                  record.owner_name or "no owner recorded")
+        return store.remove(vehicle_id)
+
+    def last_import(self) -> S.VehicleImportRun | None:
+        """The most recent register import, or None if there has never been one."""
+        if self.vehicle_store is None:
+            return None
+        run = self.vehicle_store.last_import_run()
+        if run is None:
+            return None
+        return S.VehicleImportRun(
+            at=_instant(run["at"], self.clock), added=run["added"],
+            updated=run["updated"], skipped=run["skipped"],
+            rejected=run["rejected"], by_who=run["by_who"],
+        )
+
+    def import_vehicles(self, filename: str, data: bytes,
+                        actor: str) -> S.VehicleImportResult:
+        """Load a spreadsheet. Every refused row comes back with its reason."""
+        from vg.events import vehicles as ve
+
+        store = self._need_register()
+        self._log(actor, "vehicle.import", filename, f"{len(data)} bytes")
+
+        if filename.lower().endswith((".xlsx", ".xlsm")):
+            rows = ve.read_xlsx(data)
+        else:
+            rows = ve.read_csv(data)
+
+        result = store.import_rows(rows, by_who=actor)
+        return S.VehicleImportResult(
+            added=result["added"], updated=result["updated"],
+            skipped_duplicates=result["skipped_duplicates"],
+            problems=result["problems"],
+        )
+
+    def review_weapon(self, detection_id: str, review: S.WeaponReview,
+                      reviewer: str | None = None) -> S.WeaponDetection | None:
+        """A person decides. The only thing in this feature that fans out.
+
+        The detector never notifies, calls or locks anything on its own —
+        this endpoint is the single point an alert spec may hang from, and
+        today it hangs nothing.
+
+        **The audit entry is written first**, before the verdict it
+        records. Somebody pressing Confirm is a fact whether or not the
+        write behind it succeeded; logging afterwards means a failed write
+        leaves no trace that anyone ever looked at this detection.
+
+        `reviewer` is the signed-in account, passed by the endpoint.
+        `review.actor` is ignored: a caller must not be able to record a
+        verdict under somebody else's name.
+
+        None means there is nothing here awaiting a decision — either the
+        id is unknown or somebody has already decided. Both are a 404 with
+        words on it.
+        """
+        who = reviewer or "unknown"
+        self._log(who, f"weapon.{review.verdict.value}", detection_id,
+                  review.reason)
+
+        if self.weapon_scenes is None:
+            return None
+        if not self.weapon_scenes.review(
+            detection_id, review.verdict.value, who,
+            datetime.now(timezone.utc), review.reason,
+        ):
+            return None
+
+        scene = self.weapon_scenes.get(detection_id)
+        if scene is None:  # pragma: no cover - the row was just updated
+            return None
+        # Rebuilt through the same mapper the list uses, so a reviewed
+        # entry can never render differently from how the list will show it
+        # a moment later.
+        for entry in self.weapons(scene.started_at, None):
+            if entry.id == detection_id:
+                return entry
+        return None  # pragma: no cover - unreachable, the row exists
+
+    def clip_for_weapon(self, detection_id: str):
+        """The video for one detection, or why there is not one.
+
+        Returns `(path, reason)` — exactly one is set. The endpoint turns a
+        reason into a 404 with those words in it, so every refusal says what
+        happened rather than "not found".
+
+        **The path is never taken from the request.** The id is looked up, the
+        stored path is checked to be inside the knife clip directory, and only
+        then is anything opened. A row is data like any other; a wrong one must
+        not become a way to read the disk.
+        """
+        if self.weapon_scenes is None:
+            return None, "The knife log is not available."
+
+        scene = self.weapon_scenes.get(detection_id)
+        if scene is None:
+            return None, f"no detection {detection_id!r}"
+        if scene.clip_state != "saved" or scene.clip_path is None:
+            return None, (
+                scene.clip_reason
+                or self._no_weapon_clip_reason(scene)
+                or "There is no video for this detection."
+            )
+
+        root = self.config.storage.weapon_clips_dir
+        try:
+            path = scene.clip_path.resolve()
+            path.relative_to(root.resolve())
+        except (OSError, ValueError):
+            log.error("knife scene %s names a clip outside %s: %s",
+                      detection_id, root, scene.clip_path)
+            return None, "That video is not where it should be, so it was not served."
+
+        if not path.is_file():
+            # Rule 4: never claim a file that is not there. A row can outlive
+            # its file — a disk wiped by hand, a folder moved — and the honest
+            # answer is that it is gone, not a 500 from a failed open.
+            return None, "The video is no longer on disk."
+
+        return path, ""
+
+    @staticmethod
+    def _no_weapon_clip_reason(scene) -> str | None:
+        """A sentence for every state that has no file, so no control is bare."""
+        if scene.clip_state == "saved":
+            return None
+        if scene.clip_state == "recording":
+            return "Still recording — the video is saved when the knife leaves view."
+        if scene.clip_state == "expired":
+            return "Video no longer kept."
+        if scene.clip_state == "none":
+            return "No video was recorded for this detection."
+        return None
+
+    def _weapon_clip(self, scene) -> S.Clip | None:
+        """The playable video, and only when there genuinely is one.
+
+        The URL is **same-origin and relative**. A `<video src>` cannot send an
+        Authorization header, so an absolute engine URL would play for nobody —
+        that is exactly what made the camera streams go black last cycle.
+        """
+        if not scene.playable:
+            return None
+        return S.Clip(
+            id=scene.id,
+            url=f"/weapons/{scene.id}/clip",
+            duration_seconds=round(scene.seconds, 1),
+            starts_at=_instant(scene.started_at, self.clock),
+        )
 
     def sources(self) -> list[S.CameraSource]:
         """The configured cameras, with their true status."""
@@ -703,21 +2137,6 @@ class LiveStore(MockStore):
     # When one of these is built, delete its stub here and flip its entry in
     # `capabilities()`. Until then this list IS the to-do list.
 
-    def breaches(self, since_days: int) -> list[S.Breach]:
-        return []
-
-    def weapons(self, since_days: int) -> list[S.WeaponDetection]:
-        return []
-
-    def weapon_cameras(self) -> list[S.CameraView]:
-        return []
-
-    def review_weapon(self, detection_id: str,
-                      review: S.WeaponReview) -> S.WeaponDetection | None:
-        # Nothing to review, so nothing is found. The endpoint 404s, which is
-        # the truth: that detection does not exist.
-        return None
-
     def users(self) -> list[S.User]:
         """The real accounts, from the auth database.
 
@@ -753,19 +2172,6 @@ class LiveStore(MockStore):
 
     def delivery_targets(self) -> list[S.DeliveryTarget]:
         return []
-
-    def search_lost(self, query: S.LostQuery) -> S.LostResult:
-        # `failed`, not `done` with no hits: "we searched and found nothing"
-        # and "we never searched" are different answers, and only one of them
-        # should stop somebody looking for a child's missing bag.
-        return S.LostResult(
-            job=S.SearchJob(
-                id="unavailable", state="failed", progress=0.0,
-                submitted_at=_instant(datetime.now(timezone.utc), self.clock),
-                clips_searched=0, clips_total=0,
-            ),
-            query=query, hits=[], cameras=[],
-        )
 
     def scan(self) -> list[S.FoundDevice]:
         return []
@@ -811,20 +2217,18 @@ class LiveStore(MockStore):
                            "cannot be listed.", self.recognition_error),
             "count": live(counting, "Person detection is not running, so nobody "
                           "is being counted.", self.people_error),
+            "vehicles": self._vehicles_state(),
             "track": live(tracking, "Tracking is not running, so no path can be "
                           "built.", self.tracking_error),
+            # An empty log on a dead watcher must never read as "all clear".
+            # LIVE carries no reason at all: an excuse attached to a working
+            # feature reads as a fault, which is the P0-08 lesson in reverse.
+            "breaches": self._breaches_state(),
             # Not built yet. Saying "not built" is the truth and is different
             # from "broken" — an operator should not be waiting for these to
             # come back.
-            "breaches": (S.DataState.UNAVAILABLE,
-                         "Restricted zones are not built yet. Occupancy is "
-                         "measured but nothing is recorded."),
-            "weapons": (S.DataState.UNAVAILABLE,
-                        "Weapon detection is not built yet. No camera is being "
-                        "checked for weapons."),
-            "search_lost": (S.DataState.UNAVAILABLE,
-                            "Lost item search is not built yet. No footage is "
-                            "being searched."),
+            "weapons": self._weapons_state(),
+            "search_lost": self._lost_state(),
             "users": live(
                 self.users_store is not None,
                 "The accounts database is not loaded, so nobody can sign in."),
@@ -834,6 +2238,7 @@ class LiveStore(MockStore):
             "attention": (S.DataState.UNAVAILABLE,
                           "Alerts are not built yet. Nothing is being sent to "
                           "anybody."),
+            "ask": self._ask_state(),
         }
 
         out: list[S.Capability] = []
@@ -842,6 +2247,88 @@ class LiveStore(MockStore):
                 key, (S.DataState.UNAVAILABLE, "Not built yet."))
             out.append(S.Capability(key=key, name=name, state=state, reason=reason))
         return out
+
+    def _ask_state(self) -> tuple[S.DataState, str | None]:
+        """Whether Ask can actually answer, and why not.
+
+        Three different reasons, three different sentences. "Unavailable" alone
+        would leave an administrator unable to tell a switched-off feature from
+        a missing key, and only one of those is theirs to fix. Constitution
+        rule 8: a subsystem that cannot start says so in the UI, not only in
+        the log.
+        """
+        if not self.config.ask.enabled:
+            return (S.DataState.UNAVAILABLE,
+                    "Ask is switched off in engine.yaml. Every other feature "
+                    "is unaffected.")
+        if not os.environ.get("GEMINI_API_KEY"):
+            return (S.DataState.UNAVAILABLE,
+                    "No GEMINI_API_KEY is set, so questions cannot be "
+                    "interpreted. Detection, recording and the gate are "
+                    "unaffected.")
+        return S.DataState.LIVE, None
+
+    def _ask_today(self) -> str:
+        """The site's today, from the site's clock.
+
+        `MockStore` answers with its own demo date. This is the one piece of
+        `ask` that has to know where it is running, and it is a date rather
+        than a decision — which is why it is an override and the orchestration
+        above it is not.
+        """
+        return self.clock.today()
+
+    def _breaches_state(self) -> tuple[S.DataState, str | None]:
+        """Whether anything is actually watching the restricted areas.
+
+        Three different failures, three different sentences. "Unavailable" on
+        its own leaves an operator unable to tell a model that would not load
+        from a feature nobody switched on, and only one of those is theirs to
+        fix.
+        """
+        if self.zones_worker is None:
+            if self.zones_error:
+                return (S.DataState.UNAVAILABLE,
+                        f"Restricted zones failed to start ({self.zones_error})")
+            if self.people_worker is None:
+                return (S.DataState.UNAVAILABLE,
+                        "Person detection is not running, so nothing is "
+                        "watching the restricted areas."
+                        + (f" ({self.people_error})" if self.people_error else ""))
+            return (S.DataState.UNAVAILABLE,
+                    "Restricted zones are not running, so nothing is being "
+                    "recorded.")
+        if self.scenes is None:
+            return (S.DataState.UNAVAILABLE,
+                    "The detection log is not available, so nothing can be "
+                    "shown even though the cameras are being watched.")
+        return S.DataState.LIVE, None
+
+    def _weapons_state(self) -> tuple[S.DataState, str | None]:
+        """Whether anything is actually looking for a knife.
+
+        Four different failures, four different sentences. "Unavailable" on
+        its own leaves an operator unable to tell a model that would not
+        load from a camera nobody switched on, and only one of those is
+        theirs to fix. On this feature above all others, an empty list must
+        never be allowed to read as an all-clear.
+        """
+        if self.weapons_worker is None:
+            if self.weapons_error:
+                return S.DataState.UNAVAILABLE, self.weapons_error
+            if self.people_worker is None:
+                return (S.DataState.UNAVAILABLE,
+                        "Person detection is not running, so knives cannot "
+                        "be checked - knives are looked for on people."
+                        + (f" ({self.people_error})" if self.people_error else ""))
+            return (S.DataState.UNAVAILABLE,
+                    "Knife detection is not running, so no camera is being "
+                    "checked.")
+        if self.weapon_scenes is None:
+            return (S.DataState.UNAVAILABLE,
+                    "The knife log is not available, so nothing can be shown "
+                    "even though the cameras are being checked.")
+        return S.DataState.LIVE, None
 
     def _clock_stage(self) -> S.PipelineStage:
         """Rule 8: a subsystem that failed to start says so in the UI.
@@ -867,6 +2354,73 @@ class LiveStore(MockStore):
             healthy=True, severity=S.Severity.INFO, restartable=False,
         )
 
+    def _workers_stage(self) -> S.PipelineStage:
+        """What each feature worker is costing, and whether it is keeping up.
+
+        Rule 7 and Principle IV: overload has to be visible. Before this, a
+        saturated engine and a comfortable one produced the same page - the
+        counters existed, nothing read them, and the only symptom was that
+        overlays quietly went stale.
+
+        A worker that is not running is ABSENT from the list rather than
+        present with zeros. "Stopped" and "idle" are different answers and a
+        row of zeros reads as the second one.
+        """
+        # `getattr`, because a store built before a subsystem existed simply
+        # does not carry the attribute - and a health page that raises
+        # AttributeError is a degradation answered with a 500, which rule 7
+        # forbids. The whole point of this stage is to survive absence.
+        candidates = [
+            getattr(self, name, None) for name in (
+                "recogniser", "patrol", "people_worker", "tracking",
+                "weapons_worker", "vehicles_worker", "lost_watch",
+            )
+        ]
+
+        loads: list[S.WorkerLoad] = []
+        for worker in candidates:
+            if worker is None:
+                continue
+            try:
+                stats = worker.stats
+            except Exception:
+                # A worker that cannot describe itself is not a reason to
+                # fail the health page. Skipping it leaves it absent, which
+                # is the same honest answer as "not running".
+                continue
+            loads.append(S.WorkerLoad(
+                name=str(stats.get("name", "worker")),
+                cameras=int(stats.get("cameras", 0)),
+                frames_processed=int(stats.get("frames_processed", 0)),
+                last_inference_ms=float(stats.get("last_inference_ms", 0.0)),
+                queue_depth=int(stats.get("queue_depth", 0)),
+                queue_max=int(stats.get("queue_max", 0)),
+                frames_dropped=int(stats.get("frames_dropped", 0)),
+                behind=stats.get("behind"),
+            ))
+
+        if not loads:
+            return S.PipelineStage(
+                key="workers", name="Feature workers",
+                detail="Nothing is running.",
+                healthy=False, severity=S.Severity.WARN, restartable=False,
+            )
+
+        behind = [w.name for w in loads if w.behind]
+        if behind:
+            detail = (f"{len(loads)} running - behind on "
+                      f"{', '.join(sorted(behind))}")
+        else:
+            detail = f"{len(loads)} running, all keeping up"
+
+        return S.PipelineStage(
+            key="workers", name="Feature workers", detail=detail,
+            healthy=not behind,
+            severity=S.Severity.WARN if behind else S.Severity.INFO,
+            restartable=False,
+            workers=loads,
+        )
+
     def health(self) -> S.SystemHealth:
         online, total = self.registry.online, self.registry.total
         sources = self.sources()
@@ -882,21 +2436,29 @@ class LiveStore(MockStore):
             self._recognition_stage(),
             self._people_stage(),
             self._clock_stage(),
-            # Honest about what is not built yet. A green tick next to a feature
-            # that does not exist is how a school ends up trusting nothing.
-            S.PipelineStage(
-                key="weapons", name="Weapon detection",
-                detail="Model present but not wired to the API - "
-                       "detections shown are demo data",
-                healthy=False, severity=S.Severity.WARN, restartable=False,
-            ),
+            self._weapons_stage(),
+            self._vehicles_stage(),
+            self._lost_stage(),
+            self._workers_stage(),
         ]
+
+        # A page that says "all good" over a machine that is dropping frames
+        # is the exact failure this feature exists to remove. Any stage that
+        # is unhealthy raises the summary with it.
+        struggling = any(not stage.healthy for stage in pipeline)
+        dropped = sum(w.source.health.frames_dropped
+                      for w in self.registry.workers.values())
+        skipped = sum(getattr(w.source.health, "frames_skipped", 0)
+                      for w in self.registry.workers.values())
 
         return S.SystemHealth(
             cameras_online=online, cameras_total=total,
             recorders_online=sum(1 for s in sources if s.status is S.SourceStatus.OK),
             recorders_total=len(sources),
-            severity=S.Severity.WARN if online < total else S.Severity.INFO,
+            severity=(S.Severity.WARN if (online < total or struggling)
+                      else S.Severity.INFO),
+            cpu_percent=_process_cpu(),
+            gpu_percent=None,
             metrics=[
                 S.Metric(key="cameras", label="Cameras up", value=online, total=total),
                 S.Metric(key="frames", label="Frames read",
@@ -905,6 +2467,14 @@ class LiveStore(MockStore):
                 S.Metric(key="reconnects", label="Reconnects",
                          value=sum(w.source.health.reconnects
                                    for w in self.registry.workers.values())),
+                S.Metric(key="dropped", label="Frames dropped", value=dropped,
+                         severity=(S.Severity.WARN if dropped
+                                   else S.Severity.INFO)),
+                # NOT a drop. Frames pulled off the camera and deliberately
+                # not decoded because nobody was watching it - the saving,
+                # shown so it can be checked rather than believed.
+                S.Metric(key="skipped", label="Frames not decoded",
+                         value=skipped),
             ],
             recorders=[
                 S.Recorder(id=s.id, name=s.name, cameras=s.channels,
@@ -972,9 +2542,67 @@ class LiveStore(MockStore):
             )
 
         stats = self.people_worker.stats
+        if not stats["cameras"]:
+            # The model is loaded and knife detection is using it, but no
+            # camera asked for counting, intrusion or track. "Running on 0
+            # camera(s)" would read as broken; it is neither broken nor idle.
+            return S.PipelineStage(
+                key="detect", name="Person detection",
+                detail="Loaded and shared with knife detection. No camera "
+                       "asks for counting, intrusion or track.",
+                healthy=True, severity=S.Severity.INFO, restartable=True,
+            )
+        detector = getattr(self.people_worker, "detector", None)
         return S.PipelineStage(
             key="detect", name="Person detection",
-            detail=f"Running on {stats['cameras']} camera(s), "
+            detail=f"{self._running_on(detector)} - {stats['cameras']} camera(s), "
+                   f"{stats['last_inference_ms']}ms last inference",
+            healthy=True, severity=S.Severity.INFO, restartable=True,
+        )
+
+    def _vehicles_stage(self) -> S.PipelineStage:
+        """Rule 8: a subsystem that failed to start says so in the UI.
+
+        The reason is the same sentence the capability gives, so the page and
+        System Health cannot disagree about whether plates are being read.
+        """
+        state, reason = self._vehicles_state()
+        if state is not S.DataState.LIVE:
+            return S.PipelineStage(
+                key="vehicles", name="Plate reading",
+                detail=reason or "Not running.",
+                healthy=False, severity=S.Severity.WARN, restartable=False,
+            )
+
+        stats = self.vehicles_worker.stats
+        reader = getattr(self.vehicles_worker, "reader", None)
+        return S.PipelineStage(
+            key="vehicles", name="Plate reading",
+            detail=f"{self._running_on(reader)} - {stats['cameras']} camera(s), "
+                   f"{stats['last_inference_ms']}ms last inference",
+            healthy=True, severity=S.Severity.INFO, restartable=True,
+        )
+
+    def _weapons_stage(self) -> S.PipelineStage:
+        """Rule 8: a subsystem that failed to start says so in the UI.
+
+        The reason is the same sentence the capability gives, so the page and
+        System Health cannot disagree about whether knives are being looked
+        for.
+        """
+        state, reason = self._weapons_state()
+        if state is not S.DataState.LIVE:
+            return S.PipelineStage(
+                key="weapons", name="Knife detection",
+                detail=reason or "Not running.",
+                healthy=False, severity=S.Severity.WARN, restartable=False,
+            )
+
+        stats = self.weapons_worker.stats
+        knives = getattr(self.weapons_worker, "knives", None)
+        return S.PipelineStage(
+            key="weapons", name="Knife detection",
+            detail=f"{self._running_on(knives)} - {stats['cameras']} camera(s), "
                    f"{stats['last_inference_ms']}ms last inference",
             healthy=True, severity=S.Severity.INFO, restartable=True,
         )
@@ -997,20 +2625,76 @@ class LiveStore(MockStore):
         today = self.sightings.local_date(datetime.now(timezone.utc)) if self.sightings else None
         register = self._register(today) if today else None
 
+        # One query for the whole directory, not one per row. At the target
+        # roll of a couple of thousand people the difference is a page that
+        # opens and a page nobody opens twice.
+        latest = self.sightings.last_seen() if self.sightings else {}
+
+        # Names from the runtime roster, like the breach log builds them: a
+        # camera added or renamed through the console is not in engine.yaml,
+        # and putting "cam-3" where the operator typed "Back stairwell" is the
+        # same mistake as showing a database key.
+        names = {c.id: c.name for c in self.registry.configs()}
+
         out = []
         for person in self.gallery.people():
             status = None
             if register is not None:
                 entry = register.entry(person.id)
                 status = S.AttendanceStatus(entry.status) if entry else None
+
+            seen_at, camera_id = latest.get(person.id, (None, None))
             out.append(S.DirectoryPerson(
                 id=person.id, name=person.name,
                 type=S.PersonType(person.type),
                 group=person.group, detail=person.detail,
                 photo_on_file=person.photo_on_file,
                 attendance_today=status,
+                photos=person.photo_count,
+                enrolled_at=_instant(person.created_at, self.clock),
+                last_seen=_instant(seen_at, self.clock),
+                # Falls back to the id for a camera that has since been
+                # removed. Ugly, but "cam-retired" is true and blank would
+                # read as "no camera", which is a different claim.
+                last_camera=(names.get(camera_id) or camera_id) if camera_id else None,
             ))
         return out
+
+    def remove_person(self, person_id: str, actor: str) -> bool:
+        """Take a person out of the system. Audited first, then deleted.
+
+        What goes: the directory row and every face vector behind it — the
+        `face_embedding` rows cascade, because every connection this process
+        opens sets `foreign_keys=ON`. Deleting the name while quietly keeping
+        the biometrics would be the worst outcome available.
+
+        What stays: their sightings, and every audit entry. The sightings are
+        unreachable from any page after this and wait for P3's erasure (owner
+        decision, 2026-08-21); the audit trail is never deleted by anything.
+
+        The order matters. The entry is written BEFORE the delete runs, the
+        same rule track searches follow, so a crash in between leaves an
+        audited intent rather than a person who vanished with nothing saying
+        why. It also means a failed delete is a logged attempt, which is the
+        safe direction to be wrong in.
+
+        `gallery.remove_person` ends by reloading the in-memory index that the
+        recognition worker shares, so the removed person stops being named
+        from the next frame — no restart (PPL-FR-006).
+        """
+        if self.gallery is None:
+            raise SubsystemUnavailable(
+                "face recognition is not running, so there is no gallery to "
+                "remove anybody from"
+            )
+
+        person = self.gallery.person(person_id)
+        if person is None:
+            return False
+
+        self._log(actor, "person.remove", person.name,
+                  "removed from the directory and the face gallery")
+        return self.gallery.remove_person(person_id)
 
     def school_profile(self) -> S.SchoolProfile:
         hours = self.config.hours
@@ -1024,13 +2708,36 @@ class LiveStore(MockStore):
             timezone=self.config.timezone,
         )
 
-    #: What `groups()` calls the bucket for people with no group set. Kept in
-    #: one place because the register filters on the same string the dropdown
-    #: was populated from, and the two drifting apart would empty a group.
-    UNGROUPED = "Everyone"
+    #: The group that holds the whole school. Every enrolled person is in it,
+    #: always, and a specific group is something extra on top rather than
+    #: instead of.
+    #:
+    #: This used to be the name of the bucket for people with **no** group,
+    #: which made it the leftovers: it shrank as people were sorted into
+    #: grades and disappeared entirely once everybody had one, under a word
+    #: that says the opposite. Worse, `attendance()` already used the same
+    #: word for the whole school, so the Attendance dropdown offered
+    #: "Everyone", sent it as a filter, and got the leftovers back under a
+    #: heading claiming to be the school.
+    #:
+    #: Kept in one place because the register filters on the same string the
+    #: dropdown was populated from, and the two drifting apart would empty a
+    #: group.
+    EVERYONE = "Everyone"
 
-    def _group_of(self, person) -> str:
-        return person.group or self.UNGROUPED
+    def _specific_group_of(self, person) -> str | None:
+        """The optional group somebody was filed into, if any.
+
+        None for a person nobody has assigned. That is not a group and gets no
+        bucket of its own — they are in Everyone, which is where an unassigned
+        person belongs. Somebody who typed "Everyone" into the optional box is
+        treated the same way: they are in it regardless, and a second row with
+        that name and a different count would be a page arguing with itself.
+        """
+        group = (person.group or "").strip()
+        if not group or group == self.EVERYONE:
+            return None
+        return group
 
     def _register(self, on: str, group: str | None = None):
         """The day's register. Absence is derived from missing sightings.
@@ -1041,11 +2748,18 @@ class LiveStore(MockStore):
         `group` narrows who is expected. Without it the page headed "Grade 8"
         listed every enrolled person in the school, which is not a Grade 8
         register and would have been read as one.
+
+        `Everyone` is not a narrowing. It is the whole school, and asking for
+        it has to give the same answer as asking for no group at all — they
+        are the same question, and they used to be two different registers
+        under one heading.
         """
         hours = self.config.hours
+        wanted = None if group in (None, self.EVERYONE) else group
         expected = [
             p.id for p in self.gallery.people()
-            if p.photo_on_file and (group is None or self._group_of(p) == group)
+            if p.photo_on_file
+            and (wanted is None or self._specific_group_of(p) == wanted)
         ]
         return self.sightings.register(
             on,
@@ -1280,7 +2994,24 @@ class LiveStore(MockStore):
             ],
             path=stops,
             cameras=[v for v in (self.camera_view(c) for c in sorted(cameras)) if v],
+            names_from=self._name_source(),
         )
+
+    def _name_source(self) -> S.NameSource:
+        """Which cameras could put a name on a body while this path was built.
+
+        With the patrol tier off, only the doorway cameras run a recogniser.
+        A corridor sighting is then a body with no name, and the path comes
+        back with fewer named stops than it would have had.
+
+        That is a legitimate trade - patrol was the largest processor line in
+        the engine and almost nothing read it - but it is NOT allowed to be
+        invisible. A quietly thinner answer looks exactly like a person who
+        was not there, and an operator has no way to tell the two apart. So
+        the fact travels with the result and the console says which it is.
+        """
+        patrol = getattr(self, "patrol", None)
+        return S.NameSource.ALL if patrol is not None else S.NameSource.IDENTITY
 
     def _resolve_person(self, query: S.TrackQuery):
         """`person_id` or `who` -> (id, name). Names travel in URLs today."""
@@ -1296,6 +3027,22 @@ class LiveStore(MockStore):
         return None, None
 
     def _area_of(self, camera_id: str) -> str:
+        """Where this camera is, in words. Never its id if that can be helped.
+
+        The **live roster first**, engine.yaml second. Asking the file alone
+        meant a camera an operator added through the console had no entry to
+        find, so the id fell through to the screen: "cam-3" in the Area
+        column where somebody had typed "Back stairwell". Worse, the camera
+        NAME on the same row already came from the roster, so one entry could
+        show the name and the raw id side by side.
+
+        The id is still the last resort. A camera that has been deleted since
+        the detection happened has no name left anywhere, and its id is more
+        honest than inventing one or leaving the column blank.
+        """
+        for cam in self.registry.configs():
+            if cam.id == camera_id:
+                return cam.area or cam.name
         for cam in self.config.cameras:
             if cam.id == camera_id:
                 return cam.area or cam.name
@@ -1306,6 +3053,548 @@ class LiveStore(MockStore):
             return None
         camera = self.config.camera(camera_id)
         return camera.name if camera else camera_id
+
+    # -- the video behind a stop --------------------------------------------
+
+    NO_ARCHIVE = ("There is no recorded-video archive configured, so a stop "
+                  "cannot be played back. Set `archive:` in engine.yaml.")
+
+    def _runner(self):
+        if self.archive is None:
+            raise SubsystemUnavailable(self.NO_ARCHIVE)
+        return self.archive
+
+    def start_leg(self, req: S.LegRequest, actor: str) -> S.LegJob:
+        """Queue the video for one stop, and start answering with its pieces."""
+        runner = self._runner()
+        if self.config.camera(req.camera_id) is None:
+            raise NothingThere(f"There is no camera {req.camera_id!r}.")
+
+        seconds = (req.end - req.start).total_seconds()
+        if seconds <= 0:
+            raise NothingThere("That span ends before it starts.")
+
+        descriptor = None
+        if req.descriptor_of is not None:
+            descriptor = self._descriptor_at(req.descriptor_of)
+
+        # Audit before the work, not after it: the promise is that looking at
+        # somebody's recorded movements leaves a trail, and a job that started
+        # before the write could run to completion with nothing in the log.
+        self._log(actor, "path.leg", req.person_id or req.camera_id,
+                  f"{self._camera_name(req.camera_id)} "
+                  f"{req.start.isoformat(timespec='seconds')} +{seconds:.0f}s")
+
+        try:
+            job = runner.submit(
+                req.camera_id, req.start, req.end,
+                person_id=req.person_id, descriptor=descriptor,
+            )
+        except QueueFull as exc:
+            raise AlreadyBusy(str(exc)) from exc
+        except ArchiveUnavailable as exc:
+            raise SubsystemUnavailable(str(exc)) from exc
+
+        return self._leg_view(job)
+
+    def leg(self, job_id: str) -> S.LegJob:
+        runner = self._runner()
+        job = runner.job(job_id)
+        if job is None:
+            raise NothingThere(
+                "That leg has been replaced by newer ones. Ask for the stop "
+                "again and it will be rebuilt from the archive."
+            )
+        return self._leg_view(job)
+
+    def leg_chunk(self, job_id: str, index: int):
+        """`(path, reason)`, the shape the breach clip endpoint already uses."""
+        runner = self._runner()
+        return runner.chunk(job_id, index)
+
+    def warm_next(self, anchors: list, index: int, camera_id: str, actor: str
+                  ) -> str | None:
+        """Warm up the camera the operator will probably click next.
+
+        Best effort by definition. A prefetch that cannot start is not an
+        error — the leg will simply be fetched when it is asked for.
+        """
+        if self.archive is None:
+            return None
+        from vg.ingest.archive import next_to_warm
+
+        target = next_to_warm(anchors, index, list(self.config.cameras), camera_id)
+        return target
+
+    def _descriptor_at(self, point: S.ChunkPoint):
+        """The body under a click inside a chunk, as an appearance descriptor.
+
+        Deliberately returns evidence about a BODY. Whatever comes back from
+        following it is APPEARANCE — blue, unnamed — even if that person is
+        enrolled, because clothing is not an identification.
+        """
+        runner = self._runner()
+        from vg.ingest.archive import descriptor_at
+
+        path, reason = runner.chunk(point.job_id, point.chunk)
+        if path is None:
+            raise NothingThere(reason)
+
+        found = descriptor_at(path, point.x, point.y, runner.detector)
+        if found is None:
+            raise NothingThere(
+                "There is no body at that point, or too little of them is in "
+                "frame to describe. Click the person themselves."
+            )
+        signature, _box = found
+        return signature
+
+    def _leg_view(self, job) -> S.LegJob:
+        rates = self.anchors.rates() if self.anchors is not None else None
+        estimate = None
+        if rates is not None:
+            from vg.ingest.archive import estimate_for
+
+            estimate = estimate_for(
+                job.seconds / 3600.0, rates, budget_seconds=1e9,
+                chunk_seconds=self.config.archive.chunk_seconds,
+            ).seconds
+
+        return S.LegJob(
+            job=S.SearchJob(
+                id=job.id,
+                state=job.state,
+                progress=round(job.progress, 3),
+                submitted_at=_instant(job.submitted_at, self.clock),
+                clips_searched=len(job.chunks),
+                clips_total=job.chunks_total,
+                error=job.error,
+            ),
+            camera_id=job.camera_id,
+            camera_name=self._camera_name(job.camera_id) or job.camera_id,
+            place=self._area_of(job.camera_id),
+            start=_instant(job.start, self.clock),
+            seconds=job.seconds,
+            chunks_ready=len(job.chunks),
+            chunks_total=job.chunks_total,
+            chunks_missing=getattr(job, "gaps", 0),
+            gap_reason=getattr(job, "gap_reason", None),
+            # Same-origin paths, never absolute URLs: `<video>` cannot send an
+            # Authorization header, so a chunk has to be fetched through the
+            # same origin the page is already signed in to.
+            chunk_urls=[
+                f"/path/legs/{job.id}/chunks/{chunk.index}" for chunk in job.chunks
+            ],
+            estimate_seconds=round(estimate, 1) if estimate is not None else None,
+        )
+
+    # -- the path behind somebody -------------------------------------------
+
+    NO_ANCHORS = ("The path store is not running, so there is no record of "
+                  "where anybody has been. Face recognition writes it.")
+
+    def path_skeleton(
+        self, person: str, on: str, actor: str,
+        start: str | None = None, end: str | None = None,
+    ) -> S.PathSkeleton:
+        """Where somebody was that day, read straight out of the anchor table.
+
+        No scan, no video, no model — which is the whole point: the answer is
+        one indexed read, and nothing below the evidence bar was ever written,
+        so it cannot contain a stop the system does not actually believe.
+        """
+        if self.anchors is None:
+            raise SubsystemUnavailable(self.NO_ANCHORS)
+
+        person_id, name = self._resolve_path_subject(person)
+        if person_id is None:
+            raise NothingThere(
+                f"Nobody here is called {person!r}. Check the spelling, or "
+                f"pick them from the directory."
+            )
+
+        # Audit BEFORE the answer. The promise is that every search for a
+        # person is recorded, and the promise only means anything in this
+        # order — a search that returned before the write could return after
+        # a crash with nothing in the log.
+        entry = self._log(actor, "path.skeleton", name or person_id,
+                          f"{on} {start or ''}-{end or ''}")
+
+        window_from = _at_on(on, start, self.clock)
+        window_to = _at_on(on, end, self.clock)
+        anchors = self.anchors.skeleton(person_id, on, window_from, window_to)
+
+        stops: list[S.TrackStop] = []
+        if self.tracking is not None:
+            # The blue layer: the same body seen again, collapsed into visits
+            # by the appearance store's own gap rule. Never named, never
+            # merged with the green one.
+            for stop in self.tracking.store.path_for(person_id, on):
+                if window_from and stop.last_seen < window_from:
+                    continue
+                if window_to and stop.first_seen > window_to:
+                    continue
+                stops.append(S.TrackStop(
+                    at=_instant(stop.first_seen, self.clock),
+                    until=(_instant(stop.last_seen, self.clock)
+                           if stop.seconds > 0 else None),
+                    camera_id=stop.camera_id,
+                    camera_name=self._camera_name(stop.camera_id) or stop.camera_id,
+                    place=self._area_of(stop.camera_id),
+                    match=S.MatchKind.APPEARANCE,
+                    confidence=min(1.0, max(0.0, stop.confidence)),
+                ))
+
+        cameras = {a.camera_id for a in anchors} | {s.camera_id for s in stops}
+        return S.PathSkeleton(
+            subject=S.PersonRef(
+                id=person_id, name=name or person_id,
+                type=S.PersonType.STUDENT,
+                match=S.MatchKind.FACE if anchors else S.MatchKind.NONE,
+            ),
+            date=on,
+            audit_id=entry.id,
+            anchors=[self._path_anchor(a) for a in anchors],
+            appearance=stops,
+            cameras=[v for v in (self.camera_view(c) for c in sorted(cameras)) if v],
+            names_from=self._name_source(),
+        )
+
+    def _path_anchor(self, anchor) -> S.PathAnchor:
+        return S.PathAnchor(
+            camera_id=anchor.camera_id,
+            camera_name=self._camera_name(anchor.camera_id) or anchor.camera_id,
+            place=self._area_of(anchor.camera_id),
+            at=_instant(anchor.started_at, self.clock),
+            until=_instant(anchor.ended_at, self.clock),
+            matches=anchor.matches,
+            # Clamped, not trusted: `Confidence` is validated 0..1 and a score
+            # that slipped outside it would 500 the whole response.
+            score=min(1.0, max(0.0, anchor.best)),
+            face_px=anchor.face_px,
+        )
+
+    def _resolve_path_subject(self, person: str) -> tuple[str | None, str | None]:
+        """An id or a display name -> (id, name), or (None, None) if neither.
+
+        Not `_resolve_person`: that one hands back whatever id it was given
+        even when nobody has it, which is right for `/track` (it answers with
+        an empty day) and wrong here. Asking about somebody who does not exist
+        is a different thing from somebody who exists and went nowhere, and
+        only one of them is worth an operator re-checking the spelling.
+        """
+        if self.gallery is None:
+            # Nothing to check against. Take the id at face value rather than
+            # refuse a question this engine simply cannot verify.
+            return person, None
+
+        found = self.gallery.person(person) or self.gallery.find_by_name(person)
+        return (found.id, found.name) if found else (None, None)
+
+    # -- sweeping a window --------------------------------------------------
+
+    #: The wall-clock a sweep may take. Everything over it is refused with the
+    #: arithmetic, so the operator narrows the question instead of watching a
+    #: progress bar for an hour.
+    SWEEP_BUDGET_SECONDS = 15 * 60.0
+
+    def _sweep_cameras(self, req: S.SweepRequest) -> list[str]:
+        known = {c.id: c for c in self.config.cameras if c.enabled}
+        if req.camera_ids:
+            chosen = [c for c in req.camera_ids if c in known]
+            if not chosen:
+                raise NothingThere(
+                    "None of those cameras are configured and switched on.")
+            return chosen
+        if req.areas:
+            wanted = {a.lower() for a in req.areas}
+            chosen = [c.id for c in known.values() if (c.area or "").lower() in wanted]
+            if not chosen:
+                raise NothingThere(
+                    f"No camera watches {', '.join(req.areas)}.")
+            return chosen
+        return list(known)
+
+    def sweep_estimate(self, req: S.SweepRequest) -> S.SweepEstimate:
+        """What it would cost. Nothing runs, and nothing is audited.
+
+        Deliberately not audited: this is the operator finding out whether the
+        question is affordable, not asking it. The audit entry belongs on the
+        sweep itself, which is the thing that actually looks at people.
+        """
+        from vg.ingest.archive import estimate_for
+
+        cameras = self._sweep_cameras(req)
+        span = (req.end - req.start).total_seconds()
+        if span <= 0:
+            raise NothingThere("That window ends before it starts.")
+
+        camera_hours = len(cameras) * span / 3600.0
+        rates = self.anchors.rates() if self.anchors is not None else None
+        estimate = estimate_for(
+            camera_hours, rates, budget_seconds=self.SWEEP_BUDGET_SECONDS,
+            chunk_seconds=self.config.archive.chunk_seconds,
+        )
+
+        return S.SweepEstimate(
+            seconds=round(estimate.seconds, 1),
+            # Three places, not two: a ten-minute look at one camera is
+            # 0.167 camera-hours, and 0.17 reads as a rounder number than
+            # the arithmetic behind it actually is.
+            camera_hours=round(camera_hours, 3),
+            cameras=len(cameras),
+            allowed=estimate.allowed and self.archive is not None,
+            reason=(estimate.reason if not estimate.allowed
+                    else None if self.archive is not None else self.NO_ARCHIVE),
+            measured_at=_instant(estimate.measured_at, self.clock),
+        )
+
+    def follow_stranger(self, point: S.ChunkPoint, req: S.SweepRequest,
+                        actor: str) -> S.SweepJob:
+        """Look for the body somebody clicked, on other cameras.
+
+        The same sweep machinery with a colour signature instead of a person,
+        and every hit it returns is APPEARANCE. Nothing here can produce a
+        name, however well the system happens to know that person from
+        somewhere else — clothing is not an identification, and the moment a
+        page can show one from a body match, the distinction stops meaning
+        anything.
+        """
+        runner = self._runner()
+        estimate = self.sweep_estimate(req)
+        if not estimate.allowed:
+            raise NotAffordable(estimate.reason or "That search is too big to run.")
+
+        descriptor = self._descriptor_at(point)
+        cameras = self._sweep_cameras(req)
+        self._log(actor, "path.sweep", "an unidentified person",
+                  f"{len(cameras)} camera(s) from a clicked body")
+
+        try:
+            job = runner.submit_sweep(
+                cameras, req.start, req.end, descriptor=descriptor)
+        except QueueFull as exc:
+            raise AlreadyBusy(str(exc)) from exc
+        except ArchiveUnavailable as exc:
+            raise SubsystemUnavailable(str(exc)) from exc
+
+        return self._sweep_view(job, estimate.seconds)
+
+    def start_sweep(self, req: S.SweepRequest, actor: str) -> S.SweepJob:
+        """Run it — but only if the same estimate says it is affordable."""
+        runner = self._runner()
+        estimate = self.sweep_estimate(req)
+        if not estimate.allowed:
+            raise NotAffordable(estimate.reason or "That sweep is too big to run.")
+
+        person_id, name = self._resolve_path_subject(req.person)
+        if person_id is None:
+            raise NothingThere(f"Nobody here is called {req.person!r}.")
+
+        cameras = self._sweep_cameras(req)
+        self._log(actor, "path.sweep", name or person_id,
+                  f"{len(cameras)} camera(s), "
+                  f"{estimate.camera_hours:.1f} camera-hours")
+
+        try:
+            job = runner.submit_sweep(cameras, req.start, req.end, person_id)
+        except QueueFull as exc:
+            raise AlreadyBusy(str(exc)) from exc
+        except ArchiveUnavailable as exc:
+            raise SubsystemUnavailable(str(exc)) from exc
+
+        return self._sweep_view(job, estimate.seconds)
+
+    def sweep(self, job_id: str) -> S.SweepJob:
+        runner = self._runner()
+        job = runner.sweep(job_id)
+        if job is None:
+            raise NothingThere("That sweep is not running any more.")
+        return self._sweep_view(job)
+
+    def stop_sweep(self, job_id: str, actor: str) -> S.SweepJob:
+        runner = self._runner()
+        job = runner.cancel_sweep(job_id)
+        if job is None:
+            raise NothingThere("That sweep is not running any more.")
+        self._log(actor, "path.sweep.stop", job.person_id or "?",
+                  f"stopped after {job.segments_done} of {job.segments_total}")
+        return self._sweep_view(job)
+
+    def _sweep_view(self, job, estimate: float | None = None) -> S.SweepJob:
+        return S.SweepJob(
+            job=S.SearchJob(
+                id=job.id,
+                # `stopped` is not one of SearchJob's states, and it must not
+                # be dressed up as `done` — a sweep somebody cancelled found
+                # what it found, not everything there was.
+                state="done" if job.state == "stopped" else job.state,
+                progress=round(job.progress, 3),
+                submitted_at=_instant(job.submitted_at, self.clock),
+                clips_searched=job.segments_done,
+                clips_total=job.segments_total,
+                error=job.error or ("stopped" if job.state == "stopped" else None),
+            ),
+            cameras=list(job.cameras),
+            hits=[self._sweep_hit(h) for h in job.hits],
+            segments_done=job.segments_done,
+            segments_total=job.segments_total,
+            segments_missing=getattr(job, "segments_missing", 0),
+            estimate_seconds=round(estimate, 1) if estimate is not None else None,
+        )
+
+    def _sweep_hit(self, hit) -> S.SweepHit:
+        return S.SweepHit(
+            camera_id=hit.camera_id,
+            camera_name=self._camera_name(hit.camera_id) or hit.camera_id,
+            place=self._area_of(hit.camera_id),
+            at=_instant(hit.started_at, self.clock),
+            until=_instant(hit.ended_at, self.clock),
+            matches=hit.matches,
+            score=min(1.0, max(0.0, hit.best)),
+            face_px=getattr(hit, "face_px", 0),
+            # Whatever found them, said plainly. A body matched by colour is
+            # APPEARANCE and is drawn blue; dressing it as FACE would make the
+            # weakest evidence in the system look like the strongest.
+            match=(S.MatchKind.APPEARANCE
+                   if getattr(hit, "match", "face") == "appearance"
+                   else S.MatchKind.FACE),
+        )
+
+    # -- following one person, live -----------------------------------------
+    #
+    # Every method here is a thin translation. The session itself lives in the
+    # tracking worker, advanced by the frames it is already processing, which
+    # is what makes the timer and the track-loss stop work with nobody
+    # watching the page.
+
+    NO_TRACKING = ("Tracking is not running, so there is nobody to follow. "
+                   "Give a camera the 'track' feature and restart the engine.")
+
+    def _tracking_worker(self):
+        if self.tracking is None:
+            raise SubsystemUnavailable(self.NO_TRACKING)
+        return self.tracking
+
+    def follow_start(self, camera_id: str, x: float, y: float,
+                     actor: str) -> S.FollowView:
+        worker = self._tracking_worker()
+        try:
+            session = worker.follow(camera_id, x, y, actor)
+        except FollowExists as exc:
+            raise AlreadyBusy(
+                f"Already following {self._who(exc.session) or exc.session.stable_id} "
+                f"on {self._camera_name(exc.session.camera_id)}. Stop that one first."
+            ) from exc
+        except NobodyThere as exc:
+            raise NothingThere(str(exc)) from exc
+
+        # Written before the answer goes out, and only for a follow that
+        # actually started — a log of clicks that hit nothing is noise in the
+        # one place that has to stay readable.
+        self._log(actor, "track.follow", self._who(session) or session.stable_id,
+                  f"{self._camera_name(camera_id)} at {x:.2f},{y:.2f}")
+        return self._follow_view(session)
+
+    def follow_view(self) -> S.FollowView | None:
+        if self.tracking is None:
+            return None
+        session = self.tracking.follow_view()
+        if session is None:
+            return None
+        # Keep the camera warm for as long as somebody is watching. Expires by
+        # itself, so a closed tab releases it without telling us.
+        self.tracking.note_interest(session.camera_id)
+        return self._follow_view(session)
+
+    def follow_end(self, actor: str) -> S.FollowView | None:
+        worker = self._tracking_worker()
+        session = worker.end_follow("manual")
+        if session is None:
+            return None
+        self._log(actor, "track.follow.end",
+                  self._who(session) or session.stable_id, "manual")
+        return self._follow_view(session)
+
+    def follow_record_start(self, timer_seconds: float | None,
+                            actor: str) -> S.FollowView:
+        worker = self._tracking_worker()
+        try:
+            session = worker.record(timer_seconds, actor)
+        except NotFollowing as exc:
+            raise NothingThere(str(exc)) from exc
+        except NoRecorder as exc:
+            raise SubsystemUnavailable(str(exc)) from exc
+        except AlreadyRecordingFollow as exc:
+            raise AlreadyBusy(str(exc)) from exc
+
+        self._log(actor, "track.record.start",
+                  self._who(session) or session.stable_id,
+                  f"timer {int(timer_seconds)}s" if timer_seconds else "no timer")
+        return self._follow_view(session)
+
+    def follow_record_stop(self, actor: str) -> S.FollowView:
+        worker = self._tracking_worker()
+        try:
+            session = worker.stop_record("manual", actor)
+        except NotFollowing as exc:
+            raise NothingThere(str(exc)) from exc
+        except NotRecordingFollow as exc:
+            raise NothingThere(str(exc)) from exc
+
+        segments = session.recording.segments if session.recording else []
+        self._log(actor, "track.record.stop",
+                  self._who(session) or session.stable_id,
+                  f"{len(segments)} segment(s)")
+        return self._follow_view(session)
+
+    def _who(self, session) -> str | None:
+        """The followed person's name, if a face has earned one yet."""
+        if not session.person_id or self.gallery is None:
+            return None
+        person = self.gallery.person(session.person_id)
+        return person.name if person else session.person_id
+
+    def _follow_view(self, session) -> S.FollowView:
+        name = self._who(session)
+        recording = None
+        if session.recording is not None:
+            left = None
+            if session.recording.running and session.recording.timer_deadline:
+                left = max(0.0, (session.recording.timer_deadline
+                                 - session.last_seen_at).total_seconds())
+            recording = S.FollowRecording(
+                state=session.recording.state,
+                reason=session.recording.reason,
+                timer_seconds_left=round(left, 1) if left is not None else None,
+                segments=[self._recording(r) for r in session.recording.segments],
+            )
+
+        return S.FollowView(
+            stable_id=session.stable_id,
+            camera_id=session.camera_id,
+            camera_name=self._camera_name(session.camera_id) or session.camera_id,
+            place=self._area_of(session.camera_id),
+            since=_instant(session.started_at, self.clock),
+            person_id=session.person_id,
+            name=name,
+            # FACE only once the sustained gate has been cleared: `person_id`
+            # is only ever set from a binding that gate made. APPEARANCE means
+            # we are holding a body, which is a claim about continuity and not
+            # about who anybody is.
+            match=S.MatchKind.FACE if session.person_id else S.MatchKind.APPEARANCE,
+            trail=[
+                S.TrailHop(
+                    camera_id=hop.camera_id,
+                    camera_name=self._camera_name(hop.camera_id) or hop.camera_id,
+                    place=self._area_of(hop.camera_id),
+                    at=_instant(hop.at, self.clock),
+                )
+                for hop in session.trail
+            ],
+            recording=recording,
+            ended_reason=session.ended_reason,
+        )
 
     def groups(self) -> list[S.GroupSummary]:
         if self.gallery is None:
@@ -1323,9 +3612,15 @@ class LiveStore(MockStore):
             register = self._register(
                 self.sightings.local_date(datetime.now(timezone.utc)))
 
+        # Everyone holds all of them; the specific groups hold whoever was
+        # filed into them. The two overlap deliberately — being in Grade 8
+        # does not take somebody out of the school — so these counts do not
+        # sum to the roll and nothing may add them up as though they did.
         by_group: dict[str, list] = {}
         for person in people:
-            by_group.setdefault(self._group_of(person), []).append(person)
+            group = self._specific_group_of(person)
+            if group is not None:
+                by_group.setdefault(group, []).append(person)
 
         def here(members) -> int | None:
             if register is None:
@@ -1333,10 +3628,14 @@ class LiveStore(MockStore):
             return sum(1 for m in members
                        if (e := register.entry(m.id)) and e.status != "absent")
 
-        return [
-            S.GroupSummary(name=name, people=len(members), classes=None,
-                           here=here(members))
-            for name, members in sorted(by_group.items())
+        def summary(name, members) -> S.GroupSummary:
+            return S.GroupSummary(name=name, people=len(members), classes=None,
+                                  here=here(members))
+
+        # Everyone first: it is the whole school, so it reads as the parent of
+        # the rest rather than as one more grade sorted in among them.
+        return [summary(self.EVERYONE, people)] + [
+            summary(name, members) for name, members in sorted(by_group.items())
         ]
 
     def group(self, name: str) -> S.GroupDetail | None:

@@ -24,8 +24,11 @@ import {
   createContext, useCallback, useContext, useEffect, useMemo, useState,
   type ReactNode,
 } from 'react';
-import { getMe, signIn as apiSignIn, signOut as apiSignOut } from '@/services/api';
+import {
+  getMe, register as apiRegister, signIn as apiSignIn, signOut as apiSignOut,
+} from '@/services/api';
 import { setUnauthorisedHandler } from '@/services/http';
+import type { Language } from '@/i18n';
 import type { Role } from '@/types';
 
 export interface Account {
@@ -34,6 +37,10 @@ export interface Account {
   role: Role;
   initials: string;
   email: string;
+  /** Which language this person reads the console in. Held by the engine,
+   *  because the gate station is shared and a browser-wide setting would
+   *  hand the next guard the previous guard's language. */
+  language: Language;
 }
 
 interface AuthValue {
@@ -43,6 +50,9 @@ interface AuthValue {
    *  already signed in, on every refresh. */
   checking: boolean;
   signIn: (email: string, password: string) => Promise<void>;
+  /** Create an account and land signed in. The engine decides the role — it
+   *  is always `it`, never `admin`, whatever this page might prefer. */
+  register: (name: string, email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -82,6 +92,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAccount(me);
   }, []);
 
+  const register = useCallback(async (name: string, email: string, password: string) => {
+    // Throws with the engine's own message — too short a password, an address
+    // already registered. The form shows exactly that, so the two cannot
+    // drift apart the day a rule changes on the engine.
+    const me = await apiRegister(name, email, password);
+    setAccount(me);
+  }, []);
+
   const signOut = useCallback(async () => {
     // Clear locally first: if the network call fails, the operator has still
     // left the console, which is what they asked for. The server-side row is
@@ -95,8 +113,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ account, checking, signIn, signOut }),
-    [account, checking, signIn, signOut],
+    () => ({ account, checking, signIn, register, signOut }),
+    [account, checking, signIn, register, signOut],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

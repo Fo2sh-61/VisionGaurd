@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}التقارير{% endblock %}
+{% block body %}
+
+<div class="panel">
+  <form method="get" class="row">
+    <div><label>اليوم</label><input type="date" name="day" value="{{ day }}"></div>
+    <div><button type="submit">عرض</button></div>
+    <div><a class="btn btn-ghost"
+       href="/export/events.csv?date_from={{ day }}&date_to={{ day }}">تصدير اليوم</a></div>
+  </form>
+</div>
+
+<div class="cards">
+  <div class="card info"><div class="n">{{ stats.entries }}</div><div class="l">دخول</div></div>
+  <div class="card"><div class="n">{{ stats.exits }}</div><div class="l">خروج</div></div>
+  <div class="card ok"><div class="n">{{ stats.inside }}</div><div class="l">بالداخل الآن</div></div>
+  <div class="card warn"><div class="n">{{ stats.unknown }}</div><div class="l">غير مسجلة</div></div>
+  <div class="card danger"><div class="n">{{ stats.blacklist }}</div><div class="l">محظورة</div></div>
+</div>
+
+<div class="panel">
+  <h2>الحركة على مدار اليوم</h2>
+  <div style="display:flex;align-items:flex-end;gap:3px;height:160px;
+              padding-top:10px;direction:ltr">
+    {% set mx = (hourly | map(attribute='entry') | list + hourly | map(attribute='exit') | list) | max %}
+    {% for h in hourly %}
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;
+                justify-content:flex-end;height:100%;gap:1px"
+         title="{{ h.hour }}:00 — دخول {{ h.entry }} / خروج {{ h.exit }}">
+      <div style="width:100%;background:#3ea6ff;border-radius:2px 2px 0 0;
+           height:{{ (h.entry / (mx or 1) * 60)|round(1) }}%"></div>
+      <div style="width:100%;background:#93a4b5;border-radius:0 0 2px 2px;
+           height:{{ (h.exit / (mx or 1) * 60)|round(1) }}%"></div>
+      <div class="muted" style="font-size:9px">{{ h.hour }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  <div class="muted" style="font-size:12px;margin-top:8px">
+    <span style="color:#3ea6ff">■</span> دخول &nbsp;
+    <span style="color:#93a4b5">■</span> خروج
+  </div>
+</div>
+
+<div class="panel">
+  <h2>🅿️ السيارات الموجودة بالداخل الآن ({{ inside|length }})</h2>
+  <table>
+    <thead><tr><th>اللوحة</th><th>المالك</th><th>الوحدة</th>
+      <th>وقت الدخول</th><th>البوابة</th><th>المدة حتى الآن</th></tr></thead>
+    <tbody>
+      {% for v in inside %}
+      <tr>
+        <td><span class="plate sm">{{ pdisplay(v.plate) }}</span></td>
+        <td>{{ v.owner_name or 'غير مسجلة' }}</td>
+        <td>{{ v.unit or '—' }}</td>
+        <td class="muted">{{ v.entry_ts.replace('T',' ')[:19] }}</td>
+        <td>{{ v.entry_gate }}</td>
+        <td class="dur" data-since="{{ v.entry_ts }}">—</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if not inside %}<p class="muted">لا توجد سيارات بالداخل.</p>{% endif %}
+</div>
+
+<div class="panel">
+  <h2>⏱ مدد الزيارات المكتملة</h2>
+  <table>
+    <thead><tr><th>اللوحة</th><th>المالك</th><th>الدخول</th><th>الخروج</th>
+      <th>بوابة الدخول</th><th>بوابة الخروج</th><th>المدة</th></tr></thead>
+    <tbody>
+      {% for v in visits %}
+      {% if v.exit_ts %}
+      <tr>
+        <td><span class="plate sm">{{ pdisplay(v.plate) }}</span></td>
+        <td>{{ v.owner_name or 'غير مسجلة' }}</td>
+        <td class="muted">{{ v.entry_ts.replace('T',' ')[:19] }}</td>
+        <td class="muted">{{ v.exit_ts.replace('T',' ')[:19] }}</td>
+        <td>{{ v.entry_gate or '—' }}</td>
+        <td>{{ v.exit_gate or '—' }}</td>
+        <td><b>{% if v.duration_min is not none %}
+            {{ (v.duration_min // 60)|int }} س {{ (v.duration_min % 60)|int }} د
+            {% else %}—{% endif %}</b></td>
+      </tr>
+      {% endif %}
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function durs(){
+  document.querySelectorAll('.dur').forEach(td=>{
+    const t=new Date(td.dataset.since);
+    if(isNaN(t)) return;
+    const m=Math.max(0,Math.floor((Date.now()-t)/60000));
+    td.textContent = Math.floor(m/60)+' س '+(m%60)+' د';
+  });
+}
+durs(); setInterval(durs,30000);
+</script>
+{% endblock %}

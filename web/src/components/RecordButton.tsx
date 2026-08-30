@@ -21,6 +21,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAccount } from '@/app/AuthContext';
+import { useLanguage } from '@/app/LanguageContext';
 import { useCapability } from '@/app/CapabilityContext';
 import { getRecording, startRecording, stopRecording } from '@/services/api';
 import type { Recording } from '@/types';
@@ -42,6 +43,7 @@ export function RecordButton({
   disabled?: boolean;
 }) {
   const account = useAccount();
+  const { language } = useLanguage();
   const capability = useCapability('recording');
   const [recording, setRecording] = useState<Recording | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -55,7 +57,7 @@ export function RecordButton({
   // this panel may have been closed and reopened mid-recording.
   useEffect(() => {
     let cancelled = false;
-    void getRecording(cameraId)
+    void getRecording(cameraId, language)
       .then((result) => {
         if (cancelled || !result.ok) return;
         if (result.recording?.state === 'recording') {
@@ -88,8 +90,8 @@ export function RecordButton({
     setMessage(null);
     try {
       const result = running
-        ? await stopRecording(cameraId, account.name)
-        : await startRecording(cameraId, account.name);
+        ? await stopRecording(cameraId, account.name, language)
+        : await startRecording(cameraId, account.name, language);
 
       setRecording(result.recording);
       if (result.recording?.state === 'recording') {
@@ -131,25 +133,25 @@ export function RecordButton({
       </button>
 
       {blocked && (
-        <div style={{ fontSize: 12, color: 'var(--tx3)', maxWidth: 320, textAlign: 'right' }}>
+        <div style={{ fontSize: 12, color: 'var(--tx3)', maxWidth: 320, textAlign: 'end' }}>
           {capability?.reason ?? 'Recording is not available on this camera.'}
         </div>
       )}
 
       {!blocked && !running && note && (
-        <div style={{ fontSize: 12, color: 'var(--tx3)', maxWidth: 320, textAlign: 'right' }}>
+        <div style={{ fontSize: 12, color: 'var(--tx3)', maxWidth: 320, textAlign: 'end' }}>
           {note}
         </div>
       )}
 
       {running && (
-        <div style={{ fontSize: 12, color: 'var(--tx3)', maxWidth: 320, textAlign: 'right' }}>
+        <div style={{ fontSize: 12, color: 'var(--tx3)', maxWidth: 320, textAlign: 'end' }}>
           Stops on its own after {Math.round(limit / 60)} minutes.
         </div>
       )}
 
       {message && (
-        <div style={{ fontSize: 12, color: 'var(--tx2)', maxWidth: 320, textAlign: 'right' }}>
+        <div style={{ fontSize: 12, color: 'var(--tx2)', maxWidth: 320, textAlign: 'end' }}>
           {message}
         </div>
       )}

@@ -9,43 +9,187 @@ recovered by reading the checkpoints.
 
 ---
 
-## The headline: the weapons model is prompted, not trained
+## The headline: the knife model is trained, and it is the only weapons model wired up
 
-`yolov8m-worldv2-school.pt` (343 MB, saved 2026-05-06) is the weapons detector. It is a
-stock **YOLO-World v2** open-vocabulary model with 18 text prompts baked in:
+`knifebest.pt` (21 MB, trained 13 Aug 2026, supplied by the owner) is the weapons
+detector. Read from the checkpoint: **YOLOv8s, 11.1 M parameters, one class — `knife`**,
+imgsz 640, 80 epochs on a combined public + on-site dataset, ultralytics 8.4.118.
+Own-validation mAP50 0.90, precision 0.83, recall 0.84.
+
+It is what `models.weapons` in `engine.yaml` points at, and what `infer/weapons.py`
+loads. It replaced the prompted model in August 2026 — see below for why that was the
+right trade.
+
+**What "own-validation mAP50 0.90" does and does not mean.** It is the score on the
+model's own held-out split, which shares the distribution of its training set. It is
+*not* a measurement on school CCTV: nobody has footage of a knife on an Egyptian school
+corridor camera, so accuracy in the place this will actually run is **unmeasured**. That
+is exactly why every detection waits for a person to decide, and why the two false-alarm
+rules below exist.
+
+**The two rules that remove false alarms**, both measured on the recorded clips in
+`engine/data/footage/` (neither contains a knife):
+
+1. **The knife model never runs on a frame with nobody in it.** Not "runs and finds
+   nothing" — it is not called. This is also the cost argument: a second model on 208
+   cameras is only affordable because an empty corridor pays for one pass.
+2. **A knife counts only if its box centre sits inside a person's box**, margin zero.
+   Measured: over 120 sampled frames the model's strongest false runs were a desk edge
+   and a chair in the bottom-right corner, scoring above 0.5 in nine frames — with
+   somebody sitting at that desk the whole time. "Only when a person is in view" would
+   not have removed them. Growing the person box by 25 % lets them straight back in.
+
+Cost, measured through the real model on 22 Aug 2026:
+`python engine/tools/benchmark.py --model weapons` runs at p50 15.8 ms / p95 17.4 ms on
+the RTX 2080 — the same as the person model — and reports **zero** knives over the 60
+sampled frames of the walk-through clip.
+
+**But the rules do not remove every false alarm, and the planning figures said they
+would.** Running the whole pipeline live against that same clip (`.\dev.ps1 up -Clip`)
+produced **one** entry: a 12.5-second scene peaking at 0.76 confidence, on footage
+containing no knife. Three more loops of the clip produced nothing further. The
+sampled-frame analysis that set these thresholds looked at every 5th frame; the live
+worker sees frames that analysis skipped, and somewhere in the clip three of them in a
+row put a false box on a person.
+
+So the honest position is: roughly **one false alarm per four loops of a 40-second
+clip** with the current thresholds, not zero. That is what the human review gate is for,
+but it is also the number to drive down — and it cannot be driven down responsibly until
+there is footage with a real knife in it, because every available lever (confidence,
+hit count, the confirm window) trades false alarms against missing the real thing.
+
+**Gone from this folder**: the `knife detection/` subfolder (training notebooks, an
+`archive.zip`, and `knife-finetuned-v2/v3.onnx`). The ONNX files were exports of this
+same checkpoint; the engine decoded their raw tensor by hand because the pinned
+ultralytics misread the export's output layout and returned four "detections" with
+confidences of 90 and 100 on a flat grey image. The `.pt` has no such problem, so the
+hand-rolled decode and the onnxruntime dependency went with the folder.
+
+---
+
+## History: the prompted weapons model
+
+`yolov8m-worldv2-school.pt` (343 MB, saved 2026-05-06) **was** the weapons detector until
+August 2026. It is a stock **YOLO-World v2** open-vocabulary model with 18 text prompts
+baked in:
 
 > knife · kitchen knife · pocket knife · box cutter · utility knife · razor blade ·
 > screwdriver · scissors · hammer · axe · baseball bat · handgun · pistol · rifle ·
 > shotgun · machete · sword · dagger
 
-**This matters.** No weights were fine-tuned — the 343 MB is the CLIP text encoder plus
-the saved embeddings for those 18 phrases. It is zero-shot: it has never seen a school
-corridor, an Egyptian classroom, or a 4CIF ceiling-mounted camera.
+No weights were fine-tuned — the 343 MB is the CLIP text encoder plus the saved
+embeddings for those 18 phrases. It is zero-shot: it has never seen a school corridor,
+an Egyptian classroom, or a 4CIF ceiling-mounted camera.
 
-Consequences for planning:
+**Why it was replaced.** `screwdriver`, `scissors` and `hammer` were in the prompt list.
+Every school has scissors in every classroom and a screwdriver in every maintenance
+cupboard, so the false-alarm rate on those three was going to be high enough to burn
+through reviewers' trust — and a human gate only absorbs false alarms up to the point
+where people stop reading them. The owner supplying a trained single-class knife model
+resolved M2 in `docs/PLAN.md`: a narrow closed-set detector beats an open-vocabulary one
+on a narrow domain, and one class cannot fire on a screwdriver.
 
-- **Good:** it works today, with no training and no labelled data. Weapons can be wired
-  into the pipeline immediately.
-- **Bad:** its accuracy on real footage is completely unknown, and open-vocab detectors
-  are typically weaker than a fine-tuned closed-set detector on a narrow domain.
-- **The prompt list is a product decision, not a technical one.** `screwdriver`,
-  `scissors` and `hammer` are in there. Every school has scissors in every classroom and
-  a screwdriver in every maintenance cupboard. Expect a very high false-alarm rate on
-  those three specifically — which the mandatory human-review gate absorbs, but only up
-  to the point where reviewers stop trusting it.
-- The improvement path is one of: tune the prompt list, raise per-class thresholds, or
-  collect real footage and fine-tune a closed-set detector. The eval harness has to exist
-  before we can tell which of those actually helped.
+It is kept for comparison, not loaded. Guns are **not** detected by anything today: the
+trained model is knife-only, and that is a deliberate scope decision, not an oversight.
 
-**Cross-check available for free:** `yolov8n-oiv7.pt` is a 6.9 MB Open Images V7 detector
-whose 601 classes already include `Handgun`, `Rifle`, `Shotgun`, `Knife`, `Kitchen knife`,
-`Dagger`, `Sword`, `Axe`, `Hammer`, `Screwdriver`, `Scissors` and a generic `Weapon`. It's
-a genuinely trained closed-set model. Worth scoring both against the same golden clips —
-it may beat the prompted model, and it's 50× smaller.
+**Cross-check still available for free:** `yolov8n-oiv7.pt` is a 6.9 MB Open Images V7
+detector whose 601 classes already include `Handgun`, `Rifle`, `Shotgun`, `Knife`,
+`Kitchen knife`, `Dagger`, `Sword`, `Axe`, `Hammer`, `Screwdriver`, `Scissors` and a
+generic `Weapon`. It is a genuinely trained closed-set model and worth scoring against
+the same golden clips if guns are ever brought into scope. Neither it nor the prompted
+model has been benchmarked — that is model-manager work, not part of knife detection.
+
+## The bag model in use: `bagsearch.pt`
+
+**Not a trained model.** It is stock `yolov8m-worldv2.pt` with ten words baked
+in by the owner's `set_classes()` step, then stripped of its CLIP text encoder
+by `engine/tools/strip_clip.py`:
+
+> person · bag · backpack · handbag · suitcase · duffel bag · shopping bag ·
+> tote bag · luggage · briefcase
+
+`person` is class 0 and is filtered out in the model call. The other nine are
+all treated as one thing — whether an object is "a backpack" or "a duffel bag"
+is not a distinction worth showing somebody looking for their bag, and merging
+them means a bag missed under one word is still caught under another.
+
+**Why this rather than the fine-tuned `bagbest.pt`.** Measured on the two clips
+that contain no bag, at the configured `conf 0.4`:
+
+| | false bags |
+|---|---|
+| `bagbest.pt` (fine-tuned, 11 classes) | **17** — incl. a black office chair read as `suitcase` at up to 0.88, held for seconds |
+| `bagsearch.pt` (10 prompts) | **1** |
+
+Nine ways to say "bag" beat three trained classes on this footage.
+
+**The stripped encoder.** `set_classes()` converts the prompts to vectors once
+and saves them as `txt_feats (1, 10, 512)`; inference reads those. The encoder
+that did the converting is ~300 MB whose only effect is to make the file need
+the `clip` package to unpickle — which this project will not install. Stripping
+it was proved to change nothing: 252 boxes over 140 sampled frames, identical
+class, confidence and geometry on every one. 360 MB → 57 MB.
+
+Rebuild it with:
+
+```
+python engine/tools/strip_clip.py "models/bag traker/models/yolov8m-worldv2-search-12ac1b92.pt" models/bagsearch.pt
+```
+
+Cost: p50 27.9 ms, p95 30.9 ms, 35 frames/sec on the RTX 2080 Max-Q at FP16,
+imgsz 640. Accuracy on real bags is still unmeasured — there is no clip with a
+bag left behind in it, only bags being carried.
 
 ---
 
-## The second custom model: appearance search
+## History: the fine-tuned model — `bagbest.pt`
+
+**What it is.** A YOLO-World v2 medium, fine-tuned from `yolov8m-worldv2.pt` on the
+owner's merged dataset: 7 Aug 2026, 50 epochs, 28.4 M parameters. Eleven classes with
+the text features baked in (`txt_feats (1, 11, 512)`) and the CLIP encoder stripped, so
+nothing needs a text encoder at run time. Own-validation mAP50 0.89, precision 0.90,
+recall 0.82 — across all eleven classes, not bags alone.
+
+**Eleven classes, three used:**
+
+> backpack (0) · laptop (1) · jacket (2) · key (3) · handbag (4) · suitcase (5) ·
+> cup (6) · book (7) · shoes (8) · cap (9) · glasses (10)
+
+Lost-bag search passes `classes=[0, 4, 5]` into `predict`, so the other eight never
+leave the detector. That is not tidiness. `laptop` fires on every desk in the building
+and `cup` on most of them, and a lost-property search that offers somebody a laptop
+they did not ask about is noise on a screen that must not have any. Verified on this
+machine that a `WorldModel` honours `classes=` the way a plain YOLO does.
+
+**It is a World checkpoint**, so `vg/infer/bags.py` sets `YOLO_AUTOINSTALL=false`
+*before* importing ultralytics — loading one otherwise triggers a dependency check that
+will try to pip-install CLIP mid-run.
+
+**Cost:** p50 25.4 ms, p95 28.1 ms, 39.2 frames/sec on the RTX 2080 Max-Q at FP16,
+imgsz 640 — about 1.6× the person model, on the whole frame with no person gate.
+
+**Accuracy on real bags is unmeasured.** There is no recorded clip with a bag in it.
+What is measured is the opposite: on the two clips that contain *no* bag, at the
+configured `conf 0.4`, it produced 19 bag-class detections over 706 sampled frames.
+Two modes, confirmed by eye (research D10):
+
+| Mode | What it is | Confidence |
+|---|---|---|
+| Motion blur | a bumped, blurred frame read as one `suitcase` covering 99.7 % of the picture | up to 0.88 |
+| Dark furniture | a **black office chair back** read as `suitcase` for 13 consecutive sampled frames | 0.55 – 0.88 |
+
+The first is rejected by a `MAX_BOX_FRACTION` of 0.6. The second is not rejectable by
+any threshold: it is stationary, and a lost bag is stationary by definition. So the
+product never claims a bag was found — it says *possible bag*, in amber, and a person
+looks.
+
+---
+
+## The third custom model: appearance search — history
+
+**Nothing loads this any more.** It was the model the Lost Items page was first designed
+around; `bagbest.pt` replaced it for that purpose on 23 Aug 2026, and the clothing half
+belongs to track-a-person, which does not use it either yet. Kept for the record.
 
 `yolov8m-worldv2-search.pt` (343 MB, saved 2026-05-09), 35 prompts:
 
@@ -54,13 +198,13 @@ it may beat the prompted model, and it's 50× smaller.
 > sunglasses · mask · scarf · belt · tie · backpack · handbag · suitcase · umbrella ·
 > phone · bottle · book · laptop · cup · sports ball
 
-This serves two features at once:
+It was meant to serve two features at once:
 
-- **Lost items** — `backpack`, `handbag`, `suitcase`, `umbrella`, `phone`, `bottle`,
-  `book`, `laptop`, `cup` map directly onto the item dropdown on the Lost Items page.
-  Colour comes from a separate histogram step, not from the model.
+- ~~**Lost items**~~ — superseded. It was open-vocabulary and never trained on bags;
+  the owner supplied a trained replacement. The item dropdown it was designed for is
+  gone too: the page now asks *which cameras*, not *which kind of bag*.
 - **Track a person** — the clothing prompts describe what someone is wearing, which is
-  the appearance half of re-identification.
+  the appearance half of re-identification. Still unbuilt (P7).
 
 `hijab` in the list is a good sign: whoever built it was thinking about the actual student
 population, not a Western benchmark set.
@@ -114,13 +258,88 @@ yolov8n-oiv7.engine
 ```
 
 A TensorRT plan is compiled against one GPU architecture and one TensorRT version.
-**None of these will load on the RTX 6000 Ada workstation.** They are also built by a
-*newer* ultralytics (8.4.46) than the one currently installed here (8.4.7), so they may
-not load reliably on this machine either.
+**None of these will load on the RTX 6000 Ada workstation.** They also predate the
+current toolchain, so treat all five as stale and rebuild.
 
 The rule: **`.pt` is the artifact, `.engine` is a build output.** Engines get rebuilt
 from the `.pt` on whatever machine will run them, as a deployment step. Never treat one
 as the thing you keep.
+
+---
+
+## The TensorRT toolchain that actually works here
+
+*Established 24 Aug 2026, by installing it. Every line below was a dead end before it
+was a solution, so it is written down rather than left to be rediscovered.*
+
+**The working combination on this laptop (RTX 2080 Max-Q, Python 3.14, torch
+2.11.0+cu128):**
+
+```bash
+pip install tensorrt_cu12_bindings tensorrt_cu12_libs   # the native library
+pip install tensorrt-cu12                               # the `import tensorrt` shim
+pip install "ultralytics>=8.4.127"                      # TensorRT 11 support
+```
+
+**Measured**, `yolov8s` at 640, batch 1, FP32, on this GPU. 100 iterations each after
+a 10-frame warm-up — a short run gives numbers that swing by 50% on a throttling
+Max-Q part, so do not trust a 20-iteration figure:
+
+| Form | p50 | p5 | p95 |
+|---|---|---|---|
+| `.pt` on CUDA | 18.3 ms | 16.9 | 20.9 |
+| TensorRT FP32 | **12.0 ms** | 11.4 | 12.8 |
+
+**1.52x on the median — and the spread matters as much as the median.** TensorRT holds
+11.4–12.8 ms where PyTorch swings 16.9–20.9. For a system whose whole promise is
+"what the camera sees now", predictable latency is worth more than the average.
+
+**Four traps, each of which cost real time:**
+
+1. **`pip install tensorrt` gives you the cu13 line, and it segfaults here.**
+   `import tensorrt` succeeds, `trt.Logger()` succeeds, and `trt.Builder()` dies with
+   SIGSEGV. Because a segfault kills the interpreter, an ultralytics export reports
+   **exit code 0 and produces no file** — it looks like it worked. Install the **cu12**
+   packages against a cu128 torch. The import succeeding proves nothing; **any check
+   that TensorRT works must construct a Builder.**
+
+2. **The component packages import as `tensorrt_bindings`, not `tensorrt`.**
+   ultralytics does `import tensorrt`, so the `tensorrt-cu12` shim is required on top.
+
+3. **TensorRT 10.x has no Python 3.14 wheels.** 10.13, 10.15, 10.16 and 11.0 were all
+   checked — cp314 has **11.1 and 11.2 only**. Pinning down to a 10.x is the natural
+   fix and it does not exist on this interpreter.
+
+4. **ultralytics 8.4.7 cannot export to TensorRT 11.** Its guard reads
+   `is_trt10 = major >= 10`, which is true for 11, so it takes the TensorRT-10 branch
+   and then calls `NetworkDefinitionCreationFlag.EXPLICIT_BATCH` and
+   `builder.platform_has_fast_fp16`, both removed in 11.x. 8.4.127 adds a real
+   `is_trt11` branch.
+
+**FP16 needs NVIDIA `modelopt` on TensorRT 11.** ultralytics routes 11.x FP16 through
+`modelopt.onnx.autocast`; without it the export raises `ModuleNotFoundError`. FP32
+needs nothing extra and already gives the 1.7x above. FP16 is unmeasured here.
+
+### What the ultralytics upgrade cost
+
+8.4.7 → 8.4.127 is 120 releases and drives person, knife, lost-bag and pose detection.
+Verified on the labelled clip via `engine/tools/benchmark.py`: **64 people detected
+before and after**, p50 18.6 → 19.4 ms. Detection is unchanged.
+
+Two things did change:
+
+- **ByteTrack's lost-track window.** `BYTETracker.__init__` dropped its `frame_rate`
+  argument and now uses `track_buffer` raw as `max_frames_lost` instead of scaling it
+  by `frame_rate / 30`. The pre-multiplied 180 in `infer/tracking.py` silently became
+  36 seconds at 5 Hz against the 6 intended — long enough for the next person through
+  a door to inherit an ID. `test_tracker_config.py` caught it; `track_buffer_for()`
+  fixes it. **`infer/tracking.py` now requires ultralytics >= 8.4.127.**
+- **`opencv-python` was pulled 4.x → 5.0.0** as a transitive dependency. YuNet and
+  SFace run through OpenCV's DNN module. `cv2.FaceDetectorYN` and
+  `cv2.FaceRecognizerSF` both still exist, but **face recognition against a real face
+  has not been confirmed since the upgrade.**
+
+Also: `half=` is deprecated in favour of `quantize=` and every runner still passes it.
 
 ---
 

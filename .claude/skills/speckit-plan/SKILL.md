@@ -155,7 +155,23 @@ Command ends after Phase 1 design. Report branch, IMPL_PLAN path, and generated 
    - Do not include full implementation code, model/service/controller bodies, migrations, or complete test suites
    - Keep this artifact as a validation/run guide; implementation details belong in `tasks.md` and the implementation phase
 
-**Output**: data-model.md, /contracts/*, quickstart.md
+4. **Write the implementation handoff** → `context.md`:
+   - Use `.specify/templates/context-template.md`.
+   - **Do this last, and do not open any new files to do it.** Everything it
+     needs is already in context from Phase 0 and Phase 1. If you find
+     yourself re-reading a file to fill it in, that is the cost this file
+     exists to remove, and it belongs in the note.
+   - For every file the plan's Source Code section names, record: the anchor
+     symbol to search for, the two or three facts about its current shape that
+     the edit depends on, and what the edit is.
+   - Record the existing code to copy rather than invent, the traps a reader
+     would not guess, and the current `pytest` count as a baseline.
+   - Anything that turns out to be a design problem rather than a note — a
+     component that does more than its name suggests, a helper that carries a
+     name where the feature must not — belongs in the plan, not here. Finding
+     it now is the point.
+
+**Output**: data-model.md, /contracts/*, quickstart.md, context.md
 
 ## Key rules
 
@@ -165,5 +181,6 @@ Command ends after Phase 1 design. Report branch, IMPL_PLAN path, and generated 
 ## Done When
 
 - [ ] Plan workflow executed and design artifacts generated
+- [ ] `context.md` written from context already loaded, not from fresh reads
 - [ ] Extension hooks dispatched or skipped according to the rules in Mandatory Post-Execution Hooks above
 - [ ] Completion reported to user with branch, plan path, and generated artifacts

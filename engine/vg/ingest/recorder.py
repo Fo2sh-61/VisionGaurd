@@ -49,8 +49,18 @@ MAX_SECONDS = 600.0
 #: record. Ending with that reason beats a recording indicator that never stops.
 NO_FRAMES_SECONDS = 15.0
 
-#: mp4v is what OpenCV ships everywhere. H.264 needs a licensed build.
-FOURCC = "mp4v"
+#: Codecs to try, most desirable first. The console plays these files in a
+#: `<video>` tag, and browsers decode H.264 (`avc1`) but not MPEG-4 Part 2
+#: (`mp4v`) — an mp4v clip looked perfectly healthy and rendered as a player
+#: with no picture, which is a dead button with extra steps.
+#:
+#: OpenCV's pip build ships no H.264 encoder (licensing), but on Windows it
+#: encodes through the OS's own Media Foundation, so asking costs nothing: a
+#: machine that can produce a browser-playable file does, and one that cannot
+#: falls through to mp4v — a real recording, watchable in a desktop player,
+#: which beats no recording at all. The manual check watches a clip in the
+#: browser precisely to catch the machine where the fallback happened.
+FOURCC_PREFERENCE = ("avc1", "mp4v")
 
 #: How many frames to watch before deciding the camera's real rate. An mp4's
 #: frame rate is fixed when the file is created and cannot be changed
@@ -127,6 +137,7 @@ class Recorder:
         self._jobs: dict[str, _Job] = {}
         self._finished: dict[str, Recording] = {}
         self._lock = threading.RLock()
+        _warm_encoder_once()
 
     # -- asking -------------------------------------------------------------
 
@@ -219,18 +230,33 @@ class Recorder:
         writer: cv2.VideoWriter | None = None
         subscription = self.bus.subscribe(recording.camera_id, maxsize=8)
 
-        # Frames held back while the rate is being measured. They are the
-        # opening seconds of the recording, which on an incident is the part
-        # that matters, so they are kept rather than discarded.
+        # Frames held back while the rate is being measured and the file is
+        # being opened. They are the opening seconds of the recording, which
+        # on an incident is the part that matters, so they are kept rather
+        # than discarded.
         pending: list = []
         first_at = None
         written = 0
 
-        def begin() -> bool:
-            """Measure, open the file, and write what was held back."""
+        # Opening an H.264 writer costs real time — around half a second of
+        # encoder initialisation, against a millisecond for mp4v. Done inline
+        # that half-second would block this loop, the 8-slot subscription
+        # would overflow, and the first frames of the incident would be the
+        # ones dropped. So the open runs beside the loop while frames keep
+        # landing in `pending`, and is adopted the moment it is done.
+        opened: dict = {}
+        opener: threading.Thread | None = None
+
+        def open_in_background() -> None:
+            opened["writer"] = self._open(recording, pending[0])
+
+        def adopt() -> bool:
+            """Take over the opened writer and write what was held back.
+
+            False means the open failed; `_open` already recorded the reason.
+            """
             nonlocal writer, first_at, written
-            recording.fps = _measured_fps(pending)
-            writer = self._open(recording, pending[0])
+            writer = opened.get("writer")
             if writer is None:
                 return False
             first_at = pending[0].captured_at
@@ -248,6 +274,11 @@ class Recorder:
                     )
                     break
 
+                if opener is not None and not opener.is_alive():
+                    opener = None
+                    if not adopt():
+                        return  # _open recorded the reason
+
                 frame = subscription.get(timeout=1.0)
                 if frame is None:
                     if (recording.frames == 0 and not pending
@@ -263,8 +294,14 @@ class Recorder:
 
                 if writer is None:
                     pending.append(frame)
-                    if _enough_to_measure(pending) and not begin():
-                        return  # _open recorded the reason
+                    if opener is None and "writer" not in opened \
+                            and _enough_to_measure(pending):
+                        recording.fps = _measured_fps(pending)
+                        opener = threading.Thread(
+                            target=open_in_background, daemon=True,
+                            name=f"recorder-open-{recording.camera_id}",
+                        )
+                        opener.start()
                     continue
 
                 written = self._pace(
@@ -275,11 +312,20 @@ class Recorder:
             recording.reason = f"Recording failed: {exc}"
         finally:
             self.bus.unsubscribe(subscription)
-            # Stopped before the rate could be measured. Two frames still make
-            # a real recording and it must not be thrown away.
-            if writer is None and pending and recording.state == "recording":
+            # An open still in flight when the recording stops. Its frames are
+            # in `pending` and must not be thrown away, so wait for it.
+            if opener is not None:
+                opener.join()
+                if recording.state == "recording":
+                    adopt()
+            # Stopped before the rate could even be measured. Two frames still
+            # make a real recording and it must not be thrown away either.
+            if (writer is None and pending and recording.state == "recording"
+                    and "writer" not in opened):
                 try:
-                    begin()
+                    recording.fps = _measured_fps(pending)
+                    open_in_background()
+                    adopt()
                 except Exception as exc:  # noqa: BLE001 - reported, not raised
                     log.exception("recording %s could not be written", recording.id)
                     recording.state = "failed"
@@ -332,11 +378,26 @@ class Recorder:
             self.directory.mkdir(parents=True, exist_ok=True)
             stamp = self.clock.local(recording.started_at).strftime("%Y%m%d-%H%M%S")
             path = self.directory / f"{recording.camera_id}_{stamp}.mp4"
-            writer = cv2.VideoWriter(
-                str(path), cv2.VideoWriter_fourcc(*FOURCC),
-                recording.fps, (frame.width, frame.height),
-            )
-            if not writer.isOpened():
+            writer = None
+            for fourcc in FOURCC_PREFERENCE:
+                writer = cv2.VideoWriter(
+                    str(path), cv2.VideoWriter_fourcc(*fourcc),
+                    recording.fps, (frame.width, frame.height),
+                )
+                if writer.isOpened():
+                    if fourcc != FOURCC_PREFERENCE[0]:
+                        # Loudly, once per recording: this file will not play
+                        # in the console, and the log should say so before
+                        # somebody discovers it during an incident.
+                        log.warning(
+                            "recording %s falling back to %s - this machine "
+                            "has no H.264 encoder, so the clip will not play "
+                            "in the browser", recording.id, fourcc,
+                        )
+                    break
+                writer.release()
+                writer = None
+            if writer is None:
                 raise OSError(f"could not open {path} for writing")
         except Exception as exc:
             log.exception("recording %s could not open a file", recording.id)
@@ -370,6 +431,44 @@ def _measured_fps(pending: list) -> float:
     if span <= 0:
         return FALLBACK_FPS
     return min(MAX_FPS, max(MIN_FPS, (len(pending) - 1) / span))
+
+
+_WARM_LOCK = threading.Lock()
+_warmed = False
+
+
+def _warm_encoder_once() -> None:
+    """Pay the H.264 encoder's one-time start-up cost now, off-thread.
+
+    The first `avc1` open in a process costs an extra second on top of the
+    encoder's own half-second of initialisation — OpenCV probes for an
+    OpenH264 DLL, fails, and falls through to the OS encoder. Paid lazily,
+    that second lands inside somebody's first recording, right at the start
+    of whatever made them press the button. Paid here, at construction, it
+    lands while the engine is still starting and nobody is watching.
+    """
+    global _warmed
+    with _WARM_LOCK:
+        if _warmed:
+            return
+        _warmed = True
+
+    def warm() -> None:
+        import tempfile
+
+        path = Path(tempfile.gettempdir()) / "vg-encoder-warmup.mp4"
+        try:
+            writer = cv2.VideoWriter(
+                str(path), cv2.VideoWriter_fourcc(*FOURCC_PREFERENCE[0]),
+                15.0, (64, 64),
+            )
+            writer.release()
+        except Exception:  # noqa: BLE001 - a warm-up may not break anything
+            log.debug("encoder warm-up failed", exc_info=True)
+        finally:
+            path.unlink(missing_ok=True)
+
+    threading.Thread(target=warm, name="recorder-warmup", daemon=True).start()
 
 
 class AlreadyRecording(RuntimeError):

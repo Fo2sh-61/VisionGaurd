@@ -1,40 +1,62 @@
-/** Track a person — following one person across cameras.
+/** Track a person — the two questions this page actually answers.
  *
- *  Built from design/15-8 design/VisionGuard.dc.html. Seven states, one flow:
+ *      LIVE   "they are here now, don't lose them"
+ *      PAST   "where did they go earlier"
  *
- *      form ──┬─► ambig ──► live ──► stop ──► done
- *             └─► mancam ──► manper ──┘
+ *  Live is three clicks: pick the area's camera, click the body, and the
+ *  engine follows it from there. Everything after that click is the engine's
+ *  answer, polled — this page holds no opinion about where anybody is.
  *
- *  Three rules the design exists to enforce, all of them about not claiming
- *  more than the system knows:
+ *  Rules this screen exists to keep, all of them about not claiming more than
+ *  the system knows:
  *
  *  1. **A face names a person; clothing only says "same body".** Green means
  *     identified by face, blue means matched by clothing, amber means never
- *     identified at all. They are never merged into one number or one colour,
- *     and the legend spells all three out in words.
+ *     identified at all. Never merged into one colour or one number.
  *
- *  2. **A prediction is not a sighting.** The next-camera pulse is a guess
- *     drawn from where cameras sit on the floor plan, and the label under the
- *     tile says exactly that, in words, rather than relying on the colour.
+ *  2. **A name is not permanent.** A followed body shows amber "not
+ *     identified" until a face has been recognised clearly, several times,
+ *     over seconds — and the name goes the instant the track does. The engine
+ *     enforces this; the page's job is to show the amber state honestly
+ *     instead of hiding the wait.
  *
- *  3. **The operator resolves ambiguity, not the software.** When several
- *     cameras could hold the person, all of them are offered as alternatives
- *     and nothing records until one is chosen.
+ *  3. **The stop conditions are the engine's, not the browser's.** A timer
+ *     runs out and a track is lost whether or not this tab is open, so a
+ *     closed laptop can never leave a camera recording.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useAccount } from '@/app/AuthContext';
+import { useSearchParams } from 'react-router-dom';
 import { useCameras } from '@/app/CameraContext';
-import { useToday } from '@/app/SiteContext';
-import { usePersonNames } from '@/app/useOptions';
-import { CameraFrame } from '@/components/CameraFrame';
-import { RecordButton } from '@/components/RecordButton';
-import { Card, DataNotice, PageHeader } from '@/components/ui';
-import { correctIdentity, getLiveTracking, trackPerson } from '@/services/api';
-import { identifiedByFace } from '@/services/format';
-import type * as W from '@/services/wire';
-import type { Camera, TrackResult } from '@/types';
 import { useCapability } from '@/app/CapabilityContext';
+import { useToday } from '@/app/SiteContext';
+import { useLanguage, useT } from '@/app/LanguageContext';
+import { usePersonNames } from '@/app/useOptions';
+import { CamGrid } from '@/components/CamGrid';
+import { CameraFrame } from '@/components/CameraFrame';
+import { Card, DataNotice, Empty, PageHeader } from '@/components/ui';
+import type { PictureRect } from '@/services/frame';
+import { ApiError } from '@/services/http';
+import {
+  endFollow,
+  estimateSweep,
+  followStranger,
+  getFollow,
+  getLeg,
+  getPathSkeleton,
+  getSweep,
+  legChunkUrl,
+  startFollow,
+  startFollowRecording,
+  startLeg,
+  startSweep,
+  stopFollowRecording,
+  stopSweep,
+} from '@/services/api';
+import { formatCount, formatLongDate, formatTime } from '@/services/format';
+import type * as W from '@/services/wire';
+import type { MessageArgs, MessageKey } from '@/i18n';
+import type { Camera, DetectionBox } from '@/types';
 
 /* ---------- evidence colours ----------
  *
@@ -44,871 +66,1178 @@ const FACE = '#3f8f74';
 const CLOTH = '#5b9bd8';
 const UNKNOWN = '#dfa23f';
 
-/** How long a stop has to be before returning to a camera counts as a new visit. */
-type Mode = 'live' | 'past';
-type Stage = null | 'ambig' | 'live' | 'stop' | 'mancam' | 'manper';
+type Mode = 'live' | 'past' | 'find';
 
-interface Subject {
-  id: string;
-  name: string;
-  /** Identified by face. False means we are following a body, not a person. */
-  identified: boolean;
-  source: 'directory' | 'camera';
-}
+/** How often the follow is re-read. The engine is the only thing that knows
+ *  where the person is; this is just how quickly the screen catches up. */
+const FOLLOW_POLL_MS = 1_000;
 
-interface TrailStop {
-  cameraId: string;
-  atSeconds: number;
-  kind: 'start' | 'cloth';
-}
+/** Cameras shown at once in the live grid. Small on purpose: every tile is a
+ *  poll, and `CamGrid` scales its refresh to the number actually on screen, so
+ *  a smaller page is a faster-looking one. */
+const GRID_PAGE = 8;
+
+/** How much video either side of a stop to fetch. Somebody walking into view
+ *  is usually the part being asked about, and that happens a few seconds
+ *  before their face was readable enough to anchor. */
+const PADDING_MS = 5_000;
+
+const TIMERS: { label: MessageKey; args?: MessageArgs; seconds: number | null }[] = [
+  { label: 'track.untilIStopIt', seconds: null },
+  { label: 'track.minutes', args: { n: 1 }, seconds: 60 },
+  { label: 'track.minutes', args: { n: 5 }, seconds: 300 },
+  { label: 'track.minutes', args: { n: 10 }, seconds: 600 },
+];
 
 const clock = (seconds: number) => {
-  const m = Math.floor(seconds / 60);
-  const s = String(Math.floor(seconds % 60)).padStart(2, '0');
-  return `${m}:${s}`;
+  const s = Math.max(0, Math.round(seconds));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 };
 
-const wallClock = (base: Date, offsetSeconds: number) => {
-  const t = new Date(base.getTime() + offsetSeconds * 1000);
-  return t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-};
-
-const initials = (name: string) =>
-  name.split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase();
-
+/** The parsing trap this page solved once already: compare times as minutes,
+ *  never as strings, and never against the viewer's clock. */
 const minutes = (hhmm: string) => {
   const [h, m] = hhmm.split(':').map(Number);
-  return (h || 0) * 60 + (m || 0);
+  return Number.isFinite(h) && Number.isFinite(m) ? h * 60 + m : NaN;
 };
 
-/** Cameras nearest this one on the floor plan.
- *
- *  Prediction is distance-based (the operator's choice), so proximity on the
- *  plan is the whole model. Until the map editor exists, "nearest" degrades to
- *  "the other cameras in the list" — which is honest rather than clever, and
- *  the tile label never claims more than a guess either way. */
-function neighboursOf(cameras: Camera[], cameraId: string): Camera[] {
-  const others = cameras.filter((c) => c.id !== cameraId);
-  return others.slice(0, 4);
-}
-
 export function TrackPerson() {
+  const t = useT();
   const capability = useCapability('track');
-  const account = useAccount();
   const today = useToday();
   const people = usePersonNames();
   const { cameras } = useCameras();
 
-  const [mode, setMode] = useState<Mode>('past');
-  const [stage, setStage] = useState<Stage>(null);
-  const [subject, setSubject] = useState<Subject | null>(null);
-  const [error, setError] = useState('');
-
-  const [date, setDate] = useState('');
-  const [from, setFrom] = useState('07:00');
-  const [to, setTo] = useState('08:15');
-
-  const [result, setResult] = useState<TrackResult | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  const [currentCam, setCurrentCam] = useState('');
-  const [pickCam, setPickCam] = useState('');
-  const [elapsed, setElapsed] = useState(0);
-  const [trail, setTrail] = useState<TrailStop[]>([]);
-  const [note, setNote] = useState('');
-  const [startedAt, setStartedAt] = useState<Date>(() => new Date());
-
-  /* ---------- what the tracker can actually see ----------
-   *
-   *  Polled, not invented. `following` is the appearance id the operator chose;
-   *  everything on the live view is derived from where the engine currently
-   *  reports that id, so the screen follows the tracker rather than a local
-   *  guess about it. */
-  const [liveState, setLiveState] = useState<W.LiveTracking | null>(null);
-  const [following, setFollowing] = useState<string | null>(null);
-
-  const polling = stage === 'ambig' || stage === 'live';
-  useEffect(() => {
-    if (!polling) return;
-    let alive = true;
-    const tick = () => {
-      void getLiveTracking()
-        .then((next) => { if (alive) setLiveState(next); })
-        .catch(() => { /* a dropped poll is not worth clearing the screen for */ });
-    };
-    tick();
-    const id = window.setInterval(tick, 1000);
-    return () => { alive = false; window.clearInterval(id); };
-  }, [polling]);
-
-  /** Where the followed identity is right now, if the tracker still has it. */
-  const seenNow = useMemo(
-    () => liveState?.identities.find((i) => i.stableId === following) ?? null,
-    [liveState, following],
-  );
-
-  /* The camera follows the identity by itself. That is the entire point: the
-   * operator picked a body, and the body moving to another camera should move
-   * the view, not require them to notice and click. */
-  useEffect(() => {
-    if (stage !== 'live' || !seenNow) return;
-    setCurrentCam((current) => {
-      if (current === seenNow.cameraId) return current;
-      setTrail((t) =>
-        t.some((x) => x.cameraId === seenNow.cameraId && x.kind !== 'start')
-          ? t
-          : [...t, { cameraId: seenNow.cameraId, atSeconds: elapsed, kind: 'cloth' }],
-      );
-      return seenNow.cameraId;
-    });
-  }, [stage, seenNow, elapsed]);
-
-  const timer = useRef<number | null>(null);
-  const stopClock = useCallback(() => {
-    if (timer.current !== null) {
-      window.clearInterval(timer.current);
-      timer.current = null;
-    }
-  }, []);
-  useEffect(() => stopClock, [stopClock]);
-
-  // Two separate things, deliberately. `nowLabel` is for reading — it follows
-  // the operator's locale, so it may well be "08:02 PM". `nowMinutes` is for
-  // comparing, and is taken straight off the Date. Parsing the label back into
-  // a number silently read "08:02 PM" as 8:02am and let a window that includes
-  // right now pass validation.
-  const nowDate = new Date();
-  const nowLabel = nowDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  const nowMinutes = nowDate.getHours() * 60 + nowDate.getMinutes();
-  const selectedDate = date || today;
-
-  const cam = useMemo(
-    () => cameras.find((c) => c.id === currentCam) ?? cameras[0],
-    [cameras, currentCam],
-  );
-  const manCam = useMemo(
-    () => cameras.find((c) => c.id === pickCam) ?? cameras[0],
-    [cameras, pickCam],
-  );
-
-  const visited = useMemo(() => trail.map((t) => t.cameraId), [trail]);
-
-  /** The camera the person is expected to enter next.
-   *
-   *  First neighbour they have not already been seen on — walking back the way
-   *  you came is possible but it is not the thing worth flagging. */
-  const predicted = useMemo(() => {
-    if (!cam) return undefined;
-    const nbs = neighboursOf(cameras, cam.id);
-    return nbs.find((c) => !visited.includes(c.id)) ?? nbs[0];
-  }, [cameras, cam, visited]);
-
-  /* ---------- starting ---------- */
-
-  function chooseByName(name: string) {
-    const unknown = name.startsWith('Unknown') || name === 'DHL courier';
-    // #p1, #p2 … keyed off the directory position. A slug of the name gave
-    // "#layl", which is neither an id nor a name and reads as a glitch. The
-    // real appearance id replaces this once live tracking is wired to the
-    // engine's stable ids.
-    const index = people.indexOf(name);
-    setSubject({
-      id: `#p${index >= 0 ? index + 1 : 1}`,
-      name: unknown ? 'Unknown person' : name,
-      identified: !unknown,
-      source: 'directory',
-    });
-    setError('');
-  }
-
-  /** A past window has to be genuinely past, and start before it ends. */
-  function windowIsBad(): boolean {
-    if (minutes(to) >= nowMinutes || minutes(from) >= nowMinutes) {
-      setError(
-        `That window includes right now (${nowLabel}). A past search must end ` +
-          'before now — to follow someone at this moment, switch to "Live — right now".',
-      );
-      return true;
-    }
-    if (minutes(from) >= minutes(to)) {
-      setError('The start time has to come before the end time.');
-      return true;
-    }
-    setError('');
-    return false;
-  }
-
-  const runPast = useCallback(async () => {
-    if (!subject) return;
-    setLoading(true);
-    try {
-      // The audit row is written server-side before the answer comes back.
-      setResult(await trackPerson({ who: subject.name, date: selectedDate, from, to }, account.name));
-    } finally {
-      setLoading(false);
-    }
-  }, [subject, selectedDate, from, to, account.name]);
-
-  function start() {
-    if (!subject) {
-      setError('Choose who you are following first.');
-      return;
-    }
-    if (mode === 'past') {
-      if (windowIsBad()) return;
-      void runPast();
-      return;
-    }
-    stopClock();
-    setNote('');
-    setStage('ambig');
-  }
-
-  function runClock() {
-    stopClock();
-    setElapsed(0);
-    timer.current = window.setInterval(() => setElapsed((e) => e + 1), 1000);
-  }
-
-  function confirmCandidate(cameraId: string, stableId?: string) {
-    if (stableId) setFollowing(stableId);
-    setCurrentCam(cameraId);
-    setTrail([{ cameraId, atSeconds: 0, kind: 'start' }]);
-    setStartedAt(new Date());
-    setNote('');
-    setStage('live');
-    runClock();
-  }
-
-  function switchCamera(cameraId: string) {
-    setCurrentCam(cameraId);
-    setTrail((t) => [...t, { cameraId, atSeconds: elapsed, kind: 'cloth' }]);
-  }
-
-  function notThisPerson() {
-    stopClock();
-    // Tell the engine, not just the screen. It issues a fresh identity so the
-    // wrong name does not travel forward onto the next camera.
-    if (following) void correctIdentity(following).catch(() => {});
-    setFollowing(null);
-    setNote(
-      'Match rejected. Recording stopped and that clip was discarded — the system has been told it was wrong. Choose the right one, or cancel.',
-    );
-    setStage('ambig');
-  }
-
-  function close() {
-    stopClock();
-    setStage(null);
-    setNote('');
-    setResult(null);
-    setFollowing(null);
-  }
-
-  /* ---------- derived view data ---------- */
-
-  // From the NAME, not the match kind. `/tracking/live` reports APPEARANCE on
-  // every identity by design, so the match kind answered "why are we following
-  // this body", never "do we know who it is" — which is how the badge came to
-  // read "Not identified by face" beside the person's own name.
-  const identified = seenNow ? identifiedByFace(seenNow.name) : (subject?.identified ?? false);
-  // The appearance id the engine issued. This is the number that survives
-  // leaving the frame and changing camera, so it is what the screen shows.
-  const shownId = following ? `#${following}` : (subject?.id ?? '#?');
-  const shownName = seenNow?.name ?? (identified ? subject?.name : null) ?? 'Unknown person';
-
-  /** The bodies the tracker is actually holding, offered as alternatives.
-   *
-   *  Real appearance ids, not a guess from the camera list. When the tracker
-   *  can see nobody the list is empty and the page says so, which is the
-   *  honest answer — inventing candidates would have the operator confirm a
-   *  person who is not there. */
-  const candidates = useMemo(() => {
-    const found = liveState?.identities ?? [];
-    return found.slice(0, 4).map((identity, i) => {
-      const named = identifiedByFace(identity.name);
-      return {
-        identity,
-        camera: cameras.find((c) => c.id === identity.cameraId),
-        letter: ['A', 'B', 'C', 'D'][i],
-        confidence: named ? 'Fairly sure' : 'Not sure',
-        why: named
-          ? `A face match named this body as ${identity.name}.`
-          : 'Following clothing colour and build only — no face has been matched to this body.',
-        neighbours: neighboursOf(cameras, identity.cameraId),
-      };
-    });
-  }, [liveState, cameras]);
-
-  const livePath = useMemo(
-    () =>
-      trail
-        .slice()
-        .reverse()
-        .map((stop) => {
-          const isStart = stop.kind === 'start';
-          const byFace = isStart && identified;
-          const camera = cameras.find((c) => c.id === stop.cameraId);
-          return {
-            key: `${stop.cameraId}-${stop.atSeconds}`,
-            time: wallClock(startedAt, stop.atSeconds),
-            place: camera?.name ?? stop.cameraId,
-            kind: byFace ? 'Face match' : isStart ? 'No face match' : 'Clothing match',
-            detail: isStart
-              ? identified
-                ? 'Where tracking started — identity confirmed'
-                : 'Where tracking started — identity never confirmed'
-              : 'Face not visible — clothing colour and build only',
-            colour: byFace ? FACE : isStart ? UNKNOWN : CLOTH,
-            round: byFace,
-          };
-        }),
-    [trail, identified, cameras, startedAt],
-  );
-
-  const camerasSoFar = new Set(visited).size;
-
-  /* ---------- render ---------- */
-
-  const showForm = stage === null;
+  // Ask arrives with the question resolved: `?person=Mohamed Fouad&date=...`.
+  // A named person means the past-mode question — where they went — so the
+  // page opens on that tab rather than on the live wall, which would show a
+  // camera and none of what was asked for.
+  const [params] = useSearchParams();
+  const askedPerson = params.get('person') ?? '';
+  const [mode, setMode] = useState<Mode>(askedPerson ? 'past' : 'live');
 
   return (
     <>
-      <DataNotice capability={capability} />
       <PageHeader
-        title="Track a person"
-        lead="Rebuild where someone went across campus, for investigations only."
+        title={t('track.title')}
+        lead={t('track.lead')}
       />
+      <DataNotice capability={capability} />
 
-      <div className="notice notice--amber">
-        <span style={{ fontWeight: 700 }}>⚑</span>
-        Every tracking search is recorded in the audit log with your name, and is visible to all
-        administrators.
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+        {(['live', 'past', 'find'] as Mode[]).map((m) => (
+          <button
+            key={m}
+            type="button"
+            className={`chip-btn ${mode === m ? 'chip-btn--on' : 'chip-btn--off'}`}
+            onClick={() => setMode(m)}
+          >
+            {m === 'live'
+              ? t('track.catchNow')
+              : m === 'past'
+                ? t('track.whereDidTheyGo')
+                : t('track.notEnrolled')}
+          </button>
+        ))}
       </div>
 
-      {showForm && (
+      {mode === 'live' && <LiveMode cameras={cameras} />}
+      {mode === 'past' && (
+        <PastMode people={people} today={today} cameras={cameras}
+                  asked={askedPerson} askedDate={params.get('date') ?? ''} />
+      )}
+      {mode === 'find' && <BrowseFootage cameras={cameras} today={today} />}
+
+      <Legend />
+    </>
+  );
+}
+
+/* =========================================================================
+ * LIVE — catch someone now
+ * ========================================================================= */
+
+function LiveMode({ cameras }: { cameras: Camera[] }) {
+  const t = useT();
+  const [watching, setWatching] = useState<Camera | null>(null);
+  const [follow, setFollow] = useState<W.FollowView | null>(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  // The bodies the frame is currently drawing, in the same percentages it
+  // draws them at. Kept so the pointer can tell whether it is over a person:
+  // a crosshair that never changes gives no clue whether a click will land on
+  // somebody or on the floor beside them, and clicking the floor is the one
+  // failure this screen has.
+  const [boxes, setBoxes] = useState<DetectionBox[]>([]);
+  const [hovered, setHovered] = useState<DetectionBox | null>(null);
+  // Where the picture sits inside the tile. Zero until the first frame has
+  // loaded, which is also when there is nothing yet to click.
+  const [picture, setPicture] = useState<PictureRect>({
+    left: 0,
+    top: 0,
+    width: 0,
+    height: 0,
+  });
+
+  /* The engine holds the session; this only catches up with it. In particular
+   * a follow that ENDED server-side — the timer ran out, the track was lost —
+   * arrives through this poll, which is the only way a browser that never
+   * asked finds out. */
+  const refresh = useCallback(async () => {
+    try {
+      setFollow(await getFollow());
+    } catch {
+      /* one dropped poll leaves the last answer on screen */
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+    const timer = setInterval(() => void refresh(), FOLLOW_POLL_MS);
+    return () => clearInterval(timer);
+  }, [refresh]);
+
+  // Follow the person, not the camera the operator happened to open. When the
+  // engine says they have walked into another camera's view, show that one.
+  useEffect(() => {
+    if (!follow || follow.endedReason) return;
+    if (watching?.id === follow.cameraId) return;
+    const next = cameras.find((c) => c.id === follow.cameraId);
+    if (next) setWatching(next);
+  }, [follow, cameras, watching?.id]);
+
+  /** The smallest body under a point, so somebody standing in front of a
+   *  larger box is picked rather than the crowd behind them. Mirrors the
+   *  engine's own hit test, which is what makes the ring honest: what
+   *  highlights here is what gets followed there. */
+  const bodyAt = (x: number, y: number): DetectionBox | null => {
+    const hits = boxes.filter(
+      (b) =>
+        x * 100 >= b.x && x * 100 <= b.x + b.w && y * 100 >= b.y && y * 100 <= b.y + b.h,
+    );
+    if (hits.length === 0) return null;
+    return hits.reduce((a, b) => (a.w * a.h <= b.w * b.h ? a : b));
+  };
+
+  /** A point on the PICTURE, not on the tile around it.
+   *
+   *  The engine hit-tests fractions of the frame the camera sent, and the tile
+   *  is a different rectangle with bars wherever the two shapes disagree. A
+   *  click measured against the tile lands somewhere else on the picture, so
+   *  following would start on nobody — or on the wrong body. Out of range
+   *  reads as no point at all. */
+  const fractions = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (picture.width <= 0 || picture.height <= 0) return { x: -1, y: -1 };
+    const rect = event.currentTarget.getBoundingClientRect();
+    return {
+      x: (event.clientX - rect.left - picture.left) / picture.width,
+      y: (event.clientY - rect.top - picture.top) / picture.height,
+    };
+  };
+
+  const click = async (event: React.MouseEvent<HTMLDivElement>, camera: Camera) => {
+    // Fractions of the picture, which is also how the boxes over it are
+    // positioned. Matching the overlay is what matters: the operator is
+    // clicking a body they can see outlined, so the click has to use the same
+    // frame of reference the outline was drawn in.
+    const { x, y } = fractions(event);
+    if (x < 0 || x > 1 || y < 0 || y > 1) return;
+
+    setBusy(true);
+    setError('');
+    try {
+      setFollow(await startFollow(camera.id, x, y));
+    } catch (err) {
+      // Three refusals, three different meanings. Collapsing them would send
+      // an operator to fix the wrong thing.
+      const status = err instanceof ApiError ? err.status : 0;
+      const detail = err instanceof ApiError ? err.message : t('track.couldNotStartFollowing');
+      setError(
+        status === 404
+          ? t('track.nobodyThereToFollow')
+          : detail,
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const act = async (run: () => Promise<W.FollowView>) => {
+    setBusy(true);
+    setError('');
+    try {
+      setFollow(await run());
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : t('track.thatDidNotWork'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const active = follow && !follow.endedReason ? follow : null;
+
+  return (
+    <>
+      {error && (
+        <div
+          role="status"
+          style={{
+            padding: '9px 13px',
+            borderRadius: 9,
+            marginBottom: 12,
+            fontSize: 13,
+            background: 'var(--am-bg)',
+            color: 'var(--am)',
+          }}
+        >
+          {error}
+        </div>
+      )}
+
+      {follow && <FollowBanner follow={follow} />}
+
+      {!watching && !active && (
         <Card>
-          <Step n="1" title="Who are you following?" sub="One person at a time. Choose them by name, or point at them on a camera." />
-          <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap', margin: '0 0 6px 32px' }}>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--tx2)' }}>
-                By name, from the directory
+          <Step
+            n="1"
+            title={t('track.pickCamera')}
+            sub={t('track.pickCameraSub')}
+          />
+        </Card>
+      )}
+
+      {watching ? (
+        <Card>
+          <Step
+            n={active ? '3' : '2'}
+            title={t(active ? 'track.following' : 'track.clickThePerson')}
+            sub={
+              active
+                ? t('track.followingSub')
+                : t('track.clickTheBodySub')
+            }
+          />
+
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 10,
+              margin: '4px 0 8px',
+            }}
+          >
+            <div style={{ fontSize: 13, fontWeight: 600 }}>
+              {watching.name}
+              <span style={{ color: 'var(--tx3)', fontWeight: 400 }}>
+                {watching.area ? ` · ${watching.area}` : ''}
               </span>
-              <select
-                className="input"
-                value={subject?.source === 'directory' ? subject.name : ''}
-                onChange={(e) => chooseByName(e.target.value)}
+            </div>
+            <button
+              type="button"
+              className="linkbtn"
+              onClick={() => {
+                setWatching(null);
+                setError('');
+              }}
+            >
+              Back to the cameras
+            </button>
+          </div>
+
+          <div
+            onClick={active ? undefined : (e) => void click(e, watching)}
+            onMouseMove={
+              active
+                ? undefined
+                : (e) => {
+                    const { x, y } = fractions(e);
+                    setHovered(bodyAt(x, y));
+                  }
+            }
+            onMouseLeave={() => setHovered(null)}
+            style={{
+              position: 'relative',
+              cursor: active
+                ? 'default'
+                : busy
+                  ? 'progress'
+                  : hovered
+                    ? 'pointer'
+                    : 'crosshair',
+            }}
+            role="presentation"
+          >
+            <CameraFrame
+              camera={watching}
+              size="lg"
+              live
+              feature="track"
+              onBoxes={setBoxes}
+              onPicture={setPicture}
+              badge={t(active?.recording?.state === 'recording' ? 'track.recording' : 'track.live')}
+            />
+
+            {/* What you are about to follow, marked before you commit to it.
+                Positioned from the same numbers the frame drew the box with,
+                so the ring cannot drift away from the body it describes. */}
+            {hovered && !active && (
+              <div
+                style={{
+                  position: 'absolute',
+                  // Inside the picture, exactly like the box the frame drew.
+                  left: picture.left + (hovered.x / 100) * picture.width,
+                  top: picture.top + (hovered.y / 100) * picture.height,
+                  width: (hovered.w / 100) * picture.width,
+                  height: (hovered.h / 100) * picture.height,
+                  border: '2px solid #fff',
+                  borderRadius: 4,
+                  boxShadow: '0 0 0 2px rgba(0,0,0,.45)',
+                  pointerEvents: 'none',
+                }}
+              />
+            )}
+          </div>
+
+          {!active && (
+            <div style={{ fontSize: 12, color: 'var(--tx3)', marginTop: 6 }}>
+              {boxes.length === 0
+                ? t('track.nobodyTracked')
+                : hovered
+                  ? t('track.clickToFollow')
+                  : `${boxes.length} ${boxes.length === 1 ? 'person' : 'people'} in view — hover one to pick them out.`}
+            </div>
+          )}
+
+          {active && <RecordPanel follow={active} busy={busy} act={act} />}
+
+          {active && (
+            <div style={{ marginTop: 12 }}>
+              <button
+                type="button"
+                className="chip-btn chip-btn--off"
+                disabled={busy}
+                onClick={() => void act(endFollow)}
               >
-                <option value="">Choose someone…</option>
-                {people.map((p) => (
-                  <option key={p} value={p}>{p}</option>
-                ))}
-              </select>
-            </label>
-            <div style={{ fontSize: 12.5, color: 'var(--tx3)', fontWeight: 600, paddingBottom: 13 }}>or</div>
+                Stop following
+              </button>
+            </div>
+          )}
+        </Card>
+      ) : (
+        <CamGrid
+          title={t('track.cameras')}
+          note={t('track.camerasSub')}
+          cameras={[]}
+          byArea
+          searchable
+          pageSize={GRID_PAGE}
+          activeId={active?.cameraId}
+          onPick={(cam) => {
+            setWatching(cam);
+            setError('');
+          }}
+        />
+      )}
+
+      {active && active.trail.length > 1 && <Trail hops={active.trail} />}
+    </>
+  );
+}
+
+/** Who the engine thinks this is, said plainly — including when it does not
+ *  know yet, which is most of the first few seconds. */
+function FollowBanner({ follow }: { follow: W.FollowView }) {
+  const t = useT();
+  const named = !!follow.name;
+  const over = !!follow.endedReason;
+  const tone = over ? 'var(--tx3)' : named ? FACE : UNKNOWN;
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+        padding: '11px 15px',
+        borderRadius: 10,
+        marginBottom: 12,
+        background: 'var(--panel)',
+        borderInlineStart: `3px solid ${tone}`,
+      }}
+    >
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div style={{ fontSize: 14.5, fontWeight: 700, color: tone }}>
+          {over
+            ? follow.endedReason === 'track lost'
+              ? t('track.lostThem')
+              : t('track.stoppedBecause', { reason: follow.endedReason ?? '' })
+            : named
+              ? follow.name
+              : t('track.followingUnidentified')}
+        </div>
+        <div style={{ fontSize: 12.5, color: 'var(--tx2)', marginTop: 1 }}>
+          {over ? (
+            follow.endedReason === 'track lost' ? (
+              // Said in full, because the alternative reading — that the name
+              // is still valid somewhere — is the exact belief that once put
+              // one person's name on everybody.
+              t('track.trackBroke')
+            ) : (
+              t('track.nothingFollowed')
+            )
+          ) : named ? (
+            <>
+              Identified by face · {follow.cameraName} · {follow.place}
+            </>
+          ) : (
+            <>
+              Not identified yet — following the body. A name appears once a face has
+              been seen clearly, several times. · {follow.cameraName}
+            </>
+          )}
+        </div>
+      </div>
+      <div style={{ fontSize: 11.5, color: 'var(--tx3)', whiteSpace: 'nowrap' }}>
+        {follow.stableId}
+      </div>
+    </div>
+  );
+}
+
+function RecordPanel({
+  follow,
+  busy,
+  act,
+}: {
+  follow: W.FollowView;
+  busy: boolean;
+  act: (run: () => Promise<W.FollowView>) => Promise<void>;
+}) {
+  const { language } = useLanguage();
+  const t = useT();
+  const [timer, setTimer] = useState<number | null>(300);
+  const recording = follow.recording;
+  const running = recording?.state === 'recording';
+
+  return (
+    <div style={{ marginTop: 12, padding: 13, borderRadius: 10, background: 'var(--bg)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        {running ? (
+          <>
+            <button
+              type="button"
+              className="chip-btn chip-btn--on"
+              disabled={busy}
+              onClick={() => void act(stopFollowRecording)}
+            >
+              Stop recording
+            </button>
+            <span style={{ fontSize: 12.5, color: 'var(--tx2)' }}>
+              {recording?.timerSecondsLeft != null
+                ? `Stops itself in ${clock(recording.timerSecondsLeft)}`
+                : t('track.runsUntilYouStopIt')}
+            </span>
+          </>
+        ) : (
+          <>
             <button
               type="button"
               className="chip-btn chip-btn--off"
-              style={{ height: 42 }}
-              onClick={() => { stopClock(); setNote(''); setStage('mancam'); }}
+              disabled={busy}
+              onClick={() => void act(() => startFollowRecording(timer))}
             >
-              Point at them on a camera
+              {t('track.record')}
             </button>
-          </div>
-
-          {subject && <SubjectChip subject={subject} where={manCam?.name} />}
-
-          <div style={{ height: 1, background: 'var(--line)', margin: '18px 0' }} />
-          <Step
-            n="2"
-            title="When?"
-            sub={`Right now is ${nowLabel}. Following live and rebuilding a past path are different jobs — pick one.`}
-          />
-
-          <div style={{ marginLeft: 32 }}>
-            <div style={{ display: 'inline-flex', gap: 4, padding: 4, background: 'var(--bg)', borderRadius: 11, marginBottom: 14 }}>
-              {(['live', 'past'] as Mode[]).map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() => { setMode(m); setError(''); setStage(null); setResult(null); }}
-                  style={{
-                    padding: '8px 16px', borderRadius: 8, fontSize: 13.5, fontWeight: 600,
-                    cursor: 'pointer', whiteSpace: 'nowrap', border: 'none',
-                    background: mode === m ? 'var(--card)' : 'transparent',
-                    color: mode === m ? 'var(--tx)' : 'var(--tx3)',
-                    boxShadow: mode === m ? 'var(--sh)' : 'none',
-                  }}
-                >
-                  {m === 'live' ? 'Live — right now' : 'A past time'}
-                </button>
-              ))}
-            </div>
-
-            {mode === 'past' ? (
-              <>
-                <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-                  <Labelled label="Date">
-                    <input className="input" type="date" value={selectedDate} onChange={(e) => setDate(e.target.value)} />
-                  </Labelled>
-                  <Labelled label="From">
-                    <input className="input" type="time" value={from} onChange={(e) => { setFrom(e.target.value); setError(''); }} />
-                  </Labelled>
-                  <Labelled label="To">
-                    <input className="input" type="time" value={to} onChange={(e) => { setTo(e.target.value); setError(''); }} />
-                  </Labelled>
-                </div>
-                <div style={{ fontSize: 12.5, color: 'var(--tx3)', marginTop: 8 }}>
-                  A past search has to end before {nowLabel}. Recorded footage only — nothing is streaming.
-                </div>
-              </>
-            ) : (
-              <div style={{ fontSize: 13, color: 'var(--tx2)', lineHeight: 1.5 }}>
-                Picks them up from this moment and records while you watch. There is no past footage
-                in this mode, and no end time — you stop it yourself.
-              </div>
-            )}
-
-            {error && (
-              <div style={{
-                display: 'flex', gap: 9, background: 'var(--am-bg)', color: 'var(--am)',
-                borderRadius: 10, padding: '11px 14px', fontSize: 13, fontWeight: 600,
-                lineHeight: 1.45, marginTop: 12,
-              }}>
-                {error}
-              </div>
-            )}
-
-            <div style={{ marginTop: 18 }}>
+            {TIMERS.map((option) => (
               <button
+                key={option.seconds ?? 'none'}
                 type="button"
-                onClick={start}
-                disabled={loading}
-                style={{
-                  height: 44, padding: '0 24px', border: 'none', borderRadius: 10,
-                  background: mode === 'past' ? 'var(--ac)' : 'var(--rd)',
-                  color: '#fff', fontWeight: 600, fontSize: 14.5, cursor: 'pointer',
-                }}
+                className={`chip-btn ${timer === option.seconds ? 'chip-btn--on' : 'chip-btn--off'}`}
+                onClick={() => setTimer(option.seconds)}
               >
-                {loading ? 'Building…' : mode === 'past' ? 'Build path' : 'Start following'}
-              </button>
-            </div>
-          </div>
-        </Card>
-      )}
-
-      {!showForm && subject && (
-        <Card tight>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
-            <Avatar subject={subject} />
-            <div style={{ flex: 1, minWidth: 180 }}>
-              <IdLine subject={subject} />
-              <div style={{ fontSize: 12, color: 'var(--tx2)' }}>
-                {mode === 'past'
-                  ? `Recorded footage · ${from} to ${to}`
-                  : `Live, from ${nowLabel} onwards`}
-              </div>
-            </div>
-            <button type="button" className="chip-btn chip-btn--off" onClick={close}>
-              Change who or when
-            </button>
-          </div>
-        </Card>
-      )}
-
-      {/* ---------- pick a camera ---------- */}
-      {stage === 'mancam' && (
-        <>
-          <Card>
-            <div style={{ fontWeight: 700, fontSize: 19, letterSpacing: '-.01em' }}>
-              Choose the camera you want to look at.
-            </div>
-            <div style={{ fontSize: 13.5, color: 'var(--tx2)', marginTop: 3 }}>
-              {mode === 'past'
-                ? `Open a recorded camera at ${to} and point at the person yourself, instead of searching by name.`
-                : 'Open a live camera and point at the person yourself, instead of searching by name.'}
-            </div>
-          </Card>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(196px,1fr))', gap: 11, marginBottom: 14 }}>
-            {cameras.map((c) => (
-              <button
-                key={c.id}
-                type="button"
-                onClick={() => { setPickCam(c.id); setStage('manper'); }}
-                style={{ padding: 0, border: '1px solid var(--line)', borderRadius: 11, overflow: 'hidden', background: 'var(--card)', cursor: 'pointer', textAlign: 'left' }}
-              >
-                <CameraFrame camera={c} size="sm" />
-                <div style={{ padding: '8px 11px' }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--tx)' }}>{c.name}</div>
-                  <div style={{ fontSize: 11, color: 'var(--tx3)', marginTop: 1 }}>{c.status}</div>
-                </div>
+                {t(option.label, option.args)}
               </button>
             ))}
-          </div>
-          <Centre><button type="button" className="chip-btn chip-btn--off" onClick={close}>Cancel</button></Centre>
-        </>
-      )}
+          </>
+        )}
+      </div>
 
-      {/* ---------- pick a person in the frame ---------- */}
-      {stage === 'manper' && manCam && (
-        <>
-          <Card>
-            <div style={{ fontWeight: 700, fontSize: 19, letterSpacing: '-.01em' }}>
-              {mode === 'past'
-                ? 'Click the person you want to follow through the recording.'
-                : 'Click the person you want to follow.'}
-            </div>
-            <div style={{ fontSize: 13.5, color: 'var(--tx2)', marginTop: 3 }}>
-              {manCam.name} · {mode === 'past' ? `recorded at ${to} · nothing is streaming` : 'live · nobody is being followed yet, and nothing is recording'}
-            </div>
-          </Card>
-          <Card>
-            <CameraFrame camera={manCam} size="lg" live={mode !== 'past'} feature="track" />
-            <div style={{ fontSize: 12.5, color: 'var(--tx3)', marginTop: 9 }}>
-              Green means identified by face. Amber means not identified — following the body only.
-            </div>
-          </Card>
-          <Card>
-            <div style={{ fontWeight: 700, fontSize: 15.5, marginBottom: 2 }}>People in this frame</div>
-            <div style={{ fontSize: 12.5, color: 'var(--tx3)', marginBottom: 12 }}>
-              Pick the one you want to follow.
-            </div>
-            {(manCam.boxes ?? []).length === 0 && (
-              <div className="empty">Nobody is in view on this camera right now.</div>
-            )}
-            {(manCam.boxes ?? []).map((box, i) => {
-              const known = identifiedByFace(box.label);
-              const name = known ? box.label! : 'Unknown person';
-              return (
-                <div key={`${box.x}-${i}`} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 0', borderTop: '1px solid var(--line)' }}>
-                  <div style={{
-                    width: 34, height: 34, borderRadius: '50%', flexShrink: 0,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontWeight: 700, fontSize: 13,
-                    background: known ? 'var(--chip)' : 'var(--am-bg)',
-                    color: known ? 'var(--ac2)' : 'var(--am)',
-                  }}>
-                    {known ? initials(name) : '?'}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                      <span style={{ fontSize: 15, fontWeight: 700 }}>#{i + 1}</span>
-                      <span style={{ fontSize: 14, fontWeight: 600, color: known ? 'var(--tx2)' : 'var(--am)' }}>{name}</span>
-                    </div>
-                    <div style={{ fontSize: 12.5, color: 'var(--tx2)' }}>
-                      {known
-                        ? 'Identified by face — matched against the school directory'
-                        : 'Not identified by face — the system can only follow the body'}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    className="chip-btn chip-btn--on"
-                    onClick={() => {
-                      setSubject({ id: `#${i + 1}`, name, identified: known, source: 'camera' });
-                      if (mode === 'past') { setStage(null); void runPast(); return; }
-                      confirmCandidate(manCam.id);
-                    }}
-                  >
-                    {mode === 'past' ? 'Build their path' : 'Follow this person'}
-                  </button>
-                </div>
-              );
-            })}
-          </Card>
-          <Centre>
-            <button type="button" className="chip-btn chip-btn--off" onClick={() => setStage('mancam')}>Choose a different camera</button>
-            <button type="button" className="chip-btn chip-btn--off" onClick={close}>Cancel</button>
-          </Centre>
-        </>
-      )}
+      <div style={{ fontSize: 12, color: 'var(--tx3)', marginTop: 8 }}>
+        {t('track.recordNote')}
+      </div>
 
-      {/* ---------- which camera is it? ---------- */}
-      {stage === 'ambig' && (
-        <>
-          <Card>
-            <div style={{ fontWeight: 700, fontSize: 19, letterSpacing: '-.01em' }}>
-              The system found more than one possible match. Choose the right one.
-            </div>
-            <div style={{ fontSize: 13.5, color: 'var(--tx2)', marginTop: 3 }}>
-              Nothing is recorded until you choose. These are alternatives — only one of them is the
-              person you asked for.
-            </div>
-            {note && (
-              <div style={{ display: 'flex', gap: 9, background: 'var(--am-bg)', color: 'var(--am)', borderRadius: 10, padding: '10px 14px', fontSize: 13, fontWeight: 600, marginTop: 12 }}>
-                {note}
-              </div>
-            )}
-          </Card>
-
-          {candidates.length === 0 && (
-            <Card>
-              <div className="empty">
-                {liveState && !liveState.running
-                  ? `Tracking is not running: ${liveState.reason ?? 'unknown reason'}`
-                  : 'Nobody is in view on any tracked camera. Walk into shot and this fills in.'}
-              </div>
-            </Card>
-          )}
-          {candidates.map((c, i) => (
-            <div key={c.identity.stableId}>
-              {i > 0 && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '2px 0 10px' }}>
-                  <div style={{ flex: 1, height: 1, background: 'var(--line)' }} />
-                  <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: '.14em', color: 'var(--tx3)' }}>OR</div>
-                  <div style={{ flex: 1, height: 1, background: 'var(--line)' }} />
-                </div>
-              )}
-              <Card>
-                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)', gap: 18, alignItems: 'start' }}>
-                  {c.camera && <CameraFrame camera={c.camera} size="sm" badge={null} />}
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9 }}>
-                      <div style={{ width: 24, height: 24, borderRadius: 7, background: 'var(--panel)', color: 'var(--tx2)', fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        {c.letter}
-                      </div>
-                      <div style={{ fontWeight: 700, fontSize: 15.5 }}>{c.identity.cameraName}</div>
-                    </div>
-                    <div style={{ fontSize: 12.5, color: 'var(--tx2)', marginBottom: 8 }}>Cameras next to this one</div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 7, marginBottom: 12 }}>
-                      {c.neighbours.map((nb) => (
-                        <div key={nb.id} style={{ border: '1px solid var(--line)', borderRadius: 8, padding: '5px 7px', fontSize: 10.5, fontWeight: 600, color: 'var(--tx2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {nb.name}
-                        </div>
-                      ))}
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: 12.5, color: 'var(--tx2)' }}>How sure the system is</span>
-                      <span style={{
-                        fontSize: 12.5, fontWeight: 700, padding: '3px 10px', borderRadius: 8,
-                        background: c.confidence === 'Fairly sure' ? 'var(--chip)' : 'var(--am-bg)',
-                        color: c.confidence === 'Fairly sure' ? 'var(--ac2)' : 'var(--am)',
-                      }}>
-                        {c.confidence}
-                      </span>
-                    </div>
-                    <div style={{ fontSize: 12.5, color: 'var(--tx2)', lineHeight: 1.45, marginBottom: 14 }}>{c.why}</div>
-                    <button
-                      type="button"
-                      onClick={() => confirmCandidate(c.identity.cameraId, c.identity.stableId)}
-                      style={{ width: '100%', height: 42, border: 'none', borderRadius: 10, background: 'var(--ac)', color: '#fff', fontWeight: 600, fontSize: 14, cursor: 'pointer' }}
-                    >
-                      This is them
-                    </button>
-                  </div>
-                </div>
-              </Card>
+      {recording && recording.segments.length > 0 && (
+        <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {recording.segments.map((s) => (
+            <div
+              key={s.id}
+              style={{
+                display: 'flex',
+                alignItems: 'baseline',
+                gap: 8,
+                fontSize: 12.5,
+                color: 'var(--tx2)',
+              }}
+            >
+              <span style={{ fontWeight: 600, color: 'var(--tx)' }}>
+                {s.cameraName ?? s.cameraId}
+              </span>
+              <span>{formatTime(s.startedAt, language)}</span>
+              <span>· {s.seconds.toFixed(0)}s</span>
+              <span>
+                ·{' '}
+                {s.state === 'recording'
+                  ? 'recording'
+                  : s.state === 'failed'
+                    ? `failed — ${s.reason ?? 'no reason given'}`
+                    : (s.reason ?? 'stopped')}
+              </span>
             </div>
           ))}
-          <Centre><button type="button" className="chip-btn chip-btn--off" onClick={close}>None of these — cancel</button></Centre>
-        </>
-      )}
-
-      {/* ---------- following ---------- */}
-      {stage === 'live' && subject && cam && (
-        <>
-          <Card tight>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 15, flexWrap: 'wrap' }}>
-              <Avatar subject={subject} large />
-              <div style={{ flex: 1, minWidth: 230 }}>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 9, flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 19, fontWeight: 800, letterSpacing: '-.01em' }}>{shownId}</span>
-                  <span style={{ fontSize: 15, fontWeight: 600, color: identified ? 'var(--tx2)' : 'var(--am)' }}>
-                    {shownName}
-                  </span>
-                  <span style={{
-                    fontSize: 12, fontWeight: 700, padding: '3px 10px', borderRadius: 8,
-                    background: identified ? 'var(--chip)' : 'var(--am-bg)',
-                    color: identified ? 'var(--ac2)' : 'var(--am)',
-                  }}>
-                    {identified ? 'Identified by face' : 'Not identified by face'}
-                  </span>
-                </div>
-                <div style={{ fontSize: 12.5, color: 'var(--tx2)', marginTop: 2 }}>
-                  {identified
-                    ? 'Face match confirmed. Clothing is used only to keep hold of the body between cameras.'
-                    : 'Following clothing colour and build only. This is not a confirmed identity and must not be treated as one.'}
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: 18, whiteSpace: 'nowrap' }}>
-                <Stat label="Following for" value={clock(elapsed)} mono />
-                <Stat label="Cameras so far" value={String(camerasSoFar)} />
-              </div>
-              <div style={{ display: 'flex', gap: 9 }}>
-                <button
-                  type="button"
-                  onClick={notThisPerson}
-                  style={{ height: 42, padding: '0 17px', border: '1.5px solid var(--am)', borderRadius: 10, background: 'var(--card)', color: 'var(--am)', fontWeight: 600, fontSize: 13.5, cursor: 'pointer' }}
-                >
-                  Not this person
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { stopClock(); setStage('stop'); }}
-                  style={{ height: 42, padding: '0 19px', border: 'none', borderRadius: 10, background: 'var(--rd)', color: '#fff', fontWeight: 600, fontSize: 13.5, cursor: 'pointer' }}
-                >
-                  Stop tracking
-                </button>
-              </div>
-              <RecordButton
-                cameraId={cam.id}
-                note="Records this camera from the moment you press it, and keeps going if the person moves elsewhere."
-              />
-            </div>
-          </Card>
-
-          <Card>
-            <div style={{ position: 'relative' }}>
-              {/* FOLLOWING, not RECORDING. The badge used to say RECORDING
-                  while nothing was written to disk — the record button below
-                  is the only thing on this page that records anything. */}
-              <CameraFrame camera={cam} size="lg" live badge="FOLLOWING" feature="track" />
-              {/* ID big, name underneath — the design's rule. */}
-              {/* No box overlay here on purpose. CameraFrame already draws the
-                  tracked bodies from /cameras/{id}/detections, ids and all, and
-                  drawing a second one from /tracking/live put two boxes on the
-                  same person that drifted apart between polls. */}
-            </div>
-            <div style={{ fontSize: 12.5, color: 'var(--tx3)', marginTop: 9 }}>
-              {!seenNow
-                ? 'Out of view — the tracker is holding this identity, waiting for them to reappear.'
-                : identified
-                  ? 'Green box: identity confirmed by face.'
-                  : 'Amber box: nobody has been identified — following a body, not a person.'}
-            </div>
-          </Card>
-
-          <Card>
-            <div style={{ fontWeight: 700, fontSize: 15.5 }}>Cameras next to {cam.name}</div>
-            <div style={{ fontSize: 12.5, color: 'var(--tx3)', marginTop: 2 }}>
-              Click any camera to make it the main view. A slow green pulse marks where the system
-              expects them to walk next — a guess, not a sighting, and the label underneath says so
-              in words.
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 11, marginTop: 14, alignItems: 'start' }}>
-              {neighboursOf(cameras, cam.id).map((nb) => {
-                const isNext = predicted?.id === nb.id;
-                const seen = visited.includes(nb.id);
-                return (
-                  <button
-                    key={nb.id}
-                    type="button"
-                    onClick={() => switchCamera(nb.id)}
-                    style={{
-                      padding: 0, textAlign: 'left', cursor: 'pointer', borderRadius: 11,
-                      overflow: 'hidden', background: 'var(--card)',
-                      border: `2px solid ${isNext ? '#5cae91' : 'var(--line)'}`,
-                      animation: isNext ? 'vg-nextcam 2s ease-in-out infinite' : 'none',
-                    }}
-                  >
-                    <CameraFrame camera={nb} size="sm" badge={null} />
-                    <div style={{ padding: '8px 11px' }}>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--tx)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {nb.name}
-                      </div>
-                      <div style={{ fontSize: 11, fontWeight: 600, marginTop: 1, minHeight: 26, color: isNext ? 'var(--ac)' : 'var(--tx3)' }}>
-                        {isNext ? 'Predicted next — not a sighting' : seen ? 'Seen earlier' : 'No sighting'}
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </Card>
-
-          <Card>
-            <div style={{ fontWeight: 700, fontSize: 15.5, marginBottom: 3 }}>Path so far</div>
-            <Legend />
-            <div style={{ position: 'relative', paddingLeft: 26 }}>
-              <div style={{ position: 'absolute', left: 7, top: 6, bottom: 6, width: 2, background: 'var(--line)' }} />
-              {livePath.map((p) => (
-                <div key={p.key} style={{ position: 'relative', paddingBottom: 18 }}>
-                  <span style={{
-                    position: 'absolute', left: -24, top: 4, width: 12, height: 12,
-                    borderRadius: p.round ? '50%' : 2, background: p.colour,
-                    border: '2.5px solid var(--card)', boxSizing: 'content-box',
-                  }} />
-                  <div style={{ fontWeight: 600, fontSize: 14 }}>{p.time} — {p.place}</div>
-                  <div style={{ fontSize: 12.5, color: 'var(--tx2)', marginTop: 1 }}>{p.kind} · {p.detail}</div>
-                </div>
-              ))}
-            </div>
-          </Card>
-        </>
-      )}
-
-      {/* ---------- what actually happened ----------
-           This used to ask "Save this clip?" and then report "Clip saved".
-           No clip existed and nothing was written: the answer only set a flag
-           that chose which sentence to print. A false confirmation is worse
-           than a dead button, because somebody goes looking for the file. */}
-      {stage === 'stop' && (
-        <Card>
-          <div style={{ fontWeight: 700, fontSize: 19, letterSpacing: '-.01em' }}>
-            Tracking ended
-          </div>
-          <div style={{ fontSize: 13.5, color: 'var(--tx2)', margin: '3px 0 16px' }}>
-            The search is in the audit log with your name. Any recording you started while
-            following was written to disk as it was made — there is no clip waiting to be saved
-            or discarded here.
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: 12, marginBottom: 18 }}>
-            <Tile label="Followed for" value={`${Math.floor(elapsed / 60)}m ${elapsed % 60}s`} />
-            <Tile label="Cameras" value={String(camerasSoFar)} />
-            <Tile label="Started" value={wallClock(startedAt, 0)} />
-          </div>
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            <button type="button" className="chip-btn chip-btn--on" style={{ height: 44 }} onClick={() => { setNote(''); setStage('ambig'); }}>
-              Follow again
-            </button>
-            <button type="button" className="chip-btn chip-btn--off" style={{ height: 44 }} onClick={close}>
-              Close
-            </button>
-          </div>
-        </Card>
-      )}
-
-      {/* ---------- a past path ---------- */}
-      {showForm && result && (
-        <Card>
-          <div style={{ fontWeight: 700, fontSize: 21, letterSpacing: '-.01em' }}>{result.heading}</div>
-          <div style={{ fontSize: 13.5, color: 'var(--tx2)', margin: '2px 0 14px' }}>{result.sub}</div>
-          <Legend />
-          <div style={{ position: 'relative', paddingLeft: 26 }}>
-            <div style={{ position: 'absolute', left: 7, top: 6, bottom: 6, width: 2, background: 'var(--line)' }} />
-            {result.path.map((stop, i) => (
-              <div key={`${stop.time}-${stop.place}-${i}`} style={{ position: 'relative', paddingBottom: 18 }}>
-                <span style={{
-                  position: 'absolute', left: -24, top: 4, width: 12, height: 12,
-                  borderRadius: stop.match === 'face' ? '50%' : 2,
-                  background: stop.match === 'face' ? FACE : CLOTH,
-                  border: '2.5px solid var(--card)', boxSizing: 'content-box',
-                }} />
-                <div style={{ fontWeight: 600, fontSize: 14 }}>
-                  {stop.time}{stop.until && stop.until !== stop.time ? ` – ${stop.until}` : ''} — {stop.place}
-                </div>
-                <div style={{ fontSize: 12.5, color: 'var(--tx2)', marginTop: 1 }}>{stop.detail}</div>
-              </div>
-            ))}
-          </div>
-        </Card>
-      )}
-
-      {showForm && !result && !loading && (
-        <div style={{ textAlign: 'center', padding: '52px 20px', color: 'var(--tx3)', fontSize: 14.5 }}>
-          Choose a person and a time window.
         </div>
+      )}
+    </div>
+  );
+}
+
+function Trail({ hops }: { hops: W.TrailHop[] }) {
+  const { language } = useLanguage();
+  const t = useT();
+  return (
+    <Card>
+      <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 8 }}>{t('track.whereTheyHaveBeen')}</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {hops.map((hop, i) => (
+          <div
+            key={`${hop.cameraId}-${hop.at.utc}-${i}`}
+            style={{ display: 'flex', alignItems: 'baseline', gap: 10, fontSize: 13 }}
+          >
+            <span
+              style={{
+                width: 9,
+                height: 9,
+                borderRadius: '50%',
+                background: CLOTH,
+                flexShrink: 0,
+              }}
+            />
+            <span style={{ fontWeight: 600 }}>{formatTime(hop.at, language)}</span>
+            <span>{hop.cameraName}</span>
+            <span style={{ color: 'var(--tx3)' }}>{hop.place}</span>
+          </div>
+        ))}
+      </div>
+      <div style={{ fontSize: 12, color: 'var(--tx3)', marginTop: 8 }}>
+        Same body, camera to camera. That is a claim about continuity, not about who
+        anybody is.
+      </div>
+    </Card>
+  );
+}
+
+/* =========================================================================
+ * PAST — where did they go
+ * ========================================================================= */
+
+function PastMode({
+  people,
+  today,
+  cameras,
+  asked = '',
+  askedDate = '',
+}: {
+  people: string[];
+  today: string;
+  cameras: Camera[];
+  /** A person Ask already resolved. Empty when somebody opened this tab
+   *  themselves, which is the ordinary case. */
+  asked?: string;
+  askedDate?: string;
+}) {
+  const t = useT();
+  const [who, setWho] = useState(asked);
+  const [date, setDate] = useState(askedDate || today);
+  const [from, setFrom] = useState('07:00');
+  const [to, setTo] = useState('08:15');
+  const [path, setPath] = useState<W.PathSkeleton | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!date) setDate(today);
+  }, [today, date]);
+
+  // Minutes, never strings, and never against the viewer's clock. Comparing
+  // "09:00" with "10:00" as text happens to work and comparing "9:00" with
+  // "10:00" does not, which is the kind of bug that only shows up at 9am.
+  const windowOk = useMemo(() => {
+    const a = minutes(from);
+    const b = minutes(to);
+    return Number.isFinite(a) && Number.isFinite(b) && a < b;
+  }, [from, to]);
+
+  const run = async () => {
+    if (!who || !windowOk) return;
+    setLoading(true);
+    setError('');
+    try {
+      setPath(await getPathSkeleton(who, date, from, to));
+    } catch (err) {
+      const status = err instanceof ApiError ? err.status : 0;
+      setError(
+        status === 404
+          ? `Nobody here is called “${who}”. Check the spelling, or pick them from the list.`
+          : err instanceof ApiError
+            ? err.message
+            : t('track.couldNotBuildPath'),
+      );
+      setPath(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <>
+      <Card>
+        <Step
+          n="1"
+          title={t('track.whoAndWhen')}
+          sub={t('track.whoAndWhenSub')}
+        />
+        <div className="row" style={{ gridTemplateColumns: '2fr 1fr 1fr 1fr auto', gap: 10 }}>
+          <Labelled label={t('track.person')}>
+            <input
+              list="track-people"
+              value={who}
+              onChange={(e) => setWho(e.target.value)}
+              placeholder="Name"
+            />
+            <datalist id="track-people">
+              {people.map((n) => (
+                <option key={n} value={n} />
+              ))}
+            </datalist>
+          </Labelled>
+          <Labelled label="Date">
+            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          </Labelled>
+          <Labelled label="From">
+            <input type="time" value={from} onChange={(e) => setFrom(e.target.value)} />
+          </Labelled>
+          <Labelled label="To">
+            <input type="time" value={to} onChange={(e) => setTo(e.target.value)} />
+          </Labelled>
+          <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+            <button
+              type="button"
+              className="chip-btn chip-btn--on"
+              disabled={!who || !windowOk || loading}
+              onClick={() => void run()}
+            >
+              {t(loading ? 'track.looking' : 'track.showTheirPath')}
+            </button>
+          </div>
+        </div>
+        {!windowOk && (
+          <div style={{ fontSize: 12.5, color: 'var(--am)', marginTop: 8 }}>
+            The end of the window has to come after the start.
+          </div>
+        )}
+        {error && <div style={{ fontSize: 12.5, color: 'var(--am)', marginTop: 8 }}>{error}</div>}
+      </Card>
+
+      {path && <Skeleton path={path} from={from} to={to} />}
+
+      {/* The same question, asked the expensive way. It belongs here rather
+          than under a heading of its own: "where did they go" and "search the
+          footage for them" are one question, and splitting them by HOW they
+          are answered rather than by what is being asked made the page look
+          like it did the same thing twice. */}
+      {path && (
+        <SweepPanel
+          cameras={cameras}
+          person={path.subject.name ?? who}
+          date={date}
+          from={from}
+          to={to}
+          foundSomething={path.anchors.length > 0}
+        />
       )}
     </>
   );
 }
+
+/** The stop chain. Green stops are the skeleton; blue ones are the same body,
+ *  and are never named because clothing cannot say who anybody is. */
+function Skeleton({
+  path,
+  from,
+  to,
+}: {
+  path: W.PathSkeleton;
+  from: string;
+  to: string;
+}) {
+  const { language } = useLanguage();
+  const t = useT();
+  const name = path.subject.name ?? path.subject.id ?? 'this person';
+  const nothing = path.anchors.length === 0 && path.appearance.length === 0;
+  const [leg, setLeg] = useState<W.LegJob | null>(null);
+  const [legError, setLegError] = useState('');
+  const [opening, setOpening] = useState('');
+
+  // A stop is a span, so the video asked for is that span with a little
+  // either side — somebody walking into view is usually the part being asked
+  // about, and it happens just before the face was readable.
+  const watch = async (a: W.PathAnchor) => {
+    setOpening(a.cameraId + a.at.utc);
+    setLegError('');
+    try {
+      const from = new Date(new Date(a.at.utc).getTime() - PADDING_MS);
+      const until = new Date(new Date(a.until.utc).getTime() + PADDING_MS);
+      setLeg(
+        await startLeg({
+          cameraId: a.cameraId,
+          start: from.toISOString(),
+          end: until.toISOString(),
+          personId: path.subject.id ?? null,
+        }),
+      );
+    } catch (err) {
+      const status = err instanceof ApiError ? err.status : 0;
+      setLegError(
+        status === 503
+          ? (err as ApiError).message
+          : status === 409
+            ? t('track.engineBusy')
+            : err instanceof ApiError
+              ? err.message
+              : t('track.videoNotFetched'),
+      );
+    } finally {
+      setOpening('');
+    }
+  };
+
+  return (
+    <Card>
+      <div style={{ fontWeight: 700, fontSize: 15.5 }}>{name}</div>
+      <div style={{ fontSize: 12.5, color: 'var(--tx3)', marginBottom: 12 }}>
+        {/* Every part of this line comes from the catalogue.
+            The time range in particular: `07:30 to 16:00` built here would
+            be English whatever the console is set to, and the two times sit
+            either side of a neutral word - which in right-to-left text
+            reorders on screen, so a shift appears to end before it starts.
+            Through the catalogue both are isolated automatically. */}
+        {formatLongDate(path.date, language)} ·{' '}
+        {t('track.timeRange', { from, to })} ·{' '}
+        {path.anchors.length === 0
+          ? t('track.notIdentifiedAnywhere')
+          : t(path.anchors.length === 1 ? 'track.stops.one' : 'track.stops.other',
+            { count: formatCount(path.anchors.length, language) })}
+      </div>
+
+      {/* Patrol recognition is off, so only the entrance cameras looked for
+          faces. A path built that way is THINNER, and a thinner path reads
+          exactly like a person who was not there. Saying which it is turns a
+          misleading answer into a true one. */}
+      {path.namesFrom === 'identity' && (
+        <div
+          role="status"
+          style={{
+            fontSize: 12.5,
+            color: 'var(--tx3)',
+            border: '1px solid var(--ln)',
+            borderRadius: 8,
+            padding: '8px 10px',
+            marginBottom: 12,
+          }}
+        >
+          {t('track.namesFromIdentity')}
+        </div>
+      )}
+
+      {nothing ? (
+        <Empty>
+          Nobody recognised {name} anywhere in that window. That is not the same as
+          them not being there — the cameras may simply not have read a face as they
+          walked past. Widen the window, try another day, or use the search below to
+          go back through the recorded video itself.
+        </Empty>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {path.anchors.map((a) => (
+            <AnchorRow
+              key={`${a.cameraId}-${a.at.utc}`}
+              anchor={a}
+              busy={opening === a.cameraId + a.at.utc}
+              onWatch={() => void watch(a)}
+            />
+          ))}
+
+          {path.appearance.length > 0 && (
+            <>
+              <div
+                style={{
+                  fontSize: 12,
+                  fontWeight: 700,
+                  letterSpacing: 0.3,
+                  textTransform: 'uppercase',
+                  color: 'var(--tx3)',
+                  marginTop: 6,
+                }}
+              >
+                Same body, not identified
+              </div>
+              {path.appearance.map((s, i) => (
+                <div
+                  key={`${s.cameraId}-${s.at.utc}-${i}`}
+                  style={{ display: 'flex', alignItems: 'baseline', gap: 10, fontSize: 13 }}
+                >
+                  <span
+                    style={{
+                      width: 10,
+                      height: 10,
+                      borderRadius: 2,
+                      background: CLOTH,
+                      flexShrink: 0,
+                    }}
+                  />
+                  <span style={{ fontWeight: 600, minWidth: 62 }}>{formatTime(s.at, language)}</span>
+                  <span style={{ fontWeight: 600 }}>{s.place}</span>
+                  <span style={{ color: 'var(--tx3)' }}>{s.cameraName}</span>
+                </div>
+              ))}
+              <div style={{ fontSize: 12, color: 'var(--tx3)' }}>
+                Clothing matched, no face was read. That says the same body moved
+                through, not who it was.
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {legError && (
+        <div style={{ fontSize: 12.5, color: 'var(--am)', marginTop: 10 }}>{legError}</div>
+      )}
+
+      {leg && <LegPlayer leg={leg} onClose={() => setLeg(null)} />}
+    </Card>
+  );
+}
+
+/** One green stop, with the evidence that earned it on hover.
+ *
+ *  Rule 5: the number shown is the one the engine measured. "6 matches over 4
+ *  seconds, best 0.71" is checkable; "high confidence" is not. */
+function AnchorRow({
+  anchor,
+  busy,
+  onWatch,
+}: {
+  anchor: W.PathAnchor;
+  busy: boolean;
+  onWatch: () => void;
+}) {
+  const { language } = useLanguage();
+  const t = useT();
+  const seconds = Math.max(
+    0,
+    (new Date(anchor.until.utc).getTime() - new Date(anchor.at.utc).getTime()) / 1000,
+  );
+  const why = `${anchor.matches} ${anchor.matches === 1 ? 'match' : 'matches'} over ${seconds.toFixed(
+    seconds < 10 ? 1 : 0,
+  )}s · best ${anchor.score.toFixed(2)} · face ${anchor.facePx}px`;
+
+  return (
+    <div
+      title={why}
+      style={{ display: 'flex', alignItems: 'baseline', gap: 10, fontSize: 13 }}
+    >
+      <span
+        style={{ width: 10, height: 10, borderRadius: '50%', background: FACE, flexShrink: 0 }}
+      />
+      <span style={{ fontWeight: 600, minWidth: 62 }}>{formatTime(anchor.at, language)}</span>
+      <span style={{ fontWeight: 600 }}>{anchor.place}</span>
+      <span style={{ color: 'var(--tx3)' }}>{anchor.cameraName}</span>
+      <span style={{ color: 'var(--tx3)', fontSize: 11.5, marginInlineStart: 'auto' }}>{why}</span>
+      <button type="button" className="linkbtn" disabled={busy} onClick={onWatch}>
+        {t(busy ? 'track.fetching' : 'track.watch')}
+      </button>
+    </div>
+  );
+}
+
+/* =========================================================================
+ * The video behind a stop
+ * ========================================================================= */
+
+/** How often a running leg is re-read. Pieces land every few seconds, so this
+ *  is fast enough to feel immediate and slow enough not to be a load. */
+const LEG_POLL_MS = 1_500;
+
+/** Plays a leg piece by piece, starting on the first that lands.
+ *
+ *  The honesty here is in the waiting line. A spinner with no number behind it
+ *  says nothing, so this shows how many pieces are ready out of how many, and
+ *  the expected wait ONLY when the machine has actually been measured. With no
+ *  measurement it says so and names the tool, rather than inventing a number
+ *  that reads exactly like a real one. */
+function LegPlayer({
+  leg,
+  onClose,
+  onPickBody,
+}: {
+  leg: W.LegJob;
+  onClose: () => void;
+  /** Set on the footage-browsing view: clicking a body follows it onto other
+   *  cameras. Absent everywhere else, because clicking a body inside somebody
+   *  else's path is not a question anybody is asking there. */
+  onPickBody?: (point: { jobId: string; chunk: number; x: number; y: number }) => void;
+}) {
+  const { language } = useLanguage();
+  const t = useT();
+  const [job, setJob] = useState<W.LegJob>(leg);
+  const [piece, setPiece] = useState(0);
+  const [failed, setFailed] = useState('');
+  const video = useRef<HTMLVideoElement | null>(null);
+
+  const running = job.job.state === 'queued' || job.job.state === 'running';
+
+  useEffect(() => {
+    if (!running) return;
+    let alive = true;
+    const tick = () => {
+      void getLeg(job.job.id)
+        .then((next) => {
+          if (alive) setJob(next);
+        })
+        .catch(() => {
+          /* a dropped poll leaves the pieces already on screen playable */
+        });
+    };
+    const timer = setInterval(tick, LEG_POLL_MS);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [running, job.job.id]);
+
+  // Advance to the next piece the moment this one ends, so a leg plays as one
+  // stretch of video rather than as a row of separate clips.
+  const next = () => {
+    if (piece + 1 < job.chunkUrls.length) setPiece(piece + 1);
+  };
+
+  const url = job.chunkUrls[piece];
+  const waitingForMore = piece >= job.chunkUrls.length && running;
+
+  return (
+    <Card>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'flex-start',
+          justifyContent: 'space-between',
+          gap: 10,
+          marginBottom: 10,
+        }}
+      >
+        <div>
+          <div style={{ fontWeight: 700, fontSize: 15.5 }}>{job.cameraName}</div>
+          <div style={{ fontSize: 12.5, color: 'var(--tx3)' }}>
+            {job.place} · {formatTime(job.start, language)} · {job.seconds.toFixed(0)} seconds of
+            recorded video
+          </div>
+        </div>
+        <button type="button" className="linkbtn" onClick={onClose}>
+          Close
+        </button>
+      </div>
+
+      {job.job.state === 'failed' ? (
+        <Empty>
+          {job.job.error ??
+            t('track.videoNotFetchedFromRecorder')}
+        </Empty>
+      ) : url ? (
+        <>
+          <video
+            ref={video}
+            key={url}
+            src={legChunkUrl(url)}
+            controls
+            autoPlay
+            onEnded={next}
+            onClick={
+              onPickBody
+                ? (e) => {
+                    // Fractions of the frame, the same units the outlines
+                    // were burnt in at, so a click lands on the body the
+                    // operator can see marked.
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    onPickBody({
+                      jobId: job.job.id,
+                      chunk: piece,
+                      x: (e.clientX - rect.left) / rect.width,
+                      y: (e.clientY - rect.top) / rect.height,
+                    });
+                  }
+                : undefined
+            }
+            onError={() =>
+              setFailed(t('track.videoWouldNotPlay'))
+            }
+            style={{
+              width: '100%',
+              borderRadius: 10,
+              background: '#000',
+              display: 'block',
+              cursor: onPickBody ? 'crosshair' : undefined,
+            }}
+          />
+          {onPickBody && (
+            <div style={{ fontSize: 12, color: 'var(--tx3)', marginTop: 6 }}>
+              Pause where you can see them, then click the person to follow that body
+              onto the other cameras.
+            </div>
+          )}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              marginTop: 8,
+              fontSize: 12.5,
+              color: 'var(--tx2)',
+              flexWrap: 'wrap',
+            }}
+          >
+            <button
+              type="button"
+              className="linkbtn"
+              disabled={piece === 0}
+              onClick={() => setPiece(piece - 1)}
+            >
+              Back 30s
+            </button>
+            <span>
+              Piece {piece + 1} of {job.chunkUrls.length}
+              {job.chunksMissing > 0 && ` recorded (${job.chunksTotal} in the stop)`}
+            </span>
+            <button
+              type="button"
+              className="linkbtn"
+              disabled={piece + 1 >= job.chunkUrls.length}
+              onClick={next}
+            >
+              Forward 30s
+            </button>
+            {running && (
+              <span style={{ color: 'var(--tx3)' }}>
+                · fetching the next 30 seconds…
+              </span>
+            )}
+          </div>
+        </>
+      ) : (
+        <Waiting job={job} />
+      )}
+
+      {job.chunksMissing > 0 && job.chunkUrls.length > 0 && (
+        // Said plainly, because the alternative reading — that this IS the
+        // whole stop — is a claim about what a camera saw, from video that
+        // was never recorded.
+        <div style={{ fontSize: 12.5, color: 'var(--am)', marginTop: 8 }}>
+          {job.chunksMissing} of {job.chunksTotal} pieces of this stop were never
+          recorded, so what plays here is only the part that was. {job.gapReason}
+        </div>
+      )}
+
+      {waitingForMore && (
+        <div style={{ fontSize: 12.5, color: 'var(--tx3)', marginTop: 8 }}>
+          That is everything fetched so far. The next piece is still being built.
+        </div>
+      )}
+      {failed && (
+        <div style={{ fontSize: 12.5, color: 'var(--am)', marginTop: 8 }}>{failed}</div>
+      )}
+      {!running && job.chunkUrls.length > 0 && (
+        <div style={{ fontSize: 12, color: 'var(--tx3)', marginTop: 8 }}>
+          Outlines are burnt into the video, so each piece is evidence on its own — it
+          still shows them on a machine with none of this open.
+        </div>
+      )}
+    </Card>
+  );
+}
+
+/** The wait, with a real number behind it or an honest admission that there
+ *  is not one. */
+function Waiting({ job }: { job: W.LegJob }) {
+  const ready = job.chunksReady;
+  const total = job.chunksTotal || 1;
+
+  return (
+    <div style={{ padding: '18px 4px' }}>
+      <div style={{ fontSize: 13.5, fontWeight: 600 }}>
+        Fetching the video from the recorder…
+      </div>
+      <div style={{ fontSize: 12.5, color: 'var(--tx2)', marginTop: 4 }}>
+        {ready} of {total} {total === 1 ? 'piece' : 'pieces'} ready. It starts playing as
+        soon as the first one lands.
+      </div>
+      <div
+        style={{
+          height: 5,
+          borderRadius: 3,
+          background: 'var(--panel)',
+          marginTop: 10,
+          overflow: 'hidden',
+        }}
+      >
+        <div
+          style={{
+            width: `${Math.round((job.job.progress || 0) * 100)}%`,
+            height: '100%',
+            background: 'var(--ac)',
+            transition: 'width .3s',
+          }}
+        />
+      </div>
+      <div style={{ fontSize: 12, color: 'var(--tx3)', marginTop: 8 }}>
+        {job.estimateSeconds != null
+          ? `About ${Math.max(1, Math.round(job.estimateSeconds))} seconds in total, from what this machine was measured at.`
+          : 'Nobody has measured how fast this machine reads recorded video, so there is no expected time to give you. Run engine/tools/measure_track.py to get one.'}
+      </div>
+    </div>
+  );
+}
+
 
 /* ---------- small pieces ---------- */
 
 function Step({ n, title, sub }: { n: string; title: string; sub: string }) {
   return (
     <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 10 }}>
-      <div style={{ width: 22, height: 22, borderRadius: 7, background: 'var(--panel)', color: 'var(--tx2)', fontSize: 11.5, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+      <div
+        style={{
+          width: 22,
+          height: 22,
+          borderRadius: 7,
+          background: 'var(--panel)',
+          color: 'var(--tx2)',
+          fontSize: 11.5,
+          fontWeight: 700,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0,
+        }}
+      >
         {n}
       </div>
       <div>
@@ -928,87 +1257,25 @@ function Labelled({ label, children }: { label: string; children: React.ReactNod
   );
 }
 
-function Avatar({ subject, large = false }: { subject: Subject; large?: boolean }) {
-  const size = large ? 42 : 30;
-  return (
-    <div style={{
-      width: size, height: size, borderRadius: '50%', flexShrink: 0,
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontWeight: 700, fontSize: large ? 15 : 12.5,
-      background: subject.identified ? 'var(--chip)' : 'var(--am-bg)',
-      color: subject.identified ? 'var(--ac2)' : 'var(--am)',
-    }}>
-      {subject.identified ? initials(subject.name) : '?'}
-    </div>
-  );
-}
-
-function IdLine({ subject }: { subject: Subject }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-      <span style={{ fontSize: 14, fontWeight: 700 }}>{subject.id}</span>
-      <span style={{ fontSize: 14, fontWeight: 600, color: subject.identified ? 'var(--ac2)' : 'var(--am)' }}>
-        {subject.identified ? subject.name : 'Unknown person'}
-      </span>
-    </div>
-  );
-}
-
-function SubjectChip({ subject, where }: { subject: Subject; where?: string }) {
-  return (
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: 10, margin: '12px 0 0 32px',
-      padding: '10px 14px', borderRadius: 10,
-      background: subject.identified ? 'var(--chip)' : 'var(--am-bg)',
-    }}>
-      <Avatar subject={subject} />
-      <div style={{ minWidth: 0 }}>
-        <IdLine subject={subject} />
-        <div style={{ fontSize: 12, color: 'var(--tx2)' }}>
-          {subject.identified
-            ? subject.source === 'camera'
-              ? `Identified by face, picked on ${where ?? 'a camera'}`
-              : 'Identified by face, from the directory'
-            : 'Never identified by face — only clothing colour and build can be followed'}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function Stat({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div>
-      <div style={{ fontSize: 11.5, color: 'var(--tx3)' }}>{label}</div>
-      <div style={{ fontSize: 16, fontWeight: 700, fontFamily: mono ? 'ui-monospace,Menlo,monospace' : undefined }}>
-        {value}
-      </div>
-    </div>
-  );
-}
-
-function Tile({ label, value }: { label: string; value: string }) {
-  return (
-    <div style={{ background: 'var(--bg)', borderRadius: 10, padding: '13px 15px' }}>
-      <div style={{ fontSize: 12.5, color: 'var(--tx2)' }}>{label}</div>
-      <div style={{ fontSize: 20, fontWeight: 700 }}>{value}</div>
-    </div>
-  );
-}
-
 /** Three kinds of evidence, named in words. Colour alone would not survive a
  *  colour-blind operator or a printed report. */
 function Legend() {
+  const say = useT();
   const items = [
-    { t: 'Identified by face', c: FACE, round: true },
-    { t: 'Clothing match only', c: CLOTH, round: false },
-    { t: 'Not identified', c: UNKNOWN, round: false },
+    { t: say('track.identifiedByFace'), c: FACE, round: true },
+    { t: say('track.clothingMatchOnly'), c: CLOTH, round: false },
+    { t: say('track.notIdentified'), c: UNKNOWN, round: false },
   ];
   return (
-    <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', margin: '8px 0 14px' }}>
+    <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', margin: '14px 0' }}>
       {items.map((g) => (
-        <div key={g.t} style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: 'var(--tx2)' }}>
-          <span style={{ width: 11, height: 11, borderRadius: g.round ? '50%' : 2, background: g.c }} />
+        <div
+          key={g.t}
+          style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: 'var(--tx2)' }}
+        >
+          <span
+            style={{ width: 11, height: 11, borderRadius: g.round ? '50%' : 2, background: g.c }}
+          />
           {g.t}
         </div>
       ))}
@@ -1016,10 +1283,456 @@ function Legend() {
   );
 }
 
-function Centre({ children }: { children: React.ReactNode }) {
+/* =========================================================================
+ * Sweeping a window, and following somebody who was never enrolled
+ * ========================================================================= */
+
+const SWEEP_POLL_MS = 2_000;
+
+/** The wide net.
+ *
+ *  The rule this panel exists to keep: the cost is stated before anything
+ *  runs, and the run button does not work until the arithmetic says it is
+ *  affordable. An operator should never discover a fifteen-minute wait by
+ *  starting it. */
+function SweepPanel({
+  cameras,
+  person,
+  date: seedDate,
+  from: seedFrom,
+  to: seedTo,
+  foundSomething,
+}: {
+  cameras: Camera[];
+  person: string;
+  date: string;
+  from: string;
+  to: string;
+  /** Whether the instant answer turned anything up. Only changes the wording:
+   *  after a hit this is "look harder", after nothing it is the next move. */
+  foundSomething: boolean;
+}) {
+  const { language } = useLanguage();
+  const t = useT();
+  const who = person;
+  const [date, setDate] = useState(seedDate);
+  const [from, setFrom] = useState(seedFrom);
+  const [to, setTo] = useState(seedTo);
+  const [area, setArea] = useState('');
+
+  // Re-seed when the question above changes, so this is an escalation of that
+  // question rather than a second, quietly different one.
+  useEffect(() => {
+    setDate(seedDate);
+    setFrom(seedFrom);
+    setTo(seedTo);
+  }, [seedDate, seedFrom, seedTo]);
+  const [estimate, setEstimate] = useState<W.SweepEstimate | null>(null);
+  const [job, setJob] = useState<W.SweepJob | null>(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const areas = useMemo(() => {
+    const named = new Set<string>();
+    for (const cam of cameras) if (cam.area) named.add(cam.area);
+    return [...named].sort();
+  }, [cameras]);
+
+  const request = (): W.SweepRequest => ({
+    person: who,
+    start: new Date(`${date}T${from}:00`).toISOString(),
+    end: new Date(`${date}T${to}:00`).toISOString(),
+    areas: area ? [area] : [],
+  });
+
+  const windowOk = minutes(from) < minutes(to);
+
+  // Any change invalidates the estimate. Running against a stale one would be
+  // exactly the surprise the estimate exists to prevent.
+  useEffect(() => {
+    setEstimate(null);
+  }, [who, date, from, to, area]);
+
+  const price = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      setEstimate(await estimateSweep(request()));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : t('track.couldNotWorkOutCost'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const run = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      setJob(await startSweep(request()));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : t('track.sweepWouldNotStart'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const running = job?.job.state === 'queued' || job?.job.state === 'running';
+  useEffect(() => {
+    if (!job || !running) return;
+    let alive = true;
+    const timer = setInterval(() => {
+      void getSweep(job.job.id)
+        .then((next) => {
+          if (alive) setJob(next);
+        })
+        .catch(() => {
+          /* a dropped poll leaves the hits already found on screen */
+        });
+    }, SWEEP_POLL_MS);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [job, running]);
+
   return (
-    <div style={{ display: 'flex', justifyContent: 'center', gap: 10, marginBottom: 14 }}>
-      {children}
+    <Card>
+      <Step
+        n="2"
+        title={t(foundSomething ? 'track.notWholeStory' : 'track.lookHarder')}
+        sub={
+          foundSomething
+            ? t('track.notWholeStorySub')
+            : t('track.lookHarderSub')
+        }
+      />
+
+      <div className="row" style={{ gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr', gap: 10 }}>
+        <Labelled label={t('track.person')}>
+          <input value={who} readOnly disabled />
+        </Labelled>
+        <Labelled label="Date">
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        </Labelled>
+        <Labelled label="From">
+          <input type="time" value={from} onChange={(e) => setFrom(e.target.value)} />
+        </Labelled>
+        <Labelled label="To">
+          <input type="time" value={to} onChange={(e) => setTo(e.target.value)} />
+        </Labelled>
+        <Labelled label={t('track.where')}>
+          <select value={area} onChange={(e) => setArea(e.target.value)}>
+            <option value="">{t('track.everywhere')}</option>
+            {areas.map((a) => (
+              <option key={a} value={a}>
+                {a}
+              </option>
+            ))}
+          </select>
+        </Labelled>
+      </div>
+
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 12 }}>
+        <button
+          type="button"
+          className="chip-btn chip-btn--off"
+          disabled={!who || !windowOk || busy}
+          onClick={() => void price()}
+        >
+          {t(busy && !estimate ? 'track.workingItOut' : 'track.whatWouldThisCost')}
+        </button>
+        <button
+          type="button"
+          className="chip-btn chip-btn--on"
+          // Deliberately not enabled until the arithmetic has been seen AND
+          // says yes. Nobody starts a fifteen-minute wait by accident.
+          disabled={!estimate?.allowed || busy || running}
+          onClick={() => void run()}
+        >
+          Run the sweep
+        </button>
+      </div>
+
+      {!windowOk && (
+        <div style={{ fontSize: 12.5, color: 'var(--am)', marginTop: 8 }}>
+          The end of the window has to come after the start.
+        </div>
+      )}
+
+      {estimate && <EstimateLine estimate={estimate} />}
+      {error && <div style={{ fontSize: 12.5, color: 'var(--am)', marginTop: 8 }}>{error}</div>}
+
+      {job && (
+        <div style={{ marginTop: 14 }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              fontSize: 13,
+              flexWrap: 'wrap',
+            }}
+          >
+            <span style={{ fontWeight: 600 }}>
+              {running
+                ? t('track.searching')
+                : t(job.job.error === 'stopped' ? 'track.stopped' : 'track.finished')}
+            </span>
+            <span style={{ color: 'var(--tx2)' }}>
+              {job.segmentsDone} of {job.segmentsTotal} pieces
+              {job.segmentsMissing > 0 && ` (${job.segmentsMissing} with no video)`} ·{' '}
+              {job.hits.length} {job.hits.length === 1 ? 'hit' : 'hits'}
+            </span>
+            {running && (
+              <button
+                type="button"
+                className="linkbtn"
+                onClick={() => void stopSweep(job.job.id).then(setJob)}
+              >
+                Stop
+              </button>
+            )}
+          </div>
+
+          {job.job.error === 'stopped' && (
+            <div style={{ fontSize: 12, color: 'var(--tx3)', marginTop: 4 }}>
+              These are the hits found before it was stopped, not everything there was.
+            </div>
+          )}
+
+          <div
+            style={{
+              height: 5,
+              borderRadius: 3,
+              background: 'var(--panel)',
+              margin: '8px 0',
+              overflow: 'hidden',
+            }}
+          >
+            <div
+              style={{
+                width: `${Math.round(job.job.progress * 100)}%`,
+                height: '100%',
+                background: 'var(--ac)',
+                transition: 'width .3s',
+              }}
+            />
+          </div>
+
+          {job.hits.length === 0 && !running ? (
+            <Empty>
+              {job.segmentsMissing >= job.segmentsTotal
+                ? // Nothing was examined. Saying "nobody was found" here would
+                  // be the single most misleading sentence on the page: it
+                  // reads as evidence they were not there, when in fact not
+                  // one second of video was looked at.
+                  t('track.nothingInArchive')
+                : job.segmentsMissing > 0
+                  ? t('track.nobodyFoundSomeMissing', {
+                    missing: job.segmentsMissing, total: job.segmentsTotal,
+                  })
+                  : t('track.nobodyFound')}
+            </Empty>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {job.hits.map((hit, i) => (
+                <div
+                  key={`${hit.cameraId}-${hit.at.utc}-${i}`}
+                  style={{ display: 'flex', alignItems: 'baseline', gap: 10, fontSize: 13 }}
+                >
+                  <span
+                    style={{
+                      width: 10,
+                      height: 10,
+                      borderRadius: hit.match === 'face' ? '50%' : 2,
+                      background: hit.match === 'face' ? FACE : CLOTH,
+                      flexShrink: 0,
+                    }}
+                  />
+                  <span style={{ fontWeight: 600, minWidth: 62 }}>{formatTime(hit.at, language)}</span>
+                  <span style={{ fontWeight: 600 }}>{hit.place}</span>
+                  <span style={{ color: 'var(--tx3)' }}>{hit.cameraName}</span>
+                  <span style={{ color: 'var(--tx3)', fontSize: 11.5, marginInlineStart: 'auto' }}>
+                    {hit.match === 'face'
+                      ? `${hit.matches} matches · best ${hit.score.toFixed(2)}`
+                      : `same body · ${hit.matches} looks`}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+/** The arithmetic, in words. Never a spinner, and never a number nobody
+ *  measured. */
+function EstimateLine({ estimate }: { estimate: W.SweepEstimate }) {
+  const tone = estimate.allowed ? 'var(--tx2)' : 'var(--am)';
+  return (
+    <div
+      style={{
+        marginTop: 10,
+        padding: '9px 13px',
+        borderRadius: 9,
+        fontSize: 12.5,
+        color: tone,
+        background: estimate.allowed ? 'var(--bg)' : 'var(--am-bg)',
+      }}
+    >
+      {estimate.allowed ? (
+        <>
+          About {Math.max(1, Math.round(estimate.seconds / 60))} minute
+          {estimate.seconds >= 120 ? 's' : ''} — {estimate.cameras}{' '}
+          {estimate.cameras === 1 ? 'camera' : 'cameras'}, {estimate.cameraHours.toFixed(2)}{' '}
+          camera-hours of video, at the speed this machine was measured at.
+        </>
+      ) : (
+        estimate.reason
+      )}
     </div>
+  );
+}
+
+/** Open a camera's recorded video at a moment, so a person nobody enrolled
+ *  can be picked out of it. */
+function BrowseFootage({ cameras, today }: { cameras: Camera[]; today: string }) {
+  const { language } = useLanguage();
+  const t = useT();
+  const [cameraId, setCameraId] = useState(cameras[0]?.id ?? '');
+  const [date, setDate] = useState(today);
+  const [time, setTime] = useState('12:00');
+  const [leg, setLeg] = useState<W.LegJob | null>(null);
+  const [hunt, setHunt] = useState<W.SweepJob | null>(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!cameraId && cameras[0]) setCameraId(cameras[0].id);
+  }, [cameras, cameraId]);
+
+  const open = async () => {
+    setBusy(true);
+    setError('');
+    setHunt(null);
+    try {
+      const start = new Date(`${date}T${time}:00`);
+      setLeg(
+        await startLeg({
+          cameraId,
+          start: start.toISOString(),
+          end: new Date(start.getTime() + 2 * 60_000).toISOString(),
+          personId: null,
+        }),
+      );
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : t('track.footageNotOpened'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const follow = async (point: { jobId: string; chunk: number; x: number; y: number }) => {
+    setBusy(true);
+    setError('');
+    try {
+      const start = new Date(`${date}T${time}:00`);
+      setHunt(
+        await followStranger(point, {
+          person: '',
+          start: start.toISOString(),
+          end: new Date(start.getTime() + 10 * 60_000).toISOString(),
+        }),
+      );
+    } catch (err) {
+      setError(
+        err instanceof ApiError ? err.message : t('track.bodyNotFollowed'),
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card>
+      <Step
+        n="1"
+        title={t('track.openRecorded')}
+        sub={t('track.openRecordedSub')}
+      />
+
+      <div className="row" style={{ gridTemplateColumns: '2fr 1fr 1fr auto', gap: 10 }}>
+        <Labelled label={t('track.camera')}>
+          <select value={cameraId} onChange={(e) => setCameraId(e.target.value)}>
+            {cameras.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+                {c.area ? ` · ${c.area}` : ''}
+              </option>
+            ))}
+          </select>
+        </Labelled>
+        <Labelled label="Date">
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        </Labelled>
+        <Labelled label="From">
+          <input type="time" value={time} onChange={(e) => setTime(e.target.value)} />
+        </Labelled>
+        <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+          <button
+            type="button"
+            className="chip-btn chip-btn--on"
+            disabled={!cameraId || busy}
+            onClick={() => void open()}
+          >
+            {t(busy ? 'track.opening' : 'track.openFootage')}
+          </button>
+        </div>
+      </div>
+
+      {error && <div style={{ fontSize: 12.5, color: 'var(--am)', marginTop: 8 }}>{error}</div>}
+
+      {leg && (
+        <div style={{ marginTop: 12 }}>
+          <LegPlayer leg={leg} onClose={() => setLeg(null)} onPickBody={follow} />
+        </div>
+      )}
+
+      {hunt && (
+        <div style={{ marginTop: 12 }}>
+          <div style={{ fontWeight: 700, fontSize: 14 }}>{t('track.whereBodyTurnsUp')}</div>
+          <div style={{ fontSize: 12, color: 'var(--tx3)', margin: '2px 0 8px' }}>
+            Matched by clothing and build. That says the same body moved through — it
+            does not say who they are, and no name will appear here.
+          </div>
+          {hunt.hits.length === 0 ? (
+            <div style={{ fontSize: 12.5, color: 'var(--tx2)' }}>
+              {hunt.job.state === 'done'
+                ? t('track.nothingLikeThem')
+                : `Looking… ${hunt.segmentsDone} of ${hunt.segmentsTotal} pieces.`}
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {hunt.hits.map((hit, i) => (
+                <div
+                  key={`${hit.cameraId}-${hit.at.utc}-${i}`}
+                  style={{ display: 'flex', alignItems: 'baseline', gap: 10, fontSize: 13 }}
+                >
+                  <span
+                    style={{ width: 10, height: 10, borderRadius: 2, background: CLOTH }}
+                  />
+                  <span style={{ fontWeight: 600, minWidth: 62 }}>{formatTime(hit.at, language)}</span>
+                  <span style={{ fontWeight: 600 }}>{hit.place}</span>
+                  <span style={{ color: 'var(--tx3)' }}>{hit.cameraName}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </Card>
   );
 }

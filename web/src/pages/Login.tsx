@@ -1,8 +1,19 @@
 import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/app/AuthContext';
+import { useLanguage } from '@/app/LanguageContext';
 import { Logo } from '@/components/Logo';
 import { useSiteName } from '@/app/SiteContext';
+import { LANGUAGES } from '@/i18n';
+
+/** Shortest password the engine will hash — `auth/passwords.MIN_LENGTH`.
+ *
+ *  Repeated here only so the form can say so before a round trip. The engine
+ *  is still the authority: it re-checks, and its message is what gets shown
+ *  if the two ever disagree. */
+const MIN_PASSWORD = 12;
+
+type Mode = 'in' | 'up';
 
 const labelStyle = {
   display: 'block',
@@ -25,33 +36,85 @@ const inputStyle = {
   boxSizing: 'border-box',
 } as const;
 
+const hintStyle = {
+  fontSize: 12,
+  color: 'var(--tx3)',
+  marginTop: 6,
+  lineHeight: 1.4,
+} as const;
+
 export function Login() {
-  const schoolName = useSiteName();
-  const { signIn } = useAuth();
+  const siteName = useSiteName();
+  const { signIn, register } = useAuth();
+  const { language, setLanguage, t } = useLanguage();
   const navigate = useNavigate();
+  // Signing in is the common case, so it is the one the page opens on.
+  const [mode, setMode] = useState<Mode>('in');
   // Empty, not prefilled. A real address and password were typed into this
   // file - anyone opening the page or the repository had a working account.
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const signingUp = mode === 'up';
+
+  // Only the fields the current mode actually shows can block the button. A
+  // disabled button with no visible reason reads as a broken page.
+  const ready = signingUp
+    ? Boolean(name.trim() && email && password && confirm)
+    : Boolean(email && password);
+
+  function switchTo(next: Mode) {
+    setMode(next);
+    // The error belonged to the other form. Carrying "email or password is
+    // wrong" onto the sign-up card would be answering a question nobody asked.
+    setError(null);
+    setConfirm('');
+  }
+
   async function submit(e: FormEvent) {
     e.preventDefault();
-    if (busy) return;
+    if (busy || !ready) return;
     setError(null);
+
+    if (signingUp) {
+      // Checked here because the engine never sees the second box — it is a
+      // typo guard for the person typing, not a rule the server enforces.
+      if (password !== confirm) {
+        setError(t('login.passwordsDiffer'));
+        return;
+      }
+      if (password.length < MIN_PASSWORD) {
+        setError(t('login.passwordTooShort', { min: MIN_PASSWORD }));
+        return;
+      }
+    }
+
     setBusy(true);
     try {
       // The engine decides. This used to be `signIn('admin')` - the form
       // collected an email and password and threw them away, and the role was
       // an argument the page chose for itself.
-      await signIn(email, password);
+      if (signingUp) {
+        await register(name, email, password);
+      } else {
+        await signIn(email, password);
+      }
       navigate('/', { replace: true });
     } catch (caught) {
-      // The engine's own message, not one invented here. It says the same
-      // thing for a wrong password and an unknown account on purpose, so a
-      // guessed school address cannot be confirmed from this form.
-      setError(caught instanceof Error ? caught.message : 'Could not sign in.');
+      // The engine's own message, not one invented here. For sign-in it says
+      // the same thing for a wrong password and an unknown account on purpose,
+      // so a guessed school address cannot be confirmed from this form. For
+      // sign-up it names the real reason - too short, already registered -
+      // because a person who cannot get in has to be told why.
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : t(signingUp ? 'login.couldNotCreate' : 'login.couldNotSignIn'),
+      );
     } finally {
       setBusy(false);
     }
@@ -69,6 +132,30 @@ export function Login() {
       }}
     >
       <div style={{ width: '100%', maxWidth: 410 }}>
+        {/* Before anybody signs in there is no account to hold a language, so
+            this reads the browser copy instead. Without it an Arabic-reading
+            guard would have to get through an English sign-in form to reach
+            the setting that would have made it Arabic (P11-FR-016). */}
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'center',
+            gap: 6,
+            marginBottom: 18,
+          }}
+        >
+          {LANGUAGES.map((k) => (
+            <button
+              key={k}
+              type="button"
+              className={`chip-btn ${language === k ? 'chip-btn--on' : 'chip-btn--off'}`}
+              onClick={() => setLanguage(k)}
+            >
+              {t(`settings.language.${k}`)}
+            </button>
+          ))}
+        </div>
+
         <div
           style={{
             display: 'flex',
@@ -100,30 +187,67 @@ export function Login() {
             boxShadow: 'var(--sh)',
           }}
         >
-          <div style={{ fontWeight: 700, fontSize: 17 }}>Sign in</div>
-          <div style={{ fontSize: 13.5, color: 'var(--tx2)', margin: '2px 0 22px' }}>
-            {schoolName}
+          <div style={{ fontWeight: 700, fontSize: 17, marginBottom: siteName ? 0 : 22 }}>
+            {t(signingUp ? 'login.createAccountTitle' : 'login.signIn')}
           </div>
+          {/* No site name until a deployment sets one. The product name is
+              already above the card, so repeating it here says nothing. */}
+          {siteName && (
+            <div style={{ fontSize: 13.5, color: 'var(--tx2)', margin: '2px 0 22px' }}>
+              {siteName}
+            </div>
+          )}
+
+          {signingUp && (
+            <label style={{ display: 'block', marginBottom: 14 }}>
+              <span style={labelStyle}>{t('login.fullName')}</span>
+              <input
+                type="text"
+                autoComplete="name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                style={inputStyle}
+              />
+            </label>
+          )}
 
           <label style={{ display: 'block', marginBottom: 14 }}>
-            <span style={labelStyle}>Email</span>
+            <span style={labelStyle}>{t('login.email')}</span>
             <input
               type="email"
+              autoComplete={signingUp ? 'email' : 'username'}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               style={inputStyle}
             />
           </label>
 
-          <label style={{ display: 'block', marginBottom: 18 }}>
-            <span style={labelStyle}>Password</span>
+          <label style={{ display: 'block', marginBottom: signingUp ? 14 : 18 }}>
+            <span style={labelStyle}>{t('login.password')}</span>
             <input
               type="password"
+              autoComplete={signingUp ? 'new-password' : 'current-password'}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               style={inputStyle}
             />
+            {signingUp && (
+              <div style={hintStyle}>At least {MIN_PASSWORD} characters.</div>
+            )}
           </label>
+
+          {signingUp && (
+            <label style={{ display: 'block', marginBottom: 18 }}>
+              <span style={labelStyle}>{t('login.confirmPassword')}</span>
+              <input
+                type="password"
+                autoComplete="new-password"
+                value={confirm}
+                onChange={(e) => setConfirm(e.target.value)}
+                style={inputStyle}
+              />
+            </label>
+          )}
 
           {error && (
             <div
@@ -142,7 +266,7 @@ export function Login() {
 
           <button
             type="submit"
-            disabled={busy || !email || !password}
+            disabled={busy || !ready}
             style={{
               width: '100%',
               height: 48,
@@ -152,15 +276,53 @@ export function Login() {
               color: 'var(--on-ac)',
               fontSize: 15,
               fontWeight: 600,
-              cursor: busy || !email || !password ? 'not-allowed' : 'pointer',
-              opacity: busy || !email || !password ? 0.6 : 1,
+              cursor: busy || !ready ? 'not-allowed' : 'pointer',
+              opacity: busy || !ready ? 0.6 : 1,
             }}
           >
-            {busy ? 'Signing in…' : 'Sign in'}
+            {signingUp
+              ? t(busy ? 'login.creating' : 'login.createAccount')
+              : t(busy ? 'login.signingIn' : 'login.signIn')}
           </button>
 
-          <div style={{ fontSize: 12.5, color: 'var(--tx3)', textAlign: 'center', marginTop: 16 }}>
-            Accounts are created on the engine by an administrator.
+          <div
+            style={{
+              fontSize: 12.5, color: 'var(--tx3)', textAlign: 'center',
+              marginTop: 16, lineHeight: 1.5,
+            }}
+          >
+            {signingUp ? (
+              <>
+                {/* Said plainly, because it is what the new account will
+                    actually find: the read-only half of the product. Enrolment,
+                    cameras and accounts stay with an administrator, and the
+                    engine enforces that whatever this page draws. */}
+                {t('login.limitedAccess')}
+                <div style={{ marginTop: 10 }}>
+                  {t('login.haveAccount')}{' '}
+                  <button
+                    type="button"
+                    className="linkbtn"
+                    onClick={() => switchTo('in')}
+                    disabled={busy}
+                  >
+                    {t('login.signIn')}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                {t('login.noAccount')}{' '}
+                <button
+                  type="button"
+                  className="linkbtn"
+                  onClick={() => switchTo('up')}
+                  disabled={busy}
+                >
+                  {t('login.createOne')}
+                </button>
+              </>
+            )}
           </div>
         </form>
       </div>

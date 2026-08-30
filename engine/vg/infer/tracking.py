@@ -31,18 +31,45 @@ log = logging.getLogger(__name__)
 #: person's history onto another and is the worst failure this file has.
 LOST_TRACK_SECONDS = 6.0
 
-#: ByteTrack counts the buffer in frames, but not the frames you think.
-#: `BYTETracker.__init__` computes `max_time_lost = int(frame_rate / 30 * 
-#: track_buffer)`, so `track_buffer` is quoted against an implied 30 fps
-#: regardless of the real rate. `track_buffer=30` therefore bought 5 frames at
-#: 5 Hz — one second, not the six the old comment here claimed, and 0.4 s while
-#: the Track page boosts analysis to 12 Hz. A person glancing away came back
-#: with a new ID. Scaling by 30 cancels the implied rate and makes the window
-#: exactly LOST_TRACK_SECONDS at whatever frame rate the tracker is told.
-TRACK_BUFFER = int(round(30.0 * LOST_TRACK_SECONDS))
+def track_buffer_for(frame_rate: float) -> int:
+    """`track_buffer` in real frames, for a feed arriving at `frame_rate`.
+
+    **This changed under us, and the seconds are what must not change.**
+
+    Until ultralytics 8.4.127, `BYTETracker.__init__` took a `frame_rate` and
+    computed `max_time_lost = int(frame_rate / 30 * track_buffer)` — so
+    `track_buffer` was quoted against an implied 30 fps whatever the real rate
+    was, and this module pre-multiplied by 30 to cancel it. 8.4.127 dropped the
+    `frame_rate` argument and now uses the value raw:
+
+        self.max_frames_lost = args.track_buffer
+
+    The old pre-multiplied 180 therefore became 180 *frames*: 36 seconds at
+    5 Hz and 180 at 1 Hz, against the 6 intended. An ID held half a minute
+    after somebody leaves is exactly how the next person through the door
+    inherits it, which is the failure this file exists to prevent. Seven tests
+    in `test_tracker_config.py` caught it on the upgrade.
+
+    Now that the unit is honestly frames, the conversion is the obvious one and
+    there is no implied rate left to cancel.
+
+    **Requires ultralytics >= 8.4.127.** Older versions would scale this a
+    second time and give back a window `frame_rate / 30` of what was asked for.
+    """
+    return max(1, int(round(frame_rate * LOST_TRACK_SECONDS)))
+
+
+#: The buffer for a 30 fps feed, kept as a named reference point. Real
+#: trackers get `track_buffer_for(their own rate)`; this is only what that
+#: returns at 30 Hz, and exists so the number in the config below is not bare.
+TRACK_BUFFER = track_buffer_for(30.0)
 
 # ByteTrack's own defaults, restated here so they are visible and tunable
 # without reaching into the ultralytics package. Names match its config file.
+#
+# `track_buffer` here is a placeholder: `PersonTracker.__init__` overwrites it
+# with the value for its own frame rate, because a buffer in frames cannot be
+# a constant across feeds running at different rates.
 TRACKER_DEFAULTS = dict(
     tracker_type="bytetrack",
     track_high_thresh=0.25,
@@ -109,11 +136,18 @@ class PersonTracker:
         # rate would stretch the idle window to fourteen seconds, which is long
         # enough for the next person through the door to inherit an ID. Erring
         # short costs a fragmented path; erring long costs the wrong name.
-        args = SimpleNamespace(**{**TRACKER_DEFAULTS, **overrides})
-        # frame_rate feeds the motion model's expectations about how far a
-        # person moves between frames. Passing 30 for a 5 Hz feed makes it
-        # expect small steps and lose people who cross the frame quickly.
-        self._tracker = BYTETracker(args, frame_rate=max(1, int(round(frame_rate))))
+        settings = {**TRACKER_DEFAULTS, **overrides}
+        # The buffer is in real frames now, so it belongs to this feed's rate
+        # and not to the module. An explicit `track_buffer` override still
+        # wins — a caller asking for a specific frame count means it.
+        if "track_buffer" not in overrides:
+            settings["track_buffer"] = track_buffer_for(frame_rate)
+        args = SimpleNamespace(**settings)
+        # No `frame_rate=` argument: ultralytics 8.4.127 removed it. Passing it
+        # raises TypeError rather than being ignored, which is the good
+        # outcome — a silently ignored rate would have left the window wrong
+        # with nothing to notice.
+        self._tracker = BYTETracker(args)
         self.frames = 0
 
     def update(self, boxes, image: np.ndarray | None = None) -> list[Track]:

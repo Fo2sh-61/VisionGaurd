@@ -1,29 +1,36 @@
-"""Knife detection — a trained detector, decoded here rather than borrowed.
+"""Knife detection — the owner's trained model, on the GPU through ultralytics.
 
-`models/knife detection/knife-finetuned-v3.onnx` is a real fine-tuned YOLOv8,
-one class, `knife`, trained 13 Aug 2026 on a combined public + on-site dataset.
-It replaces the zero-shot prompted model that also looked for scissors and
-screwdrivers, which every classroom and maintenance cupboard contains.
+`models/knifebest.pt` is a YOLOv8s with one class, `knife`: 11.1 M parameters,
+imgsz 640, trained 13 Aug 2026 for 80 epochs on a combined public + on-site
+dataset. Own-validation mAP50 0.90, precision 0.83, recall 0.84. **Its accuracy
+on school cameras is unmeasured** — there is no footage with a knife in it yet
+— which is why every detection this file produces waits for a person to decide.
 
-**Why this file decodes the raw tensor instead of calling ultralytics.**
+It replaces two things:
 
-The obvious implementation is `YOLO(path).predict(frame)`, three lines. It is
-also wrong here, and quietly so. The model was exported with ultralytics
-8.4.118; the pinned runtime is 8.4.7, and that version misreads this file's
-output layout — it treats the four box-coordinate rows as four detections and
-returns them with "confidences" of 90 and 100. The result is four knife alerts
-on every frame, including a flat grey image and an empty corridor, on the one
-feature in the product where a false alarm costs the most trust.
+  * the zero-shot prompted model, which also looked for scissors and
+    screwdrivers. Every classroom and maintenance cupboard contains those.
+  * an ONNX copy of this same checkpoint, decoded by hand in this file.
 
-The raw tensor is fine. Row 4 peaks at 0.002 on random noise: the model finds
-nothing, correctly. Only the decode was broken. So the decode lives here, where
-it is pinned to the model's documented layout, is unit-tested against known
-inputs, and cannot change under us when a dependency moves.
+**Why the hand-rolled decode went.** It existed because the ONNX *export*
+misread its own output layout under the pinned ultralytics (8.4.7 reading a
+file written by 8.4.118): the four box-coordinate rows came back as four
+detections with "confidences" of 90 and 100 — four knife alerts on a flat grey
+image. The fix at the time was to decode the raw tensor here. The `.pt` has no
+such problem: verified in the pinned runtime, it reports `{0: 'knife'}` and
+finds nothing on grey and nothing on noise. So the decode, the letterbox, the
+hand-rolled NMS and the onnxruntime dependency are all gone — onnxruntime is
+not installed here, and its GPU build wants a CUDA this driver does not offer.
 
-Output layout, `[1, 4 + classes, 8400]`:
+Cost, measured on the RTX 2080 with FP16: **p50 15.6 ms, p95 22.9 ms** a frame
+— the same as the person model. TensorRT is faster again, but its engine file
+is compiled for one GPU and one TensorRT version, so it is a build step on the
+target machine, never an artifact to archive. See models/README.md.
 
-    rows 0-3   cx, cy, w, h   in letterboxed input pixels (not fractions)
-    row  4+    class score     already sigmoid'd, one row per class
+**One instance, many threads.** `SharedDetection` guards the person model;
+nothing guards this one, and `features/weapons.py` shares a single detector
+across every camera thread it runs. The lock therefore lives here, inside
+`detect()`, rather than in the worker — a caller cannot forget it.
 
 Every box leaves here as a fraction of the original frame, per the geometry
 rule: pixels never cross the API.
@@ -32,17 +39,22 @@ rule: pixels never cross the API.
 from __future__ import annotations
 
 import logging
+import os
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
 
-import cv2
 import numpy as np
 
 log = logging.getLogger(__name__)
 
+# Loading a YOLO-World checkpoint triggers a dependency check that will try to
+# pip-install CLIP mid-run. Nothing here should ever install anything.
+os.environ.setdefault("YOLO_AUTOINSTALL", "false")
+
 REPO_DIR = Path(__file__).resolve().parents[3]
-DEFAULT_WEIGHTS = REPO_DIR / "models" / "knife detection" / "knife-finetuned-v3.onnx"
+DEFAULT_WEIGHTS = REPO_DIR / "models" / "knifebest.pt"
 
 # The model is single-class. Kept as a tuple so a future multi-class export
 # needs a config change here and nowhere else.
@@ -65,30 +77,11 @@ class DetectedWeapon:
         return self.w * self.h
 
 
-def _letterbox(image: np.ndarray, size: int) -> tuple[np.ndarray, float, int, int]:
-    """Resize keeping aspect ratio, pad the remainder grey.
-
-    Returns the canvas plus the scale and padding needed to map a box back to
-    the original frame. Stretching instead would distort a knife's aspect
-    ratio, which is most of what distinguishes it from a pen.
-    """
-    height, width = image.shape[:2]
-    scale = min(size / height, size / width)
-    new_w, new_h = int(round(width * scale)), int(round(height * scale))
-
-    resized = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
-    canvas = np.full((size, size, 3), 114, dtype=np.uint8)  # ultralytics' grey
-    pad_x, pad_y = (size - new_w) // 2, (size - new_h) // 2
-    canvas[pad_y:pad_y + new_h, pad_x:pad_x + new_w] = resized
-    return canvas, scale, pad_x, pad_y
-
-
 class WeaponDetector:
-    """Knife detection over ONNX Runtime, GPU-first with an honest fallback.
+    """YOLO knife detection, GPU-first.
 
-    A CPU fallback is a working detector, roughly an order of magnitude slower.
-    It is better than no detection, but it is never silent: the reason goes to
-    the log and the caller can read `device` to put it on System Health.
+    Falls back to CPU with a warning rather than failing: a slow check is worth
+    more than none, and the console should say what it is running on.
     """
 
     def __init__(
@@ -96,129 +89,162 @@ class WeaponDetector:
         weights: Path | str | None = None,
         device: str = "auto",
         imgsz: int = 640,
-        conf: float = 0.35,
+        conf: float = 0.5,
         iou: float = 0.45,
+        half: bool = True,
     ) -> None:
-        import onnxruntime as ort
-
         self.weights = Path(weights or DEFAULT_WEIGHTS)
         if not self.weights.is_file():
-            raise FileNotFoundError(f"weapon weights not found: {self.weights}")
+            raise FileNotFoundError(f"knife weights not found: {self.weights}")
 
         self.imgsz = imgsz
         self.conf = conf
         self.iou = iou
+        self.device = _resolve_device(device)
+        # FP16 halves the memory traffic and is free accuracy-wise for
+        # detection, but only exists on the GPU.
+        self.half = half and self.device != "cpu"
 
-        available = ort.get_available_providers()
-        wanted: list[str]
-        if device == "cpu":
-            wanted = ["CPUExecutionProvider"]
-        else:
-            wanted = [p for p in ("CUDAExecutionProvider", "TensorrtExecutionProvider")
-                      if p in available]
-            wanted.append("CPUExecutionProvider")
+        # Prefer the TensorRT build made for this exact input size, and
+        # record which form actually loaded - System Health prints it, so a
+        # lost acceleration is visible on a page (P6-FR-035).
+        from vg.infer.shared import load_model
 
-        self.session = ort.InferenceSession(str(self.weights), providers=wanted)
-        self.device = "cuda" if "CUDAExecutionProvider" in self.session.get_providers() else "cpu"
+        self.model, self.loaded, self.form = load_model(self.weights, imgsz)
         self.version = self.weights.stem
 
-        self._input = self.session.get_inputs()[0].name
-        shape = self.session.get_inputs()[0].shape
-        # The export is static: batch 1, 640x640. Trusting `imgsz` blindly
-        # against a static graph fails inside the session with a shape error
-        # that reads like a corrupt file.
-        if isinstance(shape[-1], int) and shape[-1] != imgsz:
-            log.warning(
-                "weapon model expects %dx%d but imgsz=%d was requested; using %d",
-                shape[-1], shape[-2], imgsz, shape[-1],
-            )
-            self.imgsz = int(shape[-1])
+        # One detector, one model, every camera thread of the worker. Held
+        # around `predict` only — the conversion to fractions afterwards
+        # touches nothing shared.
+        self._lock = threading.Lock()
 
         if self.device == "cpu":
             log.warning(
-                "knife detection is running on the CPU. Install onnxruntime-gpu "
-                "to use the GPU; on CPU this is roughly 10x slower and will not "
-                "keep up with many cameras."
+                "knife detection is running on the CPU. "
+                "Install a CUDA build of torch to get ~16 ms a frame."
             )
 
         self._warm_up()
 
     def _warm_up(self) -> None:
-        """First inference allocates; do it now, not on the first real frame."""
+        """First inference allocates and compiles; do it now, not mid-stream.
+
+        Without this the first real frame takes several hundred milliseconds
+        and looks like a stall on the very first person who walks past.
+        """
         blank = np.zeros((self.imgsz, self.imgsz, 3), dtype=np.uint8)
         started = time.perf_counter()
         self.detect(blank)
         log.info(
-            "weapon detector ready on %s (%s, warm-up %.0f ms)",
-            self.device, self.weights.name, (time.perf_counter() - started) * 1000,
+            "knife detector ready on %s (%s, %s, warm-up %.0f ms)",
+            self.device, self.loaded.name, self.form,
+            (time.perf_counter() - started) * 1000,
         )
 
-    def detect(self, image: np.ndarray, min_confidence: float | None = None) -> list[DetectedWeapon]:
-        """Possible weapons in a BGR frame, most confident first."""
-        if image is None or image.size == 0:
-            return []
+    def detect(
+        self, image: np.ndarray, min_confidence: float | None = None
+    ) -> list[DetectedWeapon]:
+        """Possible knives in a BGR frame, most confident first.
 
-        threshold = self.conf if min_confidence is None else min_confidence
+        `min_confidence` raises the bar for this call only. The model's own
+        `conf` has already dropped everything below the configured threshold,
+        so this is a second filter for a caller that wants to be surer than the
+        configuration is — never a way to see more.
+        """
         height, width = image.shape[:2]
 
-        canvas, scale, pad_x, pad_y = _letterbox(image, self.imgsz)
-        blob = cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
-        blob = np.ascontiguousarray(blob.transpose(2, 0, 1)[None])  # NCHW
-
-        output = self.session.run(None, {self._input: blob})[0]
-
-        # [1, 4+nc, 8400] -> [8400, 4+nc]. Without this transpose the rows are
-        # read as detections, which is the exact bug this module exists to
-        # avoid.
-        predictions = output[0].T
-        boxes_xywh = predictions[:, :4]
-        scores_all = predictions[:, 4:]
-
-        class_ids = scores_all.argmax(axis=1)
-        scores = scores_all.max(axis=1)
-
-        keep = scores >= threshold
-        if not keep.any():
-            return []
-
-        boxes_xywh = boxes_xywh[keep]
-        scores = scores[keep]
-        class_ids = class_ids[keep]
-
-        # centre form -> corner form, still in letterboxed pixels
-        cx, cy, bw, bh = boxes_xywh.T
-        x1 = cx - bw / 2
-        y1 = cy - bh / 2
-
-        # cv2's NMS wants integer xywh boxes in a single coordinate space; any
-        # consistent space works, so this runs before the un-letterbox.
-        rects = np.stack([x1, y1, bw, bh], axis=1).astype(np.int32).tolist()
-        indices = cv2.dnn.NMSBoxes(rects, scores.astype(np.float32).tolist(),
-                                   float(threshold), float(self.iou))
-        if len(indices) == 0:
-            return []
-        indices = np.array(indices).flatten()
-
-        found: list[DetectedWeapon] = []
-        for i in indices:
-            # undo the padding, then the scale, to land back on the original
-            ox1 = (x1[i] - pad_x) / scale
-            oy1 = (y1[i] - pad_y) / scale
-            ow = bw[i] / scale
-            oh = bh[i] / scale
-
-            fx = max(0.0, min(1.0, ox1 / width))
-            fy = max(0.0, min(1.0, oy1 / height))
-            found.append(
-                DetectedWeapon(
-                    x=fx,
-                    y=fy,
-                    w=max(0.0, min(1.0 - fx, ow / width)),
-                    h=max(0.0, min(1.0 - fy, oh / height)),
-                    confidence=float(scores[i]),
-                    label=CLASS_NAMES[int(class_ids[i])] if int(class_ids[i]) < len(CLASS_NAMES) else "weapon",
-                )
+        # One model shared by every camera thread. ultralytics is not
+        # re-entrant on a single model instance, and two threads inside
+        # `predict` at once is how you get boxes from one camera drawn on
+        # another.
+        with self._lock:
+            results = self.model.predict(
+                image,
+                device=self.device,
+                imgsz=self.imgsz,
+                conf=self.conf,
+                iou=self.iou,
+                # `quantize=` replaced `half=` in ultralytics 8.4.127. Passing
+                # `half` still works but logs a deprecation line **per inference
+                # call**, which on a live camera is thousands an hour - enough to
+                # bury a real error in the startup log, which is how this was
+                # found. 16 = FP16, 32 = FP32.
+                quantize=16 if self.half else 32,
+                verbose=False,
             )
 
+        if not results:
+            return []
+        return self.weapons_from(
+            results[0].boxes.cpu(), width, height, min_confidence)
+
+    @staticmethod
+    def weapons_from(boxes, width: int, height: int,
+                     min_confidence: float | None = None) -> list[DetectedWeapon]:
+        """Turn ultralytics boxes into fractions of the frame.
+
+        Static and pure, like `PersonDetector.people_from`: no model, no
+        device, no lock. It is the half of detection that is safe to call from
+        any thread.
+        """
+        if boxes is None:
+            return []
+
+        found: list[DetectedWeapon] = []
+        for box in boxes:
+            confidence = float(box.conf[0])
+            if min_confidence is not None and confidence < min_confidence:
+                continue
+            x1, y1, x2, y2 = (float(v) for v in box.xyxy[0].tolist())
+            class_id = int(box.cls[0]) if box.cls is not None else 0
+            fx = max(0.0, min(1.0, x1 / width))
+            fy = max(0.0, min(1.0, y1 / height))
+            found.append(DetectedWeapon(
+                x=fx,
+                y=fy,
+                w=max(0.0, min(1.0 - fx, (x2 - x1) / width)),
+                h=max(0.0, min(1.0 - fy, (y2 - y1) / height)),
+                confidence=confidence,
+                label=(CLASS_NAMES[class_id] if class_id < len(CLASS_NAMES)
+                       else "weapon"),
+            ))
+
+        # Most confident first — the opposite of the person detector, which
+        # sorts by area. A knife is small by definition, so size says nothing
+        # about which detection matters; the score is all there is.
         found.sort(key=lambda d: d.confidence, reverse=True)
         return found
+
+    def export_tensorrt(self, workspace_gb: int = 4) -> Path:
+        """Build a TensorRT engine from the .pt, for this machine only.
+
+        Takes several minutes and produces a file locked to this GPU and this
+        TensorRT version. It will not load on the deployment workstation —
+        rebuild it there. This is a deploy step, not an artifact.
+        """
+        log.info("building a TensorRT engine from %s (this takes minutes)", self.weights)
+        path = self.model.export(
+            format="engine",
+            imgsz=self.imgsz,
+            # `quantize=` replaced `half=` in ultralytics 8.4.127, on export
+            # as well as on inference: `half` is no longer a configuration key
+            # at all, so passing it raises rather than building anything.
+            # 16 is half precision, 32 is full.
+            quantize=16 if self.half else 32,
+            workspace=workspace_gb,
+            device=0,
+            verbose=False,
+        )
+        log.info("wrote %s", path)
+        return Path(path)
+
+
+def _resolve_device(device: str) -> str:
+    if device != "auto":
+        return device
+    try:
+        import torch
+
+        return "cuda" if torch.cuda.is_available() else "cpu"
+    except ImportError:
+        return "cpu"

@@ -77,6 +77,11 @@ class FeatureWorker(ABC, Generic[R]):
         self._lock = threading.Lock()
         self._threads: list[threading.Thread] = []
         self._stop = threading.Event()
+        # The live subscriptions, per camera. Kept so System Health can read
+        # how deep this worker's queue is and how many frames the bus threw
+        # away while it was busy. Both counters already existed on the
+        # subscription; nothing was reachable to ask.
+        self._subs: dict[str, object] = {}
 
         self.frames_processed = 0
 
@@ -121,6 +126,8 @@ class FeatureWorker(ABC, Generic[R]):
 
     def _run(self, camera_id: str) -> None:
         subscription = self.bus.subscribe(camera_id, maxsize=1)
+        with self._lock:
+            self._subs[camera_id] = subscription
         next_due = 0.0
         try:
             while not self._stop.is_set():
@@ -153,6 +160,8 @@ class FeatureWorker(ABC, Generic[R]):
                     self._results[frame.camera_id] = result
                 self.frames_processed += 1
         finally:
+            with self._lock:
+                self._subs.pop(camera_id, None)
             self.bus.unsubscribe(subscription)
 
     # -- demand-driven rate -------------------------------------------------
@@ -192,9 +201,24 @@ class FeatureWorker(ABC, Generic[R]):
     def stats(self) -> dict:
         with self._lock:
             latest = [r.inference_ms for r in self._results.values()]
+            subs = list(self._subs.values())
+
+        # Deepest queue and total drops across this worker's cameras. The
+        # worst camera is the one worth naming: an average would hide a
+        # single saturated stream behind nine idle ones.
+        depth = max((len(s._frames) for s in subs), default=0)
+        capacity = max((s.maxsize for s in subs), default=0)
+        dropped = sum(s.dropped for s in subs)
+
         return {
             "name": self.name,
             "cameras": len(self.cameras),
             "frames_processed": self.frames_processed,
             "last_inference_ms": round(max(latest), 1) if latest else 0.0,
+            "queue_depth": depth,
+            "queue_max": capacity,
+            "frames_dropped": dropped,
+            # Full AND dropping. A full queue on its own is a worker that
+            # happened to be mid-frame; drops are what say it did not catch up.
+            "behind": bool(capacity and depth >= capacity and dropped > 0),
         }

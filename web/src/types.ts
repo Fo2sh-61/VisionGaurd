@@ -37,6 +37,10 @@ export interface DetectionBox {
   label?: string;
   /** Appearance identity, e.g. "p7". Present only on tracked cameras. */
   trackId?: string;
+  /** Plate width in source-frame pixels — the aiming aid, on gate cameras
+   *  only. Drawn beside the box, coloured by whether it clears the
+   *  comfortable-read line. Absent on every other kind of box. */
+  plateWidthPx?: number;
 }
 
 /** A restricted-area polygon drawn on the frame (percentages). */
@@ -51,6 +55,8 @@ export interface CameraZone {
 export interface Camera {
   id: string;
   name: string;
+  /** The named place this camera watches. The live grid groups by it. */
+  area?: string;
   /** short status line under the tile, e.g. "Recognising · 2 people" */
   status: string;
   offline?: boolean;
@@ -168,13 +174,20 @@ export interface CountResult {
 
 /* ---------- intrusion ---------- */
 
+/** A camera that can be marked a restricted area.
+ *
+ *  A zone IS a camera: switching one on makes its whole frame restricted, so
+ *  there is no polygon here and nothing is drawn inside the view. There is no
+ *  `hours` either — a restricted camera is restricted around the clock. */
 export interface Zone {
   id: string;
   name: string;
-  hours: string;
   enabled: boolean;
+  /** Scenes recorded on this camera today. A real count, not a guess. */
+  detectionsToday: number;
 }
 
+/** One scene: somebody was on a restricted camera, from when to when. */
 export interface Breach {
   id: string;
   zone: string;
@@ -182,52 +195,63 @@ export interface Breach {
   who: string;
   status: string;
   tone: Tone;
+  /** Most people seen at once during the scene — not the last count, which is
+   *  zero for every scene that has ended. */
+  people: number;
+  /** How long they were there, e.g. "12 seconds". */
+  duration: string;
+  /** Playable clip, present only when one was actually saved. */
+  clipUrl?: string;
+  /** Why there is no clip. Shown beside the disabled button, never on its own. */
+  clipReason?: string;
 }
 
-export type IntrusionWindow = 'Today' | 'Last 7 days' | 'Last 30 days';
+/** Window tokens, not the words on the button.
+ *
+ *  These go to the engine as `?window=last30`. The wording lives in
+ *  `web/src/i18n/` under `window.*`, so a rewording - or an Arabic one -
+ *  never touches the API. */
+export type IntrusionWindow = 'today' | 'last7' | 'last30';
 
 /* ---------- weapons ---------- */
 
-export type WeaponWindow = 'Last 30 days' | 'Last 90 days' | 'This school year';
+export type WeaponWindow =
+  | 'today'
+  | 'yesterday'
+  | 'last7'
+  | 'last30'
+  | 'last90'
+  | 'schoolYear'
+  | 'all';
+
+/** Where a detection has got to. Nothing moves back out of the last two.
+ *
+ *  Spelled out here rather than imported from `wire.ts`: this file is the
+ *  shapes the UI renders and deliberately does not depend on the wire. */
+export type WeaponVerdict = 'pending' | 'confirmed' | 'dismissed';
 
 export interface WeaponDetection {
   id: string;
+  camera: string;
+  area: string;
   time: string;
-  location: string;
-  item: string;
+  duration: string;
+  confidence: string;
   status: string;
   tone: Tone;
+  verdict: WeaponVerdict;
+  reviewer?: string;
+  reviewedAt?: string;
+  /** The knife is still in view: the duration is still growing. */
+  running: boolean;
+  /** The scene hit the two-minute limit; a second entry may follow it. */
+  cut: boolean;
+  clipUrl?: string;
+  /** Why there is no video. Shown where the button would be. */
+  clipReason?: string;
 }
 
 /* ---------- lost items ---------- */
-
-export interface LostQuery {
-  item: string;
-  colour: string;
-  area: string;
-  since: string;
-}
-
-export interface LostHit {
-  camera: string;
-  time: string;
-  confidence: number;
-  strong: boolean;
-  note: string;
-}
-
-export interface LostResult {
-  label: string;
-  sub: string;
-  hits: LostHit[];
-  cameras: Camera[];
-  /** Did the search actually run? The engine is careful to answer `failed`
-   *  rather than `done` with no hits, because "we searched and found nothing"
-   *  and "we never searched" are different answers and only one of them
-   *  should stop somebody looking for a child's missing bag. The front end
-   *  used to drop this field, collapsing the two back into one. */
-  searched: boolean;
-}
 
 /* ---------- track a person ---------- */
 
@@ -269,6 +293,21 @@ export interface Recorder {
   online: boolean;
 }
 
+/** One feature worker's load, ready to render.
+ *
+ *  Every figure is a real counter. Nothing here is derived from a sample or
+ *  an average, so a number on this row can be checked against the engine. */
+export interface WorkerLoadItem {
+  name: string;
+  cameras: number;
+  framesProcessed: number;
+  lastInferenceMs: number;
+  queueDepth: number;
+  queueMax: number;
+  framesDropped: number;
+  behind: boolean;
+}
+
 export interface PipelineItem {
   name: string;
   detail: string;
@@ -278,6 +317,8 @@ export interface PipelineItem {
    *  badge - the engine did the honest work and the UI discarded it. */
   tone: Tone;
   action?: string;
+  /** Only the feature-workers row carries these. */
+  workers?: WorkerLoadItem[];
 }
 
 export interface SystemHealth {
@@ -297,6 +338,7 @@ export type ToolId =
   | 'counting'
   | 'intrusion'
   | 'weapons'
+  | 'vehicles'
   | 'lost-items'
   | 'track'
   | 'system'
@@ -316,27 +358,26 @@ export interface AttentionItem {
   to: ToolId;
 }
 
-/* ---------- weapons workflow ---------- */
-
-export type WeaponState = 'clear' | 'live' | 'confirmed' | 'dismissed';
-
-export interface WeaponStep {
-  icon: string;
-  tone: Tone;
-  title: string;
-  sub: string;
-}
-
 /* ---------- people directory ---------- */
 
 export type PersonType = 'Student' | 'Staff' | 'Visitor';
 
 export interface DirectoryPerson {
+  id: string;
   name: string;
   type: PersonType;
   sub: string;
-  guardian: string;
   photoOnFile: boolean;
+  /** "Recognised · 3 photos" / "Cannot be recognised — no face on file". */
+  recognition: string;
+  /** "Enrolled Aug 15" — or "" when the engine has no date for them. */
+  enrolled: string;
+  /** "Main entrance · Today, 7:42am" or "Not seen yet". Never a dash: a
+   *  missing value is stated in words so a reader knows it was looked for. */
+  lastSeen: string;
+  /** Today's attendance in words, or "" when nothing is recording it. */
+  today: string;
+  todayTone: Tone;
 }
 
 export interface GroupSummary {

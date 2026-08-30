@@ -9,15 +9,16 @@
  *  If you find yourself adding a number here that the engine could measure,
  *  it belongs in the API instead. */
 
-import type { Tone } from '@/types';
+import type { MessageKey } from '@/i18n';
 
-/** Example questions on the Home ask bar. Pure copy. */
-export const SUGGESTED_QUESTIONS = [
-  'Who is absent in Grade 8 today?',
-  'How many people are in the cafeteria?',
-  'Has anyone entered the chemistry lab after hours?',
-  'Find a red backpack left in the library',
-  'Where was Layla Ahmed this morning?',
+/** Example questions on the Home ask bar. Keys, not words — the wording
+ *  lives in `web/src/i18n/` so the examples can be asked in Arabic too. */
+export const SUGGESTED_QUESTIONS: MessageKey[] = [
+  'ask.q.absent',
+  'ask.q.cafeteria',
+  'ask.q.lab',
+  'ask.q.backpack',
+  'ask.q.where',
 ];
 
 /** What each role may do, shown on the Users page.
@@ -25,35 +26,21 @@ export const SUGGESTED_QUESTIONS = [
  *  This is a description of the policy, not the policy itself — the engine
  *  enforces roles. `routes.tsx` already flags that the client-side guard is a
  *  product rule, not a security boundary. */
-export const CAPABILITIES: { capability: string; admin: boolean; it: boolean }[] = [
-  { capability: 'See alerts and camera views', admin: true, it: true },
-  { capability: 'Confirm or dismiss a weapon detection', admin: true, it: false },
-  { capability: 'Track a person across cameras', admin: true, it: false },
-  { capability: 'View attendance and student records', admin: true, it: false },
-  { capability: 'Add or remove cameras and recorders', admin: true, it: true },
-  { capability: 'Restart the detection engine', admin: true, it: true },
-  { capability: 'Manage users', admin: true, it: false },
+export const CAPABILITIES: { capability: MessageKey; admin: boolean; it: boolean }[] = [
+  { capability: 'capability.seeAlerts', admin: true, it: true },
+  { capability: 'capability.reviewWeapon', admin: true, it: false },
+  { capability: 'capability.track', admin: true, it: false },
+  { capability: 'capability.attendance', admin: true, it: false },
+  { capability: 'capability.cameras', admin: true, it: true },
+  { capability: 'capability.restart', admin: true, it: true },
+  { capability: 'capability.users', admin: true, it: false },
 ];
 
 /** The explainer on the Weapons page: what happens, in order, when something
  *  is spotted. The third step is the product's core safety claim. */
-export const WEAPON_STEPS: { icon: string; tone: Tone; title: string; sub: string }[] = [
-  { icon: '1', tone: 'neutral', title: 'Every camera is watched', sub: 'Continuously, on all cameras at once.' },
-  { icon: '2', tone: 'warn', title: 'A possible weapon is flagged', sub: 'The clip and the frame are saved immediately.' },
-  { icon: '3', tone: 'bad', title: 'A person decides', sub: 'Nothing is reported until a human confirms it. The system never calls anyone by itself.' },
-  { icon: '4', tone: 'good', title: 'False alarms are kept', sub: 'Dismissed alerts stay in the history so the record stays honest.' },
-];
-
-/** Search vocabulary for Lost Items.
- *
- *  These mirror the prompts baked into `yolov8m-worldv2-search.pt` — see
- *  models/README.md. Adding an option here does nothing unless the model can
- *  actually detect it, so keep the two in step. */
-export const LOST_SINCE = ['Last hour', 'This morning', 'Today', 'Yesterday', 'Last 3 days'];
-
 /** Time-of-day presets on the Track a person page. */
-export const TRACK_WINDOWS = [
-  { label: 'Whole school day', from: '07:00', to: '16:00' },
-  { label: 'Morning only', from: '07:00', to: '12:00' },
-  { label: 'Afternoon only', from: '12:00', to: '16:00' },
+export const TRACK_WINDOWS: { label: MessageKey; from: string; to: string }[] = [
+  { label: 'track.window.wholeDay', from: '07:00', to: '16:00' },
+  { label: 'track.window.morning', from: '07:00', to: '12:00' },
+  { label: 'track.window.afternoon', from: '12:00', to: '16:00' },
 ];

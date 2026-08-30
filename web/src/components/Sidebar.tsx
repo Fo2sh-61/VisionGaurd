@@ -1,6 +1,7 @@
 import { NavLink } from 'react-router-dom';
 import { useAccount, useAuth } from '@/app/AuthContext';
-import { HOME_ICON, navSectionsFor, SECTION_LABEL } from '@/app/navigation';
+import { useT } from '@/app/LanguageContext';
+import { HOME_ICON, navSectionsFor } from '@/app/navigation';
 import { useSiteName } from '@/app/SiteContext';
 import { Logo } from './Logo';
 
@@ -19,9 +20,10 @@ function NavIcon({ d, active }: { d: string; active: boolean }) {
 }
 
 export function Sidebar() {
-  const schoolName = useSiteName();
+  const siteName = useSiteName();
   const account = useAccount();
   const { signOut } = useAuth();
+  const t = useT();
 
   const linkClass = ({ isActive }: { isActive: boolean }) =>
     isActive ? 'navlink navlink--active' : 'navlink';
@@ -32,7 +34,9 @@ export function Sidebar() {
         <Logo />
         <div>
           <div style={{ fontWeight: 700, fontSize: 15, letterSpacing: '-.01em' }}>VisionGuard AI</div>
-          <div style={{ fontSize: 11, color: 'var(--tx3)', lineHeight: 1.2 }}>{schoolName}</div>
+          {siteName && (
+            <div style={{ fontSize: 11, color: 'var(--tx3)', lineHeight: 1.2 }}>{siteName}</div>
+          )}
         </div>
       </div>
 
@@ -41,20 +45,20 @@ export function Sidebar() {
           {({ isActive }) => (
             <>
               <NavIcon d={HOME_ICON} active={isActive} />
-              <span>Home</span>
+              <span>{t('nav.home')}</span>
             </>
           )}
         </NavLink>
 
         {navSectionsFor(account.role).map((group) => (
           <div key={group.section}>
-            <div className="sidebar__section">{SECTION_LABEL[group.section]}</div>
+            <div className="sidebar__section">{t(`nav.section.${group.section}`)}</div>
             {group.items.map((item) => (
               <NavLink key={item.id} to={item.path} className={linkClass}>
                 {({ isActive }) => (
                   <>
                     <NavIcon d={item.icon} active={isActive} />
-                    <span>{item.label}</span>
+                    <span>{t(`nav.${item.id}.label`)}</span>
                   </>
                 )}
               </NavLink>
@@ -80,18 +84,18 @@ export function Sidebar() {
           <span className="glyph" style={{ background: 'var(--ac)' }}>
             ✓
           </span>
-          Campus is calm
+          {t('sidebar.calm')}
         </div>
-        <div style={{ fontSize: 12, color: 'var(--tx3)', marginTop: 3 }}>Nothing urgent right now</div>
+        <div style={{ fontSize: 12, color: 'var(--tx3)', marginTop: 3 }}>{t('sidebar.calmLead')}</div>
       </div>
 
       <button
         type="button"
         className="linkbtn linkbtn--quiet"
-        style={{ padding: '8px 10px', textAlign: 'left', borderTop: '1px solid var(--line)' }}
+        style={{ padding: '8px 10px', textAlign: 'start', borderTop: '1px solid var(--line)' }}
         onClick={signOut}
       >
-        Sign out
+        {t('action.signOut')}
       </button>
     </nav>
   );

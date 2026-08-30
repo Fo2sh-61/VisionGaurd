@@ -43,9 +43,18 @@ COOKIE_NAME = "vg_session"
 #: nothing about the site.
 #:
 #: `/auth/login` is how a token is obtained, so requiring one is circular.
+#:
+#: `/auth/register` is open sign-up, and it is the one entry here that is a
+#: product decision rather than a structural necessity. It creates a working
+#: account for anyone who can reach the console, always at `SELF_SIGNUP_ROLE`
+#: ("it") and never at "admin". Everything an administrator can do stays
+#: behind `ADMIN_PREFIXES`, so the worst a stranger gets is the read-only
+#: half of the product - which on this system still includes camera views.
+#: Closing it again is one line: delete it from this set.
 PUBLIC_PATHS: frozenset[str] = frozenset({
     "/healthz",
     "/auth/login",
+    "/auth/register",
 })
 
 #: Prefixes that are public. Kept separate from exact paths so a new route
@@ -80,9 +89,38 @@ ADMIN_PREFIXES: tuple[str, ...] = (
 #: Prefixes where reading is fine but changing anything is administrator-only.
 #: An operator may look at the cameras and the zones; rearranging them is a
 #: configuration change.
+#:
+#: `/people` is here rather than in ADMIN_PREFIXES because the directory is
+#: data — an operator who cannot see who is enrolled cannot do their job.
+#: Removing somebody is the opposite: their face data leaves the system, which
+#: is precisely the kind of act the constitution wants gated and audited.
 ADMIN_WRITE_PREFIXES: tuple[str, ...] = (
     "/cameras",
+    "/people",
     "/zones",
+    # A guard has to read the vehicle register to do their job — that is the
+    # whole point of the gate log. A guard must not be able to un-blacklist a
+    # car. One line decides both.
+    "/vehicles",
+)
+
+#: Narrower than `ADMIN_WRITE_PREFIXES`, and checked first.
+#:
+#: **The only writes on this system a guard may make.** Everything under
+#: `/vehicles` is administrator-only to write, which is right for the register
+#: — a guard must not be able to un-blacklist a car. But clearing an alert is
+#: not changing the register: it is the person on duty saying "I have dealt
+#: with this", which is the entire purpose of an alert that waits for a human.
+#: Requiring an administrator would mean alerts pile up all shift at a gate
+#: staffed by guards, and an alert nobody can clear stops being read.
+#:
+#: The dismissal is audited and names the account, so "a guard did this" is
+#: recoverable. What a guard still cannot do is act on the alert: registering
+#: a car or renewing a permit are register writes and stay admin-only.
+#:
+#: Keep this list tiny, and never widen a prefix here to cover a sibling.
+OPERATOR_WRITE_PREFIXES: tuple[str, ...] = (
+    "/vehicles/alerts",
 )
 
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
@@ -106,6 +144,13 @@ def requires_admin(method: str, path: str) -> bool:
            for p in ADMIN_PREFIXES):
         return True
     if method.upper() in SAFE_METHODS:
+        return False
+    # Checked BEFORE the admin-write rule, so the narrower prefix wins. The
+    # order is the whole mechanism: `/vehicles/alerts/...` also matches
+    # `/vehicles`, and testing the broader rule first would make this
+    # unreachable while still looking correct.
+    if any(normalised == p or normalised.startswith(p + "/")
+           for p in OPERATOR_WRITE_PREFIXES):
         return False
     return any(normalised == p or normalised.startswith(p + "/")
                for p in ADMIN_WRITE_PREFIXES)

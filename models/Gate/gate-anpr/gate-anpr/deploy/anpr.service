@@ -1,0 +1,23 @@
+[Unit]
+Description=Gate ANPR (Egyptian plates)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nvidia
+WorkingDirectory=/opt/gate-anpr
+ExecStart=/usr/bin/python3 /opt/gate-anpr/run.py start
+Restart=always
+RestartSec=10
+# Cameras and the DB live under the working dir; keep everything else read-only.
+Environment=PYTHONUNBUFFERED=1
+StandardOutput=journal
+StandardError=journal
+
+# Give it a moment to shut the camera threads down cleanly.
+KillSignal=SIGTERM
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target
