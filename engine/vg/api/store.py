@@ -28,7 +28,16 @@ TZ_OFFSET_MINUTES = 180
 # engine.yaml; until then there is no site to name, and the console says so by
 # showing nothing rather than someone else's name.
 SCHOOL_NAME = ""
-TODAY = date(2026, 7, 29)
+# The demo day is the day it is served, never the day it was written. A fixed
+# anchor silently ages out: this was `date(2026, 7, 29)`, so on 29 Aug 2026 —
+# thirty days later — every demo breach fell outside the `last30` window and
+# /breaches began returning an empty list. Empty reads as "no breaches", which
+# is the demo store telling a lie about a safety feature rather than admitting
+# its fixtures expired.
+#
+# Read once, at import. A demo process left running for thirty days would go
+# empty again; demo mode is for a laptop and a browser tab, not a long run.
+TODAY = date.today()
 CAMERA_TOTAL = 208
 
 

@@ -109,7 +109,12 @@ def weapon_window(label: str, clock, term_from: str | None) -> tuple:
     if label == "today":
         return midnight, None
     if label == "yesterday":
-        return midnight - timedelta(days=1), midnight
+        # The day containing the last minute before today, not a rigid 24
+        # hours back: on a changeover day the previous local day is 23 or 25
+        # hours long, and subtracting a fixed day would start Yesterday at
+        # 23:00 or 01:00. `y_until == since` either way, so no entry can fall
+        # in both periods or in neither.
+        return _local_midnight(midnight - timedelta(minutes=1), clock), midnight
     if label == "schoolYear":
         start = _term_start(term_from, clock)
         return (start if start is not None else now - timedelta(days=365)), None
@@ -132,18 +137,55 @@ def _local_midnight(when: datetime, clock) -> datetime:
     correction re-asks the clock what the offset is at the guessed instant
     and tries again. A second iteration converges because offsets move by
     whole hours and a day is much longer than the jump.
+
+    **Unless there is nothing to converge on.** Egypt moves its clocks at
+    midnight, so on the spring change local midnight does not happen at all —
+    the site goes from 23:59 to 01:00. Neither candidate instant is then
+    self-consistent and the two swap places for ever. Returning the last one
+    tried put the start of Today at 23:00 *the previous evening*, which is the
+    double-count the paragraph above warns about, still there in the one case
+    that matters most. When there is no midnight, the day starts at the
+    transition, and the transition is found rather than guessed.
     """
     local = clock.local(when).replace(hour=0, minute=0, second=0, microsecond=0)
     naive_midnight = local.replace(tzinfo=timezone.utc)
 
-    guess = naive_midnight - timedelta(minutes=clock.offset_minutes(when))
+    def instant(offset: int) -> datetime:
+        return naive_midnight - timedelta(minutes=offset)
+
+    # Every offset the site might be on around that boundary. The probes have
+    # to straddle midnight: asking only about now finds only the offset we are
+    # on, and in autumn the hour before the change is a different one — miss it
+    # and the repeated hour is dropped from Today. Fourteen hours is past any
+    # real offset, so no candidate is out of reach.
+    probes = (when, naive_midnight - timedelta(hours=14),
+              naive_midnight, naive_midnight + timedelta(hours=14))
+    offsets = {clock.offset_minutes(p) for p in probes}
     for _ in range(2):
-        corrected = naive_midnight - timedelta(
-            minutes=clock.offset_minutes(guess))
-        if corrected == guess:
-            return guess
-        guess = corrected
-    return guess
+        offsets |= {clock.offset_minutes(instant(o)) for o in offsets}
+
+    # An offset is the answer when the clock still reports it at the instant
+    # it produces. Usually exactly one does.
+    consistent = [instant(o) for o in offsets
+                  if clock.offset_minutes(instant(o)) == o]
+    if consistent:
+        # Autumn repeats an hour, so midnight can happen twice. The day starts
+        # the first time.
+        return min(consistent)
+
+    # None consistent: local midnight was skipped, so the day starts at the
+    # transition. It lies between the earliest and latest candidate — halve
+    # that span until it is a minute wide, the site's own clock deciding
+    # every step.
+    low, high = min(instant(o) for o in offsets), max(instant(o) for o in offsets)
+    after = clock.offset_minutes(high)
+    while high - low > timedelta(minutes=1):
+        middle = low + (high - low) / 2
+        if clock.offset_minutes(middle) == after:
+            high = middle
+        else:
+            low = middle
+    return high
 
 
 def _term_start(term_from: str | None, clock) -> datetime | None:

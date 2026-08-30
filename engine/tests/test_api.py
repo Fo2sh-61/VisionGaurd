@@ -48,6 +48,16 @@ class TestWireShape:
                 for p in cam["zone"]["polygon"]:
                     assert 0.0 <= p["x"] <= 1.0 and 0.0 <= p["y"] <= 1.0
 
+    def test_demo_breaches_never_age_out_of_their_own_window(self, client):
+        # The demo store was anchored to a fixed date, so thirty days later
+        # every breach in it fell outside `last30` and this endpoint began
+        # returning an empty list. Empty reads as "no breaches", not as "the
+        # fixtures expired" - the demo store lying about a safety feature.
+        # Both tests either side of this one asserted on row [0] and started
+        # failing with IndexError, which is how it was found.
+        assert client.get("/breaches?window=last30").json(), (
+            "demo breaches are older than the window that asks for them")
+
     def test_time_is_utc_plus_an_explicit_site_offset(self, client):
         # A phone in another timezone must render the school's local time, not
         # its own. That needs the offset to travel with the instant.

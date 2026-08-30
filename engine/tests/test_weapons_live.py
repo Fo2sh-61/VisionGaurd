@@ -803,20 +803,34 @@ class TestNamesAndTimes:
         clock = ChangeoverClock()
         since, until = weapon_window("today", clock, "")
 
-        # Whatever instant we call the start of the day, the site's own clock
-        # must agree that it IS midnight there. That is the only invariant that
-        # holds on both sides of a changeover.
-        local = clock.local(since)
-        assert (local.hour, local.minute) == (0, 0), (
-            f"Today started at {local.hour:02d}:{local.minute:02d} local")
+        # The start of the day is the FIRST instant the site calls today: one
+        # minute earlier is yesterday, and this one is not.
+        #
+        # Asserting local midnight exactly used to look like the stronger
+        # claim, and it is the wrong one. Egypt changes its clocks AT midnight,
+        # so in spring the site goes from 23:59 straight to 01:00 and midnight
+        # never happens - there is no instant to find, and the test demanding
+        # one failed for the sixty minutes a day this scenario put the jump
+        # between the two candidates. The boundary is the real invariant, it
+        # holds whether or not midnight exists, and it pins the answer to a
+        # single instant either way.
+        def starts_a_local_day(instant) -> bool:
+            return (clock.local(instant).date()
+                    != clock.local(instant - timedelta(minutes=1)).date())
+
+        assert starts_a_local_day(since), (
+            f"Today started at {clock.local(since):%Y-%m-%d %H:%M} local, "
+            "which is not the first minute of a day there")
+        assert clock.local(since).date() == clock.local(
+            datetime.now(timezone.utc)).date(), "that is not today's date"
         assert until is None
 
         # Yesterday must butt up against it exactly - no gap, no overlap, or an
         # hour of entries is listed twice or not at all.
         y_since, y_until = weapon_window("yesterday", clock, "")
         assert y_until == since
-        y_local = clock.local(y_since)
-        assert (y_local.hour, y_local.minute) == (0, 0)
+        assert starts_a_local_day(y_since)
+        assert clock.local(y_since).date() < clock.local(since).date()
 
 
 class TestStandsAlone:
