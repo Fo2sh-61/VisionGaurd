@@ -1298,3 +1298,14 @@ function toAccount(wire: W.Account): Account {
 export async function setAccountLanguage(language: Language): Promise<Account> {
   return toAccount(await post<W.Account>('/auth/language', { language }));
 }
+
+/* ---------- Ask ----------
+ *
+ *  Returns the wire object **unrendered**, unlike most of this file. Every
+ *  other function here turns numbers into the sentences the pages expect;
+ *  Ask must not, because its sentences come from note codes the page words
+ *  through `translate()`. Formatting them here would put English back in a
+ *  place P11 just took it out of. */
+
+export const ask = (question: string) =>
+  post<W.AskAnswer>('/ask', { question });

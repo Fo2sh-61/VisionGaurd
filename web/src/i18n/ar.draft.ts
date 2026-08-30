@@ -701,4 +701,49 @@ export const arDraft: Partial<Record<MessageKey, string>> = {
   'health.keepingUp': 'يواكب العمل',
   'health.workerThroughput': '{frames} لقطة · {ms} مللي ثانية',
   'health.workerQueue': 'الطابور {depth}/{max} · {dropped} مُهمَلة',
+
+  // -- Ask (P12) — drafted, NOT yet read by a native speaker ----------------
+  'nav.ask.label': 'اسأل',
+  'nav.ask.blurb': 'اكتب سؤالك، تلاقي الإجابة',
+
+  'ask.title': 'اسأل',
+  'ask.blurb': 'اكتب سؤالك بالعربية أو بالإنجليزية. «اسأل» يلاقي الصفحة اللي عندها الإجابة ويعرضها.',
+  'ask.placeholder': 'مثال: سارة جت متأخرة النهاردة؟',
+  'ask.submit': 'اسأل',
+  'ask.thinking': 'بيفهم سؤالك…',
+  'ask.understoodAs': 'فُهِم على أنه',
+  'ask.openPage': 'افتح الصفحة كاملة',
+  'ask.results': '{count} نتيجة',
+  'ask.noResults': 'الاستعلام اشتغل ومالقاش حاجة. دي إجابة، مش عطل.',
+  'ask.sentOffSite': 'اللي اتبعت للخارج: {text}',
+  'ask.sentNothing': 'مافيش حاجة اتبعتت خارج الموقع.',
+  'ask.assumed': 'مفترض: {fields}',
+
+  'ask.query.attendance': 'سجل الحضور',
+  'ask.query.headcount': 'عدد الأشخاص',
+  'ask.query.zone_breaches': 'دخول المناطق المحظورة',
+  'ask.query.weapons': 'اكتشاف السكاكين',
+  'ask.query.vehicle_passes': 'العربيات على البوابة',
+  'ask.query.vehicles_inside': 'العربيات الموجودة دلوقتي',
+  'ask.query.gate_totals': 'إجماليات البوابات',
+  'ask.query.vehicle_registered': 'سجل العربيات',
+  'ask.query.person_path': 'مسار شخص',
+  'ask.query.person_history': 'سجل حضور شخص',
+  'ask.query.person_directory': 'دليل الأشخاص',
+  'ask.query.group_roster': 'كشف المجموعة',
+  'ask.query.lost_item': 'الأغراض المفقودة',
+  'ask.query.system_state': 'حالة النظام',
+
+  'note.ask.unsupported':
+    'مش قادر أجاوب على ده. أقدر أجاوب عن الحضور، أعداد الأشخاص، المناطق المحظورة، السكاكين، بوابة العربيات، الأغراض المفقودة، مسار شخص، وحالة النظام نفسه.',
+  'note.ask.needs_detail':
+    'محتاج تفصيلة واحدة كمان قبل ما أجاوب: {parameter}.',
+  'note.ask.unknown_person':
+    'مش عارف حد اسمه {name}. ده مش معناه إنه كان غايب — هو أصلاً مش موجود في الدليل.',
+  'note.ask.cloud_unavailable':
+    '«اسأل» مش متاح مؤقتًا ({reason}). الكشف والتسجيل ومراجعة السكاكين وبوابة العربيات كلها شغالة عادي.',
+  'note.ask.not_recorded':
+    'مافيش حاجة متسجلة عن ده. كشف الشنط بيشتغل مباشر على الكاميرات اللي حد بيبصّ عليها ومابيسجلش حاجة، فمافيش تاريخ نبحث فيه — افتح الصفحة عشان تدور دلوقتي.',
+  'note.ask.words_left_site':
+    'الكلمات دي مش متعرّف عليها في الموقع، فاتبعتت زي ما هي: {words}.',
 };

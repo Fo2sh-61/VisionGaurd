@@ -334,6 +334,7 @@ export interface SystemHealth {
 /* ---------- home ---------- */
 
 export type ToolId =
+  | 'ask'
   | 'attendance'
   | 'counting'
   | 'intrusion'

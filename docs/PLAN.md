@@ -299,6 +299,16 @@ Message catalogue with an English and an Arabic column · right-to-left layout �
 
 **Done when:** a guard who reads no English can work a full shift, every engine explanation appears in Arabic with its consequence intact, and the camera picture is never mirrored.
 
+### P12 — Ask · 1–1.5 wk · `specs/010-ask`
+
+A guard at the gate knows the answer exists and not which page holds it. Ask is a box he types a question into, in Arabic, Franco-Arabic, English or a mixture. It does not answer the question — it works out **which of the system's existing queries the question is**, runs that one, and shows its real result with the evidence attached.
+
+The language model reads a masked sentence and returns one menu id with its parameters, or "unsupported". It never sees a face, a frame or a record, and it never writes a word the operator reads: `AskAnswer` has no free-text field, so there is nowhere for an invented fact to live. Names and plates are replaced locally before anything leaves the site; a word the site does not recognise goes as typed, and Ask says which ones did.
+
+Fourteen queries, one flat answer shape, one page. Adding a fifteenth is one row in `vg/ask/menu.py` plus its wording. The provider is Gemini's free tier and is swappable in one file — the seam is `parse(question) -> query + params | unsupported`.
+
+**Done when:** a supported question returns the same figures the matching page shows; no known name or plate leaves the site on an Arabic test set; the four honest states each produce their own message with a reason; and with the cloud unreachable, detection, recording, the knife gate and the vehicle register are untouched.
+
 
 ---
 

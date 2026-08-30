@@ -12,6 +12,8 @@ export const en: Record<MessageKey, string> = {
   'nav.section.watch': 'WATCH',
   'nav.section.manage': 'MANAGE',
 
+  'nav.ask.label': 'Ask',
+  'nav.ask.blurb': 'Type a question, get the answer',
   'nav.attendance.label': 'Attendance',
   'nav.attendance.blurb': 'Who arrived, who’s missing',
   'nav.counting.label': 'People counting',
@@ -696,4 +698,47 @@ export const en: Record<MessageKey, string> = {
 
   // -- the console talking about itself ------------------------------------
   'notes.unknownCode': 'This is unavailable, and the engine gave a reason this console does not recognise ({code}).',
+
+  // -- Ask ------------------------------------------------------------------
+  'ask.title': 'Ask',
+  'ask.blurb': 'Type a question in Arabic or English. Ask finds the page that already has the answer and shows it.',
+  'ask.placeholder': 'e.g. was Sara late today?',
+  'ask.submit': 'Ask',
+  'ask.thinking': 'Working out what you asked…',
+  'ask.understoodAs': 'Understood as',
+  'ask.openPage': 'Open the full page',
+  'ask.results': '{count} results',
+  'ask.noResults': 'That query ran and found nothing. This is an answer, not a fault.',
+  'ask.sentOffSite': 'Sent off-site: {text}',
+  'ask.sentNothing': 'Nothing was sent off-site.',
+  'ask.assumed': 'Assumed: {fields}',
+
+  'ask.query.attendance': 'the attendance register',
+  'ask.query.headcount': 'a headcount',
+  'ask.query.zone_breaches': 'restricted-zone entries',
+  'ask.query.weapons': 'knife detections',
+  'ask.query.vehicle_passes': 'cars through the gate',
+  'ask.query.vehicles_inside': 'cars inside now',
+  'ask.query.gate_totals': 'gate totals',
+  'ask.query.vehicle_registered': 'the vehicle register',
+  'ask.query.person_path': 'where a person went',
+  'ask.query.person_history': "one person's attendance history",
+  'ask.query.person_directory': 'the people directory',
+  'ask.query.group_roster': 'a group roster',
+  'ask.query.lost_item': 'lost items',
+  'ask.query.system_state': 'system health',
+
+  // -- notes the engine sends (mirrors engine/vg/api/notes.py) --------------
+  'note.ask.unsupported':
+    "I can't answer that. I can answer about attendance, headcounts, restricted zones, knives, the vehicle gate, lost items, where a person went, and what the system itself is doing.",
+  'note.ask.needs_detail':
+    'I need one more detail before I can answer: {parameter}.',
+  'note.ask.unknown_person':
+    "I don't know anybody called {name}. That is not the same as saying they were absent — they are not in the directory at all.",
+  'note.ask.cloud_unavailable':
+    'Ask is temporarily unavailable ({reason}). Detection, recording, the knife review and the vehicle gate are all unaffected.',
+  'note.ask.not_recorded':
+    'Nothing is recorded for that. Bag detection runs live on the cameras somebody is watching and stores nothing, so there is no history to search — open the page to look now.',
+  'note.ask.words_left_site':
+    'These words were not recognised as anything on this site, so they were sent as typed: {words}.',
 };

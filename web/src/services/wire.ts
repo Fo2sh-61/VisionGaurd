@@ -1121,3 +1121,43 @@ export interface TrafficHour {
   entered: number;
   left: number;
 }
+
+/* ---------- Ask (P12) ----------
+ *
+ *  Note what is NOT here: any field the engine can put a sentence in. Every
+ *  word the operator reads is built by the console from `note` and
+ *  `understood.query`, which is what keeps a language model from ever
+ *  contributing a fact. */
+
+export type AskOutcome = 'answered' | 'unsupported' | 'needs_detail' | 'unavailable';
+
+export interface AskUnderstanding {
+  /** A menu id from `engine/vg/ask/menu.py`. Never free text. */
+  query: string;
+  params: Record<string, string>;
+  /** Parameters Ask filled in itself — shown, so a wrong assumption is
+   *  visible rather than silent. */
+  assumed: string[];
+}
+
+export interface AskRow {
+  label: string;
+  at: Instant | null;
+  camera: string | null;
+  confidence: number | null;
+  clipUrl: string | null;
+  note: Note | null;
+}
+
+export interface AskAnswer {
+  outcome: AskOutcome;
+  understood: AskUnderstanding | null;
+  headline: Metric[];
+  rows: AskRow[];
+  note: Note | null;
+  /** Always additional, never the answer itself. */
+  deepLink: string | null;
+  /** Exactly what left the site, byte for byte. Empty when nothing did. */
+  sentOffSite: string;
+  auditId: string;
+}

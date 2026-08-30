@@ -25,7 +25,13 @@
 import type { ToolId } from '@/types';
 
 /** Codes the engine sends inside a `Note`. Mirrors `notes.py::CODES`. */
-export type NoteCode = never;
+export type NoteCode =
+  | 'ask.unsupported'
+  | 'ask.needs_detail'
+  | 'ask.unknown_person'
+  | 'ask.cloud_unavailable'
+  | 'ask.not_recorded'
+  | 'ask.words_left_site';
 
 /** Wording the console owns. Nothing outside `web/` depends on these names. */
 type LostColourKey =
@@ -34,6 +40,23 @@ type LostColourKey =
 export type UiKey =
   // -- navigation and chrome ------------------------------------------------
   | 'nav.home'
+  // -- Ask ------------------------------------------------------------------
+  | 'ask.title'
+  | 'ask.blurb'
+  | 'ask.placeholder'
+  | 'ask.submit'
+  | 'ask.thinking'
+  | 'ask.understoodAs'
+  | 'ask.openPage'
+  | 'ask.results'
+  | 'ask.noResults'
+  | 'ask.sentOffSite'
+  | 'ask.sentNothing'
+  | `ask.query.${'attendance' | 'headcount' | 'zone_breaches' | 'weapons'
+    | 'vehicle_passes' | 'vehicles_inside' | 'gate_totals' | 'vehicle_registered'
+    | 'person_path' | 'person_history' | 'person_directory' | 'group_roster'
+    | 'lost_item' | 'system_state'}`
+  | 'ask.assumed'
   | `nav.section.${'ask' | 'watch' | 'manage'}`
   | `nav.${ToolId}.label`
   | `nav.${ToolId}.blurb`
