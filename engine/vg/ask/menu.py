@@ -402,8 +402,12 @@ QUERIES: tuple[AskQuery, ...] = (
     ),
     AskQuery(
         id="person_path",
-        describe="Where a named person went — every camera that identified "
-                 "them, in order. Use this for 'track X' and 'where did X go'.",
+        describe="Where a named person is or was — every camera that "
+                 "identified them, in order, most recent last. Use this for "
+                 "ANY question about a person's location or movement: "
+                 "'where is X', 'where is X now', 'track X', 'where did X "
+                 "go', 'find X', 'which camera saw X'. Present tense counts: "
+                 "the most recent stop is where they are.",
         params=(
             Param("person", "the person's name", required=True),
             Param("date", "the day, as YYYY-MM-DD", default=TODAY),
@@ -468,6 +472,17 @@ QUERIES: tuple[AskQuery, ...] = (
 #: Every id, for the parser's schema. A model constrained to this list cannot
 #: name a query nobody has.
 QUERY_IDS: tuple[str, ...] = tuple(q.id for q in QUERIES)
+
+#: Every parameter name any query takes, for the parser's schema.
+#:
+#: One flat set rather than a shape per query, because the schema is fixed
+#: before the query is chosen. Twelve optional slots is a small price for the
+#: thing it buys: a model given a NAMED field fills it, and a model given an
+#: open dictionary very often does not. Measured — "how many people in the
+#: Library" returned `{}` about half the time with an open `params` object and
+#: `{"place": "Library"}` reliably once the slots existed.
+PARAM_NAMES: tuple[str, ...] = tuple(sorted(
+    {p.name for q in QUERIES for p in q.params}))
 
 
 def find(query_id: str | None) -> AskQuery | None:

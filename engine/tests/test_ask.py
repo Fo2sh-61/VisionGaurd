@@ -445,10 +445,13 @@ class TestHonestStates:
         def refuse(*a, **kw):
             raise SubsystemUnavailable("Person detection is not running.")
 
+        # A real area, or the unresolvable-value check refuses it first and
+        # this never reaches the subsystem it is about.
+        place = store.areas()[0]
         monkeypatch.setattr(store, "count", refuse)
-        answer = store.ask("how many in the yard", "guard",
+        answer = store.ask(f"how many in the {place}", "guard",
                            parser=StubParser(query="headcount",
-                                             params={"place": "Yard"}))
+                                             params={"place": place}))
         assert answer.outcome is S.AskOutcome.UNAVAILABLE
         assert "Person detection" in answer.note.args["reason"]
 
@@ -559,6 +562,33 @@ class TestSeam:
         schema = schema_for(QUERY_IDS)
         assert set(schema["properties"]["query"]["enum"]) == {
             *QUERY_IDS, None}
+
+    def test_the_schema_makes_every_field_compulsory(self):
+        """An optional field is a field the model leaves out.
+
+        `params` and `missing` both have defaults, so Pydantic marked them
+        optional, so Gemini omitted them: the whole reply to "how many people
+        in the Library" was `{"query": "headcount"}`. Ask then asked which
+        place, about a place the operator had just named, and it read as not
+        having understood a word.
+
+        Required-and-nullable is the pair that fixes it. Neither half works
+        alone: optional named slots are still slots nobody has to fill, and
+        required non-nullable ones would force the model to invent a value for
+        every parameter — which is worse than not answering.
+        """
+        from vg.ask.menu import PARAM_NAMES
+
+        schema = schema_for(QUERY_IDS, PARAM_NAMES)
+        assert set(schema["required"]) == {"query", "params", "missing"}
+
+        params = schema["properties"]["params"]
+        assert set(params["required"]) == set(PARAM_NAMES), (
+            "every parameter must be a named, required slot")
+        assert params["additionalProperties"] is False
+        for name, node in params["properties"].items():
+            assert "null" in node["type"], (
+                f"{name} must be nullable, or the model has to invent one")
 
     def test_prose_is_not_salvaged(self):
         from vg.ask.parser import loads

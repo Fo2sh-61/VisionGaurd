@@ -27,6 +27,7 @@ if str(ENGINE) not in sys.path:
 import yaml                                                    # noqa: E402
 
 from vg.ask import Dictionary, QUERIES, QUERY_IDS, mask        # noqa: E402
+from vg.ask.menu import PARAM_NAMES                            # noqa: E402
 from vg.ask.parser import (                                    # noqa: E402
     CloudParser,
     ParserUnavailable,
@@ -79,7 +80,13 @@ def main() -> int:
         model=args.model or cfg.ask.model,
         api_key=key,
         query_ids=QUERY_IDS,
-        instructions=instructions_for(QUERIES),
+        param_names=PARAM_NAMES,
+        # The same vocabulary production sends, or the score measures a
+        # parser nobody runs.
+        instructions=instructions_for(QUERIES, {
+            "areas": [str(a) for a in corpus.get("areas", [])],
+            "groups": [str(g) for g in corpus.get("groups", [])],
+        }),
         timeout_seconds=cfg.ask.timeout_seconds,
     )
     print(f"model: {args.model or cfg.ask.model}\n")

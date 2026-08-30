@@ -29,6 +29,18 @@ plates:
   - ص ب د ٢٣٤
   - ط ح ل ٧٨٩
 
+# The site's own vocabulary. Sent to the model with the menu, because it
+# cannot choose a place it does not know exists — and unlike a name, a room
+# is not personal data.
+areas:
+  - Main entrance
+  - Library
+  - Yard
+  - Chemistry lab
+groups:
+  - Grade 8
+  - Grade 9
+
 questions:
   # -- attendance, the most-asked question in the building -------------------
   - ask: سارة جت امتى النهاردة؟

@@ -418,12 +418,25 @@ def unrecognised(question: str, dictionary: Dictionary) -> list[str]:
     """
     known = set(dictionary.entries)
     out: list[str] = []
-    for word in _WORD.findall(question):
+    for position, word in enumerate(_WORD.findall(question)):
         folded = normalise(word)
         if len(folded) < 3 or folded.isdigit() or folded in known:
             continue
         if folded in _COMMON:
             continue
+        # Only words that could plausibly BE a name. Reporting every English
+        # word the site does not employ made "the population of people last
+        # week" warn about "population", which is noise, and noise is how a
+        # warning stops being read. A stopword list cannot fix this — the set
+        # of ordinary words is the whole language.
+        #
+        # Latin script has capitals and people use them for names, so require
+        # one, except on the first word where a capital means only that a
+        # sentence started. Arabic has no capitals, so it keeps the stopword
+        # list and the length floor and accepts more noise there.
+        if word[:1].isascii() and word[:1].isalpha():
+            if not word[:1].isupper() or position == 0:
+                continue
         # Matched in the other script, so it did not leave.
         if skeleton(word) in dictionary.skeletons:
             continue

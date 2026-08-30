@@ -1247,7 +1247,17 @@ class MockStore:
         #    per question and never cached: a stale one is a name that leaves.
         dictionary = Dictionary.build(self._ask_names(), self._ask_plates())
         masked, used = mask(question, dictionary)
-        stray = unrecognised(question, dictionary)
+        # Words the site does not know — minus the ones it plainly does. An
+        # area or a group is not a person, and warning that "Library" left the
+        # site is noise. Noise is how a warning stops being read, and this one
+        # has a real job: it is the only sign that a visitor's name went.
+        site_words = {
+            w.casefold()
+            for name in [*self._ask_places(), *self._ask_groups()]
+            for w in str(name).split()
+        }
+        stray = [w for w in unrecognised(question, dictionary)
+                 if w.casefold() not in site_words]
 
         # 2. Audit BEFORE the send, not after. The row records the question as
         #    typed and the exact text about to leave, so a question asked
@@ -1318,12 +1328,25 @@ class MockStore:
                           deep_link=query.route(params),
                           note=notes.note("ask.not_recorded", subject=query.id))
 
-        # 6. A name nobody knows is not an absence. An empty register row for
-        #    somebody who was never enrolled reads as "they did not come".
-        unknown = self._ask_unknown_person(query, params)
-        if unknown:
+        # 6. A value the site cannot resolve must never reach a query.
+        #
+        #    This is the most dangerous step in `ask`, because the failure is
+        #    silent and confident. `count()` answers a place it does not know
+        #    by falling back to a default one: asked for "the population of
+        #    people" it returned "Cafeteria, 372". Ask would then have shown a
+        #    real figure, from a real query, about somewhere nobody asked
+        #    about — the exact shape of untruth the constitution forbids, with
+        #    every honesty label intact.
+        bad_param, bad_value = self._ask_unresolvable(query, params)
+        if bad_param == "person":
+            # A name nobody knows is not an absence. An empty register row for
+            # somebody never enrolled reads as "they did not come".
             return answer(S.AskOutcome.UNSUPPORTED, understood=understood,
-                          note=notes.note("ask.unknown_person", name=unknown))
+                          note=notes.note("ask.unknown_person", name=bad_value))
+        if bad_param:
+            return answer(S.AskOutcome.NEEDS_DETAIL, understood=understood,
+                          note=notes.note("ask.needs_detail",
+                                          parameter=bad_param))
 
         # 7. Run the one trusted query. A subsystem that is off answers for
         #    itself — Ask forwards its reason rather than paraphrasing it.
@@ -1366,6 +1389,20 @@ class MockStore:
         except SubsystemUnavailable:
             return []
 
+    def _ask_places(self) -> list[str]:
+        """The site's areas. Not personal data — a room in a building."""
+        try:
+            return [str(a) for a in self.areas()]
+        except SubsystemUnavailable:
+            return []
+
+    def _ask_groups(self) -> list[str]:
+        """The site's groups. Not personal data — a class, not a child."""
+        try:
+            return [g.name for g in self.groups()]
+        except SubsystemUnavailable:
+            return []
+
     def _ask_today(self) -> str:
         """The site's today. Overridden on LiveStore, which holds the clock."""
         return str(TODAY)
@@ -1379,17 +1416,50 @@ class MockStore:
         """
         from vg.ask import build_parser
 
-        return build_parser()
+        # The site's own vocabulary goes with the menu: a model cannot choose
+        # a place it does not know exists. Places and groups only — never a
+        # person, which is what the placeholders are for.
+        return build_parser({"areas": self._ask_places(),
+                             "groups": self._ask_groups()})
 
-    def _ask_unknown_person(self, query, params: dict[str, str]) -> str | None:
-        """A named person the directory has never heard of, or None."""
-        name = params.get("person")
-        if not name and params.get("mode") == "person":
-            name = params.get("subject")
-        if not name:
-            return None
-        known = {n.casefold() for n in self._ask_names()}
-        return None if name.casefold() in known else name
+    def _ask_unresolvable(self, query,
+                          params: dict[str, str]) -> tuple[str | None, str]:
+        """The first parameter naming something the site does not have.
+
+        Returns `(parameter, value)`, or `(None, "")` when everything resolves.
+
+        Only parameters that name a **thing the site knows** are checked — a
+        person, a place, a group. A date or a plate is not on this list: a
+        plate the register has never seen is a real and useful answer ("that
+        car is not registered"), and refusing to look it up would be worse
+        than looking.
+        """
+        def known(values) -> set[str]:
+            return {str(v).casefold() for v in values}
+
+        checks: list[tuple[str, str, set[str]]] = []
+
+        person = params.get("person") or (
+            params.get("subject") if params.get("mode") == "person" else "")
+        if person:
+            checks.append(("person", person, known(self._ask_names())))
+
+        if params.get("place"):
+            checks.append(("place", params["place"], known(self.areas())))
+
+        group = params.get("group") or (
+            params.get("subject") if params.get("mode") == "group" else "")
+        if group:
+            checks.append(("group", group, known(g.name for g in self.groups())))
+
+        for name, value, allowed in checks:
+            # An empty allow-list means the subsystem behind it is not running.
+            # Refusing every value then would turn "recognition is off" into
+            # "I have never heard of her", which is a different and wrong
+            # answer. Let the query itself report its own unavailability.
+            if allowed and value.casefold() not in allowed:
+                return name, value
+        return None, ""
 
 
 def _bad_parameter(query, params: dict[str, str]) -> str:

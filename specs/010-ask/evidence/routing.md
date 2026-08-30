@@ -79,6 +79,35 @@ look identical from the client, so it retried all 37 questions and would have
 waited the better part of an hour for answers that could not come. It now gives
 up after three refusals in a row and names the model to try instead.
 
+## The 91.9% predates four fixes and should be re-measured
+
+Every figure above was taken before the parameter-extraction bugs below were
+found, and they were the reason most questions ended in "I need one more
+detail" rather than an answer:
+
+- **`params` was optional in the schema.** Pydantic marks a field with a
+  default as optional, so Gemini omitted it — the entire reply to "how many
+  people in the Library" was `{"query": "headcount"}`. Now every field is
+  required and every parameter is a named, nullable slot.
+- **`params` was an open dictionary.** `additionalProperties: {type: string}`
+  is a field with no visible shape; the same question returned `{}` and
+  `{"place": "Library"}` on consecutive calls. Twelve named slots ended that.
+- **The model was never told the site's places or groups.** It cannot choose a
+  "Library" it does not know exists. Areas and groups now go with the menu —
+  they are rooms and classes, not people.
+- **`person_path` described only the past tense.** "Where is Layla now" was
+  refused as unsupported; it is the same question as "where did Layla go".
+
+Spot-checked after the fixes, all previously failing:
+
+| Question | Result |
+|---|---|
+| how many people in the Library | headcount, place=Library, 6 rows |
+| Where is Layla now? | person_path, Layla Ahmed, 2 stops |
+| فين ليلى دلوقتي | person_path, Layla Ahmed, 2 stops |
+| was Layla Ahmed late today | attendance, mode=person |
+| who is absent in Grade 8 today | group_roster, Grade 8 |
+
 ## What has not been done
 
 - **No native speaker has read the corpus.** Until Mohamed corrects the Arabic,
