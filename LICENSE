@@ -1,0 +1,28 @@
+Copyright (c) 2026 Mohamed Fouad. All rights reserved.
+
+VisionGuard is proprietary software. It is not open source and no licence to
+use it is granted by its presence in this repository.
+
+No part of this software or its documentation may be copied, modified, merged,
+published, distributed, sublicensed, sold, or used to provide a service to a
+third party, without prior written permission from the copyright holder.
+
+Deployments are licensed individually. A site that runs VisionGuard does so
+under the terms of its own written agreement; nothing here replaces or extends
+that agreement.
+
+THIRD-PARTY COMPONENTS
+Code under `vendor/` and the model weights described in `models/MODELS.md`
+were not written for this project and carry their own licences and terms. This
+notice does not cover them.
+
+DATA
+Footage, enrolment images and biometric templates produced by a deployment
+belong to that deployment's operator, not to the copyright holder, and are
+subject to the consent and retention obligations recorded in `docs/PLAN.md`.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY AND
+FITNESS FOR A PARTICULAR PURPOSE. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE
+LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY ARISING FROM, OUT OF, OR IN
+CONNECTION WITH THE SOFTWARE OR ITS USE.
