@@ -1,6 +1,6 @@
 """Egyptian number plates as text: one canonical form, however they arrive.
 
-Ported from `models/Gate/gate-anpr/anpr/plate_text.py`. Pure functions, no
+Ported from `vendor/gate-anpr/anpr/plate_text.py`. Pure functions, no
 model, no camera, no database — which is why it lives beside `clock.py` rather
 than under `infer/`, and why its tests run in milliseconds.
 

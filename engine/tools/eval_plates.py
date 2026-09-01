@@ -7,13 +7,13 @@ opinion on each side. `compare_plates.py` answers it for *one* photo. This
 answers it for two thousand, and writes the answer down with a date on it.
 
     # is the detector finding the plates at all? (no truth file needed)
-    python engine/tools/eval_plates.py --dataset "Egyptian Car Plates dataset/EALPR Vechicles dataset"
+    python engine/tools/eval_plates.py --dataset "datasets/egyptian-car-plates/EALPR Vechicles dataset"
 
     # build the human-confirmed read truth (the owner sits with this one)
     python engine/tools/eval_plates.py --dataset "..." --label
 
     # how often is the reading exactly right?
-    python engine/tools/eval_plates.py --dataset "..." --truth "Egyptian Car Plates dataset/plate_truth.csv"
+    python engine/tools/eval_plates.py --dataset "..." --truth "datasets/egyptian-car-plates/plate_truth.csv"
 
     # the same question of every configuration, so the pairs can be compared
     python engine/tools/eval_plates.py --dataset "..." --truth "..." --configs theirs,fp32,fp16,trt
@@ -21,7 +21,7 @@ answers it for two thousand, and writes the answer down with a date on it.
 **The four configurations, and what each pair tells you.** Same idea as
 `compare_plates.py`, whose docstring is the long version:
 
-    theirs    models/Gate/gate-anpr, unchanged - the code that works
+    theirs    vendor/gate-anpr, unchanged - the code that works
     fp32      ours, on the .pt, at FP32       - what engine.yaml now asks for
     fp16      ours, on the .pt, at FP16       - what it asked for until 24 Aug
     trt       ours, on the TensorRT plan      - built FP16, fixed input size
@@ -54,7 +54,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
-GATE = REPO / "models" / "Gate" / "gate-anpr" / "gate-anpr"
+GATE = REPO / "vendor" / "gate-anpr"
 PLATE_WEIGHTS = REPO / "models" / "plate_detector.pt"
 CHAR_WEIGHTS = REPO / "models" / "char_detector.pt"
 
@@ -200,7 +200,7 @@ def build_reader(config: str):
     """
     if config == "theirs":
         if not GATE.is_dir():
-            return None, f"models/Gate is not present at {GATE}"
+            return None, f"vendor/gate-anpr is not present at {GATE}"
         sys.path.insert(0, str(GATE))
         try:
             from anpr.detector import PlateDetector
@@ -638,12 +638,12 @@ def main() -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument(
         "--dataset",
-        default=str(REPO / "Egyptian Car Plates dataset"
+        default=str(REPO / "datasets" / "egyptian-car-plates"
                     / "EALPR Vechicles dataset"),
         help="folder holding 'Vehicles' and 'Vehicles Labeling'")
     parser.add_argument(
         "--truth",
-        default=str(REPO / "Egyptian Car Plates dataset" / "plate_truth.csv"),
+        default=str(REPO / "datasets" / "egyptian-car-plates" / "plate_truth.csv"),
         help="the human-confirmed read truth")
     parser.add_argument("--configs", default="fp32",
                         help=f"comma separated, any of: {', '.join(CONFIGS)}")

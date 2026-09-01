@@ -66,12 +66,12 @@ jobs:
       - name: Install loiterwatch (appearance matcher)
         # `vg/identity/appearance.py` imports `loiterwatch.IdentityStitcher`,
         # so twelve appearance and track tests need it importable. The source
-        # is in this repository under models/reid, but it is a package rather
+        # is in this repository under vendor/, but it is a package rather
         # than something on the path, and a developer machine has it because
         # somebody once ran this by hand. CI did not, so those twelve tests
         # failed here and passed locally — the worst shape a test can have.
         # Its only dependency is PyYAML, already installed above.
-        run: pip install -e models/reid/loiterwatch
+        run: pip install -e vendor/loiterwatch
 
       - name: pyflakes
         # First because it is the fastest and the most specific. It also

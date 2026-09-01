@@ -133,7 +133,7 @@ class, confidence and geometry on every one. 360 MB → 57 MB.
 Rebuild it with:
 
 ```
-python engine/tools/strip_clip.py "models/bag traker/models/yolov8m-worldv2-search-12ac1b92.pt" models/bagsearch.pt
+python engine/tools/strip_clip.py "vendor/bag-tracker/models/yolov8m-worldv2-search-12ac1b92.pt" models/bagsearch.pt
 ```
 
 Cost: p50 27.9 ms, p95 30.9 ms, 35 frames/sec on the RTX 2080 Max-Q at FP16,

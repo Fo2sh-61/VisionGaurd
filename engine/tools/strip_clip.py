@@ -18,7 +18,7 @@ loads and the search checkpoints do not.
 Run it once per supplied checkpoint. The output is a build artifact of the input,
 the same way a TensorRT engine is - the original stays the source of truth.
 
-    python engine/tools/strip_clip.py "models/bag traker/models/yolov8m-worldv2-search-12ac1b92.pt" models/bagsearch.pt
+    python engine/tools/strip_clip.py "vendor/bag-tracker/models/yolov8m-worldv2-search-12ac1b92.pt" models/bagsearch.pt
 """
 
 from __future__ import annotations

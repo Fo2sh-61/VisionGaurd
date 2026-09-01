@@ -18,7 +18,7 @@ argument.
 
 Four readers, and each pair isolates exactly one difference:
 
-    theirs      models/Gate/gate-anpr - the code that works, unchanged
+    theirs      vendor/gate-anpr - the code that works, unchanged
     ours-fp32   ours, on the .pt, at FP32 - the same as theirs
     ours-fp16   ours, on the .pt, at FP16 - what `half: true` gives us
     ours-trt    ours, exactly as the engine runs it today
@@ -47,7 +47,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "engine"))
 
-GATE = REPO / "models" / "Gate" / "gate-anpr" / "gate-anpr"
+GATE = REPO / "vendor" / "gate-anpr"
 
 PLATE_WEIGHTS = REPO / "models" / "plate_detector.pt"
 CHAR_WEIGHTS = REPO / "models" / "char_detector.pt"
@@ -69,7 +69,7 @@ def ascii_plate(text: str) -> str:
 def read_theirs(image):
     """gate-anpr's own detector and reader, imported and called unchanged."""
     if not GATE.is_dir():
-        return None, "models/Gate is not present"
+        return None, "vendor/gate-anpr is not present"
 
     sys.path.insert(0, str(GATE))
     try:

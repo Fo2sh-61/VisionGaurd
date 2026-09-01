@@ -37,7 +37,7 @@ real bug in the project it came from:
    blocks, so a glyph standing among the digits is a digit whatever the model
    preferred.
 
-Ported from `models/Gate/gate-anpr/anpr/{detector,ocr}.py`. The class names in
+Ported from `vendor/gate-anpr/anpr/{detector,ocr}.py`. The class names in
 `char_detector.pt` are Latin transliterations (`alif`, `baa`, `7aa`), not
 Arabic glyphs — `CHAR_GLYPHS` is the map, and it must track the weights rather
 than any general transliteration scheme.

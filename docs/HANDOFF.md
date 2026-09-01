@@ -112,7 +112,7 @@ one once that cause stops being the real one.
 normalises turns a 30-line change into a 900-line diff. A `.gitattributes`
 would end this.
 
-**`loiterwatch` is a live dependency, not leftover.** `models/reid/loiterwatch/`
+**`loiterwatch` is a live dependency, not leftover.** `vendor/loiterwatch/`
 is pip-installed editable and imported by the appearance matcher. `docs/PLAN.md`
 §8 still says the British School project is "severed, nothing from it is used" —
 that line is wrong and should be fixed.
