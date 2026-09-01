@@ -8,7 +8,8 @@
 <body>
 <x-dc>
 <helmet>
-<link href="https://fonts.googleapis.com/css2?family=Albert+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Albert+Sans:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@500;700&amp;display=swap" rel="stylesheet">
 <style>
 :root{--bg:#f2f5f2;--panel:#e9efe9;--card:#ffffff;--line:#e0e7e1;--tx:#1f2b26;--tx2:#57655d;--tx3:#8a968e;--ac:#33705b;--ac2:#285948;--chip:#dfe9e0;--rd:#a5372c;--rd-bg:#f7e3e0;--am:#8a6a14;--am-bg:#f3ecd9;--sh:0 1px 3px rgba(30,42,36,.07);}
 body.vgdark{--bg:#161c19;--panel:#1c2420;--card:#212a25;--line:#2e3933;--tx:#e4eae5;--tx2:#a3b0a8;--tx3:#718076;--ac:#5cae91;--ac2:#7cc3a9;--chip:#2a3d34;--rd:#d97e70;--rd-bg:#41302c;--am:#cfa955;--am-bg:#3a3527;--sh:0 1px 3px rgba(0,0,0,.3);}
@@ -40,7 +41,7 @@ input,select,button{font-family:inherit;}
           <div onClick="{{ signIn }}" style="display:flex;align-items:center;justify-content:center;gap:8px;background:var(--chip);border-radius:13px;padding:12px 14px;margin-top:6px;min-height:44px;box-sizing:border-box;">
             <span style="font-size:13px;color:var(--ac2);font-weight:600;">Use Face ID instead</span>
           </div>
-          <div style="font-size:12.5px;color:var(--tx3);text-align:center;margin-top:10px;line-height:1.4;">Demo build — any password is accepted.</div>
+          <div style="font-size:12.5px;color:var(--tx3);text-align:center;margin-top:10px;line-height:1.4;">Accounts are created on the server. No password is stored on this phone.</div>
         </div>
       </div>
     </sc-if>
@@ -139,6 +140,88 @@ input,select,button{font-family:inherit;}
           </div>
         </sc-if>
 
+        <sc-if value="{{ isGate }}" hint-placeholder-val="{{ false }}">
+          <div style="margin:0 20px 12px;display:grid;grid-template-columns:1fr 1fr;gap:9px;">
+            <sc-for list="{{ mgStats }}" as="gs" hint-placeholder-count="6">
+              <div style="background:var(--card);border-radius:13px;padding:12px 13px;box-shadow:var(--sh);">
+                <div style="font-size:11.5px;color:var(--tx2);">{{ gs.l }}</div>
+                <div style="font-size:22px;font-weight:700;letter-spacing:-.02em;color:{{ gs.c }};">{{ gs.v }}</div>
+              </div>
+            </sc-for>
+          </div>
+          <div style="margin:0 20px 12px;background:var(--card);border-radius:16px;padding:18px;box-shadow:var(--sh);">
+            <div style="font-weight:700;font-size:15.5px;">Inside now</div>
+            <div style="font-size:12.5px;color:var(--tx2);margin:2px 0 6px;line-height:1.4;">Came in and not seen leaving. A car that is not registered still passes — it is logged, never blocked.</div>
+            <sc-for list="{{ mgInside }}" as="i2" hint-placeholder-count="5">
+              <div style="display:flex;align-items:center;gap:11px;padding:12px 0;border-bottom:1px solid var(--line);">
+                <span style="display:inline-flex;flex-direction:column;background:#fff;border:1.5px solid #2b2f2c;border-radius:4px;overflow:hidden;flex-shrink:0;">
+                  <span style="font-family:'Noto Sans Arabic',sans-serif;font-size:6.5px;font-weight:700;color:#57655d;text-align:center;line-height:1.6;border-bottom:1px solid #d6ded8;">مصر</span>
+                  <span style="font-family:'Noto Sans Arabic',sans-serif;font-size:12px;font-weight:700;color:#1f2b26;text-align:center;padding:1px 7px 2px;direction:rtl;unicode-bidi:isolate;letter-spacing:.04em;white-space:nowrap;">{{ i2.plate }}</span>
+                </span>
+                <div style="flex:1;min-width:0;"><div style="font-weight:600;font-size:14px;">{{ i2.who }}</div><div style="font-size:12px;color:{{ i2.c }};line-height:1.35;">{{ i2.sub }}</div></div>
+                <span style="font-weight:700;font-size:14px;font-family:ui-monospace,Menlo,monospace;flex-shrink:0;">{{ i2.dur }}</span>
+              </div>
+            </sc-for>
+          </div>
+          <div style="margin:0 20px 12px;background:var(--card);border-radius:16px;padding:18px;box-shadow:var(--sh);">
+            <div style="font-weight:700;font-size:15.5px;">Gate cameras</div>
+            <div style="font-size:12.5px;color:var(--tx2);margin:2px 0 12px;line-height:1.4;">Green = registered, amber = not registered, red = blacklisted.</div>
+            <div style="display:flex;flex-direction:column;gap:10px;">
+              <sc-for list="{{ mgCams }}" as="g" hint-placeholder-count="3">
+                <div style="border-radius:13px;overflow:hidden;background:#1d2420;border:1px solid var(--line);">
+                  <div style="position:relative;height:138px;overflow:hidden;">
+                    <div style="position:absolute;inset:0;background:linear-gradient(#2b3339 0%,#252c32 43%,#1f2529 44%,#161b1e 100%);"></div>
+                    <div style="position:absolute;left:0;right:0;bottom:15%;height:2px;background-image:linear-gradient(90deg,rgba(255,255,255,.13) 0 20px,transparent 20px 42px);"></div>
+                    <div style="position:absolute;left:7%;top:22%;width:3px;height:46%;background:#4a555c;"></div>
+                    <div style="position:absolute;left:7%;top:22%;width:50%;height:5px;background-image:linear-gradient(90deg,#c94b3f 0 13px,#dfe4de 13px 26px);"></div>
+                    <div style="position:absolute;left:27%;top:34%;width:38%;height:42%;border-radius:15px 15px 5px 5px;background:#39434a;"></div>
+                    <div style="position:absolute;left:32%;top:39%;width:28%;height:16%;border-radius:7px;background:rgba(188,208,222,.17);"></div>
+                    <div style="position:absolute;left:29%;top:62%;width:7%;height:6%;border-radius:3px;background:rgba(255,240,205,.5);"></div>
+                    <div style="position:absolute;left:57%;top:62%;width:7%;height:6%;border-radius:3px;background:rgba(255,240,205,.5);"></div>
+                    <div style="position:absolute;inset:0;box-shadow:inset 0 0 62px rgba(0,0,0,.55);"></div>
+                    <sc-if value="{{ g.hasBox }}" hint-placeholder-val="{{ true }}">
+                      <div style="position:absolute;left:36%;top:70%;width:22%;height:10%;border:2px solid {{ g.c }};border-radius:2px;background:#f4f6f3;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 1px rgba(0,0,0,.4);">
+                        <span style="font-family:'Noto Sans Arabic',sans-serif;font-size:8px;font-weight:700;color:#1f2b26;direction:rtl;unicode-bidi:isolate;white-space:nowrap;">{{ g.plate }}</span>
+                      </div>
+                      <span style="position:absolute;left:36%;top:58%;font-size:9.5px;font-weight:700;padding:1px 6px;border-radius:3px;white-space:nowrap;color:#1d2420;background:{{ g.c }};">{{ g.lab }}</span>
+                    </sc-if>
+                    <sc-if value="{{ g.on }}" hint-placeholder-val="{{ true }}">
+                      <div style="position:absolute;top:8px;left:9px;display:flex;align-items:center;gap:5px;font-size:10.5px;color:#fff;font-weight:600;letter-spacing:.05em;">
+                        <span style="width:6px;height:6px;border-radius:50%;background:#e5564a;animation:vg-pulse 1.6s infinite;"></span>LIVE
+                      </div>
+                    </sc-if>
+                    <sc-if value="{{ g.off }}" hint-placeholder-val="{{ false }}">
+                      <div style="position:absolute;inset:0;background:rgba(29,36,32,.74);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;">
+                        <span style="color:#aab5ac;font-size:12px;font-weight:700;letter-spacing:.05em;">NO SIGNAL</span>
+                        <span style="color:#77827a;font-size:11px;">showing last received frame</span>
+                      </div>
+                    </sc-if>
+                    <div style="position:absolute;top:8px;right:9px;font-size:10.5px;color:#c3cdc5;font-family:ui-monospace,Menlo,monospace;">{{ g.time }}</div>
+                  </div>
+                  <div style="padding:9px 12px;background:var(--card);">
+                    <div style="font-size:12.5px;font-weight:600;">{{ g.n }}</div>
+                    <div style="font-size:11.5px;color:var(--tx2);margin-top:1px;">{{ g.s }}</div>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+          <div style="margin:0 20px 12px;background:var(--card);border-radius:16px;padding:18px;box-shadow:var(--sh);">
+            <div style="font-weight:700;font-size:15.5px;">Registered vehicles</div>
+            <div style="font-size:12.5px;color:var(--tx2);margin:2px 0 12px;line-height:1.4;">2,140 cars on record. Search by plate, owner or unit.</div>
+            <input placeholder="Search the register…" style="width:100%;height:46px;border:1px solid var(--line);border-radius:13px;padding:0 13px;font-size:14px;background:var(--card);color:var(--tx);outline:none;box-sizing:border-box;margin-bottom:4px;">
+            <sc-for list="{{ mgVeh }}" as="v2" hint-placeholder-count="4">
+              <div style="display:flex;align-items:center;gap:11px;padding:12px 0;border-bottom:1px solid var(--line);">
+                <span style="display:inline-flex;flex-direction:column;background:#fff;border:1.5px solid #2b2f2c;border-radius:4px;overflow:hidden;flex-shrink:0;">
+                  <span style="font-family:'Noto Sans Arabic',sans-serif;font-size:6.5px;font-weight:700;color:#57655d;text-align:center;line-height:1.6;border-bottom:1px solid #d6ded8;">مصر</span>
+                  <span style="font-family:'Noto Sans Arabic',sans-serif;font-size:12px;font-weight:700;color:#1f2b26;text-align:center;padding:1px 7px 2px;direction:rtl;unicode-bidi:isolate;letter-spacing:.04em;white-space:nowrap;">{{ v2.plate }}</span>
+                </span>
+                <div style="flex:1;min-width:0;"><div style="font-weight:600;font-size:14px;">{{ v2.who }}</div><div style="font-size:12px;color:var(--tx3);line-height:1.35;">{{ v2.sub }}</div></div>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+
         <sc-if value="{{ isWeapon }}" hint-placeholder-val="{{ false }}">
           <sc-if value="{{ wpClear }}" hint-placeholder-val="{{ true }}">
             <div style="margin:0 20px 12px;background:var(--card);border-radius:16px;padding:16px;box-shadow:var(--sh);display:flex;align-items:center;gap:12px;">
@@ -150,15 +233,15 @@ input,select,button{font-family:inherit;}
             <div style="margin:0 20px 12px;background:var(--card);border:2px solid var(--rd);border-radius:16px;padding:18px;box-shadow:var(--sh);">
               <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">
                 <span aria-hidden="true" style="width:24px;height:24px;border-radius:50%;background:var(--rd);color:var(--card);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;line-height:1;flex-shrink:0;">!</span>
-                <div style="font-weight:700;font-size:17px;letter-spacing:-.01em;color:var(--rd);line-height:1.25;">Possible weapon — Main gate</div>
+                <div style="font-weight:700;font-size:17px;letter-spacing:-.01em;color:var(--rd);line-height:1.25;">Possible knife — Main gate</div>
               </div>
               <div style="font-size:12.5px;color:var(--tx2);line-height:1.4;margin-bottom:14px;">14 seconds ago · knife-shaped object, 78% confidence · nobody has been alerted yet.</div>
               <dc-import name="CamGrid" title="" note="" cams="{{ wpLiveCam }}" hint-size="100%,190px"></dc-import>
-              <div style="font-size:12.5px;color:var(--tx2);line-height:1.45;margin:14px 0 12px;">The system will not call anyone or notify a parent on its own. Watch the clip and say what you see.</div>
+              <div style="font-size:12.5px;color:var(--tx2);line-height:1.45;margin:14px 0 12px;">The detector does not call, message or notify anyone. It opens an entry and waits. Your verdict is recorded against your account.</div>
               <div style="display:flex;flex-direction:column;gap:9px;">
-                <button onClick="{{ wpConfirm }}" style="height:48px;border:none;border-radius:13px;background:var(--rd);color:#fff;font-weight:600;font-size:14.5px;width:100%;">This is a weapon — alert the team</button>
-                <button onClick="{{ wpDismiss }}" style="height:48px;border:1px solid var(--line);border-radius:13px;background:var(--card);color:var(--tx);font-weight:600;font-size:14.5px;width:100%;">Not a weapon — false alarm</button>
-                <button onClick="{{ wpDismiss }}" style="height:44px;border:none;border-radius:13px;background:transparent;color:var(--tx3);font-weight:600;font-size:13.5px;width:100%;">Not sure yet — keep watching</button>
+                <input placeholder="Reason (optional)" style="height:46px;border:1px solid var(--line);border-radius:13px;padding:0 13px;font-size:14px;background:var(--card);color:var(--tx);outline:none;box-sizing:border-box;width:100%;">
+                <button onClick="{{ wpConfirm }}" style="height:48px;border:none;border-radius:13px;background:var(--rd);color:#fff;font-weight:600;font-size:14.5px;width:100%;">Confirm knife</button>
+                <button onClick="{{ wpDismiss }}" style="height:48px;border:1px solid var(--line);border-radius:13px;background:var(--card);color:var(--tx);font-weight:600;font-size:14.5px;width:100%;">False alarm</button>
               </div>
             </div>
           </sc-if>
@@ -168,14 +251,14 @@ input,select,button{font-family:inherit;}
                 <span aria-hidden="true" style="width:22px;height:22px;border-radius:50%;background:var(--rd);color:var(--card);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;line-height:1;flex-shrink:0;">!</span>
                 <div style="font-weight:700;font-size:16px;letter-spacing:-.01em;line-height:1.25;">Confirmed by you at 8:47am</div>
               </div>
-              <div style="font-size:12.5px;color:var(--tx2);line-height:1.4;margin:4px 0 12px;">Mohamed Fouad confirmed this detection. Everything below is recorded against the incident.</div>
+              <div style="font-size:12.5px;color:var(--tx2);line-height:1.4;margin:4px 0 12px;">Mohamed Fouad confirmed this entry. The verdict was written to the audit log before it was saved — and no message went out, because the detector does not send any.</div>
               <sc-for list="{{ wpSteps }}" as="ws" hint-placeholder-count="4">
                 <div style="display:flex;align-items:center;gap:11px;padding:11px 0;border-bottom:1px solid var(--line);">
                   <span aria-hidden="true" style="width:20px;height:20px;border-radius:50%;background:{{ ws.bg }};color:{{ ws.c }};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;line-height:1;flex-shrink:0;">{{ ws.ic }}</span>
                   <div style="flex:1;min-width:0;"><div style="font-weight:600;font-size:13.5px;">{{ ws.t }}</div><div style="font-size:12px;color:var(--tx3);line-height:1.35;">{{ ws.s }}</div></div>
                 </div>
               </sc-for>
-              <button onClick="{{ wpReset }}" style="height:46px;border:1px solid var(--line);border-radius:13px;background:var(--card);color:var(--tx);font-weight:600;font-size:14.5px;width:100%;margin-top:14px;">Close incident</button>
+              <button onClick="{{ wpReset }}" style="height:46px;border:1px solid var(--line);border-radius:13px;background:var(--card);color:var(--tx);font-weight:600;font-size:14.5px;width:100%;margin-top:14px;">Back to the log</button>
             </div>
           </sc-if>
           <sc-if value="{{ wpDismissed }}" hint-placeholder-val="{{ false }}">
@@ -274,12 +357,6 @@ input,select,button{font-family:inherit;}
                     <div style="font-size:12.5px;color:var(--tx2);margin-top:4px;line-height:1.4;">{{ cd.m }}</div>
                     <div style="display:flex;gap:14px;align-items:center;margin-top:11px;">
                       <span style="color:var(--ac);font-weight:600;font-size:13px;">Watch clip</span>
-                      <sc-if value="{{ cd.canAck }}" hint-placeholder-val="{{ false }}">
-                        <span onClick="{{ cd.ack }}" style="color:var(--tx2);font-weight:600;font-size:13px;">Not a fight</span>
-                      </sc-if>
-                      <sc-if value="{{ cd.ackd }}" hint-placeholder-val="{{ false }}">
-                        <span style="color:var(--ac2);font-weight:600;font-size:12.5px;">✓ Noted — thanks</span>
-                      </sc-if>
                     </div>
                   </div>
                 </sc-for>
@@ -313,9 +390,9 @@ input,select,button{font-family:inherit;}
       <sc-if value="{{ vTools }}" hint-placeholder-val="{{ false }}">
         <div style="padding:0 20px;">
           <div style="font-weight:700;font-size:25px;letter-spacing:-.02em;">Tools</div>
-          <div style="font-size:13.5px;color:var(--tx2);margin:4px 0 18px;line-height:1.4;">Seven tools. Each answers one question, with the footage right there.</div>
+          <div style="font-size:13.5px;color:var(--tx2);margin:4px 0 18px;line-height:1.4;">Six tools. Each answers one question, with the footage right there.</div>
           <div style="display:flex;flex-direction:column;gap:10px;">
-            <sc-for list="{{ allTools }}" as="t" hint-placeholder-count="7">
+            <sc-for list="{{ allTools }}" as="t" hint-placeholder-count="6">
               <div onClick="{{ t.go }}" style="display:flex;align-items:center;gap:12px;background:var(--card);border-radius:14px;padding:16px;box-shadow:var(--sh);min-height:44px;">
                 <div style="flex:1;min-width:0;"><div style="font-weight:600;font-size:14.5px;">{{ t.t }}</div><div style="font-size:12.5px;color:var(--tx3);line-height:1.35;">{{ t.d }}</div></div>
                 <span style="color:var(--tx3);font-size:17px;flex-shrink:0;">›</span>
@@ -329,7 +406,20 @@ input,select,button{font-family:inherit;}
         <div style="padding:0 20px;">
           <div style="font-weight:700;font-size:25px;letter-spacing:-.02em;">People</div>
         </div>
-        <div style="padding:4px 20px 6px;font-size:13.5px;color:var(--tx2);line-height:1.4;">Students, staff and registered visitors. Records come from the school database — read-only here.</div>
+        <div style="padding:4px 20px 10px;font-size:13.5px;color:var(--tx2);line-height:1.4;">Students, staff and registered visitors, read from the school database.</div>
+        <div style="margin:0 20px 12px;display:flex;align-items:flex-start;gap:9px;background:var(--bg);border-radius:13px;padding:12px 14px;font-size:12.5px;color:var(--tx2);line-height:1.45;">
+          <span aria-hidden="true" style="font-weight:700;color:var(--ac);">◈</span>
+          <span>Only the minimum is shown: name, group, whether a face photo is enrolled, and today’s arrival. Phone numbers, addresses and guardian details stay in the school database.</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:0 20px 12px;">
+          <sc-for list="{{ pplStats }}" as="ps" hint-placeholder-count="4">
+            <div style="background:var(--card);border-radius:14px;padding:13px 15px;box-shadow:var(--sh);">
+              <div style="font-size:11.5px;color:var(--tx3);">{{ ps.l }}</div>
+              <div style="font-size:21px;font-weight:700;letter-spacing:-.02em;">{{ ps.v }}</div>
+              <div style="font-size:11px;color:var(--tx3);line-height:1.3;">{{ ps.s }}</div>
+            </div>
+          </sc-for>
+        </div>
         <div style="margin:12px 20px;">
           <input onChange="{{ mobPeopleSearch }}" onKeyUp="{{ mobPeopleSearch }}" placeholder="Search by name…" style="width:100%;height:48px;border:none;border-radius:14px;padding:0 16px;font-size:15px;background:var(--card);color:var(--tx);outline:none;box-shadow:var(--sh);box-sizing:border-box;">
         </div>
@@ -344,25 +434,22 @@ input,select,button{font-family:inherit;}
             <div style="padding:12px 0;border-bottom:1px solid var(--line);">
               <div onClick="{{ p.tap }}" style="display:flex;align-items:center;gap:11px;min-height:44px;">
                 <div style="width:38px;height:38px;border-radius:50%;background:{{ p.bg }};color:{{ p.c }};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12.5px;flex-shrink:0;">{{ p.init }}</div>
-                <div style="flex:1;min-width:0;"><div style="font-weight:600;font-size:14.5px;">{{ p.n }}</div><div style="font-size:12px;color:var(--tx3);line-height:1.35;">{{ p.sub }} · {{ p.att }}</div></div>
+                <div style="flex:1;min-width:0;"><div style="font-weight:600;font-size:14.5px;">{{ p.n }}</div><div style="font-size:12px;color:var(--tx3);line-height:1.35;">{{ p.sub }}</div></div>
                 <span style="color:var(--tx3);font-size:16px;flex-shrink:0;">{{ p.chev }}</span>
               </div>
               <sc-if value="{{ p.open }}" hint-placeholder-val="{{ false }}">
                 <div style="margin-top:12px;background:var(--bg);border-radius:13px;padding:14px;">
                   <div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:10px;">
                     <span style="padding:4px 11px;border-radius:9px;font-size:11.5px;font-weight:600;background:{{ p.bg }};color:{{ p.c }};">{{ p.b }}</span>
-                    <span style="padding:4px 11px;border-radius:9px;font-size:11.5px;font-weight:600;background:{{ p.phBg }};color:{{ p.phC }};">{{ p.ph }}</span>
+                    
                   </div>
-                  <sc-if value="{{ p.hasG }}" hint-placeholder-val="{{ true }}">
-                    <div style="font-size:12.5px;color:var(--tx2);line-height:1.4;margin-bottom:12px;">{{ p.g }}</div>
-                  </sc-if>
+                  <div style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--tx2);margin-bottom:12px;">
+                    <span aria-hidden="true" style="width:8px;height:8px;border-radius:50%;background:{{ p.dC }};flex-shrink:0;"></span>Today · {{ p.att }}
+                  </div>
                   <div style="display:flex;flex-direction:column;gap:8px;">
                     <sc-if value="{{ p.isStu }}" hint-placeholder-val="{{ true }}">
                       <div onClick="{{ p.goHist }}" style="display:flex;align-items:center;justify-content:space-between;background:var(--card);border-radius:11px;padding:12px 14px;min-height:44px;box-sizing:border-box;">
-                        <span style="font-size:13.5px;font-weight:600;">Attendance history</span><span style="color:var(--tx3);font-size:16px;">›</span>
-                      </div>
-                      <div onClick="{{ p.goTrk }}" style="display:flex;align-items:center;justify-content:space-between;background:var(--card);border-radius:11px;padding:12px 14px;min-height:44px;box-sizing:border-box;">
-                        <span style="font-size:13.5px;font-weight:600;">Track today <span style="font-weight:500;color:var(--tx3);">· logged</span></span><span style="color:var(--tx3);font-size:16px;">›</span>
+                        <span style="font-size:13.5px;font-weight:600;">Attendance record</span><span style="color:var(--tx3);font-size:16px;">›</span>
                       </div>
                     </sc-if>
                   </div>
@@ -373,8 +460,7 @@ input,select,button{font-family:inherit;}
           <sc-if value="{{ pNone }}" hint-placeholder-val="{{ false }}">
             <div style="padding:30px 10px;text-align:center;font-size:13.5px;color:var(--tx3);">Nobody matches that name.</div>
           </sc-if>
-        </div>
-        <div style="margin:12px 20px 0;background:var(--card);border-radius:16px;padding:4px 16px;box-shadow:var(--sh);">
+        </div><div style="margin:12px 20px 0;background:var(--card);border-radius:16px;padding:4px 16px;box-shadow:var(--sh);">
           <div style="padding:13px 0 4px;font-weight:700;font-size:14.5px;">Groups &amp; grades</div>
           <sc-for list="{{ mGroups }}" as="g" hint-placeholder-count="5">
             <div onClick="{{ g.go }}" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 0;border-top:1px solid var(--line);min-height:44px;">
@@ -383,12 +469,13 @@ input,select,button{font-family:inherit;}
             </div>
           </sc-for>
         </div>
+        
       </sc-if>
 
       <sc-if value="{{ vGroup }}" hint-placeholder-val="{{ false }}">
         <div style="display:flex;align-items:center;gap:12px;padding:0 20px 10px;">
           <div onClick="{{ backPeople }}" style="width:34px;height:34px;border-radius:50%;background:var(--card);box-shadow:var(--sh);display:flex;align-items:center;justify-content:center;font-size:16px;color:var(--tx2);flex-shrink:0;">‹</div>
-          <div style="font-weight:700;font-size:19px;letter-spacing:-.01em;">{{ grp.n }}</div>
+          <div style="font-weight: 700; font-size: 19px; letter-spacing: -.01em">{{ grp.n }}</div>
         </div>
         <div style="padding:0 20px 12px;font-size:13.5px;color:var(--tx2);line-height:1.4;">{{ grp.c }} · {{ grp.here }} on campus today</div>
         <div style="margin:0 20px;background:var(--card);border-radius:16px;padding:4px 16px;box-shadow:var(--sh);">
@@ -487,7 +574,7 @@ input,select,button{font-family:inherit;}
             </sc-for>
             <div style="padding:14px 0;">
               <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
-                <div style="flex:1;min-width:0;"><div style="font-weight:600;font-size:14.5px;">{{ quietLabel }}</div><div style="font-size:12px;color:var(--tx3);line-height:1.35;">Outside these hours, only fights, weapons and intrusion get through.</div></div>
+                <div style="flex:1;min-width:0;"><div style="font-weight:600;font-size:14.5px;">{{ quietLabel }}</div><div style="font-size:12px;color:var(--tx3);line-height:1.35;">Outside these hours, only knife detections and restricted-zone alerts get through.</div></div>
                 <div onClick="{{ toggleQuiet }}" style="width:44px;height:26px;border-radius:14px;background:{{ quietBg }};position:relative;flex-shrink:0;">
                   <div style="width:22px;height:22px;border-radius:50%;background:#fff;position:absolute;top:2px;left:{{ quietKnob }}px;transition:left .15s;"></div>
                 </div>
@@ -554,8 +641,8 @@ input,select,button{font-family:inherit;}
 
       <sc-if value="{{ vSystem }}" hint-placeholder-val="{{ false }}">
         <div style="padding:0 20px;">
-          <div style="font-weight:700;font-size:25px;letter-spacing:-.02em;">System</div>
-          <div style="font-size:13.5px;color:var(--tx2);margin:4px 0 16px;line-height:1.4;">Cameras, recorders and the AI server.</div>
+          <div style="font-weight:700;font-size:25px;letter-spacing:-.02em;">System health &amp; configuration</div>
+          <div style="font-size:13.5px;color:var(--tx2);margin:4px 0 16px;line-height:1.4;">Cameras, recorders, the AI server and how they are all connected.</div>
           <div style="background:var(--card);border-radius:16px;padding:18px;box-shadow:var(--sh);">
             <div style="font-weight:700;font-size:19px;letter-spacing:-.01em;">{{ sysHd }}</div>
             <div style="font-size:13px;color:var(--tx2);margin:3px 0 14px;line-height:1.4;">{{ sysSub }}</div>
@@ -719,22 +806,22 @@ const TOOLDEF = {
   count:{title:'People counting', lead:'How many people are in a place, now or at any past time.', run:'Show',
     empty:'Pick a place and a time range.',
     camTitle:'Cameras counting this area', camNote:'The blue dashed line is the counting line.'},
-  lost:{title:'Lost items', lead:'Describe what was lost and roughly where. The system searches the footage for it.', run:'Search',
-    empty:'Describe the item, then press Search.',
-    camTitle:'Where the item was seen', camNote:'Green box = matched object; amber means less sure.'},
-  track:{title:'Track a person', lead:'Rebuild where someone went across campus, for investigations only.', run:'Build path',
+  lost:{title:'Lost bag', lead:'Say what the bag looks like and where it went missing. The system searches the footage for it.', run:'Search',
+    empty:'Describe the bag, then press Search.',
+    camTitle:'Where the bag was seen', camNote:'Green box = matched bag; amber means less sure.'},
+  gate:{title:'Vehicle gate', lead:'Cars in and out, read from the plate at each gate. Every exit is paired with its entry.', run:'Show',
+    empty:'', camTitle:'', camNote:''},
+  track:{title:'Track a person', lead:'Follow somebody across cameras now, or rebuild where they went earlier.', run:'Build path',
     empty:'Choose a person and a time window.',
     camTitle:'Each sighting on camera', camNote:'Green = face match; blue = appearance match.'},
-  fight:{title:'Fights', lead:'Altercations confirmed over 3 or more seconds, always with the video.', run:'Show',
-    empty:'', camTitle:'Cameras where fight detection is on', camNote:'Off in sports halls, where rough movement is normal.'},
-  weapon:{title:'Weapons', lead:'Runs continuously on all 208 cameras. Every detection is reviewed by a person.', run:'Show',
-    empty:'', camTitle:'Highest-risk cameras', camNote:'Green = scanned, nothing found.'},
-  intrude:{title:'Intrusion', lead:'Restricted areas that alert when someone enters outside allowed hours.', run:'Show',
+  weapon:{title:'Knife detection', lead:'Looks for a knife on every camera, on the people in view. Every entry waits for a person to decide; nothing is sent to anyone.', run:'Show',
+    empty:'', camTitle:'Cameras being checked', camNote:'Red = a possible knife on a person.'},
+  intrude:{title:'Restricted zones', lead:'Mark a camera as a restricted area. Anyone who appears there is logged and recorded.', run:'Show',
     empty:'', camTitle:'Cameras watching restricted areas', camNote:'The orange outline is the protected zone.'}
 };
 
 class Component extends DCLogic {
-  state = { authed:this.props.startSignedIn ?? false, role:'admin', view:'home', tool:null, dark:false, askNote:'', peopleQ:'', notif:{fight:true, attendSum:true},
+  state = { authed:this.props.startSignedIn ?? false, role:'admin', view:'home', tool:null, dark:false, askNote:'', peopleQ:'', notif:{intr:true, attendSum:true},
     wpState:null, ctTick:0,
     msrc:[
       {n:'NVR 1–2 — Main building', meta:'192.168.1.41 · 32 channels', ch:32, st:'ok'},
@@ -750,7 +837,7 @@ class Component extends DCLogic {
     srcForm:false, srcMode:'scan', srcScan:'idle', srcFound:[], dvrStep:'form',
     dvrCh:[true,true,true,true,true,true,true,true], srcTest:'idle', editKey:null, delivEdit:null, lang:'en', quiet:true, quietFrom:'15:30', quietTo:'07:00',
     profile:{name:'Greenfield International School', hoursFrom:'07:30', hoursTo:'15:00', termFrom:'2025-09-01', termTo:'2026-06-20', cutoff:'08:00'},
-    chans:{fight:{Push:true,Email:true,SMS:false}, weapon:{Push:true,Email:true,SMS:true}, attend:{Push:false,Email:true,SMS:false}, intr:{Push:true,Email:true,SMS:false}},
+    chans:{intr:{Push:true,Email:true,SMS:false}, weapon:{Push:true,Email:true,SMS:true}, attend:{Push:false,Email:true,SMS:false}},
     deliv:{app:{on:true, dest:'Mohamed\u2019s iPhone'}, email:{on:true, dest:'mohamed61fouad@gmail.com'}, sms:{on:false, dest:''}, wa:{on:false, dest:''}},
 
     ans:null, searching:false, ackd:{}, fgPlace:'Anywhere',
@@ -770,7 +857,7 @@ class Component extends DCLogic {
   areaCounts(){ const t=this.state.ctTick||0;
     return Component.AREAS.map((a,i)=>{ const jit=(((t*7+i*i*11+i*5)%9)-4)/100;
       return {...a, v:Math.max(1, Math.round(a.cap*Math.min(0.99, Math.max(0.06, a.f+jit)))) }; }); }
-  open = (t) => { const v=this.state.view; this.setState({from:(v==='tool'?this.state.from:v)||'home', view:'tool', tool:t, ans:null, searching:false, askNote:'', wpState:null, ctTick:(this.state.ctTick||0)+1}); if(t==='fight'||t==='weapon'||t==='intrude'||t==='count') setTimeout(()=>this.run(),0); };
+  open = (t) => { const v=this.state.view; this.setState({from:(v==='tool'?this.state.from:v)||'home', view:'tool', tool:t, ans:null, searching:false, askNote:'', wpState:null, ctTick:(this.state.ctTick||0)+1}); if(t==='weapon'||t==='intrude'||t==='count') setTimeout(()=>this.run(),0); };
   back = () => this.setState({view:this.state.from||'home', tool:null, ans:null, searching:false});
   val(r,d){ return r.current ? r.current.value : d; }
 
@@ -805,7 +892,7 @@ class Component extends DCLogic {
         rowsTitle:'Best matches first', rows:[
           {n:'Cafeteria — table row 3',sub:'12:41pm · left on a table',badge:'94%',k:'gn'},
           {n:'Cafeteria — exit corridor',sub:'12:38pm · carried by a student',badge:'88%',k:'gn'},
-          {n:'Library — study area',sub:'11:20am · similar item on a chair',badge:'71%',k:'am'}],
+          {n:'Library — study area',sub:'11:20am · similar bag on a chair',badge:'71%',k:'am'}],
         foot:'If none look right, widen the area or time range and search again.'}}),1600);
     }
     if(t==='track'){ const who=this.val(this.f1,'Layla Ahmed');
@@ -818,14 +905,7 @@ class Component extends DCLogic {
           {t:'1:02pm',p:'Playground — north',d:'Outdoor break'},
           {t:'2:48pm',p:'Main entrance',d:'Left campus'}]}});
     }
-    if(t==='fight'){ const p=this.val(this.f1,'Anywhere');
-      const all=[{t:'Building B — Yard 2',area:'Outdoor areas',m:'Today, 11:03am · 7 seconds · 2 people',badge:'Not reviewed',k:'rd',crit:true},
-        {t:'Building A — Corridor 3',area:'Corridors',m:'Jul 27, 12:40pm · 4 seconds · 3 people',badge:'Reviewed',k:'gn'},
-        {t:'Playground — north',area:'Outdoor areas',m:'Jul 22, 1:15pm · 5 seconds · 2 people',badge:'Not a fight',k:'gy'}];
-      const list=all.filter(f=>p==='Anywhere'||f.area===p);
-      this.setState({fgPlace:p, ans:{hd:list.length+(list.length===1?' incident':' incidents'), sub:'Last 30 days · '+p.toLowerCase(), stats:[], cards:list}});
-    }
-    if(t==='weapon'){ this.setState({ans:{isWeapon:true, hd:'No weapon detected on campus', sub:'Monitoring every camera · last check 2 seconds ago', stats:[],
+    if(t==='weapon'){ this.setState({ans:{isWeapon:true, hd:'No knife detected on campus', sub:'Monitoring every camera · last check 2 seconds ago', stats:[],
       rowsTitle:'Past detections — shown honestly', rows:[
         {n:'Main gate — entrance',sub:'Jul 11 · knife-shaped object',badge:'False alarm',k:'gy'},
         {n:'Playground — east',sub:'May 3 · toy replica',badge:'False alarm',k:'gy'},
@@ -840,8 +920,11 @@ class Component extends DCLogic {
 
   doAsk = () => {
     const q=(this.askRef.current?this.askRef.current.value:'').toLowerCase();
-    const map=[[['absent','attendance','present','arrive','late'],'attend'],[['how many','count','busy','crowd'],'count'],
-      [['intrusion','restricted','breach'],'intrude'],[['fight','altercation'],'fight'],[['weapon','knife','gun'],'weapon'],
+    // Vehicle words win over "how many" — "how many cars entered today" is a gate question.
+    const map=[[['absent','attendance','present','arrive','late'],'attend'],
+      [['car','cars','vehicle','vehicles','plate','plates','gate','parking','drove'],'gate'],
+      [['how many','count','busy','crowd'],'count'],
+      [['intrusion','restricted','breach'],'intrude'],[['weapon','knife','gun'],'weapon'],
       [['lost','backpack','bag','phone','jacket','laptop','missing'],'lost'],[['track','where did','went','path'],'track']];
     for(const [ks,v] of map){ if(ks.some(k=>q.includes(k))){ this.open(v); setTimeout(()=>this.run(),0); return; } }
     if(q.trim()) this.setState({askNote:'I didn’t catch that — try one of the suggestions, or pick a tool.'});
@@ -878,20 +961,18 @@ class Component extends DCLogic {
               {label:'Date',ref:this.f2,options:['Today — Wed, Jul 29','Tue, Jul 28','Mon, Jul 27']}],
       count:[{label:'Place',ref:this.f1,options:['Main entrance','Cafeteria','Assembly hall','Library','Classrooms','Playground','Whole campus']},
              {label:'When',ref:this.f2,options:['Right now','Today by hour','This week by day']}],
-      lost:[{label:'Item',ref:this.f1,options:['Backpack','Laptop','Phone','Jacket','Water bottle','Sports bag']},
-            {label:'Colour',ref:this.f2,options:['Black','Any','Blue','Red','Grey','Green']},
+      lost:[{label:'Type of bag',ref:this.f1,options:['Backpack','Sports bag','Handbag','Laptop bag']},
+            {label:'Colour',ref:this.f2,options:['Black','Blue','Grey','Red','Green','Any']},
             {label:'Last seen area',ref:this.f3,options:['Anywhere','Cafeteria','Library','Gymnasium','Corridors','Playground']},
-            {label:'Since',ref:this.f4,options:['Today','Yesterday','Last 3 days']}],
+            {label:'Missing since',ref:this.f4,options:['Today','Yesterday','Last 3 days']}],
       track:[{label:'Find',ref:this.f1,options:['Layla Ahmed','Omar Khaled','Karim Adel','Unknown visitor (from clip)']},
              {label:'Time window',ref:this.f2,options:['Whole school day','Morning only','Afternoon only']}],
-      fight:[{label:'Place',ref:this.f1,options:['Anywhere','Corridors','Outdoor areas']},
-             {label:'Period',ref:this.f2,options:['Last 30 days','Last 7 days','Today']}],
       weapon:[{label:'Show detections from',ref:this.f1,options:['This school year','Last 90 days','Last 30 days']}],
       intrude:[{label:'Show breaches from',ref:this.f1,options:['Today','Last 7 days','Last 30 days']}]
     };
     const fields=(t?F[t]:[]).map(f=>({...f, change:()=>{}}));
 
-    const A=ans||{}, aWho=A.who?A.who.split(' ')[0]:'', aPlace=A.place||'Cafeteria', aLabel=A.label||'item';
+    const A=ans||{}, aWho=A.who?A.who.split(' ')[0]:'', aPlace=A.place||'Cafeteria', aLabel=A.label||'bag';
     const camsFor={
       attend:[{n:'Main entrance',s:'Recognising · 2 people',time:'07:42:11',boxes:[{x:18,y:26,w:20,h:44,c:G,l:'Layla A. 96%'},{x:52,y:31,w:19,h:41,c:G,l:'Nour H. 94%'}]},
         {n:'Gate 5 — bus lane',s:'Unknown face — not enrolled',time:'07:42:11',boxes:[{x:40,y:27,w:20,h:44,c:R,l:'Unknown'}]}],
@@ -901,22 +982,20 @@ class Component extends DCLogic {
         {n:'Library — study area',s:'71% match · 11:20am',time:'11:20:15',boxes:[{x:58,y:52,w:15,h:19,c:O,l:'71%'}]}],
       track:[{n:'7:42am — Main entrance',s:'Face match · 96%',time:'07:42:11',boxes:[{x:30,y:28,w:19,h:44,c:G,l:aWho+' 96%'}]},
         {n:'12:34pm — Cafeteria',s:'Appearance match · 92%',time:'12:34:07',boxes:[{x:24,y:32,w:18,h:40,c:B,l:'92%'}]}],
-      fight:[{n:'Building B — Yard 2',s:'Incident 11:03am',time:'11:03:18',boxes:[{x:28,y:28,w:19,h:44,c:R,l:'Aggression 7s'},{x:47,y:30,w:19,h:42,c:R,l:''}]},
-        {n:'Building A — Corridor 3',s:'Monitoring · clear',boxes:[{x:22,y:32,w:16,h:38,c:B,l:'Normal'}]}],
-      weapon:[{n:'Main gate — entrance',s:'Scanning · clear',boxes:[{x:30,y:30,w:18,h:42,c:G,l:'No weapon'}]},
-        {n:'Building C — corridor',s:'Scanning · clear',boxes:[{x:52,y:32,w:17,h:40,c:G,l:'No weapon'}]}],
+      weapon:[{n:'Main gate — entrance',s:'Scanning · clear',boxes:[{x:30,y:30,w:18,h:42,c:G,l:'No knife'}]},
+        {n:'Building C — corridor',s:'Scanning · clear',boxes:[{x:52,y:32,w:17,h:40,c:G,l:'No knife'}]}],
       intrude:[{n:'Chemistry lab — door',s:'Breach detected 6:12am',time:'06:12:44',zone:{x:10,y:18,w:52,h:62,l:'Restricted'},boxes:[{x:24,y:34,w:19,h:42,c:R,l:'Person in zone'}]},
         {n:'Boundary fence — east',s:'Paused by IT',zone:{x:8,y:44,w:82,h:34,l:'Paused'},boxes:[]}]
     };
 
     const toolsDef=[['attend','Attendance','Who arrived, who’s missing'],['count','People counting','How many, anywhere'],
-      ['lost','Lost items','Search footage for it'],['track','Track a person','Always logged'],
-      ['intrude','Intrusion','Restricted areas'],['fight','Fights','Reviewed with video'],
-      ['weapon','Weapons','Human-reviewed, always'],['people','People','Students, staff and groups']];
+      ['gate','Vehicle gate','Cars in, cars out'],
+      ['lost','Lost bag','Search footage for it'],['track','Track a person','Always logged'],
+      ['intrude','Restricted zones','Areas that must stay empty'],      ['weapon','Knife detection','Human-reviewed, always'],['people','People','Students, staff and groups']];
     const chipDef=[['Who was absent today?','attend'],['How busy is the cafeteria?','count'],['Lost a black backpack','lost'],['Where did Layla go today?','track']];
 
     const attn = [
-      {k:'Needs review',ic:'!',bg:'var(--rd-bg)',c:'var(--rd)',t:'Possible fight — Building B yard',s:'11 min ago · 7 seconds · 2 people',act:'Watch the clip',go:()=>this.open('fight')},
+      {k:'Needs review',ic:'!',bg:'var(--rd-bg)',c:'var(--rd)',t:'Restricted zone entered — Chemistry lab',s:'6:12am · unidentified person · 41 seconds',act:'Watch the clip',go:()=>this.open('intrude')},
       {k:'Attendance',ic:'●',bg:'var(--am-bg)',c:'var(--am)',t:'34 students not yet arrived',s:'Grade 8 · as of 8:40am',act:'See who',go:()=>{this.open('attend');setTimeout(()=>this.run(),0);}}
     ];
 
@@ -935,7 +1014,7 @@ class Component extends DCLogic {
       {k:'cutoff', l:'Attendance cut-off', disp:fmtT(P.cutoff)+' — later is late', aType:'time', va:P.cutoff, two:false, saveA:setP('cutoff')}
     ].map(r=>({...r, editing:s.editKey===r.k, plain:s.editKey!==r.k, actLabel:s.editKey===r.k?'Done':'Edit',
       edit:()=>this.setState({editKey:s.editKey===r.k?null:r.k})}));
-    const alertRows=[['fight','Fight alerts','Immediately'],['weapon','Weapon alerts','Immediately · reviewed by a person first'],['attend','Morning attendance summary','9:00am each school day'],['intr','Intrusion alerts','When someone enters a restricted area']]
+    const alertRows=[['intr','Restricted zone alerts','When someone enters a restricted area'],['weapon','Knife alerts','Immediately · reviewed by a person first'],['attend','Morning attendance summary','9:00am each school day']]
       .map(([k,t2,sub])=>({t:t2, s:sub, chs:['Push','Email','SMS'].map(ch=>{ const on=s.chans[k][ch];
         return {t:ch, bg:on?'var(--chip)':'var(--bg)', c:on?'var(--ac2)':'var(--tx3)',
           toggle:()=>this.setState({chans:{...s.chans,[k]:{...s.chans[k],[ch]:!on}}})}; })}));
@@ -959,27 +1038,27 @@ class Component extends DCLogic {
       account:'M9 3.4 a2.6 2.6 0 1 0 .01 0 M3.6 15 c0-3 2.4-4.6 5.4-4.6 s5.4 1.6 5.4 4.6'};
     TABIC.system='M2.6 9.5 H5.8 L7.8 5 L10.3 13.5 L12.2 9.5 H15.4';
     const PPL=[
-      {n:'Layla Ahmed',type:'Student',sub:'Grade 8 — B',g:'Rana Ahmed (mother) · +20 100 555 0143',photo:true,att:'On time · 7:42am'},
-      {n:'Omar Khaled',type:'Student',sub:'Grade 8 — A',g:'Khaled Samir (father) · +20 100 555 0167',photo:true,att:'Late · 8:14am'},
-      {n:'Karim Adel',type:'Student',sub:'Grade 7 — C',g:'Adel Hassan (father) · +20 100 555 0121',photo:false,att:'Absent today'},
-      {n:'Mona Fathy',type:'Student',sub:'Grade 9 — A',g:'Nour Fathy (mother) · +20 100 555 0177',photo:true,att:'On time · 7:36am'},
-      {n:'Sara Ibrahim',type:'Staff',sub:'Deputy head',g:'',photo:true,att:'On site · 7:10am'},
-      {n:'Dina Mostafa',type:'Staff',sub:'Grade 7 teacher',g:'',photo:true,att:'On site · 7:22am'},
-      {n:'DHL courier',type:'Visitor',sub:'Registered Jul 28, one day',g:'',photo:false,att:'Signed out 2:10pm'}
+      {n:'Layla Ahmed',type:'Student',sub:'Grade 8 — B',photo:true,att:'On time · 7:42am'},
+      {n:'Omar Khaled',type:'Student',sub:'Grade 8 — A',photo:true,att:'Late · 8:14am'},
+      {n:'Karim Adel',type:'Student',sub:'Grade 7 — C',photo:false,att:'Absent today'},
+      {n:'Mona Fathy',type:'Student',sub:'Grade 9 — A',photo:true,att:'On time · 7:36am'},
+      {n:'Sara Ibrahim',type:'Staff',sub:'Deputy head',photo:true,att:'On site · 7:10am'},
+      {n:'Dina Mostafa',type:'Staff',sub:'Grade 7 teacher',photo:true,att:'On site · 7:22am'},
+      {n:'Bus driver',type:'Visitor',sub:'Registered daily pass',photo:false,att:'Signed out 2:10pm'}
     ];
     const pq=(s.peopleQ||'').trim().toLowerCase(), pTab=s.pTab||'All';
     const MPEOPLE=PPL.filter(p=>(pTab==='All'||p.type===pTab)&&(!pq||p.n.toLowerCase().includes(pq))).map(p=>({
-      n:p.n, sub:p.sub, g:p.g, att:p.att, hasG:!!p.g, isStu:p.type==='Student',
+      n:p.n, sub:p.sub, att:p.att, isStu:p.type==='Student',
+      dC:p.att.indexOf('Absent')===0?'var(--am)':(p.att.indexOf('Late')===0?'var(--am)':(p.att.indexOf('Signed out')===0?'#c3ccc4':'var(--ac)')),
       init:p.n.split(' ').map(w=>w[0]).slice(0,2).join(''),
       b:p.type, bg:p.type==='Student'?'var(--chip)':(p.type==='Staff'?'var(--bg)':'var(--am-bg)'),
       c:p.type==='Student'?'var(--ac2)':(p.type==='Staff'?'var(--tx2)':'var(--am)'),
       ph:p.photo?'Photo on file':'No photo yet', phBg:p.photo?'var(--chip)':'var(--am-bg)', phC:p.photo?'var(--ac2)':'var(--am)',
       open:s.pOpen===p.n, closed:s.pOpen!==p.n, chev:s.pOpen===p.n?'⌃':'›',
       tap:()=>this.setState({pOpen:s.pOpen===p.n?null:p.n}),
-      goHist:()=>this.setState({view:'hist', histName:p.n, histFrom:'people'}),
-      goTrk:()=>{ this.open('track'); setTimeout(()=>this.run(),0); }}));
+      goHist:()=>this.setState({view:'hist', histName:p.n, histFrom:'people'})}));
     const GRPS=[{n:'Grade 7',c:'138 students · 5 classes',here:129},{n:'Grade 8',c:'142 students · 5 classes',here:133},
-      {n:'Grade 9',c:'129 students · 4 classes',here:124},{n:'All staff',c:'168 people',here:164},{n:'Bus riders',c:'214 students',here:201}];
+      {n:'Grade 9',c:'129 students · 4 classes',here:124},{n:'All staff',c:'168 people',here:164},{n:'Bus riders',c:'14 Drivers',here:201}];
     const GRP=GRPS.find(g=>g.n===s.grpName)||GRPS[0];
     const ROSTER={
       'Grade 7':[['Karim Adel','7 — C','Absent'],['Yasmin Tarek','7 — A','On time · 7:38am'],['Hassan Nabil','7 — B','On time · 7:44am'],['Farida Sami','7 — C','Late · 8:09am'],['Ziad Ashraf','7 — A','On time · 7:31am'],['Malak Hisham','7 — D','On time · 7:47am']],
@@ -988,7 +1067,7 @@ class Component extends DCLogic {
       'All staff':[['Sara Ibrahim','Deputy head','On site · 7:10am'],['Tarek Nassar','IT manager','On site · 7:18am'],['Dina Mostafa','Grade 7 teacher','On site · 7:22am'],['Amira Fouad','Grade 9 teacher','On site · 7:15am']],
       'Bus riders':[['Layla Ahmed','Route 3','On time · 7:42am'],['Ziad Ashraf','Route 1','On time · 7:31am'],['Jana Mostafa','Route 5','On time · 7:33am'],['Farida Sami','Route 3','Late · 8:09am']]
     };
-    const stTone=(x)=>x.indexOf('Absent')===0?{bg:'var(--rd-bg)',c:'var(--rd)',g:'✕ '}:(x.indexOf('Late')===0?{bg:'var(--am-bg)',c:'var(--am)',g:'! '}:{bg:'var(--chip)',c:'var(--ac2)',g:'✓ '});
+    const stTone=(x)=>x.indexOf('Absent')===0?{bg:'var(--rd-bg)',c:'var(--rd)'}:(x.indexOf('Late')===0?{bg:'var(--am-bg)',c:'var(--am)'}:{bg:'var(--chip)',c:'var(--ac2)'});
     const GRPPEOPLE=(ROSTER[GRP.n]||[]).map(([n2,sub2,st2])=>({n:n2, sub:sub2, status:stTone(st2).g+st2.split(' · ')[0], init:n2.split(' ').map(w=>w[0]).slice(0,2).join(''),
       bg:'var(--chip)', c:'var(--ac2)', sBg:stTone(st2).bg, sC:stTone(st2).c,
       goHist:()=>this.setState({view:'hist', histName:n2, histFrom:'group'})}));
@@ -1036,7 +1115,7 @@ class Component extends DCLogic {
       todayStats:[{l:'On campus now',v:'1,679'},{l:'Absent',v:'63'},{l:'Late',v:'41'},{l:'Visitors',v:'4'}],
       recent:[
         {t:'Attendance · Grade 8',s:'Checked 12 minutes ago',go:()=>{this.open('attend');setTimeout(()=>this.run(),0);}},
-        {t:'Lost items · black backpack',s:'Searched yesterday, 3 matches',go:()=>{this.open('lost');setTimeout(()=>this.run(),0);}},
+        {t:'Lost bag · black backpack',s:'Searched yesterday, 3 matches',go:()=>{this.open('lost');setTimeout(()=>this.run(),0);}},
         {t:'Cafeteria · people counting',s:'Checked yesterday at 12:40pm',go:()=>{this.open('count');setTimeout(()=>this.run(),0);}}
       ],
       greeting:'Good morning, Mohamed.',
@@ -1049,9 +1128,9 @@ class Component extends DCLogic {
       attn, tabs,
       tools:toolsDef.filter(t2=>t2[0]!=='people').map(([id,tt,d])=>({t:tt,d,go:()=>this.open(id)})),
       allTools:[['attend','Attendance','Who arrived, who’s missing'],['count','People counting','How many, anywhere'],
-        ['lost','Lost items','Search footage for it'],['track','Track a person','Always logged'],
-        ['intrude','Intrusion','Restricted areas'],['fight','Fights','Reviewed with video'],
-        ['weapon','Weapons','Human-reviewed, always']].map(([id,tt,d])=>({t:tt,d,go:()=>this.open(id)})),
+        ['gate','Vehicle gate','Cars in, cars out'],
+        ['lost','Lost bag','Search footage for it'],['track','Track a person','Always logged'],
+        ['intrude','Restricted zones','Areas that must stay empty'],        ['weapon','Knife detection','Human-reviewed, always']].map(([id,tt,d])=>({t:tt,d,go:()=>this.open(id)})),
       vPeople:s.view==='people',
       mobPeopleSearch:(e)=>this.setState({peopleQ:e.target.value}),
       pTabs:['All','Student','Staff','Visitor'].map(k=>({t:{All:'All',Student:'Students',Staff:'Staff',Visitor:'Visitors'}[k],
@@ -1059,6 +1138,8 @@ class Component extends DCLogic {
         go:()=>this.setState({pTab:k, pOpen:null})})),
       pCount:{All:'2,118 people',Student:'1,742 students',Staff:'168 staff',Visitor:'12 visitors this week'}[s.pTab||'All'],
       mobPeople:MPEOPLE,
+      pplStats:[{l:'People on record',v:'2,118',s:'1,742 students · 168 staff'},{l:'On campus now',v:'1,861',s:'as of 8:40am'},
+        {l:'Face photo enrolled',v:'94%',s:'127 still missing a photo'},{l:'Visitors this week',v:'12',s:'signed in at reception'}],
       pNone:MPEOPLE.length===0,
       mGroups:GRPS.map(g=>({...g, go:()=>this.setState({view:'group', grpName:g.n, pOpen:null})})),
       vGroup:s.view==='group', vHist:s.view==='hist',
@@ -1076,7 +1157,26 @@ class Component extends DCLogic {
       saveQuietTo:(e)=>{ if(e.target.value) this.setState({quietTo:e.target.value}); },
       back:this.back, runTool:this.run,
       toolTitle:def?def.title:'', toolLead:def?def.lead:'', runLabel:def?def.run:'Show',
-      fields, isTrack:t==='track', isIntrude:t==='intrude',
+      fields, isTrack:t==='track', isIntrude:t==='intrude', isGate:t==='gate',
+      // Vehicle gate — plates render right-to-left, as they read on the car.
+      mgStats:[{l:'Entered today',v:'148',c:'var(--tx)'},{l:'Left today',v:'121',c:'var(--tx)'},
+        {l:'Inside now',v:'27',c:'var(--ac)'},{l:'Not registered',v:'6',c:'var(--am)'},
+        {l:'Blacklisted',v:'1',c:'var(--rd)'},{l:'Needs review',v:'4',c:'var(--am)'}],
+      mgInside:[
+        {plate:'ب ج د ١٢٣٤',who:'Mohamed Fouad',sub:'Staff · Gate 1 · 8:46am',dur:'0:12',c:'var(--tx3)'},
+        {plate:'ط ه و ٢٦١',who:'Tarek Nassar',sub:'Staff · Gate 2 · 8:38am',dur:'0:20',c:'var(--tx3)'},
+        {plate:'س ن ر ٥٨٢',who:'Not in the register',sub:'Gate 2 · 8:44am',dur:'0:14',c:'var(--am)'},
+        {plate:'ر ق ص ٩٠٥٨',who:'Former contractor',sub:'Blacklisted · Gate 3 · 8:31am',dur:'0:27',c:'var(--rd)'},
+        {plate:'ن ي ع ٣٣١٧',who:'Hoda Kamel',sub:'Permit expired 28 Jul · Gate 1',dur:'0:34',c:'var(--am)'}],
+      mgCams:[
+        {n:'Gate 1 — entry',s:'Entry · 14 fps',on:true,off:false,time:'08:46:51',hasBox:true,plate:'ب ج د ١٢٣٤',c:'var(--det-green)',lab:'Registered · 0.97'},
+        {n:'Gate 2 — entry',s:'Entry · 12 fps',on:true,off:false,time:'08:46:50',hasBox:true,plate:'س ن ر ٥٨٢',c:'var(--det-amber)',lab:'Not registered · 0.81'},
+        {n:'Gate 3 — service',s:'Offline since 7:12am',on:false,off:true,time:'07:12:04',hasBox:false,plate:'',c:'',lab:''}],
+      mgVeh:[
+        {plate:'ب ج د ١٢٣٤',who:'Mohamed Fouad',sub:'Staff · Toyota Corolla, white'},
+        {plate:'ط ه و ٢٦١',who:'Tarek Nassar',sub:'Staff · Hyundai Elantra, grey'},
+        {plate:'ي س ب ٤٤٠٦',who:'Rania Fahmy',sub:'VIP · Mercedes C180, black'},
+        {plate:'ر ق ص ٩٠٥٨',who:'Former contractor',sub:'Blacklisted · Chevrolet pickup'}],
       showEmpty:!!t&&!ans&&!s.searching&&!!def&&!!def.empty, emptyText:def?def.empty:'',
       showSearching:s.searching, showSummary:!!ans&&!(ans.isWeapon&&s.wpState), ans,
       ctHasMap:!!(ans&&ans.hasMap),
@@ -1087,10 +1187,10 @@ class Component extends DCLogic {
       wpSimulate:()=>this.setState({wpState:'live'}), wpConfirm:()=>this.setState({wpState:'confirmed'}),
       wpDismiss:()=>this.setState({wpState:'dismissed'}), wpReset:()=>this.setState({wpState:null}),
       wpSteps:[
-        {ic:'✓', bg:'var(--rd)', c:'var(--card)', t:'Security desk notified', s:'Push and call · acknowledged by Sara Ibrahim'},
-        {ic:'✓', bg:'var(--rd)', c:'var(--card)', t:'Entrance cameras pinned to live view', s:'All 6 cameras, full-rate recording'},
-        {ic:'●', bg:'var(--am)', c:'var(--card)', t:'Head teacher being contacted', s:'Calling · no answer yet'},
-        {ic:'○', bg:'var(--bg)', c:'var(--tx2)', t:'Police — not contacted', s:'Your decision, never the system’s.'}
+        {ic:'✓', bg:'var(--ac)', c:'var(--card)', t:'Verdict recorded against your account', s:'Mohamed Fouad · confirmed'},
+        {ic:'✓', bg:'var(--ac)', c:'var(--card)', t:'Audit row committed before the write', s:'Saved first, or the verdict is not saved at all'},
+        {ic:'✓', bg:'var(--ac)', c:'var(--card)', t:'Video kept 30 days', s:'The entry itself is kept for ever'},
+        {ic:'○', bg:'var(--bg)', c:'var(--tx2)', t:'Nobody was notified', s:'The detector sends nothing. Telling somebody is your job.'}
       ],
       camTitle:def?def.camTitle:'', camNote:def?def.camNote:'', cams:this.prep(t&&ans?camsFor[t]:[]),
       zones:s.zones.map((z,i)=>({...z, tgBg:z.on?'var(--ac)':'#c3ccc4', knob:z.on?20:2,
@@ -1100,7 +1200,7 @@ class Component extends DCLogic {
       setAdmin:()=>this.setState({role:'admin'}), setIT:()=>this.setState({role:'it'}),
       adminBg:admin?'var(--chip)':'var(--bg)', adminC:admin?'var(--ac2)':'var(--tx3)',
       itBg:!admin?'var(--chip)':'var(--bg)', itC:!admin?'var(--ac2)':'var(--tx3)',
-      sysTitle:admin?'System status':'System health',
+      sysTitle:'System health & configuration',
       msources:s.msrc.map(ms=>({...ms,
         badge:ms.st==='ok'?'✓ Connected':(ms.st==='down'?'✕ Offline':'! Password'),
         bg:ms.st==='ok'?'var(--chip)':(ms.st==='down'?'var(--rd-bg)':'var(--am-bg)'),
