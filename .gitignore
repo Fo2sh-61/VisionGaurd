@@ -1,30 +1,20 @@
-# dependencies
-node_modules
+# ---------------------------------------------------------------------------
+# What is deliberately NOT in this repository, and why.
+#
+# Three kinds of thing are ignored: machine-generated output, files too large
+# to version, and secrets. Every rule below says which it is. If you add one,
+# say why too - a bare pattern is a rule nobody can ever safely delete.
+# ---------------------------------------------------------------------------
 
-# build output
+# --- generated: javascript -------------------------------------------------
+node_modules
 dist
 dist-ssr
 *.local
-
-# TypeScript incremental build cache
 *.tsbuildinfo
-
-# editor / OS
-.vscode/*
-!.vscode/extensions.json
-.idea
-.DS_Store
-Thumbs.db
-
-# vite
 .vite
 
-# --- engine ---------------------------------------------------------------
-
-# secrets: camera credentials live here and must never be committed
-engine/.env
-
-# python
+# --- generated: python -----------------------------------------------------
 __pycache__/
 *.py[cod]
 .venv/
@@ -33,12 +23,51 @@ venv/
 .mypy_cache/
 .ruff_cache/
 
-# runtime data: database, extracted clips, captured footage
+# --- editor / OS -----------------------------------------------------------
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+Thumbs.db
+*.swp
+.=.swp
+
+# --- local agent tooling (machine-specific state, not project config) ------
+.claude-flow/
+.claude/proven-config.json
+.claude/.proven-config-version
+
+# ===========================================================================
+# SECRETS - nothing below this line may ever be committed
+# ===========================================================================
+
+# Camera credentials live here.
+engine/.env
+
+# Kaggle API token. The models/knife detection/ folder is not currently on
+# disk; the rule stays because if the folder ever comes back, so does the key.
+models/knife detection/kaggle.json
+
+# Roboflow training scripts. Removed from the repo and purged from history:
+# three of them had a live API key typed into the source. Keep these rules
+# even though the folder is gone - they are what stops `git add -A` from
+# putting the key back if the folder is ever restored from a backup.
+models/knife detection/train_knife_model_colab.py
+models/knife detection/train_knife_model_kaggle_colab.py
+models/knife detection/train_knife_model_merged.py
+models/knife detection/train_knife_model_v2_combined.py
+models/knife detection/train_knife_model_v3_custom.py
+
+# ===========================================================================
+# TOO LARGE TO VERSION - tracked out of band. See the README in each folder
+# for what is supposed to be there and where to get it.
+# ===========================================================================
+
+# --- runtime data: database, extracted clips, captured footage -------------
 engine/data/
 
-# --- model weights ---------------------------------------------------------
-# 1.2 GB of binaries. Tracked out of band, not in git.
-# models/MODELS.md and models/README.md ARE tracked — they are the record of
+# --- model weights (~6 GB) -------------------------------------------------
+# models/MODELS.md and models/README.md ARE tracked - they are the record of
 # what is supposed to be in the folder.
 models/*.pt
 models/*.pth
@@ -47,63 +76,39 @@ models/*.engine
 models/*.weights
 models/*.safetensors
 
-# generated per-model sidecars — regenerate with engine/tools/audit_models.py
+# Generated per-model sidecars - regenerate with engine/tools/audit_models.py
 models/*_pt.yaml
 models/*_pth.yaml
 models/*_onnx.yaml
 models/*_engine.yaml
 
-# --- speckit / repo hygiene (added 18 Aug 2026) -----------------------------
-_to_delete/
-.speckit-init.zip
+# --- datasets (owner-supplied, ~200 MB) ------------------------------------
+# The read truth CSV is the EXCEPTION: human-confirmed evidence must be
+# versioned. See datasets/README.md.
+datasets/*/
+!datasets/README.md
+!datasets/*/plate_truth.csv
 
-# kaggle API credentials - never commit
-models/knife detection/kaggle.json
+# --- vendored projects: their bulk, not their source -----------------------
+# vendor/README.md explains what each of these is. Their SOURCE is tracked;
+# their weights and captured media are not.
+vendor/bag-tracker/
+vendor/gate-anpr/**/*.pt
 
-# 659 MB of training clips - tracked out of band, like the weights
-models/knife detection/knife_clips/
-models/knife detection/archive/
+# Training clips of real people - never commit. Consent and retention for
+# footage of minors is an open question (docs/PLAN.md D1), and a repository
+# is the one place footage can never be withdrawn from.
+**/knife_clips/
+*.mp4
 
-# training clips of real people - never commit. Consent and retention for
-# footage of minors is an open question (docs/PLAN.md D1), and a repo is the
-# one place footage can never be withdrawn from.
-models/knife detection/*.mp4
-
-# local tooling state (ruflo / claude-flow plugins) - machine-specific
-.claude-flow/
-.claude/proven-config.json
-.claude/.proven-config-version
-# Roboflow training scripts. Removed from the repo and purged from history:
-# three of them had a live API key typed into the source. The files are still
-# on disk because they are yours; this stops `git add -A` putting the key back.
-models/knife detection/train_knife_model_colab.py
-models/knife detection/train_knife_model_kaggle_colab.py
-models/knife detection/train_knife_model_merged.py
-models/knife detection/train_knife_model_v2_combined.py
-models/knife detection/train_knife_model_v3_custom.py
-
-# --- owner-supplied datasets (added 27 Aug 2026) ---------------------------
-# 204 MB of EALPR plate photos, supplied by the owner for evaluation.
-# plate_truth.csv is the EXCEPTION: the human-confirmed read truth is
-# evidence and must be versioned.
-Egyptian Car Plates dataset/
-!Egyptian Car Plates dataset/plate_truth.csv
-
-# 2.2 GB of bag-tracker material - tracked out of band, like the weights.
-models/bag traker/
-
-# The gate-anpr reference project is tracked for its SOURCE - it is what
-# infer/plates.py was ported from and what tools/compare_plates.py runs
-# against. Its copies of the two plate weights are not: they are the same
-# files as models/plate_detector.pt and models/char_detector.pt.
-models/Gate/**/*.pt
-
-# --- stray shell-redirect litter at the repo root (27 Aug 2026) ------------
-# Accidents from redirected commands ('> $OUT', '> 118'). The files are
-# still on disk because they are yours; this only keeps them out of git.
+# ===========================================================================
+# LITTER - accidents from redirected shell commands ('> $OUT', '> 118').
+# Cleaned out 1 Sep 2026; these rules stop them coming back.
+# ===========================================================================
 /$OUT
 /$TMP_LOG
-/.=.swp
 /[0-9]
 /[0-9][0-9]
 /[0-9][0-9][0-9]
+_to_delete/
+.speckit-init.zip

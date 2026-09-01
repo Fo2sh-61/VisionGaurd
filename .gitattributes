@@ -1,0 +1,25 @@
+# This repository has mixed line endings, on purpose-of-record rather than by
+# design: engine/vg/api/*.py, web/src/services/*.ts, web/src/types.ts and
+# STATUS.md are CRLF; most other files are LF.
+#
+# `* -text` tells git to store and check out every file exactly as it is, on
+# every machine, and to convert nothing. That is deliberate. Normalising to LF
+# would be tidier, but it would rewrite roughly 560 files in one commit and
+# make every line of the project's history look changed on the same day.
+#
+# The practical consequence for editors, spelt out in AGENTS.md: a script that
+# reads a file as text and writes it back rewrites every ending and turns a
+# six-line change into a whole-file diff. Read and write bytes, or check
+# `b"\r\n" in path.read_bytes()` first. `git diff --stat` catches it.
+* -text
+
+# Binary, so git never tries to diff or merge them.
+*.png  binary
+*.jpg  binary
+*.mp4  binary
+*.pt   binary
+*.pth  binary
+*.onnx binary
+*.engine binary
+*.xlsx binary
+*.zip  binary
