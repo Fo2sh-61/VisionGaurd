@@ -361,6 +361,13 @@ function Invoke-Up([bool]$WithEngine, [bool]$WithWeb, [bool]$WithMobile) {
 
     $colours = @{ engine = 'Cyan'; web = 'Magenta'; mobile = 'Yellow' }
 
+    # Nobody asked for this to stop. Set when the jobs end on their own, which
+    # is a failed start however tidily it printed - and it decides the exit
+    # code, which is the only thing launch.ps1 can see. Returning 0 here meant
+    # a double-clicked icon closed its window the instant the engine died,
+    # taking the error with it.
+    $died = $false
+
     try {
         while ($true) {
             $running = $false
@@ -373,6 +380,10 @@ function Invoke-Up([bool]$WithEngine, [bool]$WithWeb, [bool]$WithMobile) {
             }
             if (-not $running) {
                 Write-Warn 'every job has exited'
+                foreach ($job in $jobs) {
+                    Write-Info "$($job.Name) ended $($job.State.ToString().ToLower())"
+                }
+                $died = $true
                 break
             }
             Start-Sleep -Milliseconds 250
@@ -394,6 +405,7 @@ function Invoke-Up([bool]$WithEngine, [bool]$WithWeb, [bool]$WithMobile) {
         Clear-Ports
         Write-Ok 'stopped'
     }
+    if ($died) { return 1 }
     return 0
 }
 

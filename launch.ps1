@@ -150,14 +150,35 @@ public static class VgJob
 
 function Start-BrowserWhenReady {
     Start-Job -Name 'browser' -ScriptBlock {
-        param($url, $apiPort, $webPort)
+        param($url, $apiPort)
 
-        function Test-Port([int]$port) {
-            $client = [System.Net.Sockets.TcpClient]::new()
+        <#
+            Ask over HTTP, by the same address a browser would use.
+
+            This used to open a raw socket to 127.0.0.1 on each port. The
+            engine is there, but Vite binds the IPv6 loopback and nothing
+            else:
+
+                TCP  127.0.0.1:8000   LISTENING     <- engine, found
+                TCP  [::1]:5173       LISTENING     <- web, never found
+
+            So the check could never pass, and the tab never opened. Nobody
+            noticed for a while because the failure is a silent ninety-second
+            wait rather than an error.
+
+            A name, not an address, is the fix: `localhost` resolves to
+            whichever loopback the server actually took, exactly as it does
+            for the person double-clicking the icon.
+        #>
+        function Test-Answering([string]$uri) {
             try {
-                $client.Connect('127.0.0.1', $port)
-                return $client.Connected
-            } catch { return $false } finally { $client.Dispose() }
+                Invoke-WebRequest -Uri $uri -UseBasicParsing -TimeoutSec 3 | Out-Null
+                return $true
+            } catch {
+                # An HTTP error is still an answer: something is listening and
+                # serving. Only a refused connection means "not yet".
+                return ($null -ne $_.Exception.Response)
+            }
         }
 
         # Ninety seconds. A cold start builds no models but does load them,
@@ -166,20 +187,17 @@ function Start-BrowserWhenReady {
         # hide it behind a connection error.
         $deadline = (Get-Date).AddSeconds(90)
         while ((Get-Date) -lt $deadline) {
-            if ((Test-Port $webPort) -and (Test-Port $apiPort)) {
-                # Listening is not the same as answering. /healthz is the one
-                # endpoint that needs no session, so it is what "ready" means.
-                try {
-                    Invoke-WebRequest -Uri "http://127.0.0.1:$apiPort/healthz" `
-                        -UseBasicParsing -TimeoutSec 3 | Out-Null
-                    Start-Process $url
-                    return 'opened'
-                } catch { }
+            # Listening is not the same as answering. /healthz is the one
+            # endpoint that needs no session, so it is what "ready" means.
+            if ((Test-Answering "http://127.0.0.1:$apiPort/healthz") -and
+                (Test-Answering $url)) {
+                Start-Process $url
+                return "opened $url"
             }
             Start-Sleep -Milliseconds 500
         }
-        return 'timed out'
-    } -ArgumentList $Url, $ApiPort, $WebPort | Out-Null
+        return "gave up waiting for $url - no tab was opened"
+    } -ArgumentList $Url, $ApiPort | Out-Null
 }
 
 # ---------------------------------------------------------------------------
@@ -202,7 +220,11 @@ if (Enable-KillOnClose) {
 }
 
 if (-not $NoBrowser) {
-    Write-Host "  [ ok ] $Url will open once the engine answers" -ForegroundColor Green
+    # The address, not just the promise. If the tab never arrives - a browser
+    # that refuses to be launched from a background job, a start that takes
+    # longer than the deadline - the thing to type is already on screen.
+    Write-Host "  [ ok ] console at $Url - a tab opens once the engine answers" `
+        -ForegroundColor Green
     Start-BrowserWhenReady
 }
 
@@ -234,11 +256,28 @@ try {
     $code = 1
 }
 
+# What the browser job made of it. Nobody was watching while dev.ps1 held the
+# console, so it is said here - and on a start that failed, this is the line
+# that explains the tab that never appeared.
+$browser = Get-Job -Name 'browser' -ErrorAction SilentlyContinue
+if ($browser) {
+    $said = Receive-Job -Job $browser -ErrorAction SilentlyContinue
+    Remove-Job -Job $browser -Force -ErrorAction SilentlyContinue
+    if ($said -and $said -notmatch '^opened ') {
+        Write-Host "  [warn] browser: $said" -ForegroundColor Yellow
+    }
+}
+
 # Only when something went wrong. A clean stop should just close, but a
 # failure that closes instantly is a failure nobody can read - and this window
 # is usually opened by double-clicking an icon, with no shell left behind to
 # show what happened.
 if ($code -ne 0) {
+    Write-Host ''
+    Write-Host '  Something above stopped it starting. The error is in the log' `
+        -ForegroundColor Yellow
+    Write-Host '  above, usually on the last [engine] or [web] line.' `
+        -ForegroundColor Yellow
     Write-Host ''
     Read-Host '  Press Enter to close'
 }

@@ -22,6 +22,7 @@ pressed and not a second earlier, which the UI has to say where it matters.
 
 from __future__ import annotations
 
+import sys
 import tempfile
 import time
 from datetime import datetime, timezone
@@ -32,6 +33,7 @@ import numpy as np
 import pytest
 
 from vg.api import schemas as S
+from vg.ingest import encoder
 from vg.ingest.framebus import FrameBus
 from vg.ingest.recorder import AlreadyRecording, Recorder
 from vg.ingest.source import Frame
@@ -332,14 +334,14 @@ class TestTheFilePlaysInABrowser:
     """
 
     class _FakeWriter:
-        """Stands in for cv2.VideoWriter; records what codec was asked for."""
+        """Stands in for cv2.VideoWriter; records what it was asked for."""
 
-        opened_for: set[int] = set()
-        asked: list[int] = []
+        opened_for: set[tuple[int, int]] = set()
+        asked: list[tuple[int, int]] = []
 
-        def __init__(self, path, fourcc, fps, size) -> None:
-            type(self).asked.append(fourcc)
-            self._ok = fourcc in type(self).opened_for
+        def __init__(self, path, backend, fourcc, fps, size) -> None:
+            type(self).asked.append((backend, fourcc))
+            self._ok = (backend, fourcc) in type(self).opened_for
 
         def isOpened(self) -> bool:
             return self._ok
@@ -355,56 +357,86 @@ class TestTheFilePlaysInABrowser:
         fake = self._FakeWriter
         fake.asked = []
         fake.opened_for = set()
+        # The chooser remembers what worked last. An earlier test in this
+        # session picking the real encoder would otherwise reorder the list
+        # under this one.
+        encoder._reset_for_tests()
         monkeypatch.setattr(cv2, "VideoWriter", fake)
         return fake
 
-    def test_h264_is_asked_for_before_mp4v(self, bus, recorder, fake_writer):
-        from vg.ingest.recorder import FOURCC_PREFERENCE
+    @pytest.mark.skipif(sys.platform != "win32", reason="Media Foundation is Windows")
+    def test_the_windows_h264_encoder_is_asked_for_by_name(self):
+        """The bug this class is named for, in one line.
 
-        assert FOURCC_PREFERENCE[0] == "avc1", (
+        `cv2.VideoWriter(path, fourcc, ...)` with no backend picks FFmpeg for
+        an .mp4 and stops there. OpenCV's pip build has no H.264 encoder, so
+        that ask always failed here and every recording fell through to mp4v —
+        while the comment above it said Media Foundation would be used. It
+        never was, because nothing named it.
+        """
+        first = encoder.candidates()[0]
+        assert first.backend == cv2.CAP_MSMF, (
+            "on Windows the OS encoder must be named explicitly, or OpenCV "
+            "silently uses FFmpeg and writes a file the console cannot play"
+        )
+        assert first.plays_in_browser
+
+    def test_h264_is_asked_for_before_mp4v(self, bus, recorder, fake_writer):
+        playable = [c.plays_in_browser for c in encoder.candidates()]
+        assert playable[0] is True, (
             "the browser-playable codec must be the first choice"
         )
-        assert FOURCC_PREFERENCE[-1] == "mp4v", (
+        assert playable[-1] is False, (
             "and mp4v the last resort, so a recording always exists"
         )
+        assert playable == sorted(playable, reverse=True), (
+            "every playable encoder is tried before the one that is not"
+        )
 
-        fake_writer.opened_for = {cv2.VideoWriter_fourcc(*"avc1")}
+        best = encoder.candidates()[0]
+        fake_writer.opened_for = {
+            (best.backend, cv2.VideoWriter_fourcc(*best.fourcc))}
         recorder.start(CAMERA, actor="mohamed")
         publish(bus, 15)
         settle()
         recording = recorder.stop(CAMERA, actor="mohamed")
 
-        assert fake_writer.asked[0] == cv2.VideoWriter_fourcc(*"avc1")
+        assert fake_writer.asked[0] == (
+            best.backend, cv2.VideoWriter_fourcc(*best.fourcc))
         assert recording.state == "saved"
 
     def test_a_machine_without_h264_falls_back_to_mp4v(
             self, bus, recorder, fake_writer):
-        # The writer refuses avc1; the recording must still happen rather
+        # Every H.264 route refuses; the recording must still happen rather
         # than fail on a machine with a lean OS install.
-        fake_writer.opened_for = {cv2.VideoWriter_fourcc(*"mp4v")}
+        last = encoder.candidates()[-1]
+        assert not last.plays_in_browser
+        fake_writer.opened_for = {
+            (last.backend, cv2.VideoWriter_fourcc(*last.fourcc))}
         recorder.start(CAMERA, actor="mohamed")
         publish(bus, 15)
         settle()
         recording = recorder.stop(CAMERA, actor="mohamed")
 
-        assert fake_writer.asked[:2] == [
-            cv2.VideoWriter_fourcc(*"avc1"),
-            cv2.VideoWriter_fourcc(*"mp4v"),
-        ], "tried in preference order"
+        assert fake_writer.asked == [
+            (c.backend, cv2.VideoWriter_fourcc(*c.fourcc))
+            for c in encoder.candidates()
+        ], "tried in preference order, every one of them"
         assert recording.state == "saved"
 
     def test_this_machine_writes_a_file_the_browser_can_decode(self, bus, recorder):
-        # End to end with the real writer. Skipped, not failed, on a machine
-        # with no H.264 encoder: that machine records honest mp4v and the
-        # console cannot play it, which the manual check has to catch.
-        probe_path = str(recorder.directory / "probe.mp4")
-        probe = cv2.VideoWriter(
-            probe_path, cv2.VideoWriter_fourcc(*"avc1"), 15.0, (320, 240))
-        can_encode = probe.isOpened()
-        probe.release()
-        Path(probe_path).unlink(missing_ok=True)
-        if not can_encode:
-            pytest.skip("no H.264 encoder on this machine")
+        # End to end with the real writer. This used to skip on Windows —
+        # it probed the default backend, which has no H.264, and so never
+        # ran on the machine whose recordings were broken. It probes the
+        # real chooser now, and therefore runs here.
+        encoder._reset_for_tests()
+        probe_path = recorder.directory / "probe.mp4"
+        writer, chosen = encoder.open_writer(probe_path, 15.0, 320, 240)
+        if writer is not None:
+            writer.release()
+        probe_path.unlink(missing_ok=True)
+        if chosen is None or not chosen.plays_in_browser:
+            pytest.skip(f"no H.264 encoder on this machine (best: {chosen})")
 
         recorder.start(CAMERA, actor="mohamed")
         publish(bus, 20)

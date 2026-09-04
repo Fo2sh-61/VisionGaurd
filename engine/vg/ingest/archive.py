@@ -48,6 +48,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from vg.ingest import encoder
+
 log = logging.getLogger(__name__)
 
 #: Colours burnt into a chunk, with the same meanings as everywhere else:
@@ -1053,16 +1055,14 @@ def estimate_for(
 # ---------------------------------------------------------------------------
 
 def _writer(path: Path, fps: float, width: int, height: int):
-    if width <= 0 or height <= 0:
-        return None
-    for code in ("avc1", "mp4v"):
-        writer = cv2.VideoWriter(
-            str(path), cv2.VideoWriter_fourcc(*code), max(1.0, fps), (width, height)
-        )
-        if writer.isOpened():
-            return writer
-        writer.release()
-    return None
+    """The same encoder the recorder uses — see `ingest.encoder`.
+
+    This used to be a second copy of "try avc1, then mp4v", which meant an
+    exported clip and a recorded one could disagree about whether the console
+    could play them.
+    """
+    writer, _ = encoder.open_writer(path, fps, width, height)
+    return writer
 
 
 def _slice(clip: Path, into: Path, offset_seconds: float, seconds: float) -> None:

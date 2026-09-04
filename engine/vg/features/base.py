@@ -130,7 +130,16 @@ class FeatureWorker(ABC, Generic[R]):
         # multiplies a configured rate by a cost; this is the reading it is
         # checked against - milliseconds really spent, per second of wall
         # clock, across every camera this worker serves.
-        self._recent: deque[tuple[float, float, float]] = deque()
+        #
+        # Double underscore, so Python mangles it to _FeatureWorker__load_window
+        # and a subclass CANNOT reach it by accident. This was `_recent`, and
+        # `vehicles.py` used the same obvious name for its own dict of plates
+        # seen lately. The subclass won, `_run` called .append() on a dict, and
+        # every vehicles thread died on its first frame - number plates were
+        # never read, and nothing on screen said so. A feature is written by
+        # copying another feature, so a name a subclass might reasonably pick
+        # must be one it cannot take.
+        self.__load_window: deque[tuple[float, float, float]] = deque()
         self._started_at = time.monotonic()
 
     # -- what a feature implements -----------------------------------------
@@ -286,7 +295,7 @@ class FeatureWorker(ABC, Generic[R]):
                 )
                 with self._lock:
                     self._results[frame.camera_id] = result
-                    self._recent.append(
+                    self.__load_window.append(
                         (time.monotonic(), result.inference_ms, result.shared_ms))
                 self.frames_processed += 1
         finally:
@@ -387,11 +396,11 @@ class FeatureWorker(ABC, Generic[R]):
             # 0.0, which is then a true statement.
             now = time.monotonic()
             cutoff = now - self.WINDOW_SECONDS
-            while self._recent and self._recent[0][0] < cutoff:
-                self._recent.popleft()
+            while self.__load_window and self.__load_window[0][0] < cutoff:
+                self.__load_window.popleft()
             span = max(1.0, min(self.WINDOW_SECONDS, now - self._started_at))
-            busy_ms = sum(own for _, own, _ in self._recent) / span
-            analysed = len(self._recent) / span
+            busy_ms = sum(own for _, own, _ in self.__load_window) / span
+            analysed = len(self.__load_window) / span
             served = len(self.cameras)
             # What this worker asks of the machine every second: the sum of
             # its cameras' OWN rates, not one rate multiplied by a count.

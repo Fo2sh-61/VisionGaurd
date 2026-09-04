@@ -36,6 +36,7 @@ from pathlib import Path
 import cv2
 
 from vg.clock import Clock, clock_for
+from vg.ingest import encoder
 from vg.ingest.framebus import FrameBus
 
 log = logging.getLogger(__name__)
@@ -49,18 +50,12 @@ MAX_SECONDS = 600.0
 #: record. Ending with that reason beats a recording indicator that never stops.
 NO_FRAMES_SECONDS = 15.0
 
-#: Codecs to try, most desirable first. The console plays these files in a
-#: `<video>` tag, and browsers decode H.264 (`avc1`) but not MPEG-4 Part 2
-#: (`mp4v`) — an mp4v clip looked perfectly healthy and rendered as a player
-#: with no picture, which is a dead button with extra steps.
-#:
-#: OpenCV's pip build ships no H.264 encoder (licensing), but on Windows it
-#: encodes through the OS's own Media Foundation, so asking costs nothing: a
-#: machine that can produce a browser-playable file does, and one that cannot
-#: falls through to mp4v — a real recording, watchable in a desktop player,
-#: which beats no recording at all. The manual check watches a clip in the
-#: browser precisely to catch the machine where the fallback happened.
-FOURCC_PREFERENCE = ("avc1", "mp4v")
+#: Which codec a recording ends up in is decided by `ingest.encoder`, which the
+#: archive exporter shares. It used to be decided here, in a private copy of
+#: the same list, and the copy asked OpenCV for H.264 without naming a backend
+#: — which on Windows always fell through to mp4v and would not play in the
+#: console. The manual check watches a clip in the browser precisely to catch
+#: the machine where the fallback happened.
 
 #: How many frames to watch before deciding the camera's real rate. An mp4's
 #: frame rate is fixed when the file is created and cannot be changed
@@ -137,7 +132,7 @@ class Recorder:
         self._jobs: dict[str, _Job] = {}
         self._finished: dict[str, Recording] = {}
         self._lock = threading.RLock()
-        _warm_encoder_once()
+        encoder.warm()
 
     # -- asking -------------------------------------------------------------
 
@@ -378,27 +373,19 @@ class Recorder:
             self.directory.mkdir(parents=True, exist_ok=True)
             stamp = self.clock.local(recording.started_at).strftime("%Y%m%d-%H%M%S")
             path = self.directory / f"{recording.camera_id}_{stamp}.mp4"
-            writer = None
-            for fourcc in FOURCC_PREFERENCE:
-                writer = cv2.VideoWriter(
-                    str(path), cv2.VideoWriter_fourcc(*fourcc),
-                    recording.fps, (frame.width, frame.height),
-                )
-                if writer.isOpened():
-                    if fourcc != FOURCC_PREFERENCE[0]:
-                        # Loudly, once per recording: this file will not play
-                        # in the console, and the log should say so before
-                        # somebody discovers it during an incident.
-                        log.warning(
-                            "recording %s falling back to %s - this machine "
-                            "has no H.264 encoder, so the clip will not play "
-                            "in the browser", recording.id, fourcc,
-                        )
-                    break
-                writer.release()
-                writer = None
+            writer, chosen = encoder.open_writer(
+                path, recording.fps, frame.width, frame.height)
             if writer is None:
                 raise OSError(f"could not open {path} for writing")
+            if not chosen.plays_in_browser:
+                # Loudly, once per recording: this file will not play in the
+                # console, and the log should say so before somebody
+                # discovers it during an incident.
+                log.warning(
+                    "recording %s written with %s - this machine has no H.264 "
+                    "encoder, so the clip will not play in the browser",
+                    recording.id, chosen.label,
+                )
         except Exception as exc:
             log.exception("recording %s could not open a file", recording.id)
             recording.state = "failed"
@@ -431,44 +418,6 @@ def _measured_fps(pending: list) -> float:
     if span <= 0:
         return FALLBACK_FPS
     return min(MAX_FPS, max(MIN_FPS, (len(pending) - 1) / span))
-
-
-_WARM_LOCK = threading.Lock()
-_warmed = False
-
-
-def _warm_encoder_once() -> None:
-    """Pay the H.264 encoder's one-time start-up cost now, off-thread.
-
-    The first `avc1` open in a process costs an extra second on top of the
-    encoder's own half-second of initialisation — OpenCV probes for an
-    OpenH264 DLL, fails, and falls through to the OS encoder. Paid lazily,
-    that second lands inside somebody's first recording, right at the start
-    of whatever made them press the button. Paid here, at construction, it
-    lands while the engine is still starting and nobody is watching.
-    """
-    global _warmed
-    with _WARM_LOCK:
-        if _warmed:
-            return
-        _warmed = True
-
-    def warm() -> None:
-        import tempfile
-
-        path = Path(tempfile.gettempdir()) / "vg-encoder-warmup.mp4"
-        try:
-            writer = cv2.VideoWriter(
-                str(path), cv2.VideoWriter_fourcc(*FOURCC_PREFERENCE[0]),
-                15.0, (64, 64),
-            )
-            writer.release()
-        except Exception:  # noqa: BLE001 - a warm-up may not break anything
-            log.debug("encoder warm-up failed", exc_info=True)
-        finally:
-            path.unlink(missing_ok=True)
-
-    threading.Thread(target=warm, name="recorder-warmup", daemon=True).start()
 
 
 class AlreadyRecording(RuntimeError):

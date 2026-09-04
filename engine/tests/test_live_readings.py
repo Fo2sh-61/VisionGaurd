@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import sys
 import time
+from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -216,6 +217,55 @@ class TestTheWindowIsShared:
         from vg.infer import shared
 
         assert shared.WINDOW_SECONDS == FeatureWorker.WINDOW_SECONDS
+
+
+class TestASubclassCannotTakeTheWindow:
+    """The window is the base class's own, and a feature cannot stand on it.
+
+    `vehicles.py` kept its dict of plates seen lately in `self._recent`, which
+    was also what the base class called this window. The subclass assignment
+    won, `_run` called `.append()` on a dict, and every vehicles thread died on
+    its first frame:
+
+        Exception in thread vehicles-cam-laptop:
+        AttributeError: 'dict' object has no attribute 'append'
+
+    Number plates were never read on this machine, and nothing on screen said
+    so - the worker looked alive and idle. Found 4 Sep 2026 by running the
+    launcher and reading the log it scrolled past.
+
+    A feature is written by copying another feature, so this cannot rest on
+    everybody picking different names. The field is mangled, and this is the
+    test that says the mangling is what keeps it safe.
+    """
+
+    class ShadowingWorker(FeatureWorker[int]):
+        """A feature that innocently wants a field called `_recent`."""
+
+        def __init__(self, bus) -> None:
+            super().__init__("shadow", bus, ["cam-a"], rate_hz=100.0)
+            self._recent: dict[str, int] = {}
+
+        def analyse(self, frame) -> int:
+            self._recent["cam-a"] = self._recent.get("cam-a", 0) + 1
+            return 1
+
+    def test_a_feature_may_keep_its_own_recent_and_still_run(self):
+        worker = self.ShadowingWorker(OneFrameBus(_frame()))
+        stats = _run_one_frame(worker)
+
+        assert worker._recent == {"cam-a": 1}, "the feature's own field survived"
+        assert stats["analysed_per_second"] > 0, (
+            "the worker's thread died before it could record the frame"
+        )
+
+    def test_the_window_is_not_reachable_by_the_obvious_name(self):
+        worker = self.ShadowingWorker(OneFrameBus(_frame()))
+
+        assert isinstance(worker._recent, dict)
+        assert isinstance(
+            getattr(worker, "_FeatureWorker__load_window"), deque
+        ), "the base class kept its window under a name a subclass cannot take"
 
 
 def _now():
