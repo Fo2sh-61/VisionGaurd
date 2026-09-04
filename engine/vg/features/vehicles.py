@@ -305,6 +305,9 @@ class VehiclesWorker(FeatureWorker[VehiclesResult]):
     ) -> None:
         super().__init__("vehicles", bus, cameras, rate_hz, boost_hz)
         self.reader = reader
+        # The plate pair runs the `.pt` at FP32 on whichever pool the reader
+        # loaded onto. Asked rather than assumed, like every other worker.
+        self.device = getattr(reader, "device", None)
         self.on_pass = on_pass
         self.dedupe_seconds = float(dedupe_seconds)
         self.near_dedupe_seconds = float(near_dedupe_seconds)
@@ -384,6 +387,22 @@ class VehiclesWorker(FeatureWorker[VehiclesResult]):
 
         return VehiclesResult(reads=tuple(reads), passes=passes,
                               too_small=too_small)
+
+    def _closing(self, camera_id: str) -> None:
+        """This camera is leaving the worker. Drop everything held for it.
+
+        All four are per-camera and none outlives the camera: tracks in view,
+        the de-duplication window, the reader card's attempts, and the rolling
+        read time. Leaving `_recent` behind would be the harmful one - a plate
+        read at this camera before it was removed would silently suppress the
+        first pass if the camera were ever added back.
+        """
+        self._tracks.pop(camera_id, None)
+        self._attempts.pop(camera_id, None)
+        self._read_ms.pop(camera_id, None)
+        for key in [k for k in self._recent if k[0] == camera_id]:
+            self._recent.pop(key, None)
+        super()._closing(camera_id)
 
     # -- helpers ------------------------------------------------------------
 

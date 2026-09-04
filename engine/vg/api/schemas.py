@@ -32,7 +32,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # A fraction of the frame or the floor-plan. Never pixels.
 Fraction = Annotated[float, Field(ge=0.0, le=1.0)]
@@ -770,17 +770,130 @@ class Capability(Wire):
     reason: str | None = None
 
 
+class CapacityRow(Wire):
+    """What one running worker asks of the machine, every second.
+
+    Arithmetic, not an observation: `frames_per_second` x `ms_per_frame`.
+    Both halves are honest on their own - the rate is the one the loop
+    actually uses, and the cost is what the last frame took on this machine -
+    but their product is a projection and the page says so.
+
+    `measured` is the whole point of this row existing rather than a constant
+    somewhere. True means `ms_per_frame` was timed here, by this worker, on
+    this hardware. False means it is a figure carried in from an earlier run
+    because this worker has not analysed a frame yet, and a reader deciding
+    whether to add a camera needs to know which of the two they are reading.
+    """
+
+    #: The worker's own name - "people", "recognition", "weapons".
+    name: str
+    #: Which pool this is charged to: "gpu", "cpu", or absent when the worker
+    #: could not say. An unplaced worker is listed and left out of both
+    #: totals rather than guessed into one of them.
+    pool: str | None = None
+    #: The raw string the model reported - "cuda:0", "cpu". Kept beside the
+    #: pool so the page can show what it was actually told.
+    device: str | None = None
+    cameras: int
+    #: Frames a second this worker is asked for: the SUM of its cameras' own
+    #: rates, so two cameras at 2/sec beside one at 5 is 9, not 3.
+    #: Absent for a worker whose rate nothing fixes - see `on_demand`.
+    frames_per_second: float | None = None
+    ms_per_frame: float
+    measured: bool
+    #: `frames_per_second` x `ms_per_frame`. Absent whenever either half is.
+    ms_per_second: float | None = None
+    #: Runs only while somebody is looking at the tile. Its idle cost is zero
+    #: and its watched cost is not fixed by any setting, so it contributes
+    #: nothing to the totals and is shown as the exception it is.
+    on_demand: bool = False
+    #: The one person detection that counting, intrusion, track and knife
+    #: detection all read. It runs once per frame however many of them want
+    #: it, so it is costed ONCE, here, and every worker's own row has it
+    #: subtracted. Before this row existed each of those workers reported
+    #: the pass as its own time - including the time spent waiting for
+    #: another worker to finish it - and the page added them up.
+    shared: bool = False
+    #: MEASURED. Milliseconds this worker really spent, per second, over the
+    #: last `Capacity.window_seconds` - and the frames it got through. This
+    #: is the reading; `ms_per_second` above is the projection it is checked
+    #: against. Zero here is a true statement: it did nothing in the window.
+    busy_ms_per_second: float = 0.0
+    analysed_per_second: float = 0.0
+
+
+class Capacity(Wire):
+    """How full this machine is, as arithmetic over what is configured.
+
+    Two budgets, never one number. The GPU supplies 1000 ms of work every
+    second and the processor supplies `cores` x 1000, and face recognition -
+    which is OpenCV and has no CUDA path - genuinely does not compete with
+    the person detector for the same milliseconds. Adding them would produce
+    a percentage of nothing.
+
+    This is a **projection**: what the current configuration asks for, not a
+    reading of what the machine is doing. The measured figure for that is
+    `SystemHealth.gpu_percent` beside it, and `WorkerLoad.behind` is what
+    says the engine has actually fallen behind. A projection is what lets
+    somebody see the wall before they hit it; it is not evidence they have.
+    """
+
+    gpu_ms_per_second: float
+    #: One second of GPU per second of wall clock.
+    gpu_budget_ms: float = 1000.0
+    cpu_ms_per_second: float
+    #: `cores` x 1000. An 8-core box supplies 8000 ms of work every second.
+    cpu_budget_ms: float
+    cores: int
+    #: Milliseconds a second belonging to workers that did not say which pool
+    #: they run on. Carried separately so it is never silently added to
+    #: either budget, and so the page can name it.
+    unplaced_ms_per_second: float = 0.0
+    #: True when every row's cost was timed on this machine. False means at
+    #: least one is carried in, and the page says which.
+    all_measured: bool = True
+    #: MEASURED totals: what this engine's workers really spent, per second,
+    #: over the last `window_seconds`, per pool. The bars on the page are
+    #: drawn from the driver's own utilisation figures (`SystemHealth.
+    #: gpu_percent`, `cpu_machine_percent`); these say how much of that is
+    #: this engine. `*_ms_per_second` above remain the projection.
+    gpu_busy_ms_per_second: float = 0.0
+    cpu_busy_ms_per_second: float = 0.0
+    unplaced_busy_ms_per_second: float = 0.0
+    window_seconds: float = 5.0
+    rows: list[CapacityRow] = Field(default_factory=list)
+
+
 class SystemHealth(Wire):
     cameras_online: int
+    #: Cameras that are switched ON. A camera an operator has disabled is
+    #: not here and not offline: it is off, on purpose, and the page says so
+    #: through `cameras_disabled` instead of counting it as a fault.
     cameras_total: int
+    cameras_disabled: int = 0
     recorders_online: int
     recorders_total: int
     severity: Severity
+    #: How busy the graphics card is right now, whole-device, from the
+    #: driver (NVML). A measurement, not a projection - it is what the
+    #: capacity card's GPU bar is checked against. None when there is no
+    #: NVIDIA driver to ask; never 0, which would read as idle.
     gpu_percent: float | None = None
+    #: Graphics memory in use / fitted, whole device, from the driver.
+    gpu_memory_used_mb: float | None = None
+    gpu_memory_total_mb: float | None = None
+    #: This process's share of one second of processor time (can exceed
+    #: 100 on a multi-core machine - it is a sum over cores).
     cpu_percent: float | None = None
+    #: The whole machine, 0-100, every program. What the CPU bar draws.
+    cpu_machine_percent: float | None = None
     storage_percent: float | None = None
     uptime_seconds: float | None = None
     metrics: list[Metric] = Field(default_factory=list)
+    #: What the configuration asks of this machine. Absent rather than empty
+    #: when nothing is running: "no workers" and "workers costing nothing"
+    #: are different answers and zero would read as the second.
+    capacity: Capacity | None = None
     recorders: list[Recorder] = Field(default_factory=list)
     pipeline: list[PipelineStage] = Field(default_factory=list)
     cameras: list[CameraView] = Field(default_factory=list)
@@ -798,11 +911,28 @@ class CameraSource(Wire):
     id: str
     name: str
     type: SourceType
+    #: The source string with any password masked. **Never the raw one** —
+    #: `CameraConfig.redacted_source()` is the only way this is built.
     ip: str
     channels: int
     status: SourceStatus
     area: str | None = None
     last_error: str | None = None
+    #: What this camera is watched for, and the settings those features need.
+    #: All of it used to be invisible to the console, so a camera could be
+    #: listed without any way to see or change what it was actually doing.
+    features: list[str] = Field(default_factory=list)
+    faces: bool = False
+    enabled: bool = True
+    gate: int | None = None
+    direction: str | None = None
+    fps: float = 5.0
+    rotate: int = 0
+    #: Seeded by engine.yaml rather than added here. Derived, not stored: a
+    #: camera is `from_config` when it has no row in the runtime roster. The
+    #: console needs it to say what editing this camera means, because an edit
+    #: writes a stored row that shadows the file from then on.
+    from_config: bool = False
 
 
 class AddCameraRequest(Wire):
@@ -825,6 +955,88 @@ class AddCameraRequest(Wire):
     rotate: int = 0
     username: str | None = None
     password: str | None = None
+    #: The identity tier: people pass close enough here to be recognised. A
+    #: camera can carry `attendance` without this — that combination is legal
+    #: and is what the patrol tier is for.
+    faces: bool = False
+    #: Which gate this camera watches and which way it looks. `CameraConfig`
+    #: refuses both half-states (a gate with no `vehicles`, `vehicles` with no
+    #: gate) and refuses `direction: both` outright.
+    gate: int | None = None
+    direction: str | None = None
+    #: Where somebody can walk to from here. Only ever a hint for the archive.
+    neighbours: list[str] = Field(default_factory=list)
+
+
+class FeatureNote(Wire):
+    """One chosen feature, and whether it is actually running.
+
+    Rule 8 says a subsystem that fails to start must say so in the UI. This
+    carries that to the moment of *assignment*, which is when an operator can
+    still do something about it: a camera set to check for knives on an engine
+    whose knife model did not load is added, and told.
+    """
+
+    feature: str
+    running: bool
+    #: The subsystem's own startup error. Absent when it is running.
+    reason: str | None = None
+
+
+class AddCameraOutcome(Wire):
+    """What happened to one camera in a bulk add.
+
+    A refused camera is payload, never a status code: sixteen channels where
+    the fourth has a duplicate id must still add the other fifteen and say so.
+    """
+
+    #: Position in the submitted list, so the console can line outcomes up
+    #: with the rows the operator ticked.
+    index: int
+    ok: bool
+    id: str | None = None
+    #: Redacted, like every other source string that crosses this boundary.
+    source: str = ""
+    error: str | None = None
+
+
+class BulkAddRequest(Wire):
+    cameras: list[AddCameraRequest] = Field(min_length=1, max_length=500)
+
+
+class EditCameraRequest(Wire):
+    """Change one camera. Every field is optional; absent means leave alone.
+
+    `None` is therefore ambiguous for the two nullable fields — `gate` and
+    `direction` — so clearing a gate is done by sending `features` without
+    `vehicles`, which `CameraConfig.parse` already refuses to half-apply.
+    """
+
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    source: str | None = None
+    area: str | None = None
+    fps: float | None = Field(default=None, gt=0, le=60)
+    rotate: int | None = None
+    features: list[str] | None = None
+    faces: bool | None = None
+    gate: int | None = None
+    direction: str | None = None
+    neighbours: list[str] | None = None
+    enabled: bool | None = None
+    username: str | None = None
+    password: str | None = None
+
+
+class EditCameraResult(Wire):
+    camera: CameraSource
+    #: This camera came from engine.yaml and now has a stored row shadowing
+    #: it. The console turns this into the sentence about what happens the
+    #: next time the config file changes.
+    shadows_config: bool = False
+    #: The stream was reopened. False for a features-or-name edit — reopening
+    #: an RTSP stream to add a tickbox is a visible stutter for nothing.
+    restarted: bool = False
+    feature_notes: list[FeatureNote] = Field(default_factory=list)
 
 
 class FoundDevice(Wire):
@@ -837,6 +1049,14 @@ class FoundDevice(Wire):
 
 
 class DvrConnectRequest(Wire):
+    """Ask a recorder which of its channels actually have a camera on them.
+
+    `template` exists because every recorder spells its stream URLs
+    differently, and `archive.playback_url` in engine.yaml already solves the
+    same problem the same way. A template rather than code means a new brand
+    is a form field, not a release.
+    """
+
     host: str
     port: int = 554
     username: str
@@ -844,19 +1064,82 @@ class DvrConnectRequest(Wire):
     type: SourceType = SourceType.DVR
     name: str | None = None
     area: str | None = None
+    #: Must contain `{channel}`. `{host}` and `{port}` are also substituted.
+    template: str = Field(min_length=1)
+    #: The channel ids to try. Not a count: recorders number channels in
+    #: their own ways, and inventing `1..16` is how the fixture lied.
+    channels: list[str] = Field(min_length=1, max_length=64)
+    #: Seconds for the WHOLE probe, not per channel. Sixteen channels at an
+    #: 8s open timeout would be over two minutes serially, so the probe runs
+    #: several at a time and stops when this runs out.
+    budget: float = Field(default=20.0, gt=0, le=120)
+
+    @field_validator("template")
+    @classmethod
+    def _must_address_a_channel(cls, value: str) -> str:
+        """Without `{channel}` every channel would probe the same URL.
+
+        Refused here rather than in the store so it comes back as a 422 with
+        the reason, next to the field the operator typed it into.
+        """
+        if "{channel}" not in value:
+            raise ValueError(
+                "template must contain {channel} - it is what tells one "
+                "channel from another")
+        return value
 
 
 class DvrChannel(Wire):
+    """One channel, and what actually happened when it was opened.
+
+    Every field below is measured. Nothing here may be produced by the engine
+    itself — that is exactly what the fixture did, and it reported sixteen
+    channels at 704x576 from recorders that were switched off.
+    """
+
     channel: str
     name: str
     enabled: bool = True
+    #: Real, read off the frame that arrived. `None` when none did.
     resolution: str | None = None
+    #: The URL this channel would use, **redacted**.
+    source: str = ""
+    #: False means the budget ran out before this one was tried. A different
+    #: answer from "we asked and nothing came back", and the console must
+    #: render it differently.
+    checked: bool = True
+    status: SourceStatus = SourceStatus.DOWN
+    latency_ms: float | None = None
+    #: The probe's own reason, exactly as `test_connection` returns it.
+    error: str | None = None
 
 
 class DvrConnectResult(Wire):
-    source_id: str
-    channels: list[DvrChannel]
-    status: SourceStatus
+    #: Did anything at all answer. False with a reason is the honest result
+    #: for a recorder that is switched off, and it carries no channels.
+    reachable: bool = False
+    reason: str | None = None
+    #: How many channels were actually tried, against how many were asked for.
+    checked: int = 0
+    channels: list[DvrChannel] = Field(default_factory=list)
+    status: SourceStatus = SourceStatus.DOWN
+    #: Nullable: connecting is a probe and creates nothing. Cameras appear
+    #: only through `POST /sources/bulk`.
+    source_id: str | None = None
+
+
+class ScanResult(Wire):
+    """Whether the network can be searched at all, and what was found.
+
+    `available: false` with a reason is "we cannot look". `available: true`
+    with no devices is "we looked and found nothing". Returning a bare list
+    made those the same answer, and the console rendered the second sentence
+    for the first situation.
+    """
+
+    available: bool = False
+    reason: str | None = None
+    devices: list[FoundDevice] = Field(default_factory=list)
 
 
 class TestConnectionRequest(Wire):

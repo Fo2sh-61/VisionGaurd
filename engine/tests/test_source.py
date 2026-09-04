@@ -227,3 +227,60 @@ class TestRealWebcam:
             elapsed = time.monotonic() - start
             # 5 frames at 5 fps is ~0.8s of gaps; allow generous slack.
             assert 0.4 < elapsed < 3.0, f"5 frames took {elapsed:.2f}s"
+
+
+class TestABareAddressIsNotAFilename:
+    """A camera address with no scheme must not be opened as a file.
+
+    Real report, 1 Sep 2026: an operator typed `192.168.144.108` into the IP
+    camera form and VisionGuard answered `no such file:
+    E:\VisionGuard\192.168.144.108`. That reads like an internal fault, says
+    nothing about the camera, and hides the actual problem - the address was
+    on a subnet the machine has no route to.
+
+    A dotted quad, or anything with a port, is an address. It is never a
+    recording on disk, so guessing that it might be helps nobody.
+    """
+
+    def test_an_ip_address_is_refused_with_a_useful_reason(self):
+        from vg.ingest.source import parse_source
+
+        with pytest.raises(ValueError) as raised:
+            parse_source("192.168.144.108")
+
+        message = str(raised.value)
+        assert "192.168.144.108" in message
+        assert "rtsp://" in message, "the message must show the fix"
+
+    def test_a_host_and_port_is_refused_too(self):
+        from vg.ingest.source import parse_source
+
+        with pytest.raises(ValueError, match="rtsp://"):
+            parse_source("192.168.144.108:554")
+
+    def test_a_bare_hostname_is_refused(self):
+        from vg.ingest.source import parse_source
+
+        with pytest.raises(ValueError, match="rtsp://"):
+            parse_source("front-door-camera")
+
+    def test_a_real_url_still_works(self):
+        from vg.ingest.source import SourceKind, parse_source
+
+        kind, handle = parse_source("rtsp://admin:x@192.168.144.108:554/stream1")
+        assert kind is SourceKind.RTSP
+        assert handle.startswith("rtsp://")
+
+    def test_a_file_path_still_works(self):
+        from vg.ingest.source import SourceKind, parse_source
+
+        for spec in ("file:clips/walk.mp4", "clips/walk.mp4",
+                     r"C:\footage\walk.mp4", "walk.mp4"):
+            kind, handle = parse_source(spec)
+            assert kind is SourceKind.FILE, spec
+
+    def test_a_webcam_still_works(self):
+        from vg.ingest.source import SourceKind, parse_source
+
+        assert parse_source("webcam:0") == (SourceKind.WEBCAM, 0)
+        assert parse_source("0") == (SourceKind.WEBCAM, 0)

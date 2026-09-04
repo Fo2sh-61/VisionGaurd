@@ -23,7 +23,7 @@ from vg import platetext
 from vg.clock import Clock, clock_for
 from vg.events import vehicles as vehicle_events
 from vg.ingest.recorder import AlreadyRecording
-from vg.config import EngineConfig
+from vg.config import PERSON_FEATURES, CameraConfig, EngineConfig
 from vg.api import schemas as S
 from vg.api.store import (
     AlreadyBusy,
@@ -91,27 +91,96 @@ def _day_label(iso_date: str) -> str:
 
 
 
+def _gpu_reading() -> dict:
+    """What the graphics card is doing right now, from the driver. Or {}.
+
+    Whole device, not this process - NVML reports utilisation for the card,
+    and another program using it is counted. Said in the schema rather than
+    corrected for, because there is nothing honest to correct it with.
+    Empty when there is no NVIDIA driver to ask; never zeros, which would
+    read as idle.
+    """
+    try:
+        import pynvml
+    except Exception:
+        return {}
+    try:
+        pynvml.nvmlInit()
+        try:
+            handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+            util = pynvml.nvmlDeviceGetUtilizationRates(handle).gpu
+            memory = pynvml.nvmlDeviceGetMemoryInfo(handle)
+            return {
+                "util": float(util),
+                "used_mb": round(memory.used / 2**20, 0),
+                "total_mb": round(memory.total / 2**20, 0),
+            }
+        finally:
+            pynvml.nvmlShutdown()
+    except Exception:
+        return {}
+
+
+def _gpu_percent() -> float | None:
+    return _gpu_reading().get("util")
+
+
+# psutil's `cpu_percent(interval=None)` reports the change SINCE THE LAST
+# CALL ON THE SAME OBJECT, and returns 0.0 the first time. Building a fresh
+# `Process()` on every poll - which is what this did until 3 Sep 2026 - made
+# every call the first call, so the engine's processor share read 0.0 for as
+# long as the product existed. Held once, primed once, read forever.
+_PROCESS = None
+_PRIMED = False
+
+
 def _process_cpu() -> float | None:
     """This process's share of one second of processor time, or None.
 
     None is a real answer and the UI renders it as unavailable with a reason.
     It must never become 0.0: a machine at 90% and a machine nobody can
     measure would then look identical, and the second one is the dangerous
-    case.
+    case. That is also why the very first reading is None rather than the
+    0.0 psutil hands back before it has a baseline.
 
     Process-level rather than per-worker on purpose. Feature workers are
     threads inside this process, so the operating system has no per-worker
     number to give - see `WorkerLoad`. Inventing one would be exactly the
     kind of confident fiction Principle III forbids.
     """
+    return _cpu_readings()["process"]
+
+
+def _machine_cpu() -> float | None:
+    """The whole machine, 0-100, every program. Or None before a baseline."""
+    return _cpu_readings()["machine"]
+
+
+def _cpu_readings() -> dict:
+    """Both processor readings from ONE call, so they share a baseline.
+
+    psutil measures the change since the last call, so the two figures have
+    to be taken together: reading the process, then priming, then reading
+    the machine a microsecond later hands back a machine figure of 0.0 on
+    the very poll the process figure was honest enough to withhold. One
+    function, one prime, and the first poll returns None for both.
+    """
+    global _PROCESS, _PRIMED
     try:
         import psutil
     except Exception:
-        return None
+        return {"process": None, "machine": None}
     try:
-        return float(psutil.Process().cpu_percent(interval=None))
+        if _PROCESS is None:
+            _PROCESS = psutil.Process()
+        process = float(_PROCESS.cpu_percent(interval=None))
+        machine = float(psutil.cpu_percent(interval=None))
+        if not _PRIMED:
+            _PRIMED = True
+            return {"process": None, "machine": None}
+        return {"process": process, "machine": machine}
     except Exception:
-        return None
+        return {"process": None, "machine": None}
 
 
 class LiveStore(MockStore):
@@ -223,6 +292,57 @@ class LiveStore(MockStore):
         self.weapons_error: str | None = None
         self.lost_error: str | None = None
         self.vehicles_error: str | None = None
+
+        # Every camera's own analytics rate, pushed into every worker that
+        # serves it. The workers are built in `app.py` with ONE rate each -
+        # `min(fps)` across their cameras - and until this line existed that
+        # was the whole story: turning one camera down to 2/sec turned every
+        # other camera on that worker down with it. Seeding here gives each
+        # camera the rate it was configured with, and `_apply_features` keeps
+        # it that way when somebody edits one.
+        self._seed_rates()
+
+    #: The workers a camera's analytics rate applies to. `lost_watch` is
+    #: deliberately absent: bag search runs only while somebody is looking at
+    #: the tile, at whatever rate frames arrive, so there is no configured
+    #: rate to set on it.
+    def _rated_workers(self) -> tuple:
+        return (self.people_worker, self.recogniser, self.patrol,
+                self.zones_worker, self.tracking, self.vehicles_worker,
+                self.weapons_worker)
+
+    def _seed_rates(self) -> None:
+        """Give every camera in the roster its configured rate, at startup."""
+        try:
+            configs = list(self.registry.configs())
+        except Exception:  # noqa: BLE001 - a store that cannot read the
+            # roster still has to construct. Every worker then keeps the rate
+            # it was built with, which is what happened before this existed.
+            log.warning("could not seed analytics rates from the roster")
+            return
+        for camera in configs:
+            self._set_rate(camera)
+
+    def _set_rate(self, config: CameraConfig) -> None:
+        """Tell every worker how often to analyse this one camera.
+
+        Takes effect on the next frame. This is what makes the analytics rate
+        on the camera form a setting rather than a stored number - before it,
+        an edit changed the decode rate and the models carried on at the old
+        rate until somebody restarted the engine.
+        """
+        for worker in self._rated_workers():
+            if worker is None:
+                continue
+            try:
+                worker.set_rate(config.id, config.fps)
+            except (AttributeError, ValueError):
+                # A worker that predates per-camera rates, or one that
+                # refuses the value. Neither is a reason to fail an
+                # operator's edit; that worker keeps the rate it was built
+                # with and the camera is still served.
+                log.warning("%s cannot set the analytics rate for %s",
+                            type(worker).__name__, config.id)
 
     @property
     def recognition_live(self) -> bool:
@@ -555,16 +675,17 @@ class LiveStore(MockStore):
 
     # -- camera management --------------------------------------------------
 
-    def add_camera(self, req: S.AddCameraRequest) -> S.CameraSource:
+    def add_camera(self, req: S.AddCameraRequest, actor: str = "unknown") -> S.CameraSource:
         """Persist a camera and start watching it in the same call."""
-        source = req.source.strip()
-        # Fold credentials into the URL so the rest of the system only ever
-        # deals with one source string, and only one place has to redact it.
-        if req.username and "://" in source and "@" not in source:
-            scheme, rest = source.split("://", 1)
-            source = f"{scheme}://{req.username}:{req.password or ''}@{rest}"
-
+        source = _with_credentials(req.source.strip(), req.username, req.password)
         camera_id = req.id or _slug(req.name)
+
+        # Before the write, as everywhere else. A camera appearing changes
+        # what the whole system watches, so the attempt is recorded even if
+        # the write then fails.
+        self._log(actor, "camera.add", camera_id,
+                  f"{req.kind.value} {_redacted(source)}")
+
         config = self.cameras.add(
             camera_id=camera_id,
             name=req.name,
@@ -574,14 +695,144 @@ class LiveStore(MockStore):
             fps=req.fps,
             features=tuple(req.features),
             rotate=req.rotate,
+            faces=req.faces,
+            gate=req.gate,
+            direction=req.direction,
+            neighbours=tuple(req.neighbours),
         )
         self.registry.add(config)
+        notes = self._apply_features(config)
 
+        return self._source_view(config, feature_notes=notes)
+
+    def bulk_add(
+        self, req: S.BulkAddRequest, actor: str = "unknown"
+    ) -> list[S.AddCameraOutcome]:
+        """Add several cameras, reporting an outcome for each.
+
+        Never abandons the rest on a failure: one channel with a duplicate id
+        must not cost the other fifteen. Each camera is audited before its own
+        write by `add_camera`, so a partial run leaves a complete record.
+        """
+        outcomes: list[S.AddCameraOutcome] = []
+        for index, camera in enumerate(req.cameras):
+            source = _with_credentials(
+                camera.source.strip(), camera.username, camera.password)
+            try:
+                added = self.add_camera(camera, actor)
+            except Exception as exc:
+                outcomes.append(S.AddCameraOutcome(
+                    index=index, ok=False, source=_redacted(source),
+                    error=str(exc)))
+            else:
+                outcomes.append(S.AddCameraOutcome(
+                    index=index, ok=True, id=added.id, source=added.ip))
+        return outcomes
+
+    def edit_camera(
+        self, camera_id: str, req: S.EditCameraRequest, actor: str = "unknown"
+    ) -> S.EditCameraResult | None:
+        """Correct a camera in place, keeping its identity and its history."""
+        if self.cameras is None:
+            raise SubsystemUnavailable(
+                "The runtime camera roster is not available, so no camera can "
+                "be changed.")
+
+        current = self._config_for(camera_id)
+        if current is None:
+            return None
+
+        changes = req.model_dump(exclude_none=True)
+        username = changes.pop("username", None)
+        password = changes.pop("password", None)
+        source = changes.get("source", current.source)
+        if username:
+            source = _with_credentials(source, username, password)
+        changes["source"] = source
+
+        # Named, not valued: `detail` must never carry a credential, and the
+        # fields that changed are what an audit reader actually needs.
+        self._log(actor, "camera.edit", camera_id,
+                  "changed " + ", ".join(sorted(changes)) if changes else "no change")
+
+        merged = {
+            "id": current.id,
+            "name": current.name,
+            "source": current.source,
+            "kind": current.kind,
+            "area": current.area,
+            "fps": current.fps,
+            "rotate": current.rotate,
+            "enabled": current.enabled,
+            "features": list(current.features),
+            "faces": current.faces,
+            "gate": current.gate,
+            "direction": current.direction,
+            "face_gate": current.face_gate,
+            "live_capture": current.live_capture,
+            "neighbours": list(current.neighbours),
+            **changes,
+        }
+        # Validate before writing, so a refused edit changes nothing at all.
+        config = CameraConfig.parse(merged, f"camera {camera_id!r}")
+
+        shadows = not any(c.id == camera_id for c in self.cameras.all())
+        self.cameras.add(
+            camera_id=config.id, name=config.name, source=config.source,
+            kind=config.kind, area=config.area, fps=config.fps,
+            features=config.features, rotate=config.rotate,
+            enabled=config.enabled, faces=config.faces, gate=config.gate,
+            direction=config.direction, face_gate=config.face_gate,
+            live_capture=config.live_capture, neighbours=config.neighbours,
+        )
+
+        # Only when the STREAM changed. Reopening an RTSP connection to add a
+        # tickbox is a visible stutter on a camera somebody may be watching.
+        restarted = any(
+            getattr(config, field) != getattr(current, field)
+            for field in ("source", "fps", "rotate", "enabled")
+        )
+        if restarted:
+            self.registry.add(config)
+
+        notes = self._apply_features(config, previous=current)
+        return S.EditCameraResult(
+            camera=self._source_view(config, feature_notes=notes),
+            shadows_config=shadows,
+            restarted=restarted,
+            feature_notes=notes,
+        )
+
+    def remove_camera(self, camera_id: str, actor: str = "unknown") -> bool:
+        # Before the write. A camera going quiet is exactly the change
+        # somebody may later need to explain.
+        self._log(actor, "camera.remove", camera_id, None)
+
+        self._unwatch_everywhere(camera_id)
+        stopped = self.registry.remove(camera_id)
+        recorded = self.cameras.remove(camera_id) if self.cameras else False
+        return stopped or recorded
+
+    def _config_for(self, camera_id: str) -> CameraConfig | None:
+        """The camera as the engine currently sees it, YAML or stored."""
+        worker = self.registry.worker(camera_id)
+        if worker is not None:
+            return worker.config
+        disabled = self.registry.disabled.get(camera_id)
+        if disabled is not None:
+            return disabled
+        return next((c for c in self.config.cameras if c.id == camera_id), None)
+
+    def _source_view(
+        self, config: CameraConfig, feature_notes: list[S.FeatureNote] | None = None
+    ) -> S.CameraSource:
+        """One camera, as the console sees it."""
         worker = self.registry.worker(config.id)
+        stored = {c.id for c in self.cameras.all()} if self.cameras else set()
         return S.CameraSource(
             id=config.id,
             name=config.name,
-            type=req.kind,
+            type=_source_type(config.kind),
             ip=config.redacted_source(),
             channels=1,
             # Honest immediately: a camera that has not connected yet is down,
@@ -589,12 +840,105 @@ class LiveStore(MockStore):
             status=S.SourceStatus(worker.status) if worker else S.SourceStatus.DOWN,
             area=config.area,
             last_error=worker.source.health.last_error if worker else None,
+            features=list(config.features),
+            faces=config.faces,
+            enabled=config.enabled,
+            gate=config.gate,
+            direction=config.direction,
+            fps=config.fps,
+            rotate=config.rotate,
+            from_config=config.id not in stored,
         )
 
-    def remove_camera(self, camera_id: str) -> bool:
-        stopped = self.registry.remove(camera_id)
-        recorded = self.cameras.remove(camera_id) if self.cameras else False
-        return stopped or recorded
+    # -- feature assignment -------------------------------------------------
+    #
+    # One camera's feature list decides one camera's analysis, and nothing
+    # else's. This is the only place that mapping is written down in code; the
+    # table it implements is in specs/011-camera-onboarding/data-model.md.
+    #
+    # Every worker here can be None, because a subsystem that failed to start
+    # leaves one behind. That is not an error and must not refuse the camera -
+    # it is reported as a note so the operator learns at the moment they chose
+    # the feature, rather than never.
+
+    def _apply_features(
+        self, config: CameraConfig, previous: CameraConfig | None = None
+    ) -> list[S.FeatureNote]:
+        """Make the running workers agree with this camera's feature list."""
+        wanted = set(config.features) if config.enabled else set()
+        identity = config.enabled and (config.faces or "attendance" in wanted)
+
+        # Before the watches, so a worker that is about to start serving this
+        # camera already knows how often to look at it. Doing it afterwards
+        # would leave one frame analysed at the wrong rate.
+        self._set_rate(config)
+
+        # The shared person pass. Not a feature in its own right - it is what
+        # counting, intrusion and track all read - so it gets no note.
+        self._set_watch(
+            self.people_worker, config.id,
+            bool(PERSON_FEATURES.intersection(wanted)))
+
+        # The identity tier is a MOVE between two workers, not a toggle. Watch
+        # the new tier before unwatching the old, or there is an instant where
+        # neither is looking at this camera.
+        self._set_watch(self.recogniser, config.id, identity)
+        self._set_watch(self.patrol, config.id, config.enabled and not identity)
+
+        notes: list[S.FeatureNote] = []
+        for feature, worker, want, reason in (
+            ("counting", self.people_worker, "counting" in wanted, self.people_error),
+            ("intrusion", self.zones_worker, "intrusion" in wanted, self.zones_error),
+            ("track", self.tracking, "track" in wanted, self.tracking_error),
+            ("attendance", self.recogniser, "attendance" in wanted,
+             self.recognition_error),
+            ("vehicles", self.vehicles_worker,
+             config.enabled and config.is_gate, self.vehicles_error),
+            ("weapons", self.weapons_worker, "weapons" in wanted, self.weapons_error),
+            ("lostitems", self.lost_watch, "lostitems" in wanted, self.lost_error),
+        ):
+            if feature not in ("counting", "attendance"):
+                # counting and attendance are served by workers already set
+                # above; setting them twice would fight over the same list.
+                self._set_watch(worker, config.id, want)
+            if want and worker is None:
+                notes.append(S.FeatureNote(
+                    feature=feature, running=False,
+                    reason=reason or "This feature is not running on this engine.",
+                ))
+            elif want:
+                notes.append(S.FeatureNote(feature=feature, running=True))
+        return notes
+
+    def _unwatch_everywhere(self, camera_id: str) -> None:
+        """Stop every feature analysing this camera.
+
+        Removing a camera has to stop the analysis too, or "remove" means only
+        that it left a list. Each worker closes whatever it held for this
+        camera on that camera's own thread.
+        """
+        for worker in (self.people_worker, self.recogniser, self.patrol,
+                       self.zones_worker, self.tracking, self.vehicles_worker,
+                       self.weapons_worker, self.lost_watch):
+            self._set_watch(worker, camera_id, False)
+
+    @staticmethod
+    def _set_watch(worker, camera_id: str, wanted: bool) -> None:
+        """Watch or unwatch one camera on one worker, if that worker exists.
+
+        Absent workers are skipped rather than raising: a subsystem that did
+        not start must not stop a camera being configured for the other six
+        features (rule 9).
+        """
+        if worker is None:
+            return
+        try:
+            (worker.watch if wanted else worker.unwatch)(camera_id)
+        except AttributeError:
+            # A worker that predates this mechanism. Better to log and carry
+            # on than to fail an operator's edit over it.
+            log.warning("%s cannot change cameras at runtime",
+                        type(worker).__name__)
 
     def camera_detections(
         self, camera_id: str, feature: str | None = None,
@@ -658,7 +1002,10 @@ class LiveStore(MockStore):
             timezone=self.config.timezone,
             tz_offset_minutes=self.clock.offset_minutes(now),
             cameras_online=self.registry.online,
-            cameras_total=self.registry.total,
+            # Enabled cameras only, like System Health. "1 of 3 up" over two
+            # cameras switched off on purpose is the top bar telling the
+            # whole console something is wrong when nothing is.
+            cameras_total=len(self.registry.workers),
             places=([self.ALL_PLACES] + areas) if areas else [],
             areas=areas,
             clip_retention_days=self.config.storage.clip_retention_days,
@@ -957,7 +1304,13 @@ class LiveStore(MockStore):
                 healthy=False, severity=S.Severity.WARN, restartable=False,
             )
 
-        stats = self.lost_watch.stats
+        stats = self._stats_of(self.lost_watch)
+        if stats is None:
+            return S.PipelineStage(
+                key="search_lost", name="Bag detection",
+                detail="Running, but it could not report its counters.",
+                healthy=False, severity=S.Severity.WARN, restartable=True,
+            )
         detector = getattr(self.lost_watch, "detector", None)
         cameras = stats["cameras"]
         doing = (f"watching {cameras} camera{'' if cameras == 1 else 's'}"
@@ -1888,27 +2241,21 @@ class LiveStore(MockStore):
         )
 
     def sources(self) -> list[S.CameraSource]:
-        """The configured cameras, with their true status."""
-        out: list[S.CameraSource] = []
-        for cid, worker in self.registry.workers.items():
-            out.append(S.CameraSource(
-                id=cid,
-                name=worker.config.name,
-                type=_source_type(worker.config.kind),
-                ip=worker.source.redacted,
-                channels=1,
-                status=S.SourceStatus(worker.status),
-                area=worker.config.area,
-                last_error=worker.source.health.last_error,
-            ))
-        for cid, cam in self.registry.disabled.items():
-            out.append(S.CameraSource(
-                id=cid, name=cam.name, type=_source_type(cam.kind),
-                ip=cam.redacted_source(), channels=1,
-                status=S.SourceStatus.DOWN, area=cam.area,
-                last_error="Disabled in engine.yaml",
-            ))
-        return out
+        """The configured cameras, with their true status.
+
+        Built through `_source_view` rather than inline, so the list, an add
+        and an edit cannot describe the same camera differently. They did:
+        this method never learnt about `features`, `faces` or `gate`, so a
+        camera the console had just set up read back as having no features at
+        all.
+        """
+        return [
+            self._source_view(worker.config)
+            for worker in self.registry.workers.values()
+        ] + [
+            self._source_view(cam)
+            for cam in self.registry.disabled.values()
+        ]
 
     # -- people counting ----------------------------------------------------
 
@@ -2173,9 +2520,6 @@ class LiveStore(MockStore):
     def delivery_targets(self) -> list[S.DeliveryTarget]:
         return []
 
-    def scan(self) -> list[S.FoundDevice]:
-        return []
-
     def capabilities(self) -> list[S.Capability]:
         """What the console can honestly show right now, and why not otherwise.
 
@@ -2421,14 +2765,292 @@ class LiveStore(MockStore):
             workers=loads,
         )
 
+    #: What one frame costs each worker, in milliseconds, for a worker that
+    #: has not yet timed one on this machine.
+    #:
+    #: These are ASSUMPTIONS carried in from earlier runs on this project's
+    #: own hardware - `engine.yaml`'s camera comments and `docs/PLAN.md` - and
+    #: every row built from one is flagged `measured: false` so the page can
+    #: say which figures were timed here and which were not. The moment a
+    #: worker analyses a frame, its real number replaces the entry below.
+    #:
+    #: `engine/tools/benchmark.py` keeps its own table for offline sizing.
+    #: The two are deliberately separate: that one is keyed by mix component
+    #: for a site that does not exist yet, this one by running worker.
+    #: The one detection that counting, intrusion, track and knife detection
+    #: all read. Its cost is `SharedDetection.last_pass_ms`, timed around the
+    #: model call alone, and it goes on ONE row - every worker's own row has
+    #: the time it borrowed from this pass subtracted (`Result.shared_ms`).
+    #: Before that, each of those workers reported the pass as its own
+    #: inference - including the time spent waiting for another worker to
+    #: finish it - and the page added them up: three rows of 13 ms for one
+    #: 13 ms model, and a graphics-card bar at 100% over a card the driver
+    #: had at 18%.
+    PERSON_PASS_ROW = "person detection"
+
+    #: Measured on this machine 3 Sep 2026 (RTX 2080 Max-Q, 60 frames off the
+    #: recorded clip): the person pass is 13.3 ms p50 / 18.4 ms p95 WITH the
+    #: TensorRT build loaded, against the 23 ms below. The table stays at 23
+    #: on purpose - it is the figure for a machine that has NOT built an
+    #: engine, which is the machine most likely to be reading an estimate in
+    #: the first place. It therefore reads high, which is the safe direction
+    #: for a sizing figure, and every row built from it says "estimate".
+    ASSUMED_MS_PER_FRAME = {
+        PERSON_PASS_ROW: 23.0,  # the YOLO person pass, costed once
+        # The workers that READ that pass. These are their OWN costs, with
+        # the pass already taken out - bookkeeping for counting and zones,
+        # ByteTrack and the appearance matcher for tracking.
+        "people": 1.0,
+        "zones": 1.0,
+        "tracking": 2.0,
+        "recognition": 44.0,  # YuNet + SFace
+        "patrol": 44.0,       # the same pair, run slower on the other cameras
+        "weapons": 17.0,      # knife model, only on frames with a person
+        "vehicles": 6.0,      # the plate pair
+        "lostitems": 29.0,    # bag model, only while somebody is watching
+    }
+
+    @staticmethod
+    def _stats_of(worker) -> dict | None:
+        """One worker's counters, or None when it cannot describe itself.
+
+        Rule 7. Four stages used to read `worker.stats` unguarded, so a
+        worker whose bookkeeping raised took the whole of System Health down
+        with a 500 - the one page an operator opens to find out what is
+        broken, refusing to answer precisely because something was. The
+        workers stage already skipped such a worker; the four per-feature
+        stages did not.
+
+        None means "could not read", which the caller renders as exactly
+        that. It is not the same answer as "not running", and neither is a
+        row of zeros.
+        """
+        if worker is None:
+            return None
+        try:
+            return worker.stats
+        except Exception:  # noqa: BLE001 - reported as payload, never raised
+            log.exception("could not read counters for %s",
+                          type(worker).__name__)
+            return None
+
+    @staticmethod
+    def _pool(device: str | None) -> str | None:
+        """Which budget a device string belongs to. None when it does not say.
+
+        Returning None rather than defaulting to one of them is the point: a
+        worker charged to the wrong pool makes both totals wrong, and the
+        page can render "did not say" honestly.
+        """
+        if not device:
+            return None
+        text = str(device).strip().lower()
+        if text.startswith("cpu"):
+            return "cpu"
+        if text.startswith(("cuda", "gpu", "mps")) or text.isdigit():
+            return "gpu"
+        return None
+
+    def _machine_capacity(self) -> S.Capacity | None:
+        """What this engine is doing, and what its configuration asks for.
+
+        Two figures per row, and the page keeps them apart:
+
+        - `busy_ms_per_second` is a **reading**: milliseconds this worker
+          really spent, per second, over the last `window_seconds`. It is
+          what the bars are checked against, and it is what an operator
+          means by "how full is the machine right now".
+        - `ms_per_second` is a **projection**: the rate each camera is
+          configured at, times what one frame last cost. It is what lets
+          somebody see the wall before adding the camera that hits it.
+
+        The first version of this card showed only the projection, drawn as
+        a bar, and the bar read 100% over a card the driver had at 18%.
+        Nothing on the page could say otherwise. Now the driver's own figure
+        draws the bar and this arithmetic sits beside it, labelled.
+
+        Two budgets, never one number. Face recognition is OpenCV and has no
+        CUDA path, so it genuinely does not compete with the person detector
+        for the same milliseconds; adding GPU and CPU together would produce
+        a percentage of nothing.
+
+        A worker serving no camera is absent rather than present with zeros,
+        for the same reason it is absent from the workers stage: "not running"
+        and "running for free" are different answers.
+        """
+        candidates = [
+            getattr(self, name, None) for name in (
+                "recogniser", "patrol", "people_worker", "tracking",
+                "weapons_worker", "vehicles_worker", "lost_watch",
+            )
+        ]
+
+        rows: list[S.CapacityRow] = []
+        window = 5.0
+        for worker in candidates:
+            if worker is None:
+                continue
+            try:
+                stats = worker.stats
+            except Exception:  # noqa: BLE001 - a worker that cannot describe
+                # itself is skipped, not a 500. Rule 7.
+                continue
+
+            cameras = int(stats.get("cameras", 0) or 0)
+            if not cameras:
+                continue
+
+            name = str(stats.get("name", "worker"))
+            timed = float(stats.get("last_inference_ms", 0.0) or 0.0)
+            measured = timed > 0
+            ms = timed if measured else self.ASSUMED_MS_PER_FRAME.get(name, 0.0)
+            if not ms and not stats.get("busy_ms_per_second"):
+                # No measurement, no carried-in figure, and nothing done in
+                # the window. Nothing honest to say about this worker's
+                # cost, so it gets no row rather than a zero that would
+                # read as "free".
+                continue
+
+            hz = stats.get("frames_per_second")
+            hz = float(hz) if hz is not None else None
+            window = float(stats.get("window_seconds", window) or window)
+            rows.append(S.CapacityRow(
+                name=name,
+                pool=self._pool(stats.get("device")),
+                device=stats.get("device"),
+                cameras=cameras,
+                frames_per_second=hz,
+                ms_per_frame=round(ms, 1),
+                measured=measured,
+                ms_per_second=round(hz * ms, 1) if hz is not None else None,
+                on_demand=bool(stats.get("on_demand")),
+                busy_ms_per_second=float(stats.get("busy_ms_per_second", 0.0) or 0.0),
+                analysed_per_second=float(stats.get("analysed_per_second", 0.0) or 0.0),
+            ))
+
+        shared = self._shared_pass_row()
+        if shared is not None:
+            rows.insert(0, shared)
+
+        if not rows:
+            return None
+
+        # Logical cores, which is what supplies the processor budget: an
+        # 8-core box has 8000 ms of work to give every second.
+        cores = os.cpu_count() or 1
+
+        def asks(pool: str | None) -> float:
+            return sum(r.ms_per_second or 0.0 for r in rows if r.pool == pool)
+
+        def busy(pool: str | None) -> float:
+            return sum(r.busy_ms_per_second for r in rows if r.pool == pool)
+
+        return S.Capacity(
+            gpu_ms_per_second=round(asks("gpu"), 1),
+            cpu_ms_per_second=round(asks("cpu"), 1),
+            cpu_budget_ms=float(cores * 1000),
+            cores=cores,
+            unplaced_ms_per_second=round(asks(None), 1),
+            all_measured=all(r.measured for r in rows),
+            gpu_busy_ms_per_second=round(busy("gpu"), 1),
+            cpu_busy_ms_per_second=round(busy("cpu"), 1),
+            unplaced_busy_ms_per_second=round(busy(None), 1),
+            window_seconds=window,
+            rows=rows,
+        )
+
+    def _shared_pass_row(self) -> S.CapacityRow | None:
+        """The one person detection, costed once.
+
+        Projection: it runs at most once per (camera, frame) whatever asks
+        for it, so what it costs a camera each second is its cost times the
+        FASTEST rate any of its readers runs that camera at - the slower
+        readers land on frames the fastest one already paid for. Summed
+        over cameras.
+
+        Reading: `SharedDetection.load()` - passes that actually happened
+        in the window and the milliseconds they took.
+
+        A zones worker only asks for the pass on cameras that are actually
+        restricted; on the rest it returns before any detection call, so
+        those cameras are not charged for it.
+        """
+        readers = [w for w in (self.people_worker, self.zones_worker,
+                               self.tracking, self.weapons_worker)
+                   if w is not None]
+        detector = next(
+            (d for d in (getattr(w, "detector", None) or getattr(w, "people", None)
+                         for w in readers) if d is not None),
+            None)
+        if detector is None:
+            return None
+
+        fastest: dict[str, float] = {}
+        for worker in readers:
+            cameras = getattr(worker, "cameras", None)
+            rate_for = getattr(worker, "rate_for", None)
+            if cameras is None or rate_for is None:
+                continue
+            asks = set(cameras)
+            restricted = getattr(worker, "restricted", None)
+            if callable(restricted):
+                asks &= set(restricted())
+            for camera_id in asks:
+                try:
+                    hz = float(rate_for(camera_id))
+                except Exception:  # noqa: BLE001 - a worker that cannot say
+                    continue      # its rate is not charged, not guessed
+                fastest[camera_id] = max(fastest.get(camera_id, 0.0), hz)
+        if not fastest:
+            return None
+
+        timed = float(getattr(detector, "last_pass_ms", 0.0) or 0.0)
+        measured = timed > 0
+        ms = timed if measured else self.ASSUMED_MS_PER_FRAME[self.PERSON_PASS_ROW]
+        hz = sum(fastest.values())
+        device = getattr(detector, "device", None)
+
+        load = {}
+        loader = getattr(detector, "load", None)
+        if callable(loader):
+            try:
+                load = loader() or {}
+            except Exception:  # noqa: BLE001 - no reading is not a 500
+                load = {}
+
+        return S.CapacityRow(
+            name=self.PERSON_PASS_ROW,
+            pool=self._pool(device),
+            device=device,
+            cameras=len(fastest),
+            frames_per_second=round(hz, 2),
+            ms_per_frame=round(ms, 1),
+            measured=measured,
+            ms_per_second=round(hz * ms, 1),
+            shared=True,
+            busy_ms_per_second=float(load.get("busy_ms_per_second", 0.0) or 0.0),
+            analysed_per_second=float(load.get("passes_per_second", 0.0) or 0.0),
+        )
+
     def health(self) -> S.SystemHealth:
-        online, total = self.registry.online, self.registry.total
-        sources = self.sources()
+        # "Total" is the cameras that are switched ON. `registry.total` also
+        # counts disabled ones - rightly, for the setup list, where a camera
+        # somebody turned off must not vanish - but here it made every one
+        # of them a fault: two cameras disabled on purpose read as "1 of 3
+        # online", the ingest stage went amber, and the summary said two
+        # cameras were not being analysed. Off is not down.
+        online = self.registry.online
+        total = len(self.registry.workers)
+        disabled = len(self.registry.disabled)
+        # Same rule for the recorder count: a source that is off is not a
+        # recorder that is down.
+        sources = [s for s in self.sources() if s.enabled]
 
         pipeline = [
             S.PipelineStage(
                 key="ingest", name="Camera ingest",
-                detail=f"{online} of {total} streams decoding",
+                detail=(f"{online} of {total} streams decoding"
+                        + (f" - {disabled} switched off" if disabled else "")),
                 healthy=online == total and total > 0,
                 severity=S.Severity.INFO if online == total else S.Severity.WARN,
                 restartable=True,
@@ -2451,14 +3073,20 @@ class LiveStore(MockStore):
         skipped = sum(getattr(w.source.health, "frames_skipped", 0)
                       for w in self.registry.workers.values())
 
+        gpu = _gpu_reading()
+        cpu = _cpu_readings()
         return S.SystemHealth(
             cameras_online=online, cameras_total=total,
+            cameras_disabled=disabled,
             recorders_online=sum(1 for s in sources if s.status is S.SourceStatus.OK),
             recorders_total=len(sources),
             severity=(S.Severity.WARN if (online < total or struggling)
                       else S.Severity.INFO),
-            cpu_percent=_process_cpu(),
-            gpu_percent=None,
+            cpu_percent=cpu["process"],
+            cpu_machine_percent=cpu["machine"],
+            gpu_percent=gpu.get("util"),
+            gpu_memory_used_mb=gpu.get("used_mb"),
+            gpu_memory_total_mb=gpu.get("total_mb"),
             metrics=[
                 S.Metric(key="cameras", label="Cameras up", value=online, total=total),
                 S.Metric(key="frames", label="Frames read",
@@ -2476,6 +3104,7 @@ class LiveStore(MockStore):
                 S.Metric(key="skipped", label="Frames not decoded",
                          value=skipped),
             ],
+            capacity=self._machine_capacity(),
             recorders=[
                 S.Recorder(id=s.id, name=s.name, cameras=s.channels,
                            online=s.status is S.SourceStatus.OK, ip=s.ip)
@@ -2541,7 +3170,13 @@ class LiveStore(MockStore):
                 healthy=False, severity=S.Severity.WARN, restartable=False,
             )
 
-        stats = self.people_worker.stats
+        stats = self._stats_of(self.people_worker)
+        if stats is None:
+            return S.PipelineStage(
+                key="detect", name="Person detection",
+                detail="Running, but it could not report its counters.",
+                healthy=False, severity=S.Severity.WARN, restartable=True,
+            )
         if not stats["cameras"]:
             # The model is loaded and knife detection is using it, but no
             # camera asked for counting, intrusion or track. "Running on 0
@@ -2574,7 +3209,13 @@ class LiveStore(MockStore):
                 healthy=False, severity=S.Severity.WARN, restartable=False,
             )
 
-        stats = self.vehicles_worker.stats
+        stats = self._stats_of(self.vehicles_worker)
+        if stats is None:
+            return S.PipelineStage(
+                key="vehicles", name="Plate reading",
+                detail="Running, but it could not report its counters.",
+                healthy=False, severity=S.Severity.WARN, restartable=True,
+            )
         reader = getattr(self.vehicles_worker, "reader", None)
         return S.PipelineStage(
             key="vehicles", name="Plate reading",
@@ -2598,7 +3239,13 @@ class LiveStore(MockStore):
                 healthy=False, severity=S.Severity.WARN, restartable=False,
             )
 
-        stats = self.weapons_worker.stats
+        stats = self._stats_of(self.weapons_worker)
+        if stats is None:
+            return S.PipelineStage(
+                key="weapons", name="Knife detection",
+                detail="Running, but it could not report its counters.",
+                healthy=False, severity=S.Severity.WARN, restartable=True,
+            )
         knives = getattr(self.weapons_worker, "knives", None)
         return S.PipelineStage(
             key="weapons", name="Knife detection",
@@ -3842,6 +4489,190 @@ class LiveStore(MockStore):
                   f"recording {rec.id} - {rec.frames} frames")
         return S.RecordingResult(ok=True, recording=self._recording(rec))
 
+    # -- recorders ----------------------------------------------------------
+
+    #: How many channels are opened at once. A recorder is a small box and a
+    #: hundred simultaneous RTSP connections is a good way to make it refuse
+    #: all of them; eight keeps sixteen channels inside a few seconds without
+    #: looking like an attack.
+    PROBE_CONCURRENCY = 8
+
+    def _probe_channel(
+        self, channel: str, template: str, req: S.DvrConnectRequest
+    ) -> S.DvrChannel:
+        """Open one channel for real and report what happened.
+
+        This is `test_connection` applied to one channel of a recorder, and
+        deliberately so - there is one prober in this system, not two.
+        """
+        import time as _time
+
+        from vg.ingest.source import CameraSource
+
+        url = (template
+               .replace("{channel}", channel)
+               .replace("{host}", req.host)
+               .replace("{port}", str(req.port)))
+        source = _with_credentials(url, req.username, req.password)
+        name = f"{req.name or req.host} {channel}"
+
+        try:
+            probe = CameraSource(f"probe-{channel}", source, target_fps=1)
+        except ValueError as exc:
+            # A template that produces something unopenable. Reported per
+            # channel like any other failure, so one bad substitution does not
+            # take the whole recorder down.
+            return S.DvrChannel(
+                channel=channel, name=name, enabled=False,
+                source=_redacted(source), checked=True,
+                status=S.SourceStatus.DOWN, error=str(exc),
+            )
+
+        started = _time.monotonic()
+        try:
+            if not probe.open():
+                return S.DvrChannel(
+                    channel=channel, name=name, enabled=False,
+                    source=_redacted(source), checked=True,
+                    status=S.SourceStatus(probe.health.status),
+                    error=probe.health.last_error or "Could not open the stream",
+                )
+            frame = probe.read()
+            latency = (_time.monotonic() - started) * 1000
+            if frame is None or frame.is_stale:
+                return S.DvrChannel(
+                    channel=channel, name=name, enabled=False,
+                    source=_redacted(source), checked=True,
+                    status=S.SourceStatus.DOWN, latency_ms=latency,
+                    error="Connected, but no frame arrived",
+                )
+            return S.DvrChannel(
+                channel=channel, name=name, enabled=True,
+                source=_redacted(source), checked=True,
+                status=S.SourceStatus.OK, latency_ms=latency,
+                resolution=f"{frame.width}x{frame.height}",
+            )
+        except Exception as exc:
+            return S.DvrChannel(
+                channel=channel, name=name, enabled=False,
+                source=_redacted(source), checked=True,
+                status=S.SourceStatus.DOWN, error=str(exc),
+            )
+        finally:
+            probe.close()
+
+    def connect_dvr(self, req: S.DvrConnectRequest) -> S.DvrConnectResult:
+        """Ask a recorder which of its channels actually have a camera.
+
+        **This override is the point of the feature.** Without it `LiveStore`
+        inherited `MockStore.connect_dvr`, so a real recorder - switched off,
+        wrong password, unplugged - always reported sixteen channels at
+        704x576 and a green tick.
+
+        Every channel here was opened. Nothing is inferred from a count, and a
+        channel the budget never reached comes back `checked=False`, which is
+        a different answer from one that was asked and did not reply.
+        """
+        from concurrent.futures import ThreadPoolExecutor, wait
+
+        def unchecked(channel: str) -> S.DvrChannel:
+            # No error, deliberately. There is nothing to report about a
+            # channel whose answer never came back in time - "we do not know"
+            # is the honest state, and it is not the same as "nothing there".
+            return S.DvrChannel(
+                channel=channel, name=f"{req.name or req.host} {channel}",
+                enabled=False, checked=False, status=S.SourceStatus.DOWN,
+            )
+
+        workers = min(self.PROBE_CONCURRENCY, len(req.channels))
+        pool = ThreadPoolExecutor(max_workers=workers)
+        try:
+            futures = {
+                pool.submit(self._probe_channel, channel, req.template, req): channel
+                for channel in req.channels
+            }
+            # One wait for the whole set, not a timeout per future. The budget
+            # is wall-clock for the operator staring at a spinner, and OpenCV
+            # does NOT honour its own open timeout on an unroutable address -
+            # a single dead channel can block for half a minute. So the answer
+            # is bounded here rather than trusted from below.
+            done, _ = wait(set(futures), timeout=req.budget)
+
+            results: dict[str, S.DvrChannel] = {}
+            for future, channel in futures.items():
+                if future in done and not future.cancelled():
+                    try:
+                        results[channel] = future.result()
+                    except Exception as exc:
+                        results[channel] = S.DvrChannel(
+                            channel=channel,
+                            name=f"{req.name or req.host} {channel}",
+                            enabled=False, checked=True,
+                            status=S.SourceStatus.DOWN, error=str(exc),
+                        )
+                else:
+                    results[channel] = unchecked(channel)
+        finally:
+            # Never `wait=True`, which is what a `with` block would do: it
+            # would block for exactly as long as the budget exists to avoid.
+            # Stragglers finish into a result nobody reads, which is why they
+            # are reported as unchecked rather than guessed at.
+            #
+            # A probe that overran keeps its thread until OpenCV lets go - up
+            # to ~30s on an unroutable address, which it reaches by its own
+            # timeout and not ours. Bounded by PROBE_CONCURRENCY per request,
+            # so a determined operator pressing Connect repeatedly holds a few
+            # dozen sleeping threads for half a minute rather than growing
+            # without limit.
+            pool.shutdown(wait=False, cancel_futures=True)
+
+        # Every channel asked about is reported, answered or not (P13-FR-002).
+        # Dropping the failures would leave an operator with a reason and no
+        # way to see WHICH channel is wrong.
+        channels = [results[c] for c in req.channels]
+        answered = [c for c in channels if c.status == S.SourceStatus.OK]
+        tried = [c for c in channels if c.checked]
+        checked = len(tried)
+
+        if answered:
+            return S.DvrConnectResult(
+                reachable=True, checked=checked, channels=channels,
+                status=S.SourceStatus.OK,
+            )
+
+        auth = any(c.status == S.SourceStatus.AUTH for c in tried)
+        if not tried:
+            reason = (
+                f"No channel answered within {req.budget:.0f}s. The recorder "
+                f"at {req.host} may be switched off or unreachable.")
+        elif auth:
+            reason = f"{req.host} refused the username and password."
+        else:
+            first = next((c.error for c in tried if c.error), None)
+            reason = (
+                f"None of the {len(tried)} channel(s) tried on {req.host} "
+                f"returned a picture." + (f" {first}" if first else ""))
+
+        return S.DvrConnectResult(
+            reachable=False, reason=reason, checked=checked, channels=channels,
+            status=S.SourceStatus.AUTH if auth else S.SourceStatus.DOWN,
+        )
+
+    def scan(self) -> S.ScanResult:
+        """Searching the network for devices is not built.
+
+        It used to return `[]`, which the console rendered as "0 devices
+        found" - so "we cannot look" and "your network is empty" were the same
+        sentence, and the second one is a lie.
+        """
+        return S.ScanResult(
+            available=False,
+            reason=(
+                "Searching the network for cameras is not available on this "
+                "engine. Add a camera by its address, or connect a recorder."
+            ),
+        )
+
     def test_connection(self, req: S.TestConnectionRequest) -> S.TestConnectionResult:
         """Actually open the stream and pull a frame.
 
@@ -3858,7 +4689,15 @@ class LiveStore(MockStore):
             scheme, rest = source.split("://", 1)
             source = f"{scheme}://{req.username}:{req.password or ''}@{rest}"
 
-        probe = CameraSource("probe", source, target_fps=1)
+        try:
+            probe = CameraSource("probe", source, target_fps=1)
+        except ValueError as exc:
+            # A source that cannot even be interpreted - an address with no
+            # scheme, most often. That is the operator's typo and belongs
+            # beside the form as a sentence, not as a 500.
+            return S.TestConnectionResult(
+                ok=False, status=S.SourceStatus.DOWN, error=str(exc))
+
         started = _time.monotonic()
         try:
             if not probe.open():
@@ -3892,6 +4731,31 @@ def _slug(name: str) -> str:
 
     base = _re.sub(r"[^a-z0-9]+", "-", name.strip().lower()).strip("-")
     return f"cam-{base}" if base else "cam"
+
+
+def _with_credentials(source: str, username: str | None, password: str | None) -> str:
+    """Fold a username and password into a URL.
+
+    One source string from here on, so exactly one place has to redact it.
+    Only when the URL does not already carry credentials — an operator who
+    typed them into the address meant them.
+    """
+    if username and "://" in source and "@" not in source:
+        scheme, rest = source.split("://", 1)
+        return f"{scheme}://{username}:{password or ''}@{rest}"
+    return source
+
+
+def _redacted(source: str) -> str:
+    """Mask a password in a source string that is not yet a `CameraConfig`.
+
+    The same expression `CameraConfig.redacted_source` uses. It exists
+    separately because a bulk outcome has to report the source of a camera
+    that was **refused**, and a refused camera never became a config.
+    """
+    import re as _re
+
+    return _re.sub(r"://([^:/@]+):([^@]+)@", r"://\1:****@", source)
 
 
 def _source_type(kind: str) -> S.SourceType:

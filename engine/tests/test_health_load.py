@@ -201,14 +201,18 @@ class TestUnmeasurableIsNotZero:
         cpu = bare_live_store.health().cpu_percent
         assert cpu is None or isinstance(cpu, float)
 
-    def test_gpu_share_is_absent_rather_than_invented(self, bare_live_store):
-        """Nothing in this engine measures per-process GPU share.
+    def test_gpu_load_is_a_reading_or_nothing(self, bare_live_store):
+        """Whole-device utilisation from the driver, or None. Never invented.
 
-        Until something does, the honest value is None. A plausible number
-        here would be read as measured, which is the specific lie Principle
-        III names.
+        This used to assert None outright, because nothing measured it. It
+        is measured now (NVML, since 3 Sep 2026) - and it had to be, because
+        the capacity projection once drew a GPU bar at 100% over a card the
+        driver had at 18%, with nothing on the page to contradict it. On a
+        machine with no NVIDIA driver the honest value is still None, and a
+        plausible number there would be the lie Principle III names.
         """
-        assert bare_live_store.health().gpu_percent is None
+        gpu = bare_live_store.health().gpu_percent
+        assert gpu is None or (isinstance(gpu, float) and 0.0 <= gpu <= 100.0)
 
     def test_there_is_no_per_worker_processor_field(self):
         """Deliberately absent, and asserted so nobody adds it back.
@@ -236,3 +240,103 @@ class TestSkippedFramesAreNotDrops:
         assert "dropped" in metrics
         assert "skipped" in metrics
         assert metrics["dropped"].label != metrics["skipped"].label
+
+
+# ---------------------------------------------------------------------------
+# a worker that cannot count itself
+# ---------------------------------------------------------------------------
+
+class TestCountersThatCannotBeRead:
+    """Rule 7, on the four stages that used to break it.
+
+    The workers stage always skipped a worker whose bookkeeping raised. The
+    four per-feature stages read `worker.stats` unguarded, so one broken
+    counter took the whole of System Health down with a 500 — the page an
+    operator opens to find out what is wrong, refusing to answer *because*
+    something was wrong. Found on 2 Sep 2026 while adding the capacity
+    projection, which had to read the same counters.
+    """
+
+    @staticmethod
+    def _stages(store):
+        return {s.key: s for s in store.health().pipeline}
+
+    def test_person_detection_says_so_instead_of_five_hundreding(
+            self, bare_live_store):
+        bare_live_store.people_worker = BrokenWorker()
+
+        stage = self._stages(bare_live_store)["detect"]
+        assert stage.healthy is False
+        assert "counters" in stage.detail.lower()
+
+    def test_the_rest_of_the_page_still_answers(self, bare_live_store):
+        """The point of the guard. One broken counter must cost one row,
+        never the page."""
+        bare_live_store.people_worker = BrokenWorker()
+
+        health = bare_live_store.health()
+        assert isinstance(health, S.SystemHealth)
+        assert len(health.pipeline) > 1
+
+
+# ---------------------------------------------------------------------------
+# off is not down
+# ---------------------------------------------------------------------------
+
+class TestOffIsNotDown:
+    """A camera an operator switched off is not a fault.
+
+    `registry.total` counts disabled cameras - rightly, for the setup list,
+    where a camera somebody turned off must not vanish. System Health used
+    the same number as "how many should be online", so two cameras disabled
+    on purpose read as "1 of 3 online", the ingest stage went amber, the
+    summary said two cameras were not being analysed, and the top bar
+    carried the same untruth onto every page. Found 3 Sep 2026.
+    """
+
+    @staticmethod
+    def _store(*configs):
+        from vg import config as vgconfig
+        from vg.api.live import LiveStore
+        from vg.ingest.registry import CameraRegistry
+
+        return LiveStore(config=vgconfig.load(),
+                         registry=CameraRegistry(list(configs)))
+
+    @staticmethod
+    def _camera(cid, enabled):
+        from vg.config import CameraConfig
+
+        return CameraConfig.parse(
+            {"id": cid, "name": cid, "source": "webcam:99", "enabled": enabled},
+            "c")
+
+    def test_a_disabled_camera_is_counted_as_off_not_offline(self):
+        store = self._store(self._camera("on", True), self._camera("off", False))
+        health = store.health()
+
+        assert health.cameras_total == 1
+        assert health.cameras_disabled == 1
+        # Not "1 of 2". The disabled one is neither online nor missing.
+        assert health.cameras_online <= health.cameras_total
+
+    def test_the_ingest_stage_says_switched_off_in_words(self):
+        store = self._store(self._camera("on", True), self._camera("off", False))
+        stage = _stage(store.health(), "ingest")
+
+        assert stage is not None
+        assert "switched off" in stage.detail
+        assert "of 1" in stage.detail
+
+    def test_a_disabled_source_is_not_a_recorder_that_is_down(self):
+        store = self._store(self._camera("off", False))
+        health = store.health()
+
+        assert health.recorders_total == 0
+        assert health.cameras_disabled == 1
+
+    def test_the_top_bar_agrees(self):
+        """`site()` feeds the chrome on every page. It has to count the same
+        way, or the top bar contradicts System Health."""
+        store = self._store(self._camera("on", True), self._camera("off", False))
+        assert store.site().cameras_total == 1

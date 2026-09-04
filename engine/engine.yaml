@@ -404,6 +404,19 @@ areas:
 # current, and only the analytics pipeline is sampled down. Raising this costs
 # GPU; it does not make the live view smoother, which is already at the
 # camera's native rate.
+#
+# It is PER CAMERA and it is a multiplier. What a camera costs every second is
+# its rate times what one frame costs the models it runs, so 5/sec on a
+# counting camera is five person passes a second and 2/sec is two. Turning
+# plain counting and zone cameras down to 2 or 3 is the cheapest room this
+# product has; leave 5 where a moment matters - following somebody, a weapon,
+# a moving plate. System Health shows the running total against the machine.
+#
+# Until 2 Sep 2026 this was not per camera in practice. Every worker was built
+# with `min(fps)` across its cameras, so one camera at 2 pulled every other
+# camera on that worker down to 2, and an edit from the console changed only
+# the decode rate until the engine was restarted. Both are fixed;
+# `FeatureWorker.set_rate` is where the rate now lives.
 # ---------------------------------------------------------------------------
 cameras:
   - id: cam-laptop
@@ -424,7 +437,20 @@ cameras:
     #   attendance  YuNet + SFace   ~44 ms   who arrived
     #   counting    YOLO person     ~23 ms   how many in frame  (GPU)
     #   intrusion   YOLO person     shared with counting, free once loaded
+    #   track       ByteTrack       ~2 ms    follow one person across cameras
+    #   vehicles    2 plate models  ~6 ms    read plates; needs gate+direction
+    #   weapons     YOLO knife      only on frames with a person in them
+    #   lostitems   YOLO bag        only while somebody is watching the tile
     # `[attendance]` alone runs 2 models and no GPU at all.
+    #
+    # These seven names are the whole vocabulary (`FEATURES` in vg/config.py)
+    # and an unknown one is refused at startup rather than silently ignored -
+    # `weapon` instead of `weapons` used to mean no knife detection on that
+    # camera, for ever, with nothing anywhere to say why.
+    #
+    # The list is now what actually decides. Until 1 Sep 2026 `weapons`,
+    # `intrusion` and `lostitems` ignored it and ran on every enabled camera,
+    # so ticking them changed nothing.
     #
     # `track` follows one person across cameras. On the webcam only for
     # now: it costs ~2 ms of CPU per frame on top of the person detector it
@@ -478,7 +504,16 @@ cameras:
     source: ${VG_RTSP_1:rtsp://127.0.0.1:8554/unset}
     kind: RTSP
     area: Development
-    fps: 5
+    # 2, not 5, and this camera is the worked example of why. It counts and
+    # watches a zone, and neither question needs the moment - a person does
+    # not cross a room between two frames a second apart. The other two
+    # cameras stay at 5 because they carry `track` (and `vehicles`), where a
+    # moment IS the answer: a body has to be followed between frames and a
+    # plate is only readable while the car is in front of the camera.
+    #
+    # The saving is exactly the ratio: 2/5 of the person pass on this camera,
+    # for no loss of accuracy at either job.
+    fps: 2
     enabled: false             # flip to true once VG_RTSP_1 is set in .env
     features: [intrusion, counting]
 

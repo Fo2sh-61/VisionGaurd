@@ -353,13 +353,63 @@ textarea {
 
 /* ---------- rows ---------- */
 
+/* A console table row, read in a hand.
+ *
+ *  The console renders `.row` as a grid and sets its columns inline, at 28
+ *  call sites: `style={{ gridTemplateColumns: '1.5fr .7fr 1.4fr 1.5fr .9fr .9fr' }}`.
+ *  Six columns across 375px is about 50px each — a column of broken words.
+ *
+ *  An inline style cannot be overridden by a stylesheet on specificity, so the
+ *  usual answer would be `grid-template-columns: 1fr !important` at every
+ *  breakpoint. This does something quieter instead: it is not a grid at all.
+ *  `display: flex` makes `grid-template-columns` a property nothing reads, so
+ *  the inline value goes inert on its own and **no page is edited**.
+ *
+ *  What the reader gets: the first cell as the headline on its own line, and
+ *  the remaining cells flowing underneath as one muted line separated by `·`,
+ *  wrapping when there are many. Nothing is dropped — every column the console
+ *  shows is still on screen, in the same order, just folded. Pages that carry
+ *  more detail than folds well open it on tap.
+ *
+ *  `min-width: 0` on the children because a flex item defaults to its content
+ *  width and a long plate or camera name would otherwise push the row wider
+ *  than the screen — which is precisely the sideways scroll this avoids. */
 .row {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 7px;
   padding: 12px 0;
   border-bottom: 1px solid var(--line);
   min-height: 44px;
+}
+
+.row > * {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* The headline: first cell, own line. */
+.row > *:first-child {
+  flex: 0 0 100%;
+  font-weight: 600;
+  font-size: 14.5px;
+  margin-bottom: 2px;
+}
+
+/* Everything after it: one muted line, in the console's order. */
+.row > *:not(:first-child) {
+  font-size: 12.5px;
+  color: var(--tx3);
+  line-height: 1.4;
+}
+
+/* `·` between the folded cells — before each one except the first of them, so
+   the line reads "Gate 3 · 07:42 · 96%" rather than opening with a stray dot. */
+.row > *:not(:first-child):not(:nth-child(2))::before {
+  content: '·';
+  margin-inline-end: 7px;
+  color: var(--line);
 }
 
 .row:last-child {
@@ -369,11 +419,10 @@ textarea {
 .row--pressable {
   cursor: pointer;
   background: none;
-  border-left: none;
-  border-right: none;
+  border-inline: none;
   border-top: none;
   width: 100%;
-  text-align: left;
+  text-align: start;
   font: inherit;
   color: inherit;
 }
@@ -434,9 +483,24 @@ textarea {
 
 /* ---------- camera frames (shared visual language with web) ---------- */
 
+/* One camera across a phone, two across anything wider.
+ *
+ *  The console fits four or five tiles abreast and that is the right answer at
+ *  a desk, where the job is scanning many cameras at once. In a hand it is the
+ *  opposite: a 178px tile is too small to tell a person from a shadow, and the
+ *  reason to open a camera on a phone is to *look* at it.
+ *
+ *  240px rather than a hard `1fr`, so a tablet or a phone turned sideways
+ *  still gets two — the layout follows the space it has instead of assuming
+ *  the smallest screen.
+ *
+ *  `CamGrid.tsx` itself is a byte copy of the console's, `tileRefreshMs`
+ *  included. Fewer tiles on screen must not make the phone ask the engine for
+ *  more than the desk does, and the way to guarantee that is to not touch the
+ *  code that decides it. */
 .camgrid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 10px;
   margin-top: 12px;
 }
@@ -448,10 +512,23 @@ textarea {
   cursor: pointer;
   border: 1px solid var(--line);
   padding: 0;
-  text-align: left;
+  text-align: start;
   display: block;
   width: 100%;
 }
+
+/* Everything from here to the end of the camera-frame rules uses `left` and
+   `right` on purpose, and must keep doing so.
+ *
+ * The layout around a camera flips for Arabic. **The picture inside it never
+ * does.** A mirrored frame would put a person on the wrong side of a doorway
+ * and a plate's characters in the wrong order — a guard comparing what is on
+ * screen with what is in front of them would be comparing a lie.
+ *
+ * The overlay boxes are positioned from fractions computed in
+ * `services/frame.ts`, which is a byte copy of the console's and knows nothing
+ * about reading direction. Logical properties here would silently mirror every
+ * detection box the moment somebody switched language. */
 
 .camcard__meta {
   padding: 8px 10px;
@@ -646,4 +723,281 @@ textarea {
   font-weight: 600;
   font-size: 13.5px;
   cursor: pointer;
+}
+
+/* ==========================================================================
+   Classes the console's screens bring with them
+   ==========================================================================
+
+   Every page under `pages/` is a byte copy of the console's. They render the
+   same class names, so those names have to exist here — phone-shaped, but
+   present. A missing one is not a compile error; it is a screen that renders
+   with no styling at all and looks broken rather than different.
+
+   `tools/check_parity.py` does not police this file: presentation is the one
+   thing the phone is allowed to do its own way. What it may not do is drop a
+   fact the console shows.
+
+   Written with logical properties throughout — `padding-inline-start`, never
+   `padding-left`. `LanguageContext` flips `documentElement.dir` for Arabic,
+   and logical properties mean that is the whole change instead of a mirrored
+   second stylesheet that drifts.
+   ========================================================================== */
+
+/* ---------- page headings (from PageHeader / CardHeader) ---------- */
+
+/* Smaller than the console's 26px: a phone headline competes with a tab bar
+   and a status bar for a much shorter screen. */
+.page__title {
+  font-weight: 700;
+  font-size: 22px;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+.page__lead {
+  font-size: 14px;
+  color: var(--tx2);
+  margin: 4px 0 18px;
+  line-height: 1.45;
+}
+
+.card__title {
+  font-weight: 700;
+  font-size: 17px;
+  letter-spacing: -0.01em;
+}
+
+.card__sub {
+  font-size: 13px;
+  color: var(--tx2);
+  margin: 2px 0 14px;
+  line-height: 1.45;
+}
+
+/* ---------- headline figures ---------- */
+
+/* The console sets `gridTemplateColumns` inline here too, but `ui.tsx` caps
+   the count at two before it does, so this grid is honoured rather than
+   sidestepped. Two across at 375px is about 165px each — enough for "1,679". */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(var(--cols, 2), 1fr);
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+/* ---------- the last resort: inline grids that are not `.row` ---------- */
+
+/* Twelve places in the copied screens set `display: 'grid'` **inline**,
+ * alongside their columns — the camera channel list at `'64px 1fr 1fr 44px'`,
+ * the vehicle register header, the enrolment photo strip. The `.row` rule
+ * above cannot reach those: an inline `display` beats a stylesheet, so they
+ * would stay grids and push a 375px screen sideways.
+ *
+ * Matching on the style attribute is blunt, and `!important` is a thing to
+ * justify rather than reach for. The justification is that the alternative is
+ * editing twelve copied page bodies — and a page body edited here is a page
+ * body that has silently stopped being the console's. The whole design rests
+ * on those files staying byte-identical, so the fold happens in CSS or it
+ * happens by breaking the thing that makes this app trustworthy.
+ *
+ * `Stats` is the one grid that must survive, and it does: it passes its column
+ * count through `--cols` rather than `grid-template-columns`, so it does not
+ * match this selector. Camera overlays position with `left`/`top` and never
+ * with grid, so they are untouched.
+ *
+ * Scoped to `.app__content` so it can only ever affect a screen, never the
+ * tab bar or a modal's chrome. */
+.app__content [style*='grid-template-columns'] {
+  display: flex !important;
+  flex-wrap: wrap;
+  align-items: baseline;
+}
+
+.app__content [style*='grid-template-columns'] > * {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* A control with a fixed minimum width cannot be talked out of it by anything
+ * except this. Eleven inputs in the copied screens ask for 200-340px — an RTSP
+ * URL box, a camera search, a plate field — inside a card that has about 270px
+ * to give. `min-width: 0` lets them shrink; `max-width: 100%` stops them
+ * reaching past the card either way.
+ *
+ * Nothing is hidden by this. A narrower input scrolls its own text, which is
+ * how every text field on every phone already behaves. */
+.app__content input,
+.app__content select,
+.app__content textarea {
+  min-width: 0 !important;
+  max-width: 100%;
+}
+
+/* ---------- row variants ---------- */
+
+/* Column headings over stacked rows describe an arrangement that is no longer
+   on screen. The console needs them; the phone must not show them. */
+.row--head {
+  display: none;
+}
+
+.row--click {
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+
+.row--click:active {
+  background: var(--hover);
+}
+
+.row__muted {
+  color: var(--tx2);
+}
+
+/* ---------- full-width list button ---------- */
+
+.list-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 13px 0;
+  min-height: 48px;          /* a thumb, not a mouse */
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+  background: none;
+  border-inline: none;
+  border-top: none;
+  width: 100%;
+  text-align: start;
+  font: inherit;
+  color: inherit;
+}
+
+.list-row:active {
+  background: var(--hover);
+}
+
+/* ---------- small markers ---------- */
+
+.dotline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.glyph {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  color: var(--card);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9.5px;
+  font-weight: 800;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+/* ---------- layout grids ---------- */
+
+/* All of them are one column. The console's `.grid-4` is four cards abreast;
+   on a phone that is four unreadable slivers, and stacking them costs only
+   scroll — which a phone has and a desk does not. */
+.grid-2,
+.grid-3,
+.grid-4,
+.plan {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+/* ---------- filter bars ---------- */
+
+/* The console lays pickers out in a row. On a phone each one takes the full
+   width: a half-width `<select>` truncates the option text, and the option
+   text is how somebody knows what they are about to ask for. */
+.filters {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: stretch;
+}
+
+.filters .field {
+  width: 100%;
+}
+
+/* ---------- inline editing ---------- */
+
+/* Console: `1fr 1.9fr 0.5fr` on one line. Phone: label, then the input, then
+   the action — stacked, because a 0.5fr action column is not a tap target. */
+.edit-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+}
+
+.edit-input {
+  height: 42px;
+  border: 1.5px solid var(--ac);
+  border-radius: 9px;
+  padding-inline: 10px;
+  font-size: 16px;           /* 16px or iOS Safari zooms the page on focus */
+  font-family: inherit;
+  background: var(--card);
+  color: var(--tx);
+  outline: none;
+  width: 100%;
+}
+
+/* ---------- misc ---------- */
+
+.linkbtn--quiet {
+  color: var(--tx3);
+  font-weight: 400;
+  font-size: 13px;
+}
+
+/* An arrow or chevron that means "forward" has to point the other way in
+   Arabic, while the text beside it must not be flipped. */
+.mirror-rtl {
+  display: inline-block;
+}
+
+[dir='rtl'] .mirror-rtl {
+  transform: scaleX(-1);
+}
+
+/* The absolutely-positioned layer inside a camera tile that overlay boxes are
+   drawn onto. Its geometry comes from `services/frame.ts`, which is copied, so
+   this must stay a plain positioned box and nothing more. */
+.camframe__stage {
+  position: absolute;
+}
+
+/* A badge that leads with a character in a filled circle. Without this it
+   renders as `inline-block` and the glyph sits on the text's baseline instead
+   of centred beside it. */
+.badge--dot {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* `Card tight` on the console means *more* padding, not less — it is the
+   variant used where a card stands alone rather than in a stack. Kept
+   proportional to the phone's 16px base. */
+.card--tight {
+  padding: 20px;
 }

@@ -403,17 +403,92 @@ export interface Capability {
   reason?: string | null;
 }
 
+/** What one running worker asks of the machine, every second.
+ *
+ *  `framesPerSecond` x `msPerFrame`. Both halves are honest on their own —
+ *  the rate is the one the loop actually uses, the cost is what a frame last
+ *  took on this machine — but the product is a projection, not a reading.
+ *
+ *  `measured` is why this exists rather than a table of constants. True means
+ *  the cost was timed here, on this hardware. False means it is carried in
+ *  from an earlier run because this worker has not analysed a frame yet. */
+export interface CapacityRow {
+  name: string;
+  /** 'gpu' or 'cpu'. Absent when the worker did not say which — it is then
+   *  left out of both totals rather than guessed into one. */
+  pool?: string | null;
+  /** What the model actually reported: 'cuda:0', 'cpu'. */
+  device?: string | null;
+  cameras: number;
+  /** The SUM of this worker's cameras' own rates. Absent for a worker whose
+   *  rate nothing fixes — see `onDemand`. */
+  framesPerSecond?: number | null;
+  msPerFrame: number;
+  measured: boolean;
+  msPerSecond?: number | null;
+  /** Runs only while somebody is looking at the tile. Contributes nothing to
+   *  the totals because its cost is not fixed by any setting. */
+  onDemand?: boolean;
+  /** The one person detection that counting, intrusion, track and knife
+   *  detection all read. Costed once, here; every reader's own row has it
+   *  subtracted. */
+  shared?: boolean;
+  /** MEASURED: what this worker really spent per second over the window,
+   *  and the frames it got through. `msPerSecond` is the projection. */
+  busyMsPerSecond?: number;
+  analysedPerSecond?: number;
+}
+
+/** How full this machine is, as arithmetic over what is configured.
+ *
+ *  Two budgets, never one number: face recognition is OpenCV with no CUDA
+ *  path, so it does not compete with the person detector for the same
+ *  milliseconds, and adding the two would produce a percentage of nothing.
+ *
+ *  A projection of what the configuration ASKS FOR — not a reading of what
+ *  the machine is doing. `gpuPercent` beside it is the measurement, and
+ *  `WorkerLoad.behind` is what says the engine has actually fallen behind. */
+export interface Capacity {
+  gpuMsPerSecond: number;
+  gpuBudgetMs: number;
+  cpuMsPerSecond: number;
+  cpuBudgetMs: number;
+  cores: number;
+  unplacedMsPerSecond?: number;
+  allMeasured?: boolean;
+  /** MEASURED totals per pool over the last `windowSeconds`. */
+  gpuBusyMsPerSecond?: number;
+  cpuBusyMsPerSecond?: number;
+  unplacedBusyMsPerSecond?: number;
+  windowSeconds?: number;
+  rows: CapacityRow[];
+}
+
 export interface SystemHealth {
   camerasOnline: number;
+  /** Cameras that are switched on. A disabled camera is neither here nor
+   *  offline — it is off, on purpose, and counted in `camerasDisabled`. */
   camerasTotal: number;
+  camerasDisabled?: number;
   recordersOnline: number;
   recordersTotal: number;
   severity: Severity;
+  /** Whole-device graphics-card utilisation from the driver. A measurement —
+   *  the capacity projection's GPU bar is checked against it. null when
+   *  there is no NVIDIA driver to ask; never 0. */
   gpuPercent?: number | null;
+  gpuMemoryUsedMb?: number | null;
+  gpuMemoryTotalMb?: number | null;
+  /** This process, as a sum over cores — can exceed 100. */
   cpuPercent?: number | null;
+  /** The whole machine, 0–100, every program. What the CPU bar draws. */
+  cpuMachinePercent?: number | null;
   storagePercent?: number | null;
   uptimeSeconds?: number | null;
   metrics: Metric[];
+  /** Absent rather than empty when nothing is running — "no workers" and
+   *  "workers costing nothing" are different answers. */
+  capacity?: Capacity | null;
   recorders: Recorder[];
   pipeline: PipelineStage[];
   cameras: CameraView[];
@@ -428,6 +503,41 @@ export interface CameraSource {
   status: SourceStatus;
   area?: string | null;
   lastError?: string | null;
+  features: string[];
+  faces: boolean;
+  enabled: boolean;
+  gate?: number | null;
+  direction?: string | null;
+  fps: number;
+  rotate: number;
+  fromConfig: boolean;
+}
+
+export interface FeatureNote {
+  feature: string;
+  running: boolean;
+  reason?: string | null;
+}
+
+export interface AddCameraOutcome {
+  index: number;
+  ok: boolean;
+  id?: string | null;
+  source: string;
+  error?: string | null;
+}
+
+export interface EditCameraResult {
+  camera: CameraSource;
+  shadowsConfig: boolean;
+  restarted: boolean;
+  featureNotes: FeatureNote[];
+}
+
+export interface ScanResult {
+  available: boolean;
+  reason?: string | null;
+  devices: FoundDevice[];
 }
 
 export interface FoundDevice {
@@ -444,10 +554,18 @@ export interface DvrChannel {
   name: string;
   enabled: boolean;
   resolution?: string | null;
+  source: string;
+  checked: boolean;
+  status: SourceStatus;
+  latencyMs?: number | null;
+  error?: string | null;
 }
 
 export interface DvrConnectResult {
-  sourceId: string;
+  reachable: boolean;
+  reason?: string | null;
+  checked: number;
+  sourceId?: string | null;
   channels: DvrChannel[];
   status: SourceStatus;
 }

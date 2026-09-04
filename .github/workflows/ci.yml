@@ -1,6 +1,6 @@
-# The four gates from AGENTS.md, run on every push.
+# The gates from AGENTS.md, run on every push.
 #
-# These are the same four a developer runs locally with `.\dev.ps1 test`. If
+# These are the same ones a developer runs locally with `.\dev.ps1 test`. If
 # you change one here, change it there — a CI that checks something different
 # from the local command is a CI people learn to ignore.
 #
@@ -12,8 +12,15 @@
 #   smoke      boot the real process with VG_STRICT=1 and ask it one question.
 #              Catches what unit tests structurally cannot: a startup that
 #              fails after the app object is built.
-#   tsc        `-b --force`, never `--noEmit`. web/ uses project references,
-#              against which `--noEmit` checks nothing and exits 0.
+#   tsc        `-b --force`, never `--noEmit`. Both front ends use project
+#              references, against which `--noEmit` checks nothing and exits 0.
+#              Two jobs now: web/ and mobile/. The phone had no CI at all until
+#              3 Sep 2026, because it was made of fixtures and could not break.
+#   parity     web/ and mobile/ are two apps sharing one copy of everything
+#              that decides what is true. This compares those files as bytes.
+#              They had already drifted once, under a comment promising they
+#              had not.
+#   fixtures   nothing on the phone may be an invented number.
 #
 # Runs on windows-latest because that is the deployment target. Path handling,
 # process shutdown and the tzdata gap are all Windows-specific here, and a
@@ -89,6 +96,20 @@ jobs:
         if: '!cancelled()'
         run: python engine/tools/smoke.py
 
+      - name: parity (web and mobile hold one copy of the truth)
+        # In this job rather than a front-end one because it is pure Python and
+        # needs no npm install. It compares the files both apps share, as
+        # bytes. The palette file had already drifted while carrying a comment
+        # promising it could not have - a comment is not a gate.
+        if: '!cancelled()'
+        run: python tools/check_parity.py
+
+      - name: no fixtures on the phone
+        # `tsc` catches a stale import of a deleted fixture module. This
+        # catches invented numbers written fresh, which it cannot.
+        if: '!cancelled()'
+        run: python tools/check_parity.py --no-fixtures
+
   web:
     name: web (tsc)
     runs-on: windows-latest
@@ -120,4 +141,32 @@ jobs:
         # Through node rather than npx, matching dev.ps1: npx has failed to
         # resolve the local binary on Windows, and a gate that fails for its
         # own reasons is worse than no gate.
+        run: node node_modules/typescript/bin/tsc -b --force
+
+  mobile:
+    name: mobile (tsc)
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    # The phone app had no CI job at all until 3 Sep 2026. It was a prototype
+    # built from fixtures, so nothing in it could break anything - and then it
+    # stopped being a prototype. Every page in it is now a copy of a console
+    # page, which is exactly the arrangement a type check is good at policing:
+    # a component that changes shape in web/ shows up here.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install
+        working-directory: mobile
+        run: npm ci
+
+      - name: tsc -b --force
+        working-directory: mobile
+        # Same reasoning as web/ above: `-b --force`, through node, never npx.
         run: node node_modules/typescript/bin/tsc -b --force

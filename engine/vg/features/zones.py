@@ -114,6 +114,10 @@ class ZonesWorker(FeatureWorker[ZonesResult]):
         # workers land on one frame the model runs once. P1-01 exists to stop
         # a second pass and this is where it would otherwise appear.
         self.detector = detector
+        # The processor: once the shared pass is subtracted, what is left of
+        # this worker is scene bookkeeping. Charging that to the detector's
+        # device would put Python on the graphics-card budget.
+        self.device = "cpu"
         self.scenes = scenes
         # Absent means scenes are still logged, with an honest reason for the
         # missing clip rather than a button that does nothing.
@@ -219,6 +223,16 @@ class ZonesWorker(FeatureWorker[ZonesResult]):
         if state.recording:
             self._stop_recording(camera_id, state.scene_id)
         log.info("scene %s closed on %s (%s)", state.scene_id[:8], camera_id, reason)
+
+    def _closing(self, camera_id: str) -> None:
+        """This camera is leaving the worker. Close its scene, on its thread.
+
+        Runs on the camera's own thread from `FeatureWorker._run`, which is
+        the entire reason `unwatch` does not do this itself - see the note on
+        `set_restricted` above, and the recording it once destroyed.
+        """
+        self._close(camera_id, datetime.now(timezone.utc), "switched_off")
+        super()._closing(camera_id)
 
     def close_all(self, reason: str = "shutdown") -> None:
         """Close every running scene. Call only when no worker thread is live.

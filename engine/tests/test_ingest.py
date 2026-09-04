@@ -327,3 +327,124 @@ class TestLiveCapture:
             assert received.width > 0
         finally:
             registry.stop()
+
+
+# ---------------------------------------------------------------------------
+# the runtime camera roster
+# ---------------------------------------------------------------------------
+
+class TestCameraStoreColumns:
+    """Every field a camera has must survive being stored.
+
+    `CameraConfig` has carried `faces`, `gate`, `direction`, `face_gate`,
+    `live_capture` and `neighbours` since the features that need them shipped,
+    and `CameraStore` persisted none of them. So a camera added from the
+    console could never be an identity camera or a gate camera, however it was
+    configured - the fields were accepted, dropped on the way to SQLite, and
+    silently defaulted on the way back.
+    """
+
+    def store(self, tmp_path):
+        from vg.ingest.store import CameraStore
+
+        return CameraStore(tmp_path / "roster.db")
+
+    def test_the_identity_tier_survives_a_round_trip(self, tmp_path):
+        store = self.store(tmp_path)
+        try:
+            store.add(camera_id="cam-door", name="Door", source="webcam:0",
+                      features=("attendance",), faces=True)
+
+            assert store.all()[0].faces is True
+        finally:
+            store.close()
+
+    def test_a_gate_camera_survives_a_round_trip(self, tmp_path):
+        store = self.store(tmp_path)
+        try:
+            store.add(camera_id="cam-gate", name="Gate", source="webcam:0",
+                      features=("vehicles",), gate=2, direction="exit")
+
+            stored = store.all()[0]
+            assert (stored.gate, stored.direction) == (2, "exit")
+            # The property the vehicle worker actually selects on.
+            assert stored.is_gate
+        finally:
+            store.close()
+
+    def test_the_remaining_three_survive_a_round_trip(self, tmp_path):
+        store = self.store(tmp_path)
+        try:
+            store.add(camera_id="cam-hall", name="Hall", source="webcam:0",
+                      features=("counting",), face_gate="person",
+                      live_capture="always", neighbours=("cam-door", "cam-gate"))
+
+            stored = store.all()[0]
+            assert stored.face_gate == "person"
+            assert stored.live_capture == "always"
+            assert stored.neighbours == ("cam-door", "cam-gate")
+        finally:
+            store.close()
+
+    def test_the_defaults_are_the_dataclass_defaults(self, tmp_path):
+        """A camera added without them reads exactly as one from engine.yaml."""
+        store = self.store(tmp_path)
+        try:
+            store.add(camera_id="cam-plain", name="Plain", source="webcam:0")
+
+            stored = store.all()[0]
+            assert stored.faces is False
+            assert stored.gate is None and stored.direction is None
+            assert stored.face_gate == ""
+            assert stored.live_capture == "watched"
+            assert stored.neighbours == ()
+        finally:
+            store.close()
+
+    def test_opening_an_existing_database_twice_is_a_no_op(self, tmp_path):
+        """The migration runs on every open, so it has to be idempotent."""
+        first = self.store(tmp_path)
+        try:
+            first.add(camera_id="cam-a", name="A", source="webcam:0", faces=True)
+        finally:
+            first.close()
+
+        second = self.store(tmp_path)
+        try:
+            assert second.all()[0].faces is True
+        finally:
+            second.close()
+
+    def test_a_database_written_before_the_columns_existed_still_opens(self, tmp_path):
+        """The real migration case: an engine upgraded in place.
+
+        Built with the OLD eleven-column table, then opened by the current
+        code. If the migration is wrong this raises rather than defaulting.
+        """
+        import sqlite3
+
+        from vg.ingest.store import CameraStore
+
+        path = tmp_path / "old.db"
+        old = sqlite3.connect(path)
+        old.executescript(
+            "CREATE TABLE camera ("
+            " id TEXT PRIMARY KEY, name TEXT NOT NULL, source TEXT NOT NULL,"
+            " kind TEXT NOT NULL DEFAULT 'RTSP', area TEXT NOT NULL DEFAULT 'Unassigned',"
+            " fps REAL NOT NULL DEFAULT 5.0, rotate INTEGER NOT NULL DEFAULT 0,"
+            " features TEXT NOT NULL DEFAULT '', enabled INTEGER NOT NULL DEFAULT 1,"
+            " removed_at TEXT, created_at TEXT NOT NULL);"
+            "INSERT INTO camera (id, name, source, features, created_at)"
+            " VALUES ('cam-old', 'Old', 'webcam:0', 'counting', '2026-01-01T00:00:00+00:00');"
+        )
+        old.commit()
+        old.close()
+
+        store = CameraStore(path)
+        try:
+            stored = store.all()
+            assert [c.id for c in stored] == ["cam-old"]
+            assert stored[0].faces is False
+            assert stored[0].live_capture == "watched"
+        finally:
+            store.close()

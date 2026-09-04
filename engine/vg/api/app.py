@@ -335,6 +335,20 @@ async def lifespan(app: FastAPI):
             "%d camera(s): %d from engine.yaml, %d added since",
             len(roster), len(cfg.cameras), len(cameras.all()),
         )
+        # What each feature will actually watch, named at startup.
+        #
+        # `weapons`, `intrusion` and `lostitems` used to run on every enabled
+        # camera regardless of the feature list. Now they follow it, which is
+        # a real change in coverage on an upgraded site - so it is printed
+        # rather than left to be discovered. Zero is a legitimate answer and
+        # says so; it is never silence.
+        for feature, chosen in (
+            ("knife detection", _weapons_cameras(roster)),
+            ("restricted areas", _zone_cameras(roster)),
+            ("lost items", _lost_cameras(roster)),
+        ):
+            log.info("%s: %d camera(s)%s", feature, len(chosen),
+                     f" - {', '.join(chosen)}" if chosen else " - none configured")
 
         registry = CameraRegistry(roster)
         registry.start()
@@ -550,6 +564,31 @@ async def lifespan(app: FastAPI):
 # Features that need to know where bodies are. Face recognition is
 # deliberately absent: it identifies people, it does not locate or count them.
 BODY_FEATURES = {"counting", "intrusion", "track"}
+
+
+# Which cameras each feature runs on.
+#
+# Named functions rather than three copies of a comprehension, because for
+# three of the seven features this was the bug: `weapons`, `intrusion` and
+# `lostitems` ignored the camera's feature list entirely and ran on every
+# enabled camera, so ticking or unticking them in the console changed
+# nothing. A named selector is also what `LiveStore._apply_features` has to
+# agree with at runtime, and what a test can call directly.
+
+def _feature_cameras(roster, feature: str) -> list[str]:
+    return [c.id for c in roster if c.enabled and feature in c.features]
+
+
+def _weapons_cameras(roster) -> list[str]:
+    return _feature_cameras(roster, "weapons")
+
+
+def _zone_cameras(roster) -> list[str]:
+    return _feature_cameras(roster, "intrusion")
+
+
+def _lost_cameras(roster) -> list[str]:
+    return _feature_cameras(roster, "lostitems")
 
 
 def _start_people(cfg, registry, roster):
@@ -1043,12 +1082,19 @@ def _start_tracking(cfg, registry, roster, detector, recorder=None):
 def _start_zones(cfg, registry, roster, detector, cameras_store):
     """Restricted zones: log and record anyone on a camera marked restricted.
 
-    Serves **every enabled camera**, not only the ones with `intrusion` in
-    their features. The console's toggle is the switch now, and a toggle that
-    silently did nothing on a camera somebody forgot to list in engine.yaml
-    would be a dead control on a safety feature — which is worse than the cost
-    of an idle thread. A camera nobody restricted returns from `analyse` before
-    the detector is touched, so watching all of them is genuinely free.
+    Serves the cameras with `intrusion` in their features.
+
+    It used to serve **every** enabled camera, and the reasoning was that the
+    console's restricted toggle was the real switch, so a camera missing
+    `intrusion` from engine.yaml would have had a dead toggle on a safety
+    feature. That was a fair worry and the wrong fix: it made the feature list
+    decorative here, which is its own kind of dead control - ticking or
+    unticking `intrusion` changed nothing at all.
+
+    Both halves are now honest. The feature list decides which cameras this
+    worker watches, `LiveStore._apply_features` keeps that true at runtime
+    without a restart, and a camera whose toggle cannot work says so rather
+    than appearing to work.
 
     Takes the person detector `_start_people` already built. Never a second
     one: `SharedDetection` caches per frame, so counting and zones landing on
@@ -1056,10 +1102,12 @@ def _start_zones(cfg, registry, roster, detector, cameras_store):
 
     Returns `(worker, scenes, error)`.
     """
-    watched = [c.id for c in roster if c.enabled]
+    watched = _zone_cameras(roster)
     if not watched:
-        log.info("no enabled camera; restricted zones are off")
-        return None, None, None
+        log.info("no camera has 'intrusion'; restricted areas are not watched")
+        return None, None, (
+            "No camera is set to watch a restricted area, so nothing is being "
+            "checked. Add 'intrusion' to a camera to start.")
 
     if detector is None:
         # The exact sentence the page shows. Not "unavailable" on its own: an
@@ -1122,13 +1170,21 @@ def _start_zones(cfg, registry, roster, detector, cameras_store):
 def _start_weapons(cfg, registry, roster, detector):
     """Knife detection: look for a knife on the people in view, on every camera.
 
-    Serves **every enabled camera**, not the ones with `weapons` in their
-    features. There is no per-camera switch on purpose: a flag would read as
-    "knife detection is on here and off there", and a school that thinks a
-    corridor is being checked when it is not is worse off than one that knows
-    it is not. A camera with nobody in view never reaches the knife model, so
-    watching all of them costs one person pass — which counting and zones have
-    usually already paid for.
+    Serves the cameras with `weapons` in their features.
+
+    It used to serve **every** enabled camera, on the argument that a school
+    which thinks a corridor is checked when it is not is worse off than one
+    that knows it is not. That danger is real and is the reason this change
+    ships loudly rather than quietly: when no camera carries `weapons`, this
+    returns a sentence saying so, System Health shows it, and the startup log
+    names the count. Nobody has to infer coverage from silence.
+
+    What the old behaviour cost was worse than an idle thread. Unlike zones -
+    which return from `analyse` before touching the detector - this worker
+    runs the shared person pass on **every frame it processes**, and the knife
+    model wherever a person is found. At 208 cameras that is the largest
+    unasked-for cost in the engine, and it also meant a camera nobody chose
+    raised knife entries that a human then had to review.
 
     Takes the person detector `_start_people` already built. Never a second
     one: `SharedDetection` caches per frame, so counting, zones and knives
@@ -1139,10 +1195,12 @@ def _start_weapons(cfg, registry, roster, detector):
     machine must not take the whole engine down, and it must not be silent
     either (rule 8).
     """
-    watched = [c.id for c in roster if c.enabled]
+    watched = _weapons_cameras(roster)
     if not watched:
-        log.info("no enabled camera; knife detection is off")
-        return None, None, "No camera is running, so nothing is being checked for knives."
+        log.info("no camera has 'weapons'; knives are not being checked")
+        return None, None, (
+            "No camera is set to check for knives, so nothing is being "
+            "checked. Add 'weapons' to a camera to start.")
 
     if detector is None:
         # The exact sentence the page shows. Knives are looked for *on people*,
@@ -1418,9 +1476,12 @@ def _start_lost(cfg, registry, roster):
     page rather than an exception - a missing weights file on a fresh machine
     must not take the engine down, and it must not be silent either (rule 8).
     """
-    if not [c.id for c in roster if c.enabled]:
-        log.info("no enabled camera; bag detection has nothing to look at")
-        return None, "No camera is running, so there is nothing to check."
+    watched = _lost_cameras(roster)
+    if not watched:
+        log.info("no camera has 'lostitems'; bag search has nothing to look at")
+        return None, (
+            "No camera is set up for lost items, so there is nothing to "
+            "search. Add 'lostitems' to a camera to start.")
 
     try:
         from vg.features.lostbag import BagWatch
@@ -1438,7 +1499,8 @@ def _start_lost(cfg, registry, roster):
             iou=spec.iou,
             half=spec.half,
         )
-        watch = BagWatch(registry, detector, clock_for(cfg.timezone))
+        watch = BagWatch(registry, detector, clock_for(cfg.timezone),
+                         cameras=set(watched))
         # Started, but it does nothing until a tile asks for a bag
         # overlay - the loop sleeps while no camera is being looked at.
         watch.start()
@@ -2385,34 +2447,83 @@ def _mount(app: FastAPI) -> None:
         return store.sources()
 
     @app.post("/sources", response_model=S.CameraSource, tags=["system"], status_code=201)
-    async def add_source(req: S.AddCameraRequest, store: StoreDep) -> S.CameraSource:
+    async def add_source(
+        req: S.AddCameraRequest, store: StoreDep, user: auth_deps.AdminUser,
+    ) -> S.CameraSource:
         """Add a camera and start watching it immediately.
 
         Persisted to the database, not written back into engine.yaml —
         rewriting a config file from a web request destroys its comments and
         turns a typo into a failed restart. The camera appears on every page
         at once because every page reads the same registry.
+
+        Administrator-only, enforced by path in `auth/deps.py` whatever this
+        console believes, and audited before the camera exists.
         """
         add = getattr(store, "add_camera", None)
         if not callable(add):
             raise HTTPException(503, "camera management needs the live engine")
         try:
-            return add(req)
+            return add(req, user.name)
         except ValueError as exc:
             # A bad source string is the operator's typo, not a server fault.
             raise HTTPException(422, str(exc)) from exc
 
+    @app.post("/sources/bulk", response_model=list[S.AddCameraOutcome], tags=["system"])
+    async def add_sources(
+        req: S.BulkAddRequest, store: StoreDep, user: auth_deps.AdminUser,
+    ) -> list[S.AddCameraOutcome]:
+        """Add several cameras at once, and say what happened to each.
+
+        A recorder with sixteen working channels is sixteen adds, and the
+        fourth failing says nothing about the other twelve. So this is always
+        200 with one outcome per camera: a refused camera is payload, not a
+        request failure, and the rest are still added.
+        """
+        bulk = getattr(store, "bulk_add", None)
+        if not callable(bulk):
+            raise HTTPException(503, "camera management needs the live engine")
+        return bulk(req, user.name)
+
+    @app.patch("/sources/{source_id}", response_model=S.EditCameraResult, tags=["system"])
+    async def edit_source(
+        source_id: str, req: S.EditCameraRequest, store: StoreDep,
+        user: auth_deps.AdminUser,
+    ) -> S.EditCameraResult:
+        """Correct a camera without deleting it.
+
+        Its id does not change, so everything recorded against it stays
+        attached — which is the whole reason this exists rather than asking an
+        operator to remove and re-add.
+        """
+        edit = getattr(store, "edit_camera", None)
+        if not callable(edit):
+            raise HTTPException(503, "camera management needs the live engine")
+        try:
+            result = edit(source_id, req, user.name)
+        except SubsystemUnavailable as exc:
+            # Nothing to edit in is not the same answer as no such camera.
+            raise HTTPException(503, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        if result is None:
+            raise HTTPException(404, f"no camera {source_id!r}")
+        return result
+
     @app.delete("/sources/{source_id}", tags=["system"], status_code=204)
-    async def remove_source(source_id: str, store: StoreDep) -> Response:
+    async def remove_source(
+        source_id: str, store: StoreDep, user: auth_deps.AdminUser,
+    ) -> Response:
         """Stop watching a camera.
 
         Soft delete: events already recorded against it are kept, because
-        removing a camera should not erase the history it produced.
+        removing a camera should not erase the history it produced. Audited
+        before the camera stops, and every feature unwatches it.
         """
         remove = getattr(store, "remove_camera", None)
         if not callable(remove):
             raise HTTPException(503, "camera management needs the live engine")
-        if not remove(source_id):
+        if not remove(source_id, user.name):
             raise HTTPException(404, f"no camera {source_id!r}")
         return Response(status_code=204)
 
@@ -2420,8 +2531,14 @@ def _mount(app: FastAPI) -> None:
     async def get_areas(store: StoreDep) -> list[str]:
         return store.areas()
 
-    @app.post("/sources/scan", response_model=list[S.FoundDevice], tags=["system"])
-    async def scan_network(store: StoreDep) -> list[S.FoundDevice]:
+    @app.post("/sources/scan", response_model=S.ScanResult, tags=["system"])
+    async def scan_network(store: StoreDep) -> S.ScanResult:
+        """Search the network for cameras, or say plainly that we cannot.
+
+        A result rather than a bare list, because `[]` meant both "your
+        network is empty" and "this engine cannot look", and the console
+        rendered the first sentence for the second situation.
+        """
         return store.scan()
 
     @app.post("/sources/dvr", response_model=S.DvrConnectResult, tags=["system"])

@@ -6,11 +6,13 @@
     .\dev.ps1 up            engine + web together, colour-tagged, Ctrl-C stops both
     .\dev.ps1 up -Mock      VG_MOCK=1 - instant start, no models, no camera. UI work
     .\dev.ps1 up -Clip      the recorded clip instead of the webcam. Pipeline work
+    .\dev.ps1 up -Mobile    the phone app too, on 5174, against the same engine
     .\dev.ps1 engine        engine only
     .\dev.ps1 web           front end only
-    .\dev.ps1 down          free ports 8000/5173 and release the webcam. Panic button
+    .\dev.ps1 mobile        the phone app only
+    .\dev.ps1 down          free ports 8000/5173/5174 and release the webcam
     .\dev.ps1 doctor        pre-flight checks. Run this each morning
-    .\dev.ps1 test          pyflakes + pytest + smoke start + tsc (same as CI)
+    .\dev.ps1 test          pyflakes + pytest + smoke + tsc x2 + parity (same as CI)
 
 .NOTES
     Never opens a second terminal. Never needs a PC restart.
@@ -18,8 +20,12 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('up', 'down', 'doctor', 'engine', 'web', 'test', 'help')]
+    [ValidateSet('up', 'down', 'doctor', 'engine', 'web', 'mobile', 'test', 'help')]
     [string]$Command = 'help',
+
+    # Start the phone app alongside the console. Both talk to the same engine
+    # and both proxy to it, so a change made on one shows up on the other.
+    [switch]$Mobile,
 
     # Serve fixtures. Starts in under a second, loads no models, opens no camera.
     [switch]$Mock,
@@ -36,9 +42,11 @@ $ErrorActionPreference = 'Stop'
 $Root     = $PSScriptRoot
 $EngineDir = Join-Path $Root 'engine'
 $WebDir    = Join-Path $Root 'web'
+$MobileDir = Join-Path $Root 'mobile'
 $VenvPy    = Join-Path $Root '.venv\Scripts\python.exe'
 $ApiPort   = 8000
 $WebPort   = 5173
+$MobilePort = 5174
 
 # ---------------------------------------------------------------------------
 # output helpers
@@ -116,10 +124,10 @@ function Clear-Port([int]$Port) {
 
 function Clear-Ports {
     $freed = $false
-    foreach ($p in @($ApiPort, $WebPort)) {
+    foreach ($p in @($ApiPort, $WebPort, $MobilePort)) {
         if (Clear-Port $p) { $freed = $true }
     }
-    if (-not $freed) { Write-Ok "ports $ApiPort / $WebPort already free" }
+    if (-not $freed) { Write-Ok "ports $ApiPort / $WebPort / $MobilePort already free" }
 }
 
 # ---------------------------------------------------------------------------
@@ -289,7 +297,7 @@ print("DB", db, db.is_file())
 # up
 # ---------------------------------------------------------------------------
 
-function Invoke-Up([bool]$WithEngine, [bool]$WithWeb) {
+function Invoke-Up([bool]$WithEngine, [bool]$WithWeb, [bool]$WithMobile) {
     $py = $null
     if ($WithEngine) {
         $py = Get-Python
@@ -335,11 +343,23 @@ function Invoke-Up([bool]$WithEngine, [bool]$WithWeb) {
         } -ArgumentList $WebDir
     }
 
+    # The phone app. A separate Vite server on 5174 with its own proxy to the
+    # same engine - it has to be same-origin or the session cookie
+    # (SameSite=Strict) never reaches a camera stream and every tile is black.
+    if ($WithMobile) {
+        Write-Head 'Starting mobile'
+        $jobs += Start-Job -Name 'mobile' -ScriptBlock {
+            param($mobileDir)
+            Set-Location $mobileDir
+            & npm run dev 2>&1
+        } -ArgumentList $MobileDir
+    }
+
     Write-Host ''
     Write-Info 'Ctrl-C stops everything cleanly.'
     Write-Host ''
 
-    $colours = @{ engine = 'Cyan'; web = 'Magenta' }
+    $colours = @{ engine = 'Cyan'; web = 'Magenta'; mobile = 'Yellow' }
 
     try {
         while ($true) {
@@ -381,6 +401,43 @@ function Invoke-Up([bool]$WithEngine, [bool]$WithWeb) {
 # test
 # ---------------------------------------------------------------------------
 
+<#
+    One front end's type check. Returns 1 if it failed, 0 otherwise, so the
+    caller can just add it up.
+
+    `tsc -b --force`, NOT `tsc --noEmit`.
+
+    Both apps use project references, and `--noEmit` against the solution
+    tsconfig checks nothing and exits 0. It looked like a passing type check
+    while real errors sat in the source. `-b` builds the referenced projects;
+    `--force` stops a stale .tsbuildinfo from skipping the work.
+
+    Invoked through node, not npx. `& npx tsc` failed here with "could not
+    determine executable to run" while the very same check passed from a
+    shell, so the gate reported a type error that did not exist - the worst
+    way for a gate to fail. This runs the TypeScript the lockfile pinned,
+    with no shim in the way.
+#>
+function Invoke-Tsc([string]$Dir, [string]$Label, [string]$Name) {
+    Write-Head $Label
+    if (-not (Test-Path (Join-Path $Dir 'node_modules'))) {
+        Write-Warn "skipped - run: npm --prefix $Name install"
+        return 0
+    }
+
+    Push-Location $Dir
+    try {
+        $tsc = Join-Path $Dir 'node_modules\typescript\bin\tsc'
+        if (Test-Path $tsc) {
+            & node $tsc -b --force
+        } else {
+            & npx tsc -b --force
+        }
+        if ($LASTEXITCODE -ne 0) { return 1 }
+        return 0
+    } finally { Pop-Location }
+}
+
 function Invoke-Test {
     $py = Get-Python
     if (-not $py) { return 1 }
@@ -407,34 +464,25 @@ function Invoke-Test {
     & $py engine/tools/smoke.py
     if ($LASTEXITCODE -ne 0) { $failed++ }
 
-    Write-Head 'tsc'
-    if (Test-Path (Join-Path $WebDir 'node_modules')) {
-        Push-Location $WebDir
-        try {
-            # `tsc -b --force`, NOT `tsc --noEmit`.
-            #
-            # web/ uses project references, and `--noEmit` against the solution
-            # tsconfig checks nothing and exits 0. It looked like a passing
-            # type check while real errors sat in the source. `-b` builds the
-            # referenced projects; `--force` stops a stale .tsbuildinfo from
-            # skipping the work.
-            #
-            # Invoked through node, not npx. `& npx tsc` failed here with
-            # "could not determine executable to run" while the very same
-            # check passed from a shell, so the gate reported a type error
-            # that did not exist - the worst way for a gate to fail. This
-            # runs the TypeScript the lockfile pinned, with no shim in the way.
-            $tsc = Join-Path $WebDir 'node_modules\typescript\bin\tsc'
-            if (Test-Path $tsc) {
-                & node $tsc -b --force
-            } else {
-                & npx tsc -b --force
-            }
-            if ($LASTEXITCODE -ne 0) { $failed++ }
-        } finally { Pop-Location }
-    } else {
-        Write-Warn 'skipped - run: npm --prefix web install'
-    }
+    # Both front ends. The phone app was never typechecked at all until
+    # 3 Sep 2026 - it had no CI job and no local gate, which is how a whole
+    # app of fixtures stayed green-looking for months.
+    $failed += Invoke-Tsc $WebDir    'tsc web'    'web'
+    $failed += Invoke-Tsc $MobileDir 'tsc mobile' 'mobile'
+
+    # The console and the phone are two apps holding one copy of the truth.
+    # This is what stops the shared half quietly becoming two halves - the
+    # palette file had already drifted while carrying a comment claiming it
+    # could not have.
+    Write-Head 'parity'
+    & $py tools/check_parity.py
+    if ($LASTEXITCODE -ne 0) { $failed++ }
+
+    # Nothing on the phone may be invented. `tsc` catches a stale import of a
+    # deleted fixture module; this catches new ones written by hand.
+    Write-Head 'fixtures'
+    & $py tools/check_parity.py --no-fixtures
+    if ($LASTEXITCODE -ne 0) { $failed++ }
 
     Write-Host ''
     if ($failed -eq 0) { Write-Ok 'all green'; return 0 }
@@ -450,20 +498,23 @@ function Show-Help {
   .\dev.ps1 up            engine + web, one window, Ctrl-C stops both
   .\dev.ps1 up -Mock      instant start, fixtures only. UI work
   .\dev.ps1 up -Clip      the labelled recording instead of the webcam
+  .\dev.ps1 up -Mobile    the phone app too, on 5174, same engine
   .\dev.ps1 engine        engine only
   .\dev.ps1 web           front end only
+  .\dev.ps1 mobile        the phone app only (5174)
   .\dev.ps1 down          free the ports, release the webcam. Panic button
   .\dev.ps1 doctor        pre-flight checks. Run this each morning
-  .\dev.ps1 test          pyflakes + pytest + smoke + tsc (the four CI gates)
+  .\dev.ps1 test          pyflakes + pytest + smoke + tsc x2 + parity + fixtures
 
   -AllowSystemPython      run without the project venv (not yet built)
 '@
 }
 
 switch ($Command) {
-    'up'     { exit (Invoke-Up  -WithEngine $true  -WithWeb $true) }
-    'engine' { exit (Invoke-Up  -WithEngine $true  -WithWeb $false) }
-    'web'    { exit (Invoke-Up  -WithEngine $false -WithWeb $true) }
+    'up'     { exit (Invoke-Up  -WithEngine $true  -WithWeb $true  -WithMobile $Mobile.IsPresent) }
+    'engine' { exit (Invoke-Up  -WithEngine $true  -WithWeb $false -WithMobile $false) }
+    'web'    { exit (Invoke-Up  -WithEngine $false -WithWeb $true  -WithMobile $false) }
+    'mobile' { exit (Invoke-Up  -WithEngine $false -WithWeb $false -WithMobile $true) }
     'down'   { Invoke-Down; exit 0 }
     'doctor' { exit (Invoke-Doctor) }
     'test'   { exit (Invoke-Test) }

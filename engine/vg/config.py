@@ -190,6 +190,43 @@ LIVE_CAPTURE: frozenset[str] = frozenset({"watched", "always"})
 #: would have to start the person model just to gate faces.
 PERSON_FEATURES: frozenset[str] = frozenset({"counting", "intrusion", "track"})
 
+#: Everything a camera can be watched for. A closed set, because an unknown
+#: name used to be accepted and then silently do nothing: `weapon` instead of
+#: `weapons` meant no knife detection on that camera, for ever, with nothing
+#: anywhere to say why. Refusing at parse time turns that into a startup
+#: error naming the word.
+#:
+#: Adding a feature here is half the job - the other half is the camera list
+#: the worker is started with in `api/app.py`, and `LiveStore._apply_features`
+#: which maps this name onto that worker at runtime.
+FEATURES: frozenset[str] = frozenset({
+    "attendance",   # face recognition -> the register
+    "counting",     # headcount per area
+    "intrusion",    # restricted-area watching
+    "track",        # follow one person across cameras
+    "vehicles",     # plate reading at a gate
+    "weapons",      # knife detection
+    "lostitems",    # bag search on demand
+})
+
+
+#: The lowest analytics rate at which a feature can still do its job.
+#:
+#: Only for features whose rule is written in FRAMES rather than in time.
+#: Knife detection opens an entry on `CONFIRM_HITS` (3) sightings inside
+#: `CONFIRM_SECONDS` (1.0), so below three frames a second the third sighting
+#: can never arrive: the camera watches for knives it is incapable of
+#: reporting, and every screen says the feature is running.
+#:
+#: Everything else is deliberately absent. Counting, intrusion and attendance
+#: answer questions about a second rather than about a frame, and a floor for
+#: them would be an invented threshold.
+#:
+#: `test_config.py` pins this against `features/weapons.py`'s own constants,
+#: because a copied number is only safe while something checks it still
+#: matches the number it was copied from.
+MIN_ANALYTICS_HZ: dict[str, float] = {"weapons": 3.0}
+
 
 @dataclass(frozen=True)
 class CameraConfig:
@@ -298,6 +335,21 @@ class CameraConfig:
             if not raw.get(required):
                 raise ConfigError(f"{where}: missing required key {required!r}")
 
+        # The source has to be something that can actually be opened, and this
+        # is the only place every path goes through - engine.yaml, the console,
+        # a bulk add and an edit. Checking here means a bad address is refused
+        # BEFORE it is written, rather than persisted and then failing when the
+        # worker tries to start.
+        #
+        # Imported inside the function on purpose: `config` is the bottom layer
+        # and importing `ingest` at module scope would invert that.
+        from vg.ingest.source import parse_source
+
+        try:
+            parse_source(str(raw["source"]))
+        except ValueError as exc:
+            raise ConfigError(f"{where}.source: {exc}") from exc
+
         rotate = int(raw.get("rotate", 0))
         if rotate not in (0, 90, 180, 270):
             raise ConfigError(f"{where}.rotate: expected 0/90/180/270, got {rotate}")
@@ -345,6 +397,32 @@ class CameraConfig:
             )
 
         features = tuple(raw.get("features", ()))
+        unknown = [f for f in features if f not in FEATURES]
+        if unknown:
+            # Naming both halves on purpose: the word that was wrong, and what
+            # was available. A typo here used to cost a feature silently, so
+            # the message has to be enough to fix it without opening config.py.
+            raise ConfigError(
+                f"{where}.features: unknown feature(s) "
+                f"{', '.join(repr(f) for f in unknown)} - "
+                f"expected any of {', '.join(sorted(FEATURES))}"
+            )
+
+        # A feature that CANNOT FIRE at the configured rate is refused here,
+        # not accepted and left silently dead. This is the same failure the
+        # closed `FEATURES` set above exists to prevent, reached by a
+        # different route: the camera is watched, the model is loaded, the
+        # console shows the feature as running, and no entry can ever be
+        # written. Turning the rate down is the cheapest saving this product
+        # has, which is exactly why it needs a floor under it.
+        for feature, floor in MIN_ANALYTICS_HZ.items():
+            if feature in features and fps < floor:
+                raise ConfigError(
+                    f"{where}.fps: {feature!r} needs at least {floor:g} frames "
+                    f"a second to be able to report anything, got {fps:g}. "
+                    f"Raise the rate or drop the feature."
+                )
+
         has_gate = gate is not None and direction is not None
         if "vehicles" in features and not has_gate:
             raise ConfigError(

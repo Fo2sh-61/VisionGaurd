@@ -19,13 +19,16 @@ import type {
   Breach,
   Camera,
   CameraSource,
+  AddCameraOutcome,
+  DvrConnectResult,
+  EditCameraResult,
   CountArea,
   CountBar,
   CountQuery,
   DetectionBox,
   CountResult,
   DirectoryPerson,
-  FoundDevice,
+  ScanResult,
   GroupMember,
   GroupSummary,
   IntrusionWindow,
@@ -105,6 +108,33 @@ export async function getCameras(lang: Language): Promise<Camera[]> {
   return toCameras(await get<W.CameraView[]>('/cameras'), lang);
 }
 
+/** One engine `CameraSource` as the console holds it.
+ *
+ *  In one place because four calls return this shape and they must not drift.
+ *  `?? undefined` throughout: the engine sends null for absent, TypeScript
+ *  wants undefined for optional, and mixing the two is how a field ends up
+ *  rendering as the word "null". */
+function toSource(s: W.CameraSource): CameraSource {
+  return {
+    id: s.id,
+    name: s.name,
+    type: s.type,
+    ip: s.ip,
+    channels: s.channels,
+    status: s.status,
+    area: s.area ?? undefined,
+    lastError: s.lastError ?? undefined,
+    features: s.features,
+    faces: s.faces,
+    enabled: s.enabled,
+    gate: s.gate ?? undefined,
+    direction: s.direction ?? undefined,
+    fps: s.fps,
+    rotate: s.rotate,
+    fromConfig: s.fromConfig,
+  };
+}
+
 /** Add a camera. It starts being watched immediately and appears everywhere. */
 export async function addCamera(params: {
   name: string;
@@ -113,14 +143,13 @@ export async function addCamera(params: {
   area?: string;
   fps?: number;
   features?: string[];
+  faces?: boolean;
+  gate?: number;
+  direction?: string;
   username?: string;
   password?: string;
 }): Promise<CameraSource> {
-  const s = await post<W.CameraSource>('/sources', params);
-  return {
-    id: s.id, name: s.name, type: s.type, ip: s.ip,
-    channels: s.channels, status: s.status,
-  };
+  return toSource(await post<W.CameraSource>('/sources', params));
 }
 
 /** Stop watching a camera. Events already recorded against it are kept. */
@@ -703,10 +732,58 @@ export async function getSystemHealth(lang: Language): Promise<SystemHealth> {
   return {
     camerasOnline: health.camerasOnline,
     camerasTotal: health.camerasTotal,
+    camerasDisabled: health.camerasDisabled ?? 0,
     summary: parts.length
       ? `${parts.join('; ')}.`
       : 'Everything is recording and being analysed.',
     stats: formatMetrics(health.metrics, lang),
+    // Left undefined, never defaulted to an empty projection: a machine with
+    // nothing running has no share to report, and zeros would read as a
+    // machine with room to spare.
+    capacity: health.capacity
+      ? {
+          gpuMsPerSecond: health.capacity.gpuMsPerSecond,
+          gpuBudgetMs: health.capacity.gpuBudgetMs,
+          cpuMsPerSecond: health.capacity.cpuMsPerSecond,
+          cpuBudgetMs: health.capacity.cpuBudgetMs,
+          cores: health.capacity.cores,
+          unplacedMsPerSecond: health.capacity.unplacedMsPerSecond ?? 0,
+          allMeasured: health.capacity.allMeasured !== false,
+          // The readings sit on the projection they check. Absent, not 0,
+          // when the engine could not ask the driver or the OS.
+          gpuPercent: health.gpuPercent ?? undefined,
+          gpuMemoryUsedMb: health.gpuMemoryUsedMb ?? undefined,
+          gpuMemoryTotalMb: health.gpuMemoryTotalMb ?? undefined,
+          cpuMachinePercent: health.cpuMachinePercent ?? undefined,
+          // psutil reports a process as a sum over cores; the machine has
+          // `cores` of them, so this is its share of the whole.
+          cpuEnginePercent:
+            health.cpuPercent != null && health.capacity.cores > 0
+              ? health.cpuPercent / health.capacity.cores
+              : undefined,
+          gpuBusyMsPerSecond: health.capacity.gpuBusyMsPerSecond ?? 0,
+          cpuBusyMsPerSecond: health.capacity.cpuBusyMsPerSecond ?? 0,
+          windowSeconds: health.capacity.windowSeconds ?? 5,
+          rows: health.capacity.rows.map((r) => ({
+            name: r.name,
+            // The engine sends null when a worker could not say which
+            // processor it uses. That becomes 'unplaced' here rather than
+            // being folded into either pool, because a row charged to the
+            // wrong budget makes both totals wrong.
+            pool: r.pool === 'gpu' || r.pool === 'cpu' ? r.pool : ('unplaced' as const),
+            device: r.device ?? undefined,
+            cameras: r.cameras,
+            framesPerSecond: r.framesPerSecond ?? undefined,
+            msPerFrame: r.msPerFrame,
+            measured: r.measured,
+            msPerSecond: r.msPerSecond ?? undefined,
+            onDemand: r.onDemand === true,
+            shared: r.shared === true,
+            busyMsPerSecond: r.busyMsPerSecond ?? 0,
+            analysedPerSecond: r.analysedPerSecond ?? 0,
+          })),
+        }
+      : undefined,
     recorders: health.recorders.map((r) => ({
       id: r.id,
       name: r.name,
@@ -1152,14 +1229,7 @@ export async function stopRecording(
 /** CHANGED: was synchronous. */
 export async function getCameraSources(): Promise<CameraSource[]> {
   const sources = await get<W.CameraSource[]>('/sources');
-  return sources.map((s) => ({
-    id: s.id,
-    name: s.name,
-    type: s.type,
-    ip: s.ip,
-    channels: s.channels,
-    status: s.status,
-  }));
+  return sources.map(toSource);
 }
 
 /** CHANGED: was synchronous. */
@@ -1167,21 +1237,31 @@ export async function getAreaOptions(): Promise<string[]> {
   return get<string[]>('/sources/areas');
 }
 
-export async function scanNetwork(): Promise<FoundDevice[]> {
-  const found = await post<W.FoundDevice[]>('/sources/scan');
-  return found.map((d) => ({
-    name: d.name,
-    ip: d.ip,
-    channels: d.channels,
-    duplicate: d.duplicate,
-    added: d.added,
-  }));
+/** CHANGED: returns a result, not a bare list.
+ *
+ *  `[]` used to mean both "your network is empty" and "this engine cannot
+ *  look", and the console rendered the first sentence for the second case. */
+export async function scanNetwork(): Promise<ScanResult> {
+  const result = await post<W.ScanResult>('/sources/scan');
+  return {
+    available: result.available,
+    reason: result.reason ?? undefined,
+    devices: result.devices.map((d) => ({
+      name: d.name,
+      ip: d.ip,
+      channels: d.channels,
+      duplicate: d.duplicate,
+      added: d.added,
+    })),
+  };
 }
 
-/** CHANGED: takes the connection details.
+/** CHANGED: takes the connection details, and KEEPS what comes back.
  *
  *  The original took no arguments, so the host and password the operator typed
- *  never left the component. They have to reach the engine for this to work. */
+ *  never left the component. It then returned `{ channels: result.channels.length }`
+ *  — throwing away every channel the engine described, which is why the page
+ *  went on generating `CH 1…N` itself. Both halves are fixed here. */
 export async function connectDvr(params: {
   host: string;
   port?: number;
@@ -1189,9 +1269,83 @@ export async function connectDvr(params: {
   password: string;
   name?: string;
   area?: string;
-}): Promise<{ channels: number }> {
+  template: string;
+  channels: string[];
+  budget?: number;
+}): Promise<DvrConnectResult> {
   const result = await post<W.DvrConnectResult>('/sources/dvr', params);
-  return { channels: result.channels.length };
+  return {
+    reachable: result.reachable,
+    reason: result.reason ?? undefined,
+    checked: result.checked,
+    status: result.status,
+    channels: result.channels.map((c) => ({
+      channel: c.channel,
+      name: c.name,
+      enabled: c.enabled,
+      source: c.source,
+      checked: c.checked,
+      status: c.status,
+      resolution: c.resolution ?? undefined,
+      latencyMs: c.latencyMs ?? undefined,
+      error: c.error ?? undefined,
+    })),
+  };
+}
+
+/** Add several cameras in one act, and get one outcome per camera.
+ *
+ *  Sixteen channels used to be sixteen calls, and the fourth failing said
+ *  nothing about the other twelve. A refused camera is data here, not an
+ *  error: the rest are still added. */
+export async function addCameras(
+  cameras: Parameters<typeof addCamera>[0][],
+): Promise<AddCameraOutcome[]> {
+  const outcomes = await post<W.AddCameraOutcome[]>('/sources/bulk', { cameras });
+  return outcomes.map((o) => ({
+    index: o.index,
+    ok: o.ok,
+    id: o.id ?? undefined,
+    source: o.source,
+    error: o.error ?? undefined,
+  }));
+}
+
+/** Correct a camera without deleting it.
+ *
+ *  Its id does not change, so everything already recorded against it stays
+ *  attached — which is the whole reason this exists. */
+export async function editCamera(
+  id: string,
+  changes: {
+    name?: string;
+    source?: string;
+    area?: string;
+    fps?: number;
+    rotate?: number;
+    features?: string[];
+    faces?: boolean;
+    gate?: number;
+    direction?: string;
+    enabled?: boolean;
+    username?: string;
+    password?: string;
+  },
+): Promise<EditCameraResult> {
+  const result = await request<W.EditCameraResult>(
+    `/sources/${encodeURIComponent(id)}`,
+    { method: 'PATCH', body: JSON.stringify(changes) },
+  );
+  return {
+    camera: toSource(result.camera),
+    shadowsConfig: result.shadowsConfig,
+    restarted: result.restarted,
+    featureNotes: result.featureNotes.map((n) => ({
+      feature: n.feature,
+      running: n.running,
+      reason: n.reason ?? undefined,
+    })),
+  };
 }
 
 /** CHANGED: takes the source to test, for the same reason as `connectDvr`.

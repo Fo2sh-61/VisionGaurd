@@ -125,6 +125,20 @@ turns a six-line change into a whole-file diff. Read/write bytes, or check
 .\dev.ps1 down            # frees ports 8000 / 5173
 ```
 
+**There is no `.venv` yet** (DEV_PLAN.md 1.4, blocked on the re-ID handover),
+so every `dev.ps1` command that starts the engine needs `-AllowSystemPython`
+or it refuses outright. That is why the two commands were long run by hand.
+
+`.\launch.ps1` — or the **VisionGuard desktop shortcut**, which is the same
+thing double-clickable — wraps `dev.ps1 up` and adds the two things a
+double-click needs: it detects the missing venv and passes the flag itself,
+and it puts itself in a Win32 job object marked `KILL_ON_JOB_CLOSE`, so
+**closing the window really does stop everything** — which `dev.ps1`'s
+`finally` cannot promise when somebody clicks the X. It opens the console
+once `/healthz` answers, never before. `-Clip`, `-Mock` and `-NoBrowser` pass
+through. Re-create the shortcut with `.\tools\install-shortcut.ps1`; the icon
+is generated from `web/src/components/Logo.tsx` by `tools/make_icon.py`.
+
 - **Debug against the recorded clip, not the webcam.** It is identical every run, locks no device, and has 21 labelled ground-truth points. Use the webcam only for final confirmation.
 - **Tests beat hot reload.** Write a test and run `pytest` — milliseconds, no server. Do not enable `--reload` on the engine; it orphans processes on Windows.
 - Check types with `npx tsc -b --force`, never `tsc --noEmit` (project references make it a silent no-op).

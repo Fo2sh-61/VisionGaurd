@@ -40,6 +40,8 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import time
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -47,9 +49,47 @@ from vg.infer.persons import DetectedPerson, PersonDetector
 
 log = logging.getLogger(__name__)
 
+#: How far back `SharedDetection.load()` looks. Matches
+#: `FeatureWorker.WINDOW_SECONDS` so the pass and its readers are measured
+#: over the same seconds.
+WINDOW_SECONDS = 5.0
+
 #: What `weights_to_load` reports back, and what System Health prints.
 TENSORRT = "TensorRT"
 UNACCELERATED = "PyTorch CUDA"
+
+# ---------------------------------------------------------------------------
+# Who pays for the shared pass
+#
+# Several workers call `raw_boxes` for the same frame and the model runs once.
+# Each of them still SPENDS the time: the first computes, the others block on
+# the per-camera lock until it has, then take the cached answer. Measured from
+# inside a worker, all of them look like they ran a 13 ms model - and a page
+# that adds their rows up charges one pass three times.
+#
+# So the time a thread spends inside `raw_boxes` - waiting, computing or
+# hitting the cache - is recorded against THAT thread, and a worker subtracts
+# it from its own timing. What is left is what the worker itself did: ByteTrack
+# for tracking, the knife model for weapons, bookkeeping for zones. The pass is
+# then charged exactly once, on its own row, from `last_pass_ms`.
+# ---------------------------------------------------------------------------
+
+_borrowed = threading.local()
+
+
+def _borrow(ms: float) -> None:
+    _borrowed.ms = getattr(_borrowed, "ms", 0.0) + ms
+
+
+def take_borrowed_ms() -> float:
+    """Milliseconds this thread has spent in the shared pass since last asked.
+
+    Reading resets it, so a worker calls it once before `analyse` to clear
+    anything stale and once after to learn what that frame borrowed.
+    """
+    ms = getattr(_borrowed, "ms", 0.0)
+    _borrowed.ms = 0.0
+    return ms
 
 
 def tensorrt_available() -> bool:
@@ -204,6 +244,17 @@ class SharedDetection:
         # Counts real model calls. The call-count test reads this to prove one
         # pass per frame; System Health reports it.
         self.passes = 0
+        # What the model itself took for the most recent frame, on this
+        # machine. Timed around the model call alone - no lock wait, no cache
+        # - so it is the one figure a capacity projection can multiply by a
+        # rate without counting anybody's queueing as inference.
+        self.last_pass_ms = 0.0
+        # (when, ms) per real model call, for WINDOW_SECONDS. Its own lock:
+        # appended from inside `_model_lock` and read from the API thread,
+        # and it must never be tempted into `_cache_lock`'s ordering.
+        self._recent_passes: deque[tuple[float, float]] = deque()
+        self._recent_lock = threading.Lock()
+        self._started_at = time.monotonic()
         # Frames whose thread is blocked on `_model_lock` right now, and the
         # answers left for them. Guarded by `_cache_lock`, which is only ever
         # held for a dict operation and never across a model call.
@@ -239,7 +290,19 @@ class SharedDetection:
         Returns whatever `PersonDetector.raw_boxes` returns, including None.
         `None` is cached like any other answer: "the model found nothing" is a
         result, and recomputing it is the same waste as recomputing a hit.
+
+        Every millisecond spent in here - computing, waiting for another
+        worker's computation, or reading the cache - is charged to the calling
+        thread via `take_borrowed_ms`, so the worker can report what it did
+        ITSELF and the pass is costed once. See the note at the top.
         """
+        started = time.perf_counter()
+        try:
+            return self._raw_boxes(frame)
+        finally:
+            _borrow((time.perf_counter() - started) * 1000)
+
+    def _raw_boxes(self, frame):
         hit, boxes = self._cached(frame.camera_id, frame.sequence)
         if hit:
             return boxes
@@ -277,8 +340,11 @@ class SharedDetection:
         """
         if not self.batch:
             with self._model_lock:
+                started = time.perf_counter()
                 boxes = self.detector.raw_boxes(frame.image)
+                self.last_pass_ms = (time.perf_counter() - started) * 1000
                 self.passes += 1
+                self._note_pass(self.last_pass_ms)
             return boxes
 
         token = id(frame)
@@ -304,6 +370,7 @@ class SharedDetection:
                 batch.append(other)
                 tokens.append(other_token)
 
+            started = time.perf_counter()
             if len(batch) == 1 or self.batch_unavailable:
                 answers = [self.detector.raw_boxes(f.image) for f in batch]
             else:
@@ -330,6 +397,11 @@ class SharedDetection:
             single = len(batch) == 1 or bool(self.batch_unavailable)
             self.passes += len(batch) if single else 1
             self.last_batch = 1 if single else len(batch)
+            # Per frame, whichever way it ran: a batch of three that took
+            # 30 ms cost each frame 10.
+            self.last_pass_ms = (time.perf_counter() - started) * 1000 / len(batch)
+            for _ in batch:
+                self._note_pass(self.last_pass_ms)
 
             mine = None
             with self._cache_lock:
@@ -344,6 +416,30 @@ class SharedDetection:
                         self._cache[other.camera_id] = _Cached(
                             other.sequence, result)
             return mine
+
+    def _note_pass(self, ms: float) -> None:
+        with self._recent_lock:
+            self._recent_passes.append((time.monotonic(), ms))
+
+    def load(self) -> dict:
+        """What the pass is really costing, per second, over the window.
+
+        Measured - passes that happened and the milliseconds they took -
+        as opposed to the projection System Health also shows, which is a
+        configured rate times a cost. Idle for the whole window reads 0.
+        """
+        now = time.monotonic()
+        with self._recent_lock:
+            cutoff = now - WINDOW_SECONDS
+            while self._recent_passes and self._recent_passes[0][0] < cutoff:
+                self._recent_passes.popleft()
+            span = max(1.0, min(WINDOW_SECONDS, now - self._started_at))
+            return {
+                "passes_per_second": round(len(self._recent_passes) / span, 2),
+                "busy_ms_per_second": round(
+                    sum(ms for _, ms in self._recent_passes) / span, 1),
+                "window_seconds": WINDOW_SECONDS,
+            }
 
     def detect(self, frame, min_area: float = 0.0) -> list[DetectedPerson]:
         """People in this frame as fractions, from the shared pass."""

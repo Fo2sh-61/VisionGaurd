@@ -57,7 +57,7 @@ Verified in code this cycle. These are why P0 and P1 come before any feature wor
 | FR-12 | Durable audit trail | **missing** |
 | FR-13 | Retention + erasure | **missing** |
 | FR-14 | Alert delivery | missing |
-| FR-15 | Mobile on real data | missing |
+| FR-15 | Mobile on real data | **built 3 Sep 2026** — `specs/012-mobile-parity`, unverified on a real phone |
 | FR-16 | Runs at ~208 cameras, measured | not designed for |
 | — | Fight detection | **out of scope** (no model) |
 | — | Licence plates | **out of scope** (keep the seam only) |
@@ -283,9 +283,18 @@ Synthetic camera harness · staged benchmarks 1 → 8 → 32 → 104 → 208 · 
 
 **Done when:** the real camera mix holds its latency budgets for 4 hours on the real hardware, and killing one partition doesn't affect the others.
 
-### P9 — Notifications + mobile · 1–2 wk
+### P9 — Notifications · 1–2 wk
 
-Alert rules + delivery log · in-app delivery · email/SMS only if required · mobile wired **read-only** (view, don't act — actions need the same server-side authorization and are riskier on a phone).
+Alert rules + delivery log · in-app delivery · email/SMS only if required.
+
+**The mobile half of this phase is superseded** by P13 below. It said the phone
+would be wired **read-only** — "view, don't act, actions are riskier on a
+phone". Mohamed was shown that position on 3 September 2026 and chose full
+parity instead: the phone does everything the console does, including acting.
+The risk the old wording named is real and is answered the same way the console
+answers it — the engine decides what an account may do, and the phone stores no
+role and no token. Nothing about alert delivery changes; nothing is sent to
+anybody by P13.
 
 ### P10 — Go live · 1–2 wk + on-site
 
@@ -308,6 +317,18 @@ The language model reads a masked sentence and returns one menu id with its para
 Fourteen queries, one flat answer shape, one page. Adding a fifteenth is one row in `vg/ask/menu.py` plus its wording. The provider is Gemini's free tier and is swappable in one file — the seam is `parse(question) -> query + params | unsupported`.
 
 **Done when:** a supported question returns the same figures the matching page shows; no known name or plate leaves the site on an Arabic test set; the four honest states each produce their own message with a reason; and with the cloud unreachable, detection, recording, the knife gate and the vehicle register are untouched.
+
+### P13 — The phone does everything the console does · `specs/012-mobile-parity`
+
+The phone app was made entirely of fixtures. Every figure on it was invented, several were regenerated at random on each visit, and any password signed you in as the same person with full rights. A guard holding it was looking at a school that did not exist, and could not tell.
+
+It now runs the same product: all 16 screens, every action, both languages, both roles, against the same engine. It keeps its own shape — five tabs, not a shrunken sidebar — and its own package and build, because Mohamed chose two parallel apps over one shared codebase.
+
+The console's pages import nothing from the desktop shell, so the phone ships its own **vocabulary** rather than its own pages: the same component names with phone bodies, and the same class names styled for a narrow screen. Every page and feature component is a byte copy that compiles against it unedited. ~7,950 lines are copied under a checker, ~11,000 copied and recompiled, ~1,600 genuinely written.
+
+The known cost of copying is drift, and it is not hypothetical — `tokens.css` had already drifted while carrying a comment promising it could not. So `tools/check_parity.py` compares the shared files as bytes and fails the build when they differ, and CI gained a `mobile` job because the phone had never been typechecked there at all.
+
+**Done when:** with the engine stopped every screen says so and shows no figure; a guard can decide a knife alert from the corridor it was raised in; the figures match the console side by side; and it is usable one-handed at 375px in both languages. The last of those needs a real phone and Mohamed.
 
 
 ---

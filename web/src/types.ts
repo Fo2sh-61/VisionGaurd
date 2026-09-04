@@ -321,11 +321,74 @@ export interface PipelineItem {
   workers?: WorkerLoadItem[];
 }
 
+/** One worker's projected share of the machine, ready to render.
+ *
+ *  `measured` is the field that matters. True means the per-frame cost was
+ *  timed on this machine; false means it is a figure carried in from an
+ *  earlier run because this worker has not analysed a frame yet. A reader
+ *  deciding whether to add a camera needs to know which they are reading. */
+export interface CapacityRowItem {
+  name: string;
+  /** 'unplaced' when the worker did not say which processor it runs on. Such
+   *  a row is listed and left out of both totals, never guessed into one. */
+  pool: 'gpu' | 'cpu' | 'unplaced';
+  device?: string;
+  cameras: number;
+  framesPerSecond?: number;
+  msPerFrame: number;
+  measured: boolean;
+  msPerSecond?: number;
+  /** Runs only while somebody is looking at the tile, so it costs nothing
+   *  when nobody is and no fixed number when somebody is. */
+  onDemand: boolean;
+  /** The one person detection every counting/zone/track/knife worker reads,
+   *  costed once. Their own rows have it subtracted. */
+  shared: boolean;
+  /** Measured over the window: what it really spent, and how many frames. */
+  busyMsPerSecond: number;
+  analysedPerSecond: number;
+}
+
+/** How full the machine is, as arithmetic over what is configured.
+ *
+ *  Two budgets, never one number. The GPU gives 1000 ms of work a second;
+ *  the processor gives `cores` x 1000. Face recognition has no CUDA path, so
+ *  it never competes with the person detector for the same milliseconds —
+ *  adding the two would produce a percentage of nothing. */
+export interface CapacityItem {
+  gpuMsPerSecond: number;
+  gpuBudgetMs: number;
+  cpuMsPerSecond: number;
+  cpuBudgetMs: number;
+  cores: number;
+  unplacedMsPerSecond: number;
+  allMeasured: boolean;
+  /** Readings from the driver and the OS, whole device / whole machine.
+   *  These draw the bars. Absent when there is nothing to ask. */
+  gpuPercent?: number;
+  gpuMemoryUsedMb?: number;
+  gpuMemoryTotalMb?: number;
+  cpuMachinePercent?: number;
+  /** This engine's process share of the machine, 0–100. */
+  cpuEnginePercent?: number;
+  /** Measured totals per pool: what this engine's workers really spent. */
+  gpuBusyMsPerSecond: number;
+  cpuBusyMsPerSecond: number;
+  windowSeconds: number;
+  rows: CapacityRowItem[];
+}
+
 export interface SystemHealth {
   camerasOnline: number;
+  /** Switched-on cameras only. */
   camerasTotal: number;
+  /** Switched off on purpose — not offline, and not a fault. */
+  camerasDisabled: number;
   summary: string;
   stats: Stat[];
+  /** Absent when no worker is running. Not zero — that would read as a
+   *  machine with room, which is a different claim from "nothing to cost". */
+  capacity?: CapacityItem;
   recorders: Recorder[];
   pipeline: PipelineItem[];
   cameras: Camera[];
@@ -482,9 +545,48 @@ export interface CameraSource {
   id: string;
   name: string;
   type: SourceType;
+  /** The address with any password masked. The engine never sends the raw one. */
   ip: string;
   channels: number;
   status: SourceStatus;
+  area?: string;
+  lastError?: string;
+  /** What this camera is watched for, and the settings those features need. */
+  features: string[];
+  faces: boolean;
+  enabled: boolean;
+  gate?: number;
+  direction?: string;
+  fps: number;
+  rotate: number;
+  /** Seeded by engine.yaml. Editing it writes a row that shadows the file. */
+  fromConfig: boolean;
+}
+
+/** One chosen feature, and whether it is actually running.
+ *
+ *  A feature whose subsystem failed to start is reported here at the moment
+ *  it is chosen, rather than only on System Health where nobody was looking. */
+export interface FeatureNote {
+  feature: string;
+  running: boolean;
+  reason?: string;
+}
+
+/** What happened to one camera in a bulk add. A refusal is data, not an error. */
+export interface AddCameraOutcome {
+  index: number;
+  ok: boolean;
+  id?: string;
+  source: string;
+  error?: string;
+}
+
+export interface EditCameraResult {
+  camera: CameraSource;
+  shadowsConfig: boolean;
+  restarted: boolean;
+  featureNotes: FeatureNote[];
 }
 
 export interface FoundDevice {
@@ -495,10 +597,39 @@ export interface FoundDevice {
   added: boolean;
 }
 
+/** One recorder channel, and what actually happened when it was opened.
+ *
+ *  `checked: false` means the probe budget ran out before this channel was
+ *  tried - a different fact from "we asked and nothing came back", and the
+ *  two must not render alike. */
 export interface DvrChannel {
   channel: string;
   name: string;
   enabled: boolean;
+  source: string;
+  checked: boolean;
+  status: SourceStatus;
+  resolution?: string;
+  latencyMs?: number;
+  error?: string;
+}
+
+export interface DvrConnectResult {
+  reachable: boolean;
+  reason?: string;
+  checked: number;
+  status: SourceStatus;
+  channels: DvrChannel[];
+}
+
+/** Whether the network can be searched at all, and what was found.
+ *
+ *  `available: false` is "we cannot look"; `available: true` with no devices
+ *  is "we looked and found nothing". A bare array made those the same. */
+export interface ScanResult {
+  available: boolean;
+  reason?: string;
+  devices: FoundDevice[];
 }
 
 export type SourceMode = 'scan' | 'dvr' | 'ip' | 'rtsp';

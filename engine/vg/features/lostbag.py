@@ -35,6 +35,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -108,10 +109,14 @@ class BagWatch:
     result and no history to keep.
     """
 
-    def __init__(self, registry, detector, clock, *, now=None) -> None:
+    def __init__(self, registry, detector, clock, *, now=None, cameras=None) -> None:
         self.registry = registry
         self.detector = detector
+        self.device = getattr(detector, "device", None)
         self.clock = clock
+        # Which cameras carry `lostitems`. Guarded by `_lock` like everything
+        # else here, because an operator can change it while the loop runs.
+        self.cameras: set[str] = set(cameras or ())
         # Wall clock, injectable so a test can age a box without sleeping.
         self._now = now or (lambda: datetime.now(timezone.utc))
 
@@ -125,6 +130,9 @@ class BagWatch:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._last_inference_ms = 0
+        # (when, ms) per model call, for the same window FeatureWorker uses.
+        self._recent: deque[tuple[float, float]] = deque()
+        self._started_at = time.monotonic()
         self._colour_warned = False
 
     # -- the public surface -------------------------------------------------
@@ -142,9 +150,40 @@ class BagWatch:
             thread.join(timeout=2.0)
         self._thread = None
 
-    def note_interest(self, camera_id: str) -> None:
-        """Somebody is looking at this camera. The only thing that starts work."""
+    # -- which cameras this feature is allowed on ---------------------------
+    #
+    # `BagWatch` is not a `FeatureWorker` - it has one thread and is driven
+    # entirely by the overlay poll - so `watch`/`unwatch` are spelled out here
+    # rather than inherited. Same contract: a camera that does not list
+    # `lostitems` is not searched, however hard somebody looks at it.
+
+    def watch(self, camera_id: str) -> None:
         with self._lock:
+            self.cameras.add(camera_id)
+
+    def unwatch(self, camera_id: str) -> None:
+        with self._lock:
+            self.cameras.discard(camera_id)
+            # Interest and boxes go with it, so a camera that loses the
+            # feature stops drawing within the same poll rather than holding
+            # its last boxes for the overlay window.
+            self._interest.pop(camera_id, None)
+            self._boxes.pop(camera_id, None)
+
+    def serves(self, camera_id: str) -> bool:
+        with self._lock:
+            return camera_id in self.cameras
+
+    def note_interest(self, camera_id: str) -> None:
+        """Somebody is looking at this camera. The only thing that starts work.
+
+        Refused unless the camera actually carries `lostitems`. Before that
+        check this ran on any camera anybody happened to open, which made the
+        feature list decorative for bag search.
+        """
+        with self._lock:
+            if camera_id not in self.cameras:
+                return
             self._interest[camera_id] = self._now()
 
     def boxes_on(self, camera_id: str, colour: str | None = None) -> list[Hit]:
@@ -165,9 +204,35 @@ class BagWatch:
     def stats(self) -> dict:
         """The keys `FeatureWorker.stats` uses, so System Health reads alike."""
         watching = self.watching
+        from vg.features.base import FeatureWorker
+        window = FeatureWorker.WINDOW_SECONDS
+        now = time.monotonic()
+        with self._lock:
+            cutoff = now - window
+            while self._recent and self._recent[0][0] < cutoff:
+                self._recent.popleft()
+            span = max(1.0, min(window, now - self._started_at))
+            busy_ms = sum(ms for _, ms in self._recent) / span
+            analysed = len(self._recent) / span
         return {
+            # Named, because System Health used to fall back to "worker" for
+            # this one — the only row on the page that did not say what it was.
+            "name": "lostitems",
             "cameras": len(watching),
             "last_inference_ms": self._last_inference_ms,
+            "device": self.device,
+            # Demand-driven, so there is no configured rate to report. Zero is
+            # the literal idle cost: one sleeping thread and no model call.
+            # While somebody IS looking this runs at whatever rate frames
+            # arrive, which the code does not fix — so no number is offered
+            # for that case rather than one being invented.
+            "frames_per_second": 0.0 if not watching else None,
+            # Measured. Unlike the configured rate above, this one exists
+            # for a demand-driven worker: it is simply what happened.
+            "busy_ms_per_second": round(busy_ms, 1),
+            "analysed_per_second": round(analysed, 2),
+            "window_seconds": window,
+            "on_demand": True,
             "state": "watching" if watching else "idle",
         }
 
@@ -215,6 +280,8 @@ class BagWatch:
         started = time.perf_counter()
         boxes = self.detector.detect(frame.image)
         self._last_inference_ms = int((time.perf_counter() - started) * 1000)
+        with self._lock:
+            self._recent.append((time.monotonic(), float(self._last_inference_ms)))
 
         hits = [
             self._hit(box, frame)

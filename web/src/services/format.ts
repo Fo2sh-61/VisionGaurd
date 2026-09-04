@@ -22,7 +22,8 @@ import type {
   Schedule,
 } from './wire';
 import type {
-  BoxColor, Camera, CameraZone, DetectionBox, Stat, Tone, WorkerLoadItem,
+  BoxColor, Camera, CameraZone, CapacityRowItem, DetectionBox, Stat, Tone,
+  WorkerLoadItem,
 } from '@/types';
 import { assetUrl } from './http';
 
@@ -556,6 +557,78 @@ export function formatWorkerQueue(w: WorkerLoadItem, lang: Language): string {
     depth: formatCount(w.queueDepth, lang),
     max: formatCount(w.queueMax, lang),
     dropped: formatCount(w.framesDropped, lang),
+  });
+}
+
+/** What share of one budget a projected cost is, 0-100.
+ *
+ *  Clamped at the top, because a machine can be asked for more than it has —
+ *  that is the whole point of showing this — and a bar drawn past its own end
+ *  is a rendering bug rather than a louder warning. The number beside it is
+ *  not clamped, so 1,400 of 1,000 still reads as 1,400. */
+export function capacityShare(usedMs: number, budgetMs: number): number {
+  if (budgetMs <= 0) return 0;
+  return Math.min(100, Math.round((usedMs / budgetMs) * 100));
+}
+
+/** How to colour one budget. The engine sets no threshold for this, so the
+ *  two here are the console's own and deliberately conservative: amber from
+ *  three-quarters, red at full. A machine at 100% is not "nearly fine". */
+export function capacityTone(usedMs: number, budgetMs: number): 'good' | 'warn' | 'bad' {
+  const share = budgetMs > 0 ? usedMs / budgetMs : 0;
+  if (share >= 1) return 'bad';
+  return share >= 0.75 ? 'warn' : 'good';
+}
+
+/** What this engine's own workers spent on one pool, per second, as a sentence.
+ *
+ *  The processor row carries a percentage and the graphics row does not, and
+ *  that asymmetry is the whole point of this function. `busyMsPerSecond` is
+ *  wall clock inside `analyse()` — letterboxing, NMS and whatever Python did
+ *  around them, all included. On the processor that IS processor time and
+ *  `cores x 1000` is the budget it comes out of, so a share is a fair claim.
+ *
+ *  On the graphics card it is not card time: it counts preparing the frame and
+ *  reading the result back as well. Dividing it by the card's 1,000 ms and
+ *  printing the result said "measured" over a number nothing had measured, and
+ *  it ran ahead of the driver's own figure on the bar directly above it. The
+ *  card's share is the bar; this line is only ever milliseconds. */
+export function formatEngineBusy(
+  pool: 'gpu' | 'cpu',
+  busyMsPerSecond: number,
+  budgetMs: number,
+  lang: Language,
+): string {
+  const ms = formatCount(Math.round(busyMsPerSecond), lang);
+  if (pool === 'gpu') return translate(lang, 'health.capacityEngineBusy', { ms });
+  return translate(lang, 'health.capacityEngineShare', {
+    ms,
+    percent: formatCount(capacityShare(busyMsPerSecond, budgetMs), lang),
+  });
+}
+
+/** One capacity row's MEASURED figures, as a sentence.
+ *
+ *  Frames actually analysed per second over the window, and what one of
+ *  them last cost — the reading, not the configured rate.
+ *
+ *  The plural is the catalogue's problem, not a trailing `s`. With one
+ *  camera every row of the card read "1 cameras" — and on a single-camera
+ *  site every row is every row there is. */
+export function formatCapacityRow(row: CapacityRowItem, lang: Language): string {
+  const key = row.cameras === 1 ? 'health.capacityRowOne' : 'health.capacityRow';
+  return translate(lang, key, {
+    cameras: formatCount(row.cameras, lang),
+    hz: row.analysedPerSecond.toFixed(1),
+    ms: formatCount(Math.round(row.msPerFrame), lang),
+  });
+}
+
+/** What the configuration asks of a row, as a sentence — the projection. */
+export function formatCapacityAsks(row: CapacityRowItem, lang: Language): string {
+  return translate(lang, 'health.capacityAsks', {
+    hz: formatCount(row.framesPerSecond ?? 0, lang),
+    ms: formatCount(Math.round(row.msPerSecond ?? 0), lang),
   });
 }
 

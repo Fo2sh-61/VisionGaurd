@@ -205,17 +205,43 @@ class TestOnboarding:
 
         ok = client.post("/sources/dvr", json={
             "host": "192.168.1.60", "username": "admin", "password": "secret",
+            "template": "rtsp://{host}:{port}/Streaming/Channels/{channel}",
+            "channels": ["101", "201"],
         })
         assert ok.status_code == 200
-        assert len(ok.json()["channels"]) > 0
+
+    def test_dvr_connect_needs_to_know_how_to_address_a_channel(self, client):
+        # Without `{channel}` every channel would probe the same URL, which is
+        # how the old fixture managed to "find" sixteen identical cameras.
+        refused = client.post("/sources/dvr", json={
+            "host": "192.168.1.60", "username": "admin", "password": "secret",
+            "template": "rtsp://{host}/stream", "channels": ["1"],
+        })
+        assert refused.status_code == 422
+        assert "{channel}" in refused.text
+
+    def test_dvr_connect_needs_the_channels_to_try(self, client):
+        # A count would be an invitation to invent 1..16, which is exactly
+        # what the fixture did. Recorders number their channels their own way.
+        assert client.post("/sources/dvr", json={
+            "host": "192.168.1.60", "username": "admin", "password": "secret",
+            "template": "rtsp://{host}/ch{channel}", "channels": [],
+        }).status_code == 422
 
     def test_test_connection_requires_a_source(self, client):
         assert client.post("/sources/test", json={}).status_code == 422
 
     def test_scan_marks_devices_already_added(self, client):
-        found = client.post("/sources/scan").json()
-        assert any(d["duplicate"] for d in found), \
+        result = client.post("/sources/scan").json()
+        assert result["available"] is True
+        assert any(d["duplicate"] for d in result["devices"]), \
             "a device already in sources should be flagged as a duplicate"
+
+    def test_scan_says_whether_it_could_look_at_all(self, client):
+        # A bare list made "we cannot search" and "nothing is out there" the
+        # same answer, and the console rendered the second for the first.
+        body = client.post("/sources/scan").json()
+        assert "available" in body and "devices" in body
 
 
 # ---------------------------------------------------------------------------

@@ -153,6 +153,14 @@ class TrackingWorker(FeatureWorker[TrackingResult]):
                  recorder=None) -> None:
         super().__init__("tracking", bus, cameras, rate_hz, boost_hz)
         self.detector = detector
+        # The processor, and deliberately NOT the detector's device. What this
+        # worker times as its own is ByteTrack and the appearance matcher -
+        # NumPy, no GPU path - because the shared person pass is subtracted
+        # from its figure and charged once on its own row. Taking the
+        # detector's "cuda:0" here put every millisecond of CPU association
+        # on the graphics-card budget, and the bar read full on a card that
+        # nvidia-smi had at 18%.
+        self.device = "cpu"
         self.pool = tracker_pool
         self.appearance = appearance
         self.store = store
@@ -403,6 +411,18 @@ class TrackingWorker(FeatureWorker[TrackingResult]):
         if session is None or session.ended:
             raise NotFollowing("Nothing is being followed.")
         return session
+
+    def _closing(self, camera_id: str) -> None:
+        """This camera is leaving the worker. Forget what it last showed.
+
+        A running follow is deliberately NOT cancelled here. The follow is a
+        person being tracked across cameras; losing one camera from the roster
+        narrows where they can be seen, and the follow's own stop reason is a
+        better record of that than a silent cancellation would be.
+        """
+        with self._follow_lock:
+            self._seen.pop(camera_id, None)
+        super()._closing(camera_id)
 
     # -- what the cameras last showed ---------------------------------------
 

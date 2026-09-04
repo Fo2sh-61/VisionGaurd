@@ -1,0 +1,148 @@
+Loading E:\VisionGuard\models\yolov8s-640.engine for TensorRT inference...
+[09/02/2026-11:52:51] [TRT] [I] Loaded engine size: 222 MiB
+[09/02/2026-11:52:51] [TRT] [I] [MemUsageChange] TensorRT-managed allocation in IExecutionContext creation: CPU +0, GPU +35, now: CPU 0, GPU 257 (MiB)
+
+Failed to load OpenH264 library: openh264-2.5.0-win64.dll
+	Please check environment and/or download library: https://github.com/cisco/openh264/releases
+
+[libopenh264 @ 0000026ca949c9c0] Unable to create encoder
+[ERROR:0@0.004] global cap_ffmpeg_impl.hpp:3566 open Could not open codec libopenh264, error: Unspecified error (-1313558101)
+[ERROR:0@0.004] global cap_ffmpeg_impl.hpp:3583 open VIDEOIO/FFMPEG: Failed to initialize VideoWriter
+recognition is on but the gallery is empty - nobody can be recognised. Enrol someone: python engine/tools/enroll.py --name ...
+camera probe-1: no such file: E:\nonexistent\ch1.mp4 (/nonexistent/ch1.mp4)
+camera probe-2: no such file: E:\nonexistent\ch2.mp4 (/nonexistent/ch2.mp4)
+camera probe-3: no such file: E:\nonexistent\ch3.mp4 (/nonexistent/ch3.mp4)
+camera probe-8: no such file: C:\Users\Fo2sh\AppData\Local\Temp\vg-walk-b2kn76fp\ch8.mp4 (C:/Users/Fo2sh/AppData/Local/Temp/vg-walk-b2kn76fp/ch8.mp4)
+[ WARN:0@10.749] global cap.cpp:477 cv::VideoCapture::open VIDEOIO(DSHOW): backend is generally available but can't be used to capture by index
+[ WARN:1@10.750] global cap.cpp:477 cv::VideoCapture::open VIDEOIO(DSHOW): backend is generally available but can't be used to capture by index
+[ WARN:2@10.771] global cap.cpp:477 cv::VideoCapture::open VIDEOIO(DSHOW): backend is generally available but can't be used to capture by index
+[ WARN:3@10.788] global cap.cpp:477 cv::VideoCapture::open VIDEOIO(DSHOW): backend is generally available but can't be used to capture by index
+[ WARN:1@1.745] global cap_ffmpeg.cpp:351 cv_capture_open_with_params FFmpeg: Exception is raised: OpenCV(4.14.0-pre) /build/opencv/modules/videoio/src/cap_ffmpeg_impl.hpp:1243: error: (-2:Unspecified error) in function 'bool CvCapture_FFMPEG::open(const char*, int, const cv::Ptr<cv::IStreamReader>&, const cv::VideoCaptureParameters&)'
+> VIDEOIO/FFMPEG: Camera index out of range (expected: 'index < device_list->nb_devices'), where
+>     'index' is 23
+> must be less than
+>     'device_list->nb_devices' is 4
+
+[ERROR:0@11.462] global obsensor_uvc_stream_channel.cpp:163 cv::obsensor::getStreamChannelGroup Camera index out of range
+camera cam-walk-c: could not open stream (webcam:23)
+[ WARN:2@1.875] global cap_ffmpeg.cpp:351 cv_capture_open_with_params FFmpeg: Exception is raised: OpenCV(4.14.0-pre) /build/opencv/modules/videoio/src/cap_ffmpeg_impl.hpp:1243: error: (-2:Unspecified error) in function 'bool CvCapture_FFMPEG::open(const char*, int, const cv::Ptr<cv::IStreamReader>&, const cv::VideoCaptureParameters&)'
+> VIDEOIO/FFMPEG: Camera index out of range (expected: 'index < device_list->nb_devices'), where
+>     'index' is 21
+> must be less than
+>     'device_list->nb_devices' is 4
+
+[ERROR:1@11.589] global obsensor_uvc_stream_channel.cpp:163 cv::obsensor::getStreamChannelGroup Camera index out of range
+camera cam-walk-a: could not open stream (webcam:21)
+[ WARN:3@2.003] global cap_ffmpeg.cpp:351 cv_capture_open_with_params FFmpeg: Exception is raised: OpenCV(4.14.0-pre) /build/opencv/modules/videoio/src/cap_ffmpeg_impl.hpp:1243: error: (-2:Unspecified error) in function 'bool CvCapture_FFMPEG::open(const char*, int, const cv::Ptr<cv::IStreamReader>&, const cv::VideoCaptureParameters&)'
+> VIDEOIO/FFMPEG: Camera index out of range (expected: 'index < device_list->nb_devices'), where
+>     'index' is 25
+> must be less than
+>     'device_list->nb_devices' is 4
+
+[ERROR:3@11.716] global obsensor_uvc_stream_channel.cpp:163 cv::obsensor::getStreamChannelGroup Camera index out of range
+camera cam-walk-plain: could not open stream (webcam:25)
+[ WARN:4@2.113] global cap_ffmpeg.cpp:351 cv_capture_open_with_params FFmpeg: Exception is raised: OpenCV(4.14.0-pre) /build/opencv/modules/videoio/src/cap_ffmpeg_impl.hpp:1243: error: (-2:Unspecified error) in function 'bool CvCapture_FFMPEG::open(const char*, int, const cv::Ptr<cv::IStreamReader>&, const cv::VideoCaptureParameters&)'
+> VIDEOIO/FFMPEG: Camera index out of range (expected: 'index < device_list->nb_devices'), where
+>     'index' is 24
+> must be less than
+>     'device_list->nb_devices' is 4
+
+[ERROR:2@11.826] global obsensor_uvc_stream_channel.cpp:163 cv::obsensor::getStreamChannelGroup Camera index out of range
+camera cam-walk-knives: could not open stream (webcam:24)
+[ WARN:0@11.993] global cap.cpp:477 cv::VideoCapture::open VIDEOIO(DSHOW): backend is generally available but can't be used to capture by index
+[ WARN:1@12.122] global cap.cpp:477 cv::VideoCapture::open VIDEOIO(DSHOW): backend is generally available but can't be used to capture by index
+[ WARN:4@12.263] global cap.cpp:477 cv::VideoCapture::open VIDEOIO(DSHOW): backend is generally available but can't be used to capture by index
+[ WARN:5@12.341] global cap.cpp:477 cv::VideoCapture::open VIDEOIO(DSHOW): backend is generally available but can't be used to capture by index
+[ WARN:6@12.342] global cap.cpp:477 cv::VideoCapture::open VIDEOIO(DSHOW): backend is generally available but can't be used to capture by index
+[ WARN:7@12.349] global cap.cpp:477 cv::VideoCapture::open VIDEOIO(DSHOW): backend is generally available but can't be used to capture by index
+[ WARN:8@12.359] global cap.cpp:477 cv::VideoCapture::open VIDEOIO(DSHOW): backend is generally available but can't be used to capture by index
+[ WARN:9@12.367] global cap.cpp:477 cv::VideoCapture::open VIDEOIO(DSHOW): backend is generally available but can't be used to capture by index
+[ WARN:10@12.367] global cap.cpp:477 cv::VideoCapture::open VIDEOIO(DSHOW): backend is generally available but can't be used to capture by index
+[ WARN:11@12.375] global cap.cpp:477 cv::VideoCapture::open VIDEOIO(DSHOW): backend is generally available but can't be used to capture by index
+[ WARN:12@12.381] global cap.cpp:477 cv::VideoCapture::open VIDEOIO(DSHOW): backend is generally available but can't be used to capture by index
+[ WARN:13@12.394] global cap.cpp:477 cv::VideoCapture::open VIDEOIO(DSHOW): backend is generally available but can't be used to capture by index
+[ WARN:14@12.398] global cap.cpp:477 cv::VideoCapture::open VIDEOIO(DSHOW): backend is generally available but can't be used to capture by index
+[ WARN:2@12.412] global cap.cpp:477 cv::VideoCapture::open VIDEOIO(DSHOW): backend is generally available but can't be used to capture by index
+[ WARN:15@12.420] global cap.cpp:477 cv::VideoCapture::open VIDEOIO(DSHOW): backend is generally available but can't be used to capture by index
+[ WARN:16@12.423] global cap.cpp:477 cv::VideoCapture::open VIDEOIO(DSHOW): backend is generally available but can't be used to capture by index
+[ WARN:1@2.753] global cap_ffmpeg.cpp:351 cv_capture_open_with_params FFmpeg: Exception is raised: OpenCV(4.14.0-pre) /build/opencv/modules/videoio/src/cap_ffmpeg_impl.hpp:1243: error: (-2:Unspecified error) in function 'bool CvCapture_FFMPEG::open(const char*, int, const cv::Ptr<cv::IStreamReader>&, const cv::VideoCaptureParameters&)'
+> VIDEOIO/FFMPEG: Camera index out of range (expected: 'index < device_list->nb_devices'), where
+>     'index' is 23
+> must be less than
+>     'device_list->nb_devices' is 4
+
+[ERROR:0@12.468] global obsensor_uvc_stream_channel.cpp:163 cv::obsensor::getStreamChannelGroup Camera index out of range
+camera cam-walk-c: could not open stream (webcam:23)
+[ WARN:2@2.898] global cap_ffmpeg.cpp:351 cv_capture_open_with_params FFmpeg: Exception is raised: OpenCV(4.14.0-pre) /build/opencv/modules/videoio/src/cap_ffmpeg_impl.hpp:1243: error: (-2:Unspecified error) in function 'bool CvCapture_FFMPEG::open(const char*, int, const cv::Ptr<cv::IStreamReader>&, const cv::VideoCaptureParameters&)'
+> VIDEOIO/FFMPEG: Camera index out of range (expected: 'index < device_list->nb_devices'), where
+>     'index' is 21
+> must be less than
+>     'device_list->nb_devices' is 4
+
+[ERROR:1@12.611] global obsensor_uvc_stream_channel.cpp:163 cv::obsensor::getStreamChannelGroup Camera index out of range
+camera cam-walk-a: could not open stream (webcam:21)
+[ WARN:0@13.496] global cap.cpp:477 cv::VideoCapture::open VIDEOIO(DSHOW): backend is generally available but can't be used to capture by index
+[ WARN:1@13.669] global cap.cpp:477 cv::VideoCapture::open VIDEOIO(DSHOW): backend is generally available but can't be used to capture by index
+guard@local (it) was refused POST /sources
+guard@local (it) was refused POST /sources/bulk
+guard@local (it) was refused PATCH /sources/cam-walk-a
+guard@local (it) was refused DELETE /sources/cam-walk-a
+guard@local (it) was refused POST /sources/dvr
+
+1. The recorder no longer lies
+  PASS  unreachable recorder is 200, not an error
+  PASS  reachable is false with a reason — None of the 3 channel(s) tried on 10.255.255.1 returned a pi
+  PASS  nothing is offered to add
+  PASS  every channel asked about is still reported
+  PASS  no channel claims a resolution it never got
+  PASS  a template with no {channel} is refused 422
+  PASS  a real channel reports a real resolution — 640x480
+  PASS  a channel with nothing on it is checked, down, and explains itself
+
+2. Nothing appears that was not saved
+  PASS  scan says whether it could look at all
+  PASS  scan is honestly unavailable, not an empty list — Searching the network for cameras is not available on this e
+  PASS  bulk add is 200 with one outcome each
+  PASS  the bad one is refused and the others still added — [True, False, True]
+  PASS  the refusal explains itself — camera 'cam-walk-b': has 'vehicles' in features but no gate/direction 
+  PASS  what was added is actually there
+
+3. The feature list governs
+  PASS  a camera can be given knife detection
+  PASS  a camera without it does not have it
+  PASS  an unknown feature name is refused 422
+  PASS  and the message names the word
+  PASS  system health stays 200 whatever is off
+
+4. A camera can be corrected
+  PASS  a features-only edit does not reopen the stream
+  PASS  the change took
+  PASS  its id did not change
+  PASS  changing the rate does reopen the stream
+  PASS  editing a config-file camera says it now shadows it
+  PASS  editing a camera that does not exist is 404
+  PASS  an invalid edit is refused 422
+  PASS  and changed nothing
+
+5. Adding many at once
+  PASS  twelve in, twelve outcomes out
+  PASS  indexes line up with what was sent
+  PASS  a camera already running was not disturbed
+
+6. No password anywhere
+  PASS  no password in the camera list
+  PASS  no password in the audit trail
+  PASS  no password in system health
+  PASS  but the address is still readable — rtsp://admin:****@10.0.0.9/s
+  PASS  adds are audited
+  PASS  edits are audited
+  PASS  removals are audited
+
+7. Only administrators
+  PASS  a guard cannot add — got 403
+  PASS  a guard cannot bulk — got 403
+  PASS  a guard cannot edit — got 403
+  PASS  a guard cannot remove — got 403
+  PASS  a guard cannot connect a recorder — got 403
+
+every check passed

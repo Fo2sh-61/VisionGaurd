@@ -369,3 +369,88 @@ class TestGateCameras:
         # There is no exit camera yet, and the Movements tab must say so
         # rather than print a paired figure it cannot compute (P6-FR-012).
         assert not [c for c in loaded.cameras if c.direction == "exit"]
+
+
+class TestFeatureVocabulary:
+    """A feature name the engine does not know must be refused at load.
+
+    It used to be accepted and then silently do nothing: a camera configured
+    for `weapon` rather than `weapons` ran no knife detection, for ever, and
+    nothing anywhere said why. Refusing at parse time is the whole fix - the
+    typo becomes a startup error naming the word.
+    """
+
+    def test_every_known_feature_parses(self):
+        for name in sorted(cfg.FEATURES):
+            extra = {"gate": 1, "direction": "entry"} if name == "vehicles" else {}
+            assert name in camera(features=[name], **extra).features
+
+    def test_an_unknown_feature_is_refused(self):
+        with pytest.raises(cfg.ConfigError, match="weapon"):
+            camera(features=["weapon"])
+
+    def test_the_message_names_the_word_that_was_wrong(self):
+        with pytest.raises(cfg.ConfigError) as raised:
+            camera(features=["counting", "atendance"])
+
+        assert "atendance" in str(raised.value)
+        # And says what was expected, so the fix does not need this file.
+        assert "attendance" in str(raised.value)
+
+    def test_the_shipped_config_uses_only_known_features(self, loaded):
+        for cam in loaded.cameras:
+            assert set(cam.features) <= cfg.FEATURES, cam.id
+
+
+class TestARateThatCannotWork:
+    """A feature that cannot fire at the configured rate is refused.
+
+    This is the same failure the closed `FEATURES` set prevents, reached from
+    the other side. Knife detection opens an entry on three sightings inside
+    one second, so at two frames a second the third sighting can never
+    arrive: the camera is watched, the model is loaded, every screen says
+    knife detection is running, and no entry can ever be written.
+
+    Turning the rate down is the cheapest saving this product has, which is
+    exactly why the features that cannot survive it need a floor.
+    """
+
+    def test_the_floor_matches_the_rule_it_came_from(self):
+        """A copied number is only safe while something checks it.
+
+        `MIN_ANALYTICS_HZ` restates a rule that lives in the weapons worker.
+        If somebody relaxes CONFIRM_HITS or lengthens CONFIRM_SECONDS, this
+        fails rather than leaving the floor quietly too high — or, worse,
+        quietly too low.
+        """
+        from vg.features.weapons import CONFIRM_HITS, CONFIRM_SECONDS
+
+        assert cfg.MIN_ANALYTICS_HZ["weapons"] == CONFIRM_HITS / CONFIRM_SECONDS
+
+    def test_knife_detection_below_the_floor_is_refused(self):
+        with pytest.raises(cfg.ConfigError, match="weapons"):
+            camera(features=["weapons"], fps=2)
+
+    def test_the_message_says_what_to_do_about_it(self):
+        with pytest.raises(cfg.ConfigError) as raised:
+            camera(features=["weapons"], fps=2)
+
+        text = str(raised.value)
+        assert "3" in text and "2" in text
+        assert "raise the rate" in text.lower()
+
+    def test_exactly_the_floor_is_allowed(self):
+        """Three sightings in one second is possible at exactly 3/sec. The
+        bar is 'can this ever fire', not 'is this comfortable'."""
+        assert camera(features=["weapons"], fps=3).fps == 3
+
+    def test_counting_has_no_floor(self):
+        """Deliberately. Counting answers a question about a second, not
+        about a frame, and a threshold for it would be invented."""
+        assert camera(features=["counting"], fps=1).fps == 1
+
+    def test_the_shipped_config_clears_every_floor(self, loaded):
+        for cam in loaded.cameras:
+            for feature, floor in cfg.MIN_ANALYTICS_HZ.items():
+                if feature in cam.features:
+                    assert cam.fps >= floor, cam.id

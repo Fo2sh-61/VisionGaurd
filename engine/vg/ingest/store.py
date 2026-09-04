@@ -27,17 +27,27 @@ log = logging.getLogger(__name__)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS camera (
-    id          TEXT PRIMARY KEY,
-    name        TEXT NOT NULL,
-    source      TEXT NOT NULL,
-    kind        TEXT NOT NULL DEFAULT 'RTSP',
-    area        TEXT NOT NULL DEFAULT 'Unassigned',
-    fps         REAL NOT NULL DEFAULT 5.0,
-    rotate      INTEGER NOT NULL DEFAULT 0,
-    features    TEXT NOT NULL DEFAULT '',
-    enabled     INTEGER NOT NULL DEFAULT 1,
-    removed_at  TEXT,
-    created_at  TEXT NOT NULL
+    id            TEXT PRIMARY KEY,
+    name          TEXT NOT NULL,
+    source        TEXT NOT NULL,
+    kind          TEXT NOT NULL DEFAULT 'RTSP',
+    area          TEXT NOT NULL DEFAULT 'Unassigned',
+    fps           REAL NOT NULL DEFAULT 5.0,
+    rotate        INTEGER NOT NULL DEFAULT 0,
+    features      TEXT NOT NULL DEFAULT '',
+    enabled       INTEGER NOT NULL DEFAULT 1,
+    removed_at    TEXT,
+    created_at    TEXT NOT NULL,
+    -- The rest of what a camera is. `CameraConfig` has carried these since
+    -- the features that need them shipped; this table did not, so a camera
+    -- added from the console could never be an identity camera or a gate
+    -- camera whatever was typed. See `_migrate` for databases made earlier.
+    faces         INTEGER NOT NULL DEFAULT 0,
+    gate          INTEGER,
+    direction     TEXT,
+    face_gate     TEXT NOT NULL DEFAULT '',
+    live_capture  TEXT NOT NULL DEFAULT 'watched',
+    neighbours    TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS camera_restricted (
@@ -56,7 +66,32 @@ class CameraStore:
         self._lock = threading.RLock()
         self._conn = db.connect(self.path)
         self._conn.executescript(SCHEMA)
+        self._migrate()
         self._conn.commit()
+
+    def _migrate(self) -> None:
+        """Add columns to a `camera` table created before they existed.
+
+        `CREATE TABLE IF NOT EXISTS` does nothing to a table that is already
+        there, so an engine upgraded in place keeps the old eleven columns and
+        every read of a new one raises. The same six lines are in
+        `events/vehicles.py` and `auth/store.py`; this is deliberately a copy
+        rather than a shared migration framework, because three call sites do
+        not justify one.
+        """
+        for table, column, ddl in (
+            ("camera", "faces", "INTEGER NOT NULL DEFAULT 0"),
+            ("camera", "gate", "INTEGER"),
+            ("camera", "direction", "TEXT"),
+            ("camera", "face_gate", "TEXT NOT NULL DEFAULT ''"),
+            ("camera", "live_capture", "TEXT NOT NULL DEFAULT 'watched'"),
+            ("camera", "neighbours", "TEXT NOT NULL DEFAULT ''"),
+        ):
+            existing = {r["name"] for r in
+                        self._conn.execute(f"PRAGMA table_info({table})")}
+            if column not in existing:
+                self._conn.execute(
+                    f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
 
     def add(
         self,
@@ -68,12 +103,23 @@ class CameraStore:
         fps: float = 5.0,
         features: tuple[str, ...] = ("counting",),
         rotate: int = 0,
+        enabled: bool = True,
+        faces: bool = False,
+        gate: int | None = None,
+        direction: str | None = None,
+        face_gate: str = "",
+        live_capture: str = "watched",
+        neighbours: tuple[str, ...] = (),
     ) -> CameraConfig:
         """Add or re-add a camera.
 
         Re-adding a soft-deleted id revives it rather than failing, which is
         what an operator means when they add back a camera they removed by
         mistake.
+
+        Every default here is `CameraConfig`'s own, so a camera added without
+        the newer arguments is indistinguishable from one seeded by
+        engine.yaml without them.
         """
         config = CameraConfig.parse(
             {
@@ -83,6 +129,13 @@ class CameraStore:
                 "kind": kind,
                 "area": area,
                 "fps": fps,
+                "enabled": enabled,
+                "faces": faces,
+                "gate": gate,
+                "direction": direction,
+                "face_gate": face_gate,
+                "live_capture": live_capture,
+                "neighbours": list(neighbours),
                 "features": list(features),
                 "rotate": rotate,
             },
@@ -93,16 +146,25 @@ class CameraStore:
             self._conn.execute(
                 "INSERT INTO camera "
                 "(id, name, source, kind, area, fps, rotate, features, enabled, "
-                " removed_at, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, ?) "
+                " removed_at, created_at, faces, gate, direction, face_gate, "
+                " live_capture, neighbours) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT(id) DO UPDATE SET "
                 "  name=excluded.name, source=excluded.source, kind=excluded.kind, "
                 "  area=excluded.area, fps=excluded.fps, rotate=excluded.rotate, "
-                "  features=excluded.features, enabled=1, removed_at=NULL",
+                "  features=excluded.features, enabled=excluded.enabled, "
+                "  removed_at=NULL, faces=excluded.faces, gate=excluded.gate, "
+                "  direction=excluded.direction, face_gate=excluded.face_gate, "
+                "  live_capture=excluded.live_capture, "
+                "  neighbours=excluded.neighbours",
                 (
                     config.id, config.name, config.source, config.kind, config.area,
                     config.fps, config.rotate, ",".join(config.features),
+                    1 if config.enabled else 0,
                     datetime.now(timezone.utc).isoformat(),
+                    1 if config.faces else 0, config.gate, config.direction,
+                    config.face_gate, config.live_capture,
+                    ",".join(config.neighbours),
                 ),
             )
             self._conn.commit()
@@ -190,6 +252,11 @@ class CameraStore:
                         "kind": row["kind"], "area": row["area"], "fps": row["fps"],
                         "rotate": row["rotate"], "enabled": bool(row["enabled"]),
                         "features": [f for f in row["features"].split(",") if f],
+                        "faces": bool(row["faces"]),
+                        "gate": row["gate"], "direction": row["direction"],
+                        "face_gate": row["face_gate"],
+                        "live_capture": row["live_capture"],
+                        "neighbours": [n for n in row["neighbours"].split(",") if n],
                     },
                     f"stored camera {row['id']!r}",
                 ))

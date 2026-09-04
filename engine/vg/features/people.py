@@ -104,6 +104,10 @@ class PeopleWorker(FeatureWorker[PeopleResult]):
     ) -> None:
         super().__init__("people", bus, cameras, rate_hz, boost_hz)
         self.detector = detector
+        # Asked, not assumed. System Health charges this worker to whichever
+        # pool the model actually loaded onto, and a detector that fell back
+        # to CPU must not be costed against the GPU budget.
+        self.device = getattr(detector, "device", None)
         # camera id -> its zones. Rebindable at runtime so drawing a new zone
         # takes effect without restarting the engine.
         self.zones = zones or {}

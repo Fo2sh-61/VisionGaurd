@@ -223,10 +223,18 @@ def _clock():
     return clock_for("UTC")
 
 
-def new_watch(registry, detector, now: FixedNow):
+def new_watch(registry, detector, now: FixedNow, cameras=None):
+    """A started BagWatch serving every camera in the registry.
+
+    `cameras` is what carries the `lostitems` feature. These tests are about
+    what bag search DOES, so by default every camera in the registry carries
+    it; `test_feature_assignment.py` is where the gating itself is tested.
+    """
     from vg.features.lostbag import BagWatch
 
-    watch = BagWatch(registry, detector, _clock(), now=now)
+    if cameras is None:
+        cameras = set(getattr(registry, "workers", {}) or ())
+    watch = BagWatch(registry, detector, _clock(), now=now, cameras=cameras)
     watch.start()
     return watch
 
@@ -692,9 +700,12 @@ class TestStandsAlone:
 
         monkeypatch.setattr(persons_module, "PersonDetector", boom)
 
+        # `lostitems` and nothing else. The point of this test is that bag
+        # search needs no OTHER feature switched on (rule 9) - it does need
+        # to be switched on itself, which is what the feature list now means.
         roster = [CameraConfig.parse(
             {"id": "cam-a", "name": "Main entrance", "source": "webcam:0",
-             "features": []}, "cam-a")]
+             "features": ["lostitems"]}, "cam-a")]
         registry = FakeRegistry({"cam-a": FakeWorker(
             FakeConfig("cam-a", "Main entrance"), marked("cam-a", 1, 2))})
 

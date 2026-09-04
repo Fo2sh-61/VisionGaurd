@@ -1,0 +1,7 @@
+# Pre-change baseline for 011-camera-onboarding
+# commit faab0fd, 1 Sep 2026, python -m pytest engine --color=no
+#
+# NOTE: do NOT pass -q here. pytest.ini already sets it in addopts, so a
+# second -q makes it -qq and pytest suppresses the summary line entirely.
+
+1414 passed, 6 skipped, 1 warning in 178.35s

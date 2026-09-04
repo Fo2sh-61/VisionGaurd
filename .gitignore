@@ -36,6 +36,14 @@ venv/
 # runtime data: database, extracted clips, captured footage
 engine/data/
 
+# training and evaluation sets. 204 MB of plates today, and a set only
+# grows - same rule as the weights below: tracked out of band, not in git.
+datasets/
+
+# vendored third-party trackers, 2.3 GB, weights and all. Same rule again:
+# supplied with the machine, never carried in git.
+vendor/
+
 # --- model weights ---------------------------------------------------------
 # 1.2 GB of binaries. Tracked out of band, not in git.
 # models/MODELS.md and models/README.md ARE tracked — they are the record of

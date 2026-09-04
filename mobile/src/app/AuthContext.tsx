@@ -1,50 +1,121 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
+/** Who is signed in — according to the engine, not according to this browser.
+ *
+ *  What this replaces, in full:
+ *
+ *      localStorage.setItem('vg.role', 'admin')
+ *
+ *  That was the whole authorisation system. Two accounts were hard-coded in
+ *  this file, `signIn(role)` took the role as an argument, and the email and
+ *  password on the sign-in form were collected and thrown away. Typing that
+ *  one line into a browser console made you an administrator of a system
+ *  holding face data for children.
+ *
+ *  Now the account comes from `/auth/me` and nowhere else. Nothing about it is
+ *  stored in this browser, so there is nothing to edit: changing anything here
+ *  changes what the console *draws*, and the engine still refuses the request.
+ *  The role is a hint for the interface, never a permission.
+ *
+ *  The session survives a refresh through an HttpOnly cookie the engine sets.
+ *  A script cannot read it, which is the point — the token this file holds is
+ *  in memory only and is expected to be lost on reload.
+ */
+
+import {
+  createContext, useCallback, useContext, useEffect, useMemo, useState,
+  type ReactNode,
+} from 'react';
+import {
+  getMe, register as apiRegister, signIn as apiSignIn, signOut as apiSignOut,
+} from '@/services/api';
+import { setUnauthorisedHandler } from '@/services/http';
+import type { Language } from '@/i18n';
 import type { Role } from '@/types';
 
 export interface Account {
+  id: string;
   name: string;
   role: Role;
   initials: string;
   email: string;
+  /** Which language this person reads the console in. Held by the engine,
+   *  because the gate station is shared and a browser-wide setting would
+   *  hand the next guard the previous guard's language. */
+  language: Language;
 }
-
-const ACCOUNTS: Record<Role, Account> = {
-  admin: {
-    name: 'Mohamed Fouad',
-    role: 'admin',
-    initials: 'MF',
-    email: 'mohamed61fouad@gmail.com',
-  },
-  it: { name: 'Tarek Nassar', role: 'it', initials: 'TN', email: 'tarek.n@school.edu' },
-};
 
 interface AuthValue {
   account: Account | null;
-  signIn: (role: Role) => void;
-  signOut: () => void;
+  /** True until we have asked the engine whether a session exists. Rendering
+   *  the sign-in form during this moment would flash it at somebody who is
+   *  already signed in, on every refresh. */
+  checking: boolean;
+  signIn: (email: string, password: string) => Promise<void>;
+  /** Create an account and land signed in. The engine decides the role — it
+   *  is always `it`, never `admin`, whatever this page might prefer. */
+  register: (name: string, email: string, password: string) => Promise<void>;
+  signOut: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthValue | null>(null);
 
-const STORAGE_KEY = 'vg-mobile.role';
-
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [account, setAccount] = useState<Account | null>(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    return saved === 'admin' || saved === 'it' ? ACCOUNTS[saved] : null;
-  });
+  const [account, setAccount] = useState<Account | null>(null);
+  const [checking, setChecking] = useState(true);
 
-  const signIn = useCallback((role: Role) => {
-    localStorage.setItem(STORAGE_KEY, role);
-    setAccount(ACCOUNTS[role]);
+  // Ask the engine who we are. On a fresh load this is what turns the cookie
+  // back into a session; a 401 simply means nobody is signed in, which is not
+  // an error worth showing.
+  useEffect(() => {
+    let cancelled = false;
+    getMe()
+      .then((me) => !cancelled && setAccount(me))
+      .catch(() => !cancelled && setAccount(null))
+      .finally(() => !cancelled && setChecking(false));
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const signOut = useCallback(() => {
-    localStorage.removeItem(STORAGE_KEY);
+  // One place decides what a 401 means. Without this a session that expires
+  // mid-shift leaves every page showing "could not load" and no way to guess
+  // that signing in again is the fix.
+  useEffect(() => {
+    setUnauthorisedHandler(() => setAccount(null));
+    return () => setUnauthorisedHandler(null);
+  }, []);
+
+  const signIn = useCallback(async (email: string, password: string) => {
+    // Throws on bad credentials; the form shows the engine's message rather
+    // than inventing one, so "email or password is wrong" stays a single
+    // answer and cannot become a way to test whether an account exists.
+    const me = await apiSignIn(email, password);
+    setAccount(me);
+  }, []);
+
+  const register = useCallback(async (name: string, email: string, password: string) => {
+    // Throws with the engine's own message — too short a password, an address
+    // already registered. The form shows exactly that, so the two cannot
+    // drift apart the day a rule changes on the engine.
+    const me = await apiRegister(name, email, password);
+    setAccount(me);
+  }, []);
+
+  const signOut = useCallback(async () => {
+    // Clear locally first: if the network call fails, the operator has still
+    // left the console, which is what they asked for. The server-side row is
+    // what actually ends the session, and it is attempted regardless.
     setAccount(null);
+    try {
+      await apiSignOut();
+    } catch {
+      /* already gone, or unreachable — either way this browser is signed out */
+    }
   }, []);
 
-  const value = useMemo(() => ({ account, signIn, signOut }), [account, signIn, signOut]);
+  const value = useMemo(
+    () => ({ account, checking, signIn, register, signOut }),
+    [account, checking, signIn, register, signOut],
+  );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
@@ -54,6 +125,7 @@ export function useAuth(): AuthValue {
   return ctx;
 }
 
+/** Inside the signed-in shell the account always exists — this saves the null checks. */
 export function useAccount(): Account {
   const { account } = useAuth();
   if (!account) throw new Error('useAccount used outside a signed-in route');

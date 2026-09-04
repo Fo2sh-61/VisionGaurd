@@ -151,7 +151,45 @@ def parse_source(spec: str) -> tuple[SourceKind, str | int]:
     if spec.startswith("file:"):
         return SourceKind.FILE, spec.split(":", 1)[1]
 
+    if _looks_like_an_address(spec):
+        # Refused rather than tried as a filename. An operator who typed
+        # `192.168.144.108` was told `no such file:
+        # E:\VisionGuard\192.168.144.108`, which reads like an internal fault
+        # and hides the real problem. A camera needs a scheme and a path -
+        # every camera spells the path differently, so it cannot be guessed.
+        raise ValueError(
+            f"{spec!r} is an address, not a stream. A camera needs a full "
+            f"URL including the stream path, like "
+            f"rtsp://user:password@{spec}/Streaming/Channels/101 - check the "
+            f"camera's manual or its web page for the path it uses."
+        )
+
     return SourceKind.FILE, spec
+
+
+#: A host and optional port, with nothing that could be a path or a filename.
+#: Deliberately narrow: anything carrying `/`, `\` or a file extension is left
+#: alone, so bare relative paths like `clips/walk.mp4` still work.
+_ADDRESS = re.compile(
+    r"""^
+    (?:\d{1,3}(?:\.\d{1,3}){3}      # a dotted quad
+     | [A-Za-z][A-Za-z0-9-]*        # or a bare hostname, no dots
+    )
+    (?::\d{1,5})?                   # optional :port
+    $""",
+    re.VERBOSE,
+)
+
+
+def _looks_like_an_address(spec: str) -> bool:
+    """Is this a machine to connect to, rather than a file to open?
+
+    `192.168.1.10`, `192.168.1.10:554` and `front-door` are addresses.
+    `clips/walk.mp4`, `walk.mp4` and `C:\\footage\\walk.mp4` are not.
+    """
+    if "/" in spec or "\\" in spec:
+        return False
+    return bool(_ADDRESS.match(spec))
 
 
 class CameraSource:

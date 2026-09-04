@@ -146,6 +146,11 @@ class RecognitionWorker(FeatureWorker[FacesResult]):
         self.gallery = gallery
         self.sightings = sightings
         self.pipeline = pipeline or FacePipeline()
+        # Always the processor. YuNet and SFace run through OpenCV directly
+        # (`infer/faces.py`) — there is no CUDA build to keep in step with, so
+        # this is a fact about the models rather than a fallback. It is also
+        # why attendance never competes with counting for the GPU.
+        self.device = "cpu"
         # Optional. When present, a face match also tells the tracker WHICH
         # person the body it is following is - the only way a name reaches
         # cameras where the face is not visible. Recognition never depends

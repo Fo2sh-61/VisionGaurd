@@ -1,5 +1,5 @@
 /** The mark: a rounded square with a single "lens" notch cut out of one corner. */
-export function Logo({ size = 30 }: { size?: number }) {
+export function Logo({ size = 28 }: { size?: number }) {
   return (
     <div
       style={{
@@ -18,7 +18,7 @@ export function Logo({ size = 30 }: { size?: number }) {
           width: size * 0.43,
           height: size * 0.43,
           borderRadius: '50% 50% 50% 4px',
-          background: 'var(--bg)',
+          background: 'var(--panel)',
         }}
       />
     </div>

@@ -1,165 +1,319 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { getGroups, getPeople } from '@/services/api';
+import { useMemo, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Badge, Card, DataNotice, Empty, LoadError, PageHeader } from '@/components/ui';
+import { getGroups, getPeople, removePerson } from '@/services/api';
 import type { DirectoryPerson, GroupSummary, PersonType } from '@/types';
+import { useAccount } from '@/app/AuthContext';
+import { useCapability } from '@/app/CapabilityContext';
+import { useAsync } from '@/app/useAsync';
+import { useLanguage, useT } from '@/app/LanguageContext';
+import type { MessageKey } from '@/i18n';
 
-const TABS: { key: PersonType | 'All'; label: string }[] = [
-  { key: 'All', label: 'All' },
-  { key: 'Student', label: 'Students' },
-  { key: 'Staff', label: 'Staff' },
-  { key: 'Visitor', label: 'Visitors' },
-];
+const TABS: (PersonType | 'All')[] = ['All', 'Student', 'Staff', 'Visitor'];
 
-const COUNTS: Record<PersonType | 'All', string> = {
-  All: '2,118 people',
-  Student: '1,742 students',
-  Staff: '168 staff',
-  Visitor: '12 visitors this week',
-};
+/* What one tab calls the thing it is counting used to be a table of English
+   nouns here, with singular and plural picked against the real number so
+   "1 students" could not happen. Both forms now live in the catalogue as
+   `people.count.*` and `people.countOne.*` — Arabic does not split the same
+   way English does, and the noun cannot be glued on afterwards. */
+
+const NO_PEOPLE: DirectoryPerson[] = [];
+const NO_GROUPS: GroupSummary[] = [];
 
 export function People() {
+  const { language } = useLanguage();
+  const t = useT();
+  const capability = useCapability('people');
   const navigate = useNavigate();
-  const [people, setPeople] = useState<DirectoryPerson[]>([]);
-  const [groups, setGroups] = useState<GroupSummary[]>([]);
+  // A hint for the interface, never a permission: the engine refuses a
+  // non-administrator whatever this console decides to draw.
+  const isAdmin = useAccount().role === 'admin';
   const [tab, setTab] = useState<PersonType | 'All'>('All');
-  const [query, setQuery] = useState('');
-  const [openName, setOpenName] = useState<string | null>(null);
+  // Ask lands here with the question resolved. See Attendance for why
+  // reading these matters: a link nothing reads is decoration.
+  const [params] = useSearchParams();
+  const [query, setQuery] = useState(params.get('query') ?? '');
+  // Which row is mid-confirmation, and what the last removal said if it failed.
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const [removing, setRemoving] = useState(false);
+  const [removeError, setRemoveError] = useState<string | null>(null);
 
-  useEffect(() => {
-    void getPeople().then(setPeople);
-    void getGroups().then(setGroups);
-  }, []);
+  const {
+    data: people, error: peopleError, loading: peopleLoading, reload: reloadPeople,
+  } = useAsync(() => getPeople(language), [language], NO_PEOPLE);
+  const {
+    data: groups, error: groupsError, loading: groupsLoading, reload: reloadGroups,
+  } = useAsync(() => getGroups(language), [language], NO_GROUPS);
+
+  /** The row is the link. History works for staff and visitors exactly as it
+   *  does for students — the page was the only thing gating it. */
+  function openHistory(p: DirectoryPerson) {
+    navigate(`/people/history/${encodeURIComponent(p.name)}`, {
+      state: { from: 'people' },
+    });
+  }
+
+  /** Remove someone, then re-read the directory from the engine.
+   *
+   *  Re-reading rather than splicing the row out locally: the engine is the
+   *  one that knows whether it happened, and a list that removes the row on
+   *  its own initiative would keep looking right after a failure. */
+  async function remove(p: DirectoryPerson) {
+    setRemoving(true);
+    setRemoveError(null);
+    try {
+      await removePerson(p.id);
+      setConfirming(null);
+      reloadPeople();
+      reloadGroups();
+    } catch (err) {
+      setRemoveError(
+        err instanceof Error ? err.message : `${p.name} could not be removed.`,
+      );
+    } finally {
+      setRemoving(false);
+    }
+  }
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return people.filter((p) => (tab === 'All' || p.type === tab) && (!q || p.name.toLowerCase().includes(q)));
+    return people.filter(
+      (p) => (tab === 'All' || p.type === tab) && (!q || p.name.toLowerCase().includes(q)),
+    );
   }, [people, tab, query]);
 
-  return (
-    <div className="screen">
-      <div className="screen__title">People</div>
-      <p className="screen__lead">Students, staff and registered visitors. Records come from the school database — read-only here.</p>
+  // The heading used to come from a hard-coded table - "2,118 people",
+  // "1,742 students" - which the page printed whatever the engine returned,
+  // including when it returned nothing or failed outright. It is now counted
+  // from the rows actually on screen, and says nothing at all until they are
+  // there. A directory that invents its own size is exactly the fixture the
+  // constitution forbids.
+  const known = !peopleLoading && !peopleError;
+  const counted = filtered.length === 1
+    ? t(`people.countOne.${tab}` as MessageKey)
+    : t(`people.count.${tab}` as MessageKey, { count: filtered.length });
+  const heading = !known
+    ? peopleError ? t('people.title') : t('people.counting')
+    : query.trim()
+      ? t('people.matching', { counted, query: query.trim() })
+      : counted;
 
-      <input
-        className="input"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder="Search by name…"
-        style={{ boxShadow: 'var(--sh)', border: 'none', marginBottom: 12 }}
+  return (
+    <>
+      <DataNotice capability={capability} />
+      <LoadError error={peopleError} onRetry={reloadPeople} what="load.peopleDirectory" />
+      <LoadError error={removeError} what="load.removal" />
+      <PageHeader
+        title={t('people.title')}
+        lead={t('people.lead')}
       />
 
-      <div className="chip-row" style={{ marginBottom: 8 }}>
-        {TABS.map((t) => (
+      <Card tight>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+          <input
+            className="input"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={t('people.searchByName')}
+            style={{ flex: 1, minWidth: 200, height: 44, borderRadius: 11, fontSize: 14.5 }}
+          />
+          <div style={{ display: 'flex', gap: 6 }}>
+            {TABS.map((key) => (
+              <button
+                key={key}
+                type="button"
+                className={`chip-btn ${tab === key ? 'chip-btn--on' : 'chip-btn--off'}`}
+                onClick={() => setTab(key)}
+              >
+                {t(`people.tab.${key}` as MessageKey)}
+              </button>
+            ))}
+          </div>
           <button
-            key={t.key}
             type="button"
-            className={`chip-btn ${tab === t.key ? 'chip-btn--on' : 'chip-btn--off'}`}
-            onClick={() => {
-              setTab(t.key);
-              setOpenName(null);
-            }}
+            className="chip-btn chip-btn--on"
+            onClick={() => navigate('/people/enrol')}
           >
-            {t.label}
+            Enrol a face
           </button>
-        ))}
-      </div>
+        </div>
+      </Card>
 
-      <div style={{ fontSize: 12.5, color: 'var(--tx3)', marginBottom: 8 }}>{COUNTS[tab]}</div>
+      <Card>
+        <div style={{ fontWeight: 700, fontSize: 21, letterSpacing: '-.01em' }}>{heading}</div>
+        <div style={{ fontSize: 13.5, color: 'var(--tx2)', margin: '2px 0 10px' }}>
+          Click anyone to see their history. A face on file is what lets the
+          cameras recognise someone at the gates.
+        </div>
 
-      <div className="card" style={{ padding: '4px 16px' }}>
-        {filtered.map((p) => {
-          const open = openName === p.name;
-          const typeTone =
-            p.type === 'Student' ? { bg: 'var(--chip)', fg: 'var(--ac2)' } : p.type === 'Staff' ? { bg: 'var(--bg)', fg: 'var(--tx2)' } : { bg: 'var(--am-bg)', fg: 'var(--am)' };
-          const photoTone = p.photoOnFile ? { bg: 'var(--chip)', fg: 'var(--ac2)' } : { bg: 'var(--am-bg)', fg: 'var(--am)' };
-
-          return (
-            <div key={p.name} style={{ padding: '12px 0', borderBottom: '1px solid var(--line)' }}>
+        {filtered.map((p) => (
+          <div
+            key={p.id || p.name}
+            className="row row--click"
+            role="button"
+            tabIndex={0}
+            aria-label={t('people.open', { name: p.name })}
+            onClick={() => openHistory(p)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                openHistory(p);
+              }
+            }}
+            style={{ gridTemplateColumns: '1.5fr .7fr 1.4fr 1.5fr .9fr .9fr' }}
+          >
+            <span>
+              <span className="row__name">{p.name}</span>
+              <br />
+              <span style={{ fontSize: 12.5, color: 'var(--tx3)' }}>
+                {p.sub || p.enrolled}
+              </span>
+            </span>
+            <span>
+              <Badge tone={p.type === 'Student' ? 'good' : p.type === 'Staff' ? 'neutral' : 'warn'}>
+                {t(`person.type.${p.type}` as MessageKey)}
+              </Badge>
+            </span>
+            {/* What the cameras can actually do with this person, in a
+                sentence. "Photo on file" said the same thing in words nobody
+                could act on. */}
+            <span style={{ fontSize: 13, lineHeight: 1.35, color: p.photoOnFile ? 'var(--tx2)' : 'var(--am)' }}>
+              {p.recognition}
+              {p.sub && p.enrolled && (
+                <>
+                  <br />
+                  <span style={{ color: 'var(--tx3)', fontSize: 12.5 }}>{p.enrolled}</span>
+                </>
+              )}
+            </span>
+            {/* "Not seen yet" is a fact, and it is written as one. */}
+            <span style={{ color: 'var(--tx2)', fontSize: 13, lineHeight: 1.35 }}>
+              {p.lastSeen}
+            </span>
+            {/* Blank when nothing is recording attendance — an empty register
+                is not the same claim as everybody being absent. */}
+            <span>
+              {p.today ? <Badge tone={p.todayTone}>{p.today}</Badge> : null}
+            </span>
+            <span style={{ display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
               <button
                 type="button"
-                className="row row--pressable"
-                style={{ padding: 0, border: 'none', minHeight: 44 }}
-                onClick={() => setOpenName(open ? null : p.name)}
+                className="linkbtn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigate('/track', { state: { autoRun: true, presetPerson: p.name } });
+                }}
               >
-                <div className="avatar" style={{ background: typeTone.bg, color: typeTone.fg }}>
-                  {p.name
-                    .split(' ')
-                    .map((w) => w[0])
-                    .slice(0, 2)
-                    .join('')}
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="row__name">{p.name}</div>
-                  <div className="row__sub">
-                    {p.sub} · {p.attendanceToday}
-                  </div>
-                </div>
-                <span className="row__chevron">{open ? '⌃' : '›'}</span>
+                Track today
               </button>
-
-              {open && (
-                <div style={{ marginTop: 12, background: 'var(--bg)', borderRadius: 13, padding: 14 }}>
-                  <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginBottom: 10 }}>
-                    <span className="badge" style={{ background: typeTone.bg, color: typeTone.fg }}>
-                      {p.type}
-                    </span>
-                    <span className="badge" style={{ background: photoTone.bg, color: photoTone.fg }}>
-                      {p.photoOnFile ? 'Photo on file' : 'No photo yet'}
-                    </span>
-                  </div>
-                  {p.guardian && (
-                    <div style={{ fontSize: 12.5, color: 'var(--tx2)', lineHeight: 1.4, marginBottom: 12 }}>{p.guardian}</div>
-                  )}
-                  {p.type === 'Student' && (
-                    <div className="stack" style={{ gap: 8 }}>
-                      <button
-                        type="button"
-                        className="card row row--pressable"
-                        style={{ padding: '12px 14px', boxShadow: 'none' }}
-                        onClick={() => navigate(`/people/history/${encodeURIComponent(p.name)}`, { state: { from: 'people' } })}
-                      >
-                        <span style={{ fontSize: 13.5, fontWeight: 600, flex: 1 }}>Attendance history</span>
-                        <span className="row__chevron">›</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="card row row--pressable"
-                        style={{ padding: '12px 14px', boxShadow: 'none' }}
-                        onClick={() => navigate(`/tool/track`, { state: { autoRun: true } })}
-                      >
-                        <span style={{ fontSize: 13.5, fontWeight: 600, flex: 1 }}>
-                          Track today <span style={{ fontWeight: 500, color: 'var(--tx3)' }}>· logged</span>
-                        </span>
-                        <span className="row__chevron">›</span>
-                      </button>
-                    </div>
-                  )}
-                </div>
+              {/* Administrators only. Two steps, with the consequence written
+                  out — removal is rare and deliberate, and there is no undo. */}
+              {isAdmin && confirming !== p.id && (
+                <button
+                  type="button"
+                  className="linkbtn"
+                  style={{ color: 'var(--rd)' }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setRemoveError(null);
+                    setConfirming(p.id);
+                  }}
+                >
+                  Remove
+                </button>
               )}
-            </div>
-          );
-        })}
-        {filtered.length === 0 && <div style={{ padding: '30px 10px', textAlign: 'center', fontSize: 13.5, color: 'var(--tx3)' }}>Nobody matches that name.</div>}
-      </div>
+            </span>
+            {isAdmin && confirming === p.id && (
+              <span
+                style={{
+                  gridColumn: '1 / -1',
+                  display: 'flex',
+                  gap: 10,
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  fontSize: 13,
+                  color: 'var(--rd)',
+                  marginTop: 6,
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <span>
+                  Remove <strong>{p.name}</strong>? This deletes their face data.
+                  The cameras will no longer recognise them, and this cannot be
+                  undone.
+                </span>
+                <button
+                  type="button"
+                  className="chip-btn chip-btn--on"
+                  disabled={removing}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void remove(p);
+                  }}
+                >
+                  {t(removing ? 'people.removing' : 'action.remove')}
+                </button>
+                <button
+                  type="button"
+                  className="chip-btn chip-btn--off"
+                  disabled={removing}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setConfirming(null);
+                  }}
+                >
+                  {t('action.cancel')}
+                </button>
+              </span>
+            )}
+          </div>
+        ))}
 
-      <div className="card" style={{ padding: '4px 16px', marginTop: 12 }}>
-        <div style={{ padding: '13px 0 4px', fontWeight: 700, fontSize: 14.5 }}>Groups &amp; grades</div>
+        {peopleLoading && <Empty>{t('people.loadingDirectory')}</Empty>}
+        {peopleError && !peopleLoading && (
+          <Empty>{t('people.notListed')}</Empty>
+        )}
+        {known && filtered.length === 0 && (
+          <Empty>
+            {query.trim()
+              ? t('people.noMatch')
+              : people.length === 0
+                ? t('people.empty')
+                : t('people.noneOfType', {
+                  noun: t(`people.noun.${tab}` as MessageKey),
+                })}
+          </Empty>
+        )}
+      </Card>
+
+      <Card>
+        <div style={{ fontWeight: 700, fontSize: 15 }}>{t('people.groupsTitle')}</div>
+        <div style={{ fontSize: 13, color: 'var(--tx2)', margin: '2px 0 6px' }}>
+          {t('people.groupsLead')}
+        </div>
+        <LoadError error={groupsError} onRetry={reloadGroups} what="load.groupList" />
+        {groupsLoading && <Empty>{t('people.loadingGroups')}</Empty>}
+        {!groupsLoading && !groupsError && groups.length === 0 && (
+          <Empty>{t('people.noGroups')}</Empty>
+        )}
         {groups.map((g) => (
           <button
             key={g.name}
             type="button"
-            className="row row--pressable"
-            style={{ borderTop: '1px solid var(--line)', borderBottom: 'none' }}
+            className="list-row"
             onClick={() => navigate(`/people/groups/${encodeURIComponent(g.name)}`)}
           >
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div className="row__name">{g.name}</div>
-              <div className="row__sub">{g.count}</div>
-            </div>
-            <span className="row__chevron">›</span>
+            <span className="row__name">{g.name}</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+              <span style={{ color: 'var(--tx2)', fontSize: 13 }}>{g.count}</span>
+              <span style={{ color: 'var(--ac)', fontWeight: 600, fontSize: 13 }}>
+                {t('people.seeWhoIsInIt')}{' '}
+                <span className="mirror-rtl" aria-hidden="true">→</span>
+              </span>
+            </span>
           </button>
         ))}
-      </div>
-    </div>
+      </Card>
+    </>
   );
 }

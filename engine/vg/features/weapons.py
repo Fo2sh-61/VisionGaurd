@@ -210,6 +210,10 @@ class WeaponsWorker(FeatureWorker[WeaponsResult]):
         # One instance, shared by every camera thread. Its lock is inside
         # `detect()`, not here.
         self.knives = knives
+        # The knife model's pool. The person pass this worker also reads is
+        # charged to `people`, which is where it runs — counting it twice
+        # would say switching knives on doubles the person detector.
+        self.device = getattr(knives, "device", None)
         self.scenes = scenes
         # Absent means scenes are still logged, with an honest reason for the
         # missing video rather than a button that does nothing.
@@ -366,6 +370,16 @@ class WeaponsWorker(FeatureWorker[WeaponsResult]):
             self._stop_recording(camera_id, state.scene_id)
         log.info("knife scene %s closed on %s (%s)",
                  state.scene_id[:8], camera_id, reason)
+
+    def _closing(self, camera_id: str) -> None:
+        """This camera is leaving the worker. Close its scene, on its thread.
+
+        `_close` already drops `_seen`; `_last_frame_at` is dropped here so a
+        camera that leaves the roster leaves nothing behind.
+        """
+        self._close(camera_id, datetime.now(timezone.utc), "switched_off")
+        self._last_frame_at.pop(camera_id, None)
+        super()._closing(camera_id)
 
     def close_all(self, reason: str = "shutdown") -> None:
         """Close every running scene. Call only when no worker thread is live.

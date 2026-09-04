@@ -1,5 +1,11 @@
-/* VisionGuard design tokens — shared with the web console.
-   Light is the default; `body.dark` swaps the whole palette. */
+/* VisionGuard design tokens — from ../../design/VisionGuard.dc.html.
+   Light is the default; `body.dark` swaps the whole palette.
+
+   Byte-identical to mobile/src/styles/tokens.css, and `tools/check_parity.py`
+   is what makes that true rather than hoped for. It was hoped for until
+   3 Sep 2026, and the two files had already drifted: differing comments, and
+   a `@keyframes vg-nextcam` block the phone never received. Edit both in the
+   same commit. */
 
 :root {
   --bg: #f2f5f2;
@@ -18,10 +24,12 @@
   --am-bg: #f3ecd9;
   --sh: 0 1px 3px rgba(30, 42, 36, 0.07);
 
+  /* text that sits on an --ac fill; flips to ink in dark so buttons stay legible */
   --on-ac: #ffffff;
   --hover: rgba(255, 255, 255, 0.55);
   --toggle-off: #c3ccc4;
 
+  /* detection-overlay colours (fixed — they read against the dark camera frame) */
   --det-green: #3ec776;
   --det-red: #e5564a;
   --det-blue: #5b9bd8;
@@ -74,4 +82,13 @@ body.dark {
   100% {
     left: 110%;
   }
+}
+
+/* Slow green halo on the camera the tracker expects someone to walk into next.
+   Two seconds, soft, and only ever on one tile at a time — it has to pull the
+   eye without reading as an alarm, because a prediction is a guess and must
+   not look like a sighting. */
+@keyframes vg-nextcam {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(92, 174, 145, 0); }
+  50%      { box-shadow: 0 0 0 7px rgba(92, 174, 145, 0.26); }
 }

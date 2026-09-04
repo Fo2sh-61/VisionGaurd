@@ -166,9 +166,13 @@ class Store(Protocol):
     def health(self) -> S.SystemHealth: ...
     def sources(self) -> list[S.CameraSource]: ...
     def areas(self) -> list[str]: ...
-    def scan(self) -> list[S.FoundDevice]: ...
+    def scan(self) -> S.ScanResult: ...
     def connect_dvr(self, req: S.DvrConnectRequest) -> S.DvrConnectResult: ...
     def test_connection(self, req: S.TestConnectionRequest) -> S.TestConnectionResult: ...
+    def bulk_add(self, req: S.BulkAddRequest, actor: str) -> list[S.AddCameraOutcome]: ...
+    def edit_camera(
+        self, camera_id: str, req: S.EditCameraRequest, actor: str
+    ) -> S.EditCameraResult: ...
 
     def people(self) -> list[S.DirectoryPerson]: ...
     def remove_person(self, person_id: str, actor: str) -> bool: ...
@@ -984,9 +988,9 @@ class MockStore:
         return ["Main building", "Building A", "Building B", "Building C",
                 "Sports hall", "Yards", "Library", "Labs"]
 
-    def scan(self) -> list[S.FoundDevice]:
+    def scan(self) -> S.ScanResult:
         known = {s.ip for s in self._sources}
-        return [
+        return S.ScanResult(available=True, devices=[
             S.FoundDevice(name="HIK-DS7616 (Building D)", ip="192.168.1.60",
                           channels=16, type=S.SourceType.DVR),
             S.FoundDevice(name="Dahua NVR (Annex)", ip="192.168.1.63", channels=8,
@@ -994,17 +998,33 @@ class MockStore:
             S.FoundDevice(name="IP cam - Gate 2", ip="192.168.1.80", channels=1,
                           type=S.SourceType.IP_CAMERA,
                           duplicate="192.168.1.80" in known),
-        ]
+        ])
 
     def connect_dvr(self, req: S.DvrConnectRequest) -> S.DvrConnectResult:
-        count = 16
+        """Demo mode: the channels the caller asked about, all answering.
+
+        This IS a fixture, and in demo mode that is honest - the whole store is
+        fixtures and `capabilities()` says so. What it must not do any more is
+        invent a channel *list*: it answers about exactly the channels it was
+        asked about, so the shape it returns is one the live store could also
+        produce. Inheriting this into `LiveStore` is what made a switched-off
+        recorder report sixteen cameras, and `LiveStore` now overrides it.
+        """
         return S.DvrConnectResult(
-            source_id=f"src-{len(self._sources) + 1}",
+            reachable=True,
+            checked=len(req.channels),
             status=S.SourceStatus.OK,
-            channels=[S.DvrChannel(channel=f"{i:02d}",
-                                   name=f"{req.name or req.host} - Cam {i}",
-                                   enabled=True, resolution="704x576")
-                      for i in range(1, count + 1)],
+            source_id=f"src-{len(self._sources) + 1}",
+            channels=[
+                S.DvrChannel(
+                    channel=channel,
+                    name=f"{req.name or req.host} - Cam {channel}",
+                    enabled=True, checked=True, status=S.SourceStatus.OK,
+                    resolution="704x576", latency_ms=142.0,
+                    source=f"rtsp://{req.host}:{req.port}/ch{channel}",
+                )
+                for channel in req.channels
+            ],
         )
 
     # -- recording ----------------------------------------------------------

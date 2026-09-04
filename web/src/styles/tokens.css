@@ -1,6 +1,11 @@
 /* VisionGuard design tokens — from ../../design/VisionGuard.dc.html.
-   Kept byte-identical to mobile/src/styles/tokens.css so both apps share one
-   palette. Light is the default; `body.dark` swaps the whole palette. */
+   Light is the default; `body.dark` swaps the whole palette.
+
+   Byte-identical to mobile/src/styles/tokens.css, and `tools/check_parity.py`
+   is what makes that true rather than hoped for. It was hoped for until
+   3 Sep 2026, and the two files had already drifted: differing comments, and
+   a `@keyframes vg-nextcam` block the phone never received. Edit both in the
+   same commit. */
 
 :root {
   --bg: #f2f5f2;

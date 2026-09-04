@@ -7,7 +7,7 @@ interface ThemeValue {
 
 const ThemeContext = createContext<ThemeValue | null>(null);
 
-const STORAGE_KEY = 'vg-mobile.dark';
+const STORAGE_KEY = 'vg.dark';
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [dark, setDark] = useState(() => {
