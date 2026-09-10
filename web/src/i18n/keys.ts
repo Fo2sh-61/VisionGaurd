@@ -84,7 +84,6 @@ export type UiKey =
   | 'capability.track'
   | 'capability.attendance'
   | 'capability.cameras'
-  | 'capability.restart'
   | 'capability.users'
   | 'track.window.wholeDay'
   | 'track.window.morning'

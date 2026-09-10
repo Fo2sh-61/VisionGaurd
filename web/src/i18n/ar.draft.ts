@@ -81,7 +81,6 @@ export const arDraft: Partial<Record<MessageKey, string>> = {
   'capability.track': 'تتبّع شخص عبر الكاميرات',
   'capability.attendance': 'الاطلاع على الحضور وسجلات الطلاب',
   'capability.cameras': 'إضافة أو إزالة الكاميرات وأجهزة التسجيل',
-  'capability.restart': 'إعادة تشغيل محرك الاكتشاف',
   'capability.users': 'إدارة المستخدمين',
   'track.window.wholeDay': 'اليوم الدراسي كاملًا',
   'track.window.morning': 'الصباح فقط',

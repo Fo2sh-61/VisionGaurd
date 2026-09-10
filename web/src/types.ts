@@ -316,7 +316,6 @@ export interface PipelineItem {
    *  to render every row green, so "Needs attention" arrived in a healthy
    *  badge - the engine did the honest work and the UI discarded it. */
   tone: Tone;
-  action?: string;
   /** Only the feature-workers row carries these. */
   workers?: WorkerLoadItem[];
 }

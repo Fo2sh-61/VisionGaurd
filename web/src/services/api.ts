@@ -721,7 +721,6 @@ export async function getSystemHealth(lang: Language): Promise<SystemHealth> {
       // severity says how bad; `healthy` alone would flatten warn and bad
       // into one colour.
       tone: p.healthy ? ('good' as const) : severityToTone(p.severity),
-      action: p.restartable ? 'Restart' : undefined,
       workers: p.workers?.map((w) => ({
         name: w.name,
         cameras: w.cameras,

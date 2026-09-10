@@ -75,7 +75,6 @@ export const en: Record<MessageKey, string> = {
   'capability.track': 'Track a person across cameras',
   'capability.attendance': 'View attendance and student records',
   'capability.cameras': 'Add or remove cameras and recorders',
-  'capability.restart': 'Restart the detection engine',
   'capability.users': 'Manage users',
   'track.window.wholeDay': 'Whole school day',
   'track.window.morning': 'Morning only',

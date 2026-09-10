@@ -964,10 +964,10 @@ class MockStore:
                                 healthy=online == total,
                                 severity=(S.Severity.INFO if online == total
                                           else S.Severity.WARN),
-                                restartable=True),
+                                restartable=False),
                 S.PipelineStage(key="detect", name="Detection engine",
                                 detail="Person + weapons running", healthy=True,
-                                severity=S.Severity.INFO, restartable=True,
+                                severity=S.Severity.INFO, restartable=False,
                                 model_version="coco-yolov8s"),
                 S.PipelineStage(key="storage", name="Clip storage",
                                 detail="30 day retention, 47% used", healthy=True,
