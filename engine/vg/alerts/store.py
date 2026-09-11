@@ -16,7 +16,9 @@ stored body would be one more place a name could leak.
 
 **Nothing is deleted but old log rows.** A rule is never deleted, only
 switched. A removed recipient's rows keep the name they had, so history reads
-the same afterwards.
+the same afterwards. The one exception is `_drop_removed_channels`: WhatsApp
+and SMS were taken out on 11 Sep 2026, and their recipients and log rows went
+with them, by the owner's decision.
 
 **An acknowledgement cannot be taken back**, the same rule the gate's
 dismissals follow: an acknowledgement that can be withdrawn is not one.
@@ -41,8 +43,8 @@ log = logging.getLogger(__name__)
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS alert_recipient (
     id           TEXT PRIMARY KEY,
-    channel      TEXT NOT NULL,                 -- whatsapp | sms | email
-    destination  TEXT NOT NULL,                 -- +E.164, or an address
+    channel      TEXT NOT NULL,                 -- email
+    destination  TEXT NOT NULL,                 -- an address
     name         TEXT NOT NULL,
     language     TEXT NOT NULL DEFAULT 'en',    -- en | ar
     enabled      INTEGER NOT NULL DEFAULT 1,
@@ -53,8 +55,6 @@ CREATE TABLE IF NOT EXISTS alert_recipient (
 CREATE TABLE IF NOT EXISTS alert_rule (
     kind               TEXT PRIMARY KEY,
     in_app             INTEGER,                 -- NULL: not offered (the report)
-    whatsapp           INTEGER NOT NULL DEFAULT 0,
-    sms                INTEGER NOT NULL DEFAULT 0,
     email              INTEGER NOT NULL DEFAULT 0,
     vehicle_blacklist  INTEGER,                 -- NULL except on `vehicles`
     vehicle_unknown    INTEGER,
@@ -87,23 +87,26 @@ CREATE TABLE IF NOT EXISTS attention_ack (
 );
 """
 
-#: kind, in_app, whatsapp, sms, email, blacklist, unknown, expired.
-#: Every external channel off and nobody listed: a fresh install sends nothing
-#: until an administrator decides it should (P9-FR-015).
+#: kind, in_app, email, blacklist, unknown, expired.
+#: Email off and nobody listed: a fresh install sends nothing until an
+#: administrator decides it should (P9-FR-015).
 DEFAULT_RULES = (
-    ("weapon", 1, 0, 0, 0, None, None, None),
-    ("intrusion", 1, 0, 0, 0, None, None, None),
-    ("vehicles", 1, 0, 0, 0, 1, 1, 1),
-    ("camera", 1, 0, 0, 0, None, None, None),
-    ("attendance", None, 0, 0, 0, None, None, None),
+    ("weapon", 1, 0, None, None, None),
+    ("intrusion", 1, 0, None, None, None),
+    ("vehicles", 1, 0, 1, 1, 1),
+    ("camera", 1, 0, None, None, None),
+    ("attendance", None, 0, None, None, None),
 )
 
-RULE_FLAGS = ("in_app", "whatsapp", "sms", "email",
+RULE_FLAGS = ("in_app", "email",
               "vehicle_blacklist", "vehicle_unknown", "vehicle_expired")
+
+#: Channels this store once had and no longer carries (removed 11 Sep 2026).
+REMOVED_CHANNELS = ("whatsapp", "sms")
+
 LANGUAGES = ("en", "ar")
 NAME_MAX = 80
 
-_PHONE = re.compile(r"^\+[1-9]\d{7,14}$")
 _EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
@@ -112,26 +115,17 @@ class DuplicateRecipient(ValueError):
 
 
 def mask_destination(destination: str) -> str:
-    """Enough of a number or address to tell two apart in the audit, no more."""
+    """Enough of an address to tell two apart in the audit, no more."""
     text = str(destination or "")
     return "…" + text[-4:] if len(text) > 4 else "…"
 
 
 def normalise_destination(channel: str, raw: str) -> str:
-    """A number in international form, or a lower-cased address. Else refused.
-
-    A number with no country code is refused rather than guessed: a guessed
-    `+20` on a foreign number is a stranger receiving a knife alert.
-    """
+    """A lower-cased address. Else refused."""
     text = str(raw or "").strip()
     if channel == "email":
         text = text.lower()
         if not _EMAIL.match(text):
-            raise ValueError("destination")
-        return text
-    if channel in ("whatsapp", "sms"):
-        text = re.sub(r"[\s\-().]", "", text)
-        if not _PHONE.match(text):
             raise ValueError("destination")
         return text
     raise ValueError("channel")
@@ -141,8 +135,6 @@ def normalise_destination(channel: str, raw: str) -> str:
 class Rule:
     kind: str
     in_app: bool | None
-    whatsapp: bool
-    sms: bool
     email: bool
     vehicle_blacklist: bool | None = None
     vehicle_unknown: bool | None = None
@@ -218,12 +210,36 @@ class AlertStore:
         self._lock = threading.RLock()
         self._conn = db.connect(self.path)
         self._conn.executescript(SCHEMA)
+        self._drop_removed_channels()
         # On every open, and never an overwrite: seeding must not undo an edit.
         self._conn.executemany(
-            "INSERT OR IGNORE INTO alert_rule (kind, in_app, whatsapp, sms, email,"
+            "INSERT OR IGNORE INTO alert_rule (kind, in_app, email,"
             " vehicle_blacklist, vehicle_unknown, vehicle_expired)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)", DEFAULT_RULES)
+            " VALUES (?, ?, ?, ?, ?, ?)", DEFAULT_RULES)
         self._conn.commit()
+
+    def _drop_removed_channels(self) -> None:
+        """A database from before 11 Sep 2026 loses WhatsApp and SMS for good.
+
+        Their rule switches, their recipients and their log rows, in one
+        transaction. Nothing is left behind that the console could no longer
+        name. Does nothing on a database that never had them.
+        """
+        columns = {r["name"] for r in self._conn.execute("PRAGMA table_info(alert_rule)")}
+        stale = [c for c in REMOVED_CHANNELS if c in columns]
+        marks = ", ".join("?" for _ in REMOVED_CHANNELS)
+        with self._conn:
+            for column in stale:
+                self._conn.execute(f"ALTER TABLE alert_rule DROP COLUMN {column}")
+            people = self._conn.execute(
+                f"DELETE FROM alert_recipient WHERE channel IN ({marks})",
+                REMOVED_CHANNELS).rowcount
+            rows = self._conn.execute(
+                f"DELETE FROM alert_delivery WHERE channel IN ({marks})",
+                REMOVED_CHANNELS).rowcount
+        if stale or people or rows:
+            log.info("alerts: WhatsApp and SMS removed - %d recipient(s) and %d "
+                     "log row(s) deleted", people, rows)
 
     def close_db(self) -> None:
         with self._lock:
@@ -236,8 +252,7 @@ class AlertStore:
             rows = self._conn.execute("SELECT * FROM alert_rule").fetchall()
         found = {
             r["kind"]: Rule(
-                kind=r["kind"], in_app=_flag(r["in_app"]),
-                whatsapp=bool(r["whatsapp"]), sms=bool(r["sms"]), email=bool(r["email"]),
+                kind=r["kind"], in_app=_flag(r["in_app"]), email=bool(r["email"]),
                 vehicle_blacklist=_flag(r["vehicle_blacklist"]),
                 vehicle_unknown=_flag(r["vehicle_unknown"]),
                 vehicle_expired=_flag(r["vehicle_expired"]),

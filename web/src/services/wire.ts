@@ -700,7 +700,7 @@ export interface SchoolProfile {
  * sentences only for the messages themselves, which never cross this API. */
 
 export type AlertKind = 'weapon' | 'intrusion' | 'vehicles' | 'camera' | 'attendance';
-export type AlertChannel = 'whatsapp' | 'sms' | 'email';
+export type AlertChannel = 'email';
 export type AlertLanguage = 'en' | 'ar';
 export type DeliveryOutcome = 'queued' | 'sent' | 'failed' | 'skipped';
 export type DeliveryReason =
@@ -721,8 +721,6 @@ export type DeliveryReason =
 export interface AlertRule {
   kind: AlertKind;
   inApp: boolean | null;
-  whatsapp: boolean;
-  sms: boolean;
   email: boolean;
   vehicleBlacklist: boolean | null;
   vehicleUnknown: boolean | null;
@@ -732,8 +730,6 @@ export interface AlertRule {
 /** A partial change: a flag left out is left as it is. */
 export interface AlertRuleUpdate {
   inApp?: boolean;
-  whatsapp?: boolean;
-  sms?: boolean;
   email?: boolean;
   vehicleBlacklist?: boolean;
   vehicleUnknown?: boolean;

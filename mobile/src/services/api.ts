@@ -1393,7 +1393,7 @@ export const getSchoolProfile = () => get<W.SchoolProfile>('/settings/school');
  *
  * Every write is an administrator's, decided by the engine by path; the page
  * hiding its controls from a guard is only a hint. The console never talks to
- * Twilio or Gmail: it configures and reads, and the engine sends. */
+ * Gmail: it configures and reads, and the engine sends. */
 
 export const getAlertSettings = () => get<W.AlertSettings>('/settings/alerts');
 

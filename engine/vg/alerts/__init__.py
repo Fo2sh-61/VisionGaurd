@@ -1,4 +1,4 @@
-"""Alert delivery (P9): the engine tells people by WhatsApp, SMS and email.
+"""Alert delivery (P9): the engine tells people by email.
 
 Five kinds of alert leave the building - a knife entry opening and its
 verdict, a restricted-zone scene, a gate alert, a camera gone dark, and the
@@ -21,7 +21,7 @@ skipped with a reason - and nothing here claims more than that.
 
     events.py     what happened, as a message may say it
     catalogue.py  the wording, English and Arabic
-    providers.py  Twilio and Gmail, one sender per channel
+    providers.py  Gmail, the one courier
     store.py      recipients, rules, the delivery log, acknowledgements
     service.py    the queue and the one sender thread
 """

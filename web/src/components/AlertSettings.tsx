@@ -44,7 +44,9 @@ import type {
   ReportStatus,
 } from '@/services/wire';
 
-const CHANNELS: readonly AlertChannel[] = ['whatsapp', 'sms', 'email'];
+/** Email is the only channel that leaves the building; WhatsApp and SMS were
+ *  removed on 11 Sep 2026. Kept as a list so the rows below stay generic. */
+const CHANNELS: readonly AlertChannel[] = ['email'];
 const LANGS: readonly AlertLanguage[] = ['en', 'ar'];
 const GATE_REASONS = ['blacklist', 'unknown', 'expired'] as const;
 const GATE_FLAG = {
@@ -124,7 +126,7 @@ export function AlertSettingsCards() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [testNote, setTestNote] = useState<Record<string, string>>({});
   const [draft, setDraft] = useState({
-    channel: 'whatsapp' as AlertChannel,
+    channel: 'email' as AlertChannel,
     destination: '',
     name: '',
     language: 'en' as AlertLanguage,
@@ -367,27 +369,14 @@ export function AlertSettingsCards() {
               alignItems: 'end',
             }}
           >
-            <Field label={t('settings.alerts.field.channel')}>
-              <Select
-                value={draft.channel}
-                options={CHANNELS}
-                label={(c) => channelName(c as AlertChannel)}
-                onChange={(c) => setDraft((d) => ({ ...d, channel: c as AlertChannel }))}
-              />
-            </Field>
             <Field label={t('settings.alerts.field.destination')}>
-              {/* A number or an address reads left to right in every language;
-                  in Arabic its digit groups would otherwise be reordered. */}
+              {/* An address reads left to right in every language. */}
               <input
                 className="input"
                 dir="ltr"
-                type={draft.channel === 'email' ? 'email' : 'tel'}
+                type="email"
                 value={draft.destination}
-                placeholder={t(
-                  draft.channel === 'email'
-                    ? 'settings.alerts.placeholder.email'
-                    : 'settings.alerts.placeholder.phone',
-                )}
+                placeholder={t('settings.alerts.placeholder.email')}
                 onChange={(e) => setDraft((d) => ({ ...d, destination: e.target.value }))}
               />
             </Field>

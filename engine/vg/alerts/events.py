@@ -29,7 +29,8 @@ from typing import Any, Mapping
 KINDS: tuple[str, ...] = ("weapon", "intrusion", "vehicles", "camera", "attendance")
 
 #: The channels that leave the building. In-app is not one: it is Home's list.
-CHANNELS: tuple[str, ...] = ("whatsapp", "sms", "email")
+#: WhatsApp and SMS were removed on 11 Sep 2026; email is the only courier.
+CHANNELS: tuple[str, ...] = ("email",)
 
 #: Why a gate pass is an alert, as `VehicleStore` decides it.
 GATE_REASONS: tuple[str, ...] = ("blacklist", "unknown", "expired")

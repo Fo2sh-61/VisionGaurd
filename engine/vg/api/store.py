@@ -1225,8 +1225,7 @@ class MockStore:
         if demo is None:
             demo = self._alerts_state = {
                 "rules": {
-                    "weapon": S.AlertRule(kind="weapon", in_app=True, whatsapp=True,
-                                          email=True),
+                    "weapon": S.AlertRule(kind="weapon", in_app=True, email=True),
                     "intrusion": S.AlertRule(kind="intrusion", in_app=True, email=True),
                     "vehicles": S.AlertRule(kind="vehicles", in_app=True,
                                             vehicle_blacklist=True,
@@ -1237,8 +1236,9 @@ class MockStore:
                                               email=True),
                 },
                 "recipients": [
-                    S.Recipient(id="demo-r1", channel="whatsapp",
-                                destination="+201000000000", name="Head of security",
+                    S.Recipient(id="demo-r1", channel="email",
+                                destination="head.security@school.example",
+                                name="Head of security",
                                 language="ar", enabled=True, created_at=at(7, 0)),
                     S.Recipient(id="demo-r2", channel="email",
                                 destination="security@school.example",

@@ -1315,11 +1315,11 @@ class SchoolProfile(Wire):
 #
 # Facts and enums only; the console words every state (P11). The one place
 # the engine writes sentences for people is the message itself, because there
-# is no console at the far end of an SMS — and that never crosses this API.
+# is no console at the far end of an email — and that never crosses this API.
 # ---------------------------------------------------------------------------
 
 AlertKind = Literal["weapon", "intrusion", "vehicles", "camera", "attendance"]
-AlertChannel = Literal["whatsapp", "sms", "email"]
+AlertChannel = Literal["email"]
 AlertLanguage = Literal["en", "ar"]
 DeliveryOutcome = Literal["queued", "sent", "failed", "skipped"]
 DeliveryReason = Literal[
@@ -1340,8 +1340,6 @@ class AlertRule(Wire):
 
     kind: AlertKind
     in_app: bool | None = None
-    whatsapp: bool = False
-    sms: bool = False
     email: bool = False
     vehicle_blacklist: bool | None = None
     vehicle_unknown: bool | None = None
@@ -1352,8 +1350,6 @@ class AlertRuleUpdate(Wire):
     """A partial change. A flag left out is left as it is."""
 
     in_app: bool | None = None
-    whatsapp: bool | None = None
-    sms: bool | None = None
     email: bool | None = None
     vehicle_blacklist: bool | None = None
     vehicle_unknown: bool | None = None

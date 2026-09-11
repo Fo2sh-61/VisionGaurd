@@ -3,7 +3,7 @@
 User story 1 of spec 013: an administrator chooses who hears, proves it with a
 test message, and reads back what happened. Everything here goes through the
 real endpoints on a `LiveStore` with a throwaway alert database; the couriers
-are fakes, so nothing reaches Twilio or Google.
+are fakes, so nothing reaches Google.
 
 The rules these tests hold:
 
@@ -32,10 +32,6 @@ from vg.clock import clock_for
 from vg.config import AlertsConfig
 
 SECRETS = {
-    "TWILIO_ACCOUNT_SID": "ACsentinelSID0001",
-    "TWILIO_AUTH_TOKEN": "sentinelTOKEN0002",
-    "TWILIO_WHATSAPP_FROM": "whatsapp:+14155238886",
-    "TWILIO_SMS_FROM": "+15005550006",
     "GMAIL_USER": "sentinel.school@gmail.com",
     "GMAIL_APP_PASSWORD": "sentinelPASS0003",
 }
@@ -66,7 +62,7 @@ def client_for(store, authed, role: str = "admin"):
 
 
 class Courier:
-    """A fake Twilio or Gmail: accepts, or answers from a script."""
+    """A fake Gmail: accepts, or answers from a script."""
 
     def __init__(self, script=None):
         self.script = list(script or [])
@@ -81,8 +77,11 @@ class Courier:
 
 @pytest.fixture
 def no_keys(monkeypatch):
+    """Set empty, not deleted: `vgconfig.load()` fills only what is absent
+    from the real engine/.env, and a machine with working Gmail keys would
+    otherwise hand them to every test here."""
     for name in SECRETS:
-        monkeypatch.delenv(name, raising=False)
+        monkeypatch.setenv(name, "")
 
 
 @pytest.fixture
@@ -100,7 +99,7 @@ def wired(tmp_path, no_keys):
     app_module.set_store(MockStore())
 
 
-def add_person(client, channel="whatsapp", destination="+20 100 123 4567",
+def add_person(client, channel="email", destination=" Head@School.Example ",
                name="Head of security", language="ar"):
     response = client.post("/settings/alerts/recipients", json={
         "channel": channel, "destination": destination, "name": name,
@@ -121,31 +120,40 @@ class TestSettingsEndpoints:
         assert [r["kind"] for r in body["rules"]] == [
             "weapon", "intrusion", "vehicles", "camera", "attendance"]
         for rule in body["rules"]:
-            assert not (rule["whatsapp"] or rule["sms"] or rule["email"])
+            assert not rule["email"]
+            assert "whatsapp" not in rule and "sms" not in rule
         assert body["sending"] == "running"
 
-    def test_a_recipient_is_kept_in_international_form(self, wired, authed):
+    def test_a_recipient_address_is_kept_lower_cased(self, wired, authed):
         store, _, _ = wired
         client = client_for(store, authed)
         person = add_person(client)
-        assert person["destination"] == "+201001234567"
+        assert person["destination"] == "head@school.example"
         assert (person["language"], person["enabled"]) == ("ar", True)
         listed = client.get("/settings/alerts").json()["recipients"]
         assert [p["id"] for p in listed] == [person["id"]]
 
-    def test_the_same_number_twice_is_a_conflict(self, wired, authed):
+    def test_the_same_address_twice_is_a_conflict(self, wired, authed):
         store, _, _ = wired
         client = client_for(store, authed)
         add_person(client)
         again = client.post("/settings/alerts/recipients", json={
-            "channel": "whatsapp", "destination": "+201001234567", "name": "B"})
+            "channel": "email", "destination": "head@school.example", "name": "B"})
         assert again.status_code == 409
 
-    @pytest.mark.parametrize("destination", ["01001234567", "not a number"])
-    def test_a_number_without_a_country_is_refused(self, wired, authed, destination):
+    @pytest.mark.parametrize("destination", ["a@b", "not an address"])
+    def test_an_address_that_cannot_be_reached_is_refused(self, wired, authed, destination):
         store, _, _ = wired
         response = client_for(store, authed).post("/settings/alerts/recipients", json={
-            "channel": "sms", "destination": destination, "name": "A"})
+            "channel": "email", "destination": destination, "name": "A"})
+        assert response.status_code == 422
+
+    @pytest.mark.parametrize("channel", ["whatsapp", "sms"])
+    def test_the_removed_channels_are_refused(self, wired, authed, channel):
+        """WhatsApp and SMS were removed on 11 Sep 2026."""
+        store, _, _ = wired
+        response = client_for(store, authed).post("/settings/alerts/recipients", json={
+            "channel": channel, "destination": "+201001234567", "name": "A"})
         assert response.status_code == 422
 
     def test_edit_switch_off_and_remove(self, wired, authed):
@@ -163,10 +171,10 @@ class TestSettingsEndpoints:
     def test_switching_a_chip_saves(self, wired, authed):
         store, _, _ = wired
         client = client_for(store, authed)
-        changed = client.patch("/settings/alerts/rules/weapon", json={"whatsapp": True})
-        assert changed.status_code == 200 and changed.json()["whatsapp"] is True
+        changed = client.patch("/settings/alerts/rules/weapon", json={"email": True})
+        assert changed.status_code == 200 and changed.json()["email"] is True
         rules = {r["kind"]: r for r in client.get("/settings/alerts").json()["rules"]}
-        assert rules["weapon"]["whatsapp"] is True
+        assert rules["weapon"]["email"] is True
 
     def test_a_gate_reason_can_be_switched_off(self, wired, authed):
         store, _, _ = wired
@@ -177,7 +185,9 @@ class TestSettingsEndpoints:
         assert changed.json()["vehicleBlacklist"] is True
 
     @pytest.mark.parametrize("kind, body, status", [
-        ("lost_bag", {"whatsapp": True}, 404),
+        ("lost_bag", {"email": True}, 404),
+        ("weapon", {"whatsapp": True}, 422),
+        ("weapon", {"sms": True}, 422),
         ("attendance", {"inApp": True}, 422),
         ("weapon", {"vehicleUnknown": False}, 422),
     ])
@@ -194,7 +204,7 @@ class TestSettingsEndpoints:
         assert response.status_code == 202
         assert response.json()["outcome"] == "queued"
         service.step()
-        assert courier.sent[0][0] == "+201001234567"
+        assert courier.sent[0][0] == "head@school.example"
         (row,) = client.get("/settings/alerts/deliveries").json()["rows"]
         assert (row["outcome"], row["providerId"], row["recipientName"]) == (
             "sent", "SM1", "Head of security")
@@ -239,16 +249,17 @@ class TestAuditComesFirst:
         self._broken(store, monkeypatch, "add_recipient")
         with pytest.raises(RuntimeError):
             store.add_recipient(S.RecipientCreate(
-                channel="sms", destination="+201001234567", name="A"), "Test Admin")
+                channel="email", destination="head.security@school.example", name="A"),
+                "Test Admin")
         entry = self._last(store)
         assert (entry.action, entry.actor) == ("alerts.recipient.add", "Test Admin")
-        assert "4567" in entry.detail and "+2010012" not in entry.detail
+        assert "…mple" in entry.detail and "head.security" not in entry.detail
 
     def test_editing_removing_and_the_rule(self, wired, monkeypatch):
         from vg.api import schemas as S
 
         store, _, _ = wired
-        person = store.alerts_store.add_recipient("sms", "+201001234567", "A")
+        person = store.alerts_store.add_recipient("email", "a@school.example", "A")
         self._broken(store, monkeypatch, "update_recipient")
         with pytest.raises(RuntimeError):
             store.edit_recipient(person.id, S.RecipientUpdate(enabled=False), "Test Admin")
@@ -261,12 +272,12 @@ class TestAuditComesFirst:
 
         self._broken(store, monkeypatch, "update_rule")
         with pytest.raises(RuntimeError):
-            store.update_rule("weapon", S.AlertRuleUpdate(sms=True), "Test Admin")
+            store.update_rule("weapon", S.AlertRuleUpdate(email=True), "Test Admin")
         assert (self._last(store).action, self._last(store).subject) == ("alerts.rule", "weapon")
 
     def test_a_test_send(self, wired, monkeypatch):
         store, service, _ = wired
-        person = store.alerts_store.add_recipient("sms", "+201001234567", "A")
+        person = store.alerts_store.add_recipient("email", "a@school.example", "A")
 
         def boom(*args, **kwargs):
             raise RuntimeError("queue gone")
@@ -283,17 +294,17 @@ class TestAuditComesFirst:
 class TestNonAdminRefused:
     def test_a_non_administrator_can_read_and_cannot_change(self, wired, authed):
         store, _, _ = wired
-        person = store.alerts_store.add_recipient("sms", "+201001234567", "A")
+        person = store.alerts_store.add_recipient("email", "a@school.example", "A")
         client = client_for(store, authed, role="it")
         assert client.get("/settings/alerts").status_code == 200
         assert client.get("/settings/alerts/deliveries").status_code == 200
         assert client.post("/settings/alerts/recipients", json={
-            "channel": "sms", "destination": "+201001234568", "name": "B"}).status_code == 403
+            "channel": "email", "destination": "b@school.example", "name": "B"}).status_code == 403
         assert client.patch(f"/settings/alerts/recipients/{person.id}",
                             json={"enabled": False}).status_code == 403
         assert client.delete(f"/settings/alerts/recipients/{person.id}").status_code == 403
         assert client.patch("/settings/alerts/rules/weapon",
-                            json={"sms": True}).status_code == 403
+                            json={"email": True}).status_code == 403
         assert client.post(f"/settings/alerts/recipients/{person.id}/test").status_code == 403
         assert store.alerts_store.recipient(person.id).enabled is True
 
@@ -318,8 +329,8 @@ class TestSecretsNeverLeave:
         store = live_store(tmp_path, alerts_store=alerts_db, alerts=service)
         try:
             client = client_for(store, authed)
-            person = add_person(client, channel="sms")
-            client.patch("/settings/alerts/rules/weapon", json={"sms": True})
+            person = add_person(client)
+            client.patch("/settings/alerts/rules/weapon", json={"email": True})
             client.post(f"/settings/alerts/recipients/{person['id']}/test")
             service.step()
 
@@ -327,8 +338,7 @@ class TestSecretsNeverLeave:
                     client.get("/settings/alerts/deliveries").text]
             seen += [str(entry.model_dump()) for entry in store.audit(50)]
             seen += [str(row) for row in alerts_db.recent(50)]
-            for value in ("ACsentinelSID0001", "sentinelTOKEN0002", "sentinelPASS0003",
-                          "sentinel.school@gmail.com"):
+            for value in SECRETS.values():
                 for text in seen:
                     assert value not in text
         finally:
@@ -365,17 +375,16 @@ class TestHonestStates:
         store, _, _ = wired
         channels = {c["channel"]: c for c in
                     client_for(store, authed).get("/settings/alerts").json()["channels"]}
-        assert channels["sms"]["configured"] is False
-        assert channels["sms"]["missing"] == [
-            "TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_SMS_FROM"]
+        assert set(channels) == {"email"}, "WhatsApp and SMS were removed"
+        assert channels["email"]["configured"] is False
         assert channels["email"]["missing"] == ["GMAIL_USER", "GMAIL_APP_PASSWORD"]
 
     def test_a_channel_on_with_nobody_on_it_is_named(self, wired, authed):
         store, _, _ = wired
         client = client_for(store, authed)
-        client.patch("/settings/alerts/rules/weapon", json={"whatsapp": True})
+        client.patch("/settings/alerts/rules/weapon", json={"email": True})
         body = client.get("/settings/alerts").json()
-        assert {"kind": "weapon", "channel": "whatsapp"} in body["unreached"]
+        assert {"kind": "weapon", "channel": "email"} in body["unreached"]
         add_person(client)
         body = client.get("/settings/alerts").json()
         assert body["unreached"] == []
@@ -418,10 +427,10 @@ class TestHonestStates:
     def test_system_health_names_missing_keys_a_rule_needs(self, wired):
         store, _, _ = wired
         assert store._alerts_stage().healthy, "nothing switched on, nothing missing"
-        store.alerts_store.update_rule("weapon", sms=True)
+        store.alerts_store.update_rule("weapon", email=True)
         stage = store._alerts_stage()
         assert not stage.healthy
-        assert "TWILIO_SMS_FROM" in stage.detail
+        assert "GMAIL_APP_PASSWORD" in stage.detail
         assert stage.detail.endswith("Detection is unaffected.")
 
     def test_system_health_lists_the_row(self, wired):

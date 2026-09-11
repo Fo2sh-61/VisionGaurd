@@ -927,7 +927,7 @@ def _start_alerts(cfg, registry):
         store = AlertStore(_database(cfg))
         if not cfg.alerts.enabled:
             log.info("alert sending is switched off in engine.yaml - the Home "
-                     "list still works, nothing goes out by WhatsApp, SMS or email")
+                     "list still works, nothing goes out by email")
             return store, None, None
         service = AlertService(cfg.alerts, store, registry,
                                clock_for(cfg.timezone), hours=cfg.hours)

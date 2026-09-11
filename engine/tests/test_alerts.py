@@ -4,8 +4,7 @@ Five pieces, tested in the order they depend on each other:
 
 - `events`     what happened, as a message may say it - and nothing else
 - `catalogue`  the wording, English and Arabic
-- `providers`  Twilio and Gmail, behind fake transports - no test touches the
-               network
+- `providers`  Gmail, behind a fake SMTP - no test touches the network
 - `store`      recipients, rules, the delivery log, acknowledgements
 - `service`    the queue and the one sender thread, driven a pass at a time
 
@@ -314,21 +313,14 @@ class TestCatalogue:
 # ---------------------------------------------------------------------------
 
 import smtplib  # noqa: E402
-import urllib.error  # noqa: E402
-from urllib.parse import parse_qs  # noqa: E402
 
 from vg.alerts import providers  # noqa: E402
 from vg.alerts.catalogue import Message  # noqa: E402
 
 MSG = Message(subject="VisionGuard · Test message", body="hello", language="en")
-PHONE = "+201001234567"
 
 #: Values that appear nowhere else, so one search of a result proves redaction.
 SECRETS = {
-    "TWILIO_ACCOUNT_SID": "ACsentinelSID0001",
-    "TWILIO_AUTH_TOKEN": "sentinelTOKEN0002",
-    "TWILIO_WHATSAPP_FROM": "whatsapp:+14155238886",
-    "TWILIO_SMS_FROM": "+15005550006",
     "GMAIL_USER": "sentinel.school@gmail.com",
     "GMAIL_APP_PASSWORD": "sentinelPASS0003",
 }
@@ -344,20 +336,6 @@ def keys(monkeypatch):
 def no_keys(monkeypatch):
     for name in SECRETS:
         monkeypatch.delenv(name, raising=False)
-
-
-class FakeTwilio:
-    """Stands where urllib would. Records what it was asked, answers as told."""
-
-    def __init__(self, status=201, body=b'{"sid": "SM0123"}', raises=None):
-        self.status, self.body, self.raises = status, body, raises
-        self.calls: list[tuple] = []
-
-    def __call__(self, url, data, headers, timeout):
-        self.calls.append((url, parse_qs(data.decode()), headers, timeout))
-        if self.raises is not None:
-            raise self.raises
-        return self.status, self.body
 
 
 class FakeSMTP:
@@ -390,60 +368,6 @@ class FakeSMTP:
 
 
 class TestProviders:
-    def test_twilio_accepts_and_the_log_gets_its_id(self, keys):
-        fake = FakeTwilio()
-        result = providers.TwilioSender("sms", 10, transport=fake).send(MSG, PHONE)
-        assert result.ok and result.provider_id == "SM0123"
-        url, form, headers, timeout = fake.calls[0]
-        assert url.endswith("/Accounts/ACsentinelSID0001/Messages.json")
-        assert form == {"From": ["+15005550006"], "To": [PHONE], "Body": ["hello"]}
-        assert headers["Authorization"].startswith("Basic ")
-        assert timeout == 10
-
-    def test_whatsapp_prefixes_both_numbers_once(self, keys):
-        fake = FakeTwilio()
-        providers.TwilioSender("whatsapp", 10, transport=fake).send(MSG, PHONE)
-        form = fake.calls[0][1]
-        assert form["From"] == ["whatsapp:+14155238886"]
-        assert form["To"] == [f"whatsapp:{PHONE}"]
-
-    def test_a_bare_whatsapp_sender_number_gets_its_prefix(self, keys, monkeypatch):
-        monkeypatch.setenv("TWILIO_WHATSAPP_FROM", "+14155238886")
-        fake = FakeTwilio()
-        providers.TwilioSender("whatsapp", 10, transport=fake).send(MSG, PHONE)
-        assert fake.calls[0][1]["From"] == ["whatsapp:+14155238886"]
-
-    def test_a_refusal_carries_twilios_own_words(self, keys):
-        fake = FakeTwilio(401, b'{"code": 20003, "message": "Authenticate", "status": 401}')
-        result = providers.TwilioSender("sms", 10, transport=fake).send(MSG, PHONE)
-        assert not result.ok
-        assert result.reason == "provider_refused"
-        assert result.provider_reason == "Authenticate (Twilio 20003)"
-
-    def test_an_error_page_that_is_not_json_says_its_status(self, keys):
-        fake = FakeTwilio(503, b"<html>busy</html>")
-        result = providers.TwilioSender("sms", 10, transport=fake).send(MSG, PHONE)
-        assert result.reason == "provider_refused"
-        assert result.provider_reason == "HTTP 503"
-
-    def test_a_network_error_never_carries_the_account_sid(self, keys):
-        """urllib's words can include the URL, and the URL holds the SID."""
-        leak = urllib.error.URLError(
-            "no route to https://api.twilio.com/2010-04-01/Accounts/ACsentinelSID0001/")
-        result = providers.TwilioSender("sms", 10, transport=FakeTwilio(raises=leak)).send(
-            MSG, PHONE)
-        assert result.reason == "unreachable"
-        assert "ACsentinelSID0001" not in (result.provider_reason or "")
-
-    @pytest.mark.parametrize("error", [
-        TimeoutError("timed out"),
-        urllib.error.URLError(TimeoutError("timed out")),
-    ])
-    def test_a_courier_that_does_not_answer_is_a_timeout(self, keys, error):
-        result = providers.TwilioSender("sms", 10, transport=FakeTwilio(raises=error)).send(
-            MSG, PHONE)
-        assert result.reason == "timeout"
-
     def test_gmail_sends_plain_text_and_the_log_gets_the_message_id(self, keys):
         smtp = FakeSMTP()
         result = providers.GmailSender(10, smtp_factory=smtp).send(MSG, "head@school.example")
@@ -473,28 +397,42 @@ class TestProviders:
         assert result.reason == "unreachable"
         assert "ConnectionRefusedError" in result.provider_reason
 
+    def test_gmail_that_does_not_answer_is_a_timeout(self, keys):
+        def hang(host, port, timeout):
+            raise TimeoutError("timed out")
+        result = providers.GmailSender(10, smtp_factory=hang).send(MSG, "a@school.example")
+        assert result.reason == "timeout"
+
+    def test_a_network_error_never_carries_the_password(self, keys):
+        """`str(exc)` is never used: only class names and strerror."""
+        def leak(host, port, timeout):
+            raise OSError("login sentinelPASS0003 refused")
+        result = providers.GmailSender(10, smtp_factory=leak).send(MSG, "a@school.example")
+        assert result.reason == "unreachable"
+        assert "sentinelPASS0003" not in (result.provider_reason or "")
+
     def test_missing_keys_are_named_not_guessed(self, no_keys):
-        assert providers.missing_env("sms") == [
-            "TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_SMS_FROM"]
         assert providers.missing_env("email") == ["GMAIL_USER", "GMAIL_APP_PASSWORD"]
-        assert providers.for_channel("whatsapp") is None
         assert providers.for_channel("email") is None
 
     def test_one_missing_key_is_enough_to_say_so(self, keys, monkeypatch):
-        monkeypatch.delenv("TWILIO_SMS_FROM")
-        assert providers.missing_env("sms") == ["TWILIO_SMS_FROM"]
-        assert providers.missing_env("whatsapp") == []
-        assert providers.for_channel("sms") is None
+        monkeypatch.delenv("GMAIL_APP_PASSWORD")
+        assert providers.missing_env("email") == ["GMAIL_APP_PASSWORD"]
+        assert providers.for_channel("email") is None
 
-    def test_configured_channels_get_their_sender(self, keys):
-        assert isinstance(providers.for_channel("sms"), providers.TwilioSender)
-        assert isinstance(providers.for_channel("whatsapp"), providers.TwilioSender)
+    def test_email_gets_its_sender(self, keys):
         assert isinstance(providers.for_channel("email"), providers.GmailSender)
 
+    @pytest.mark.parametrize("channel", ["whatsapp", "sms"])
+    def test_the_removed_channels_have_no_sender(self, keys, channel):
+        """WhatsApp and SMS were removed on 11 Sep 2026: nothing can carry them."""
+        assert providers.for_channel(channel) is None
+        assert not hasattr(providers, "TwilioSender")
+
     def test_redact_removes_every_secret_value(self, keys):
-        text = "token sentinelTOKEN0002, sid ACsentinelSID0001, pw sentinelPASS0003"
+        text = "user sentinel.school@gmail.com, pw sentinelPASS0003"
         cleaned = providers.redact(text)
-        for value in ("sentinelTOKEN0002", "ACsentinelSID0001", "sentinelPASS0003"):
+        for value in SECRETS.values():
             assert value not in cleaned
         assert providers.redact(None) is None
 
@@ -519,7 +457,7 @@ class TestAlertStore:
         rules = alert_db.rules()
         assert sorted(rules) == sorted(events.KINDS)
         for kind, rule in rules.items():
-            assert not (rule.whatsapp or rule.sms or rule.email), kind
+            assert not rule.email, kind
         assert rules["weapon"].in_app is True
         assert alert_db.recipients() == []
 
@@ -538,40 +476,36 @@ class TestAlertStore:
 
     def test_an_unknown_kind_is_not_found(self, alert_db):
         with pytest.raises(KeyError):
-            alert_db.update_rule("lost_bag", whatsapp=True)
+            alert_db.update_rule("lost_bag", email=True)
 
     def test_edits_survive_a_restart(self, tmp_path):
         """SC-006. Seeding on open must never undo what an administrator set."""
         first = AlertStore(tmp_path / "a.db")
-        first.update_rule("weapon", whatsapp=True)
-        first.add_recipient("whatsapp", "+201001234567", "Head of security", "ar")
+        first.update_rule("weapon", email=True)
+        first.add_recipient("email", "head@school.example", "Head of security", "ar")
         first.close_db()
         again = AlertStore(tmp_path / "a.db")
         try:
-            assert again.rules()["weapon"].whatsapp is True
+            assert again.rules()["weapon"].email is True
             (person,) = again.recipients()
             assert (person.name, person.language, person.enabled) == (
                 "Head of security", "ar", True)
         finally:
             again.close_db()
 
-    def test_the_same_number_twice_on_one_channel_is_one_recipient(self, alert_db):
-        alert_db.add_recipient("sms", "+201001234567", "A")
+    def test_the_same_address_twice_is_one_recipient(self, alert_db):
+        alert_db.add_recipient("email", "a@school.example", "A")
         with pytest.raises(DuplicateRecipient):
-            alert_db.add_recipient("sms", " +20 100-123 4567 ", "B")
-        # the same number on another channel is a different recipient
-        alert_db.add_recipient("whatsapp", "+201001234567", "A")
+            alert_db.add_recipient("email", " A@School.Example ", "B")
 
-    @pytest.mark.parametrize("raw, clean", [
-        (" +20 100-123 4567 ", "+201001234567"),
-        ("+20 (100) 123.4567", "+201001234567"),
-    ])
-    def test_phone_numbers_are_kept_in_international_form(self, raw, clean):
-        assert normalise_destination("sms", raw) == clean
+    @pytest.mark.parametrize("channel", ["whatsapp", "sms"])
+    def test_the_removed_channels_are_refused(self, alert_db, channel):
+        with pytest.raises(ValueError, match="channel"):
+            alert_db.add_recipient(channel, "+201001234567", "A")
 
     @pytest.mark.parametrize("channel, raw", [
-        ("sms", "01001234567"),            # no country code: which country?
-        ("whatsapp", "+0100"),
+        ("sms", "+201001234567"),          # removed on 11 Sep 2026
+        ("whatsapp", "+201001234567"),
         ("email", "a@b"),
         ("email", "not an address"),
         ("pager", "123"),
@@ -601,8 +535,8 @@ class TestAlertStore:
         assert row.recipient_name == "Deputy head"
 
     def test_leftovers_from_a_stopped_engine_are_failed_not_forgotten(self, alert_db):
-        waiting = alert_db.add_row("k1", "weapon", "queued", at=NOW, channel="sms")
-        done = alert_db.add_row("k2", "weapon", "queued", at=NOW, channel="sms")
+        waiting = alert_db.add_row("k1", "weapon", "queued", at=NOW, channel="email")
+        done = alert_db.add_row("k2", "weapon", "queued", at=NOW, channel="email")
         alert_db.mark_sent(done, "SM1", 1, NOW)
         assert alert_db.fail_unfinished("engine_stopped", NOW) == 1
         assert alert_db.row(waiting).outcome == "failed"
@@ -618,26 +552,26 @@ class TestAlertStore:
     def test_the_ledger_knows_what_it_has_seen(self, alert_db):
         assert not alert_db.has_rows("weapon:s1:opened")
         alert_db.add_row("weapon:s1:opened", "weapon", "skipped", at=NOW,
-                         channel="sms", reason="provider_missing")
+                         channel="email", reason="provider_missing")
         assert alert_db.has_rows("weapon:s1:opened")
 
     def test_the_verdict_finds_who_got_the_opening(self, alert_db):
-        a = alert_db.add_recipient("sms", "+201001234567", "A")
-        b = alert_db.add_recipient("sms", "+201001234568", "B")
+        a = alert_db.add_recipient("email", "a@school.example", "A")
+        b = alert_db.add_recipient("email", "b@school.example", "B")
         alert_db.add_row("weapon:s1:opened", "weapon", "queued", at=NOW,
-                         channel="sms", recipient=a)
+                         channel="email", recipient=a)
         alert_db.add_row("weapon:s1:opened", "weapon", "skipped", at=NOW,
-                         channel="sms", recipient=b, reason="recipient_off")
-        assert alert_db.recipients_of("weapon:s1:opened") == {("sms", a.id)}
+                         channel="email", recipient=b, reason="recipient_off")
+        assert alert_db.recipients_of("weapon:s1:opened") == {("email", a.id)}
 
     def test_the_last_word_on_each_camera(self, alert_db):
         since = NOW - timedelta(minutes=6)
         alert_db.add_row(events.camera_down("cam-a", since).event_key, "camera",
-                         "skipped", at=since, channel="sms", reason="no_recipients")
+                         "skipped", at=since, channel="email", reason="no_recipients")
         alert_db.add_row(events.camera_up("cam-a", NOW).event_key, "camera",
-                         "skipped", at=NOW, channel="sms", reason="no_recipients")
+                         "skipped", at=NOW, channel="email", reason="no_recipients")
         alert_db.add_row(events.camera_down("cam:b", since).event_key, "camera",
-                         "skipped", at=since, channel="sms", reason="no_recipients")
+                         "skipped", at=since, channel="email", reason="no_recipients")
         assert alert_db.last_camera_events() == {"cam-a": "up", "cam:b": "down"}
 
     def test_retention_removes_only_old_rows(self, alert_db):
@@ -648,11 +582,63 @@ class TestAlertStore:
         assert [r.event_key for r in alert_db.recent(10)] == ["new"]
 
     def test_counts_for_system_health(self, alert_db):
-        one = alert_db.add_row("k1", "weapon", "queued", at=NOW, channel="sms")
+        one = alert_db.add_row("k1", "weapon", "queued", at=NOW, channel="email")
         alert_db.mark_sent(one, "SM1", 1, NOW)
-        two = alert_db.add_row("k2", "weapon", "queued", at=NOW, channel="sms")
+        two = alert_db.add_row("k2", "weapon", "queued", at=NOW, channel="email")
         alert_db.mark_failed(two, "timeout", "TimeoutError", 3, NOW)
         assert alert_db.counts_since(NOW - timedelta(hours=24)) == {"sent": 1, "failed": 1}
+
+    def test_a_database_from_before_the_removal_loses_whatsapp_and_sms(self, tmp_path):
+        """11 Sep 2026: the owner removed WhatsApp and SMS. An existing database
+        drops their switches, their recipients and their log rows on open, and
+        keeps everything that was email."""
+        path = tmp_path / "old.db"
+        old = sqlite3.connect(path)
+        old.executescript("""
+            CREATE TABLE alert_recipient (
+                id TEXT PRIMARY KEY, channel TEXT NOT NULL, destination TEXT NOT NULL,
+                name TEXT NOT NULL, language TEXT NOT NULL DEFAULT 'en',
+                enabled INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL,
+                UNIQUE (channel, destination));
+            CREATE TABLE alert_rule (
+                kind TEXT PRIMARY KEY, in_app INTEGER,
+                whatsapp INTEGER NOT NULL DEFAULT 0, sms INTEGER NOT NULL DEFAULT 0,
+                email INTEGER NOT NULL DEFAULT 0, vehicle_blacklist INTEGER,
+                vehicle_unknown INTEGER, vehicle_expired INTEGER);
+            CREATE TABLE alert_delivery (
+                id TEXT PRIMARY KEY, event_key TEXT NOT NULL, kind TEXT NOT NULL,
+                channel TEXT, recipient_id TEXT, recipient_name TEXT, language TEXT,
+                outcome TEXT NOT NULL, reason TEXT, provider_reason TEXT,
+                provider_id TEXT, attempts INTEGER NOT NULL DEFAULT 0,
+                queued_at TEXT NOT NULL, finished_at TEXT);
+            INSERT INTO alert_rule VALUES ('intrusion', 1, 1, 1, 1, NULL, NULL, NULL);
+            INSERT INTO alert_recipient VALUES
+                ('r1', 'whatsapp', '+201001234567', 'W', 'en', 1, '2026-09-01T00:00:00+00:00'),
+                ('r2', 'sms', '+201001234567', 'S', 'en', 1, '2026-09-01T00:00:00+00:00'),
+                ('r3', 'email', 'e@school.example', 'E', 'en', 1, '2026-09-01T00:00:00+00:00');
+            INSERT INTO alert_delivery (id, event_key, kind, channel, outcome, queued_at)
+            VALUES ('d1', 'k1', 'intrusion', 'whatsapp', 'sent', '2026-09-01T00:00:00+00:00'),
+                   ('d2', 'k1', 'intrusion', 'sms', 'sent', '2026-09-01T00:00:00+00:00'),
+                   ('d3', 'k1', 'intrusion', 'email', 'sent', '2026-09-01T00:00:00+00:00'),
+                   ('d4', 'k2', 'weapon', NULL, 'failed', '2026-09-01T00:00:00+00:00');
+        """)
+        old.commit()
+        old.close()
+
+        store = AlertStore(path)
+        try:
+            columns = {r["name"] for r in store._conn.execute("PRAGMA table_info(alert_rule)")}
+            assert not {"whatsapp", "sms"} & columns
+            assert store.rules()["intrusion"].email is True
+            assert [p.channel for p in store.recipients()] == ["email"]
+            assert sorted(r.id for r in store.recent(10)) == ["d3", "d4"]
+        finally:
+            store.close_db()
+        again = AlertStore(path)          # a second open finds nothing to do
+        try:
+            assert len(again.recent(10)) == 2
+        finally:
+            again.close_db()
 
     def test_an_acknowledgement_is_once(self, alert_db):
         assert alert_db.ack("weapon:s1", "Guard A", NOW) is True
@@ -721,28 +707,28 @@ def knife(scene="s1", camera="cam-a"):
 class TestSenderCore:
     def test_the_row_exists_before_the_courier_is_called(self, alert_db):
         """Rows before couriers: a hard kill mid-call must not leave no trace."""
-        alert_db.update_rule("weapon", sms=True)
-        alert_db.add_recipient("sms", "+201001234567", "A")
+        alert_db.update_rule("weapon", email=True)
+        alert_db.add_recipient("email", "a@school.example", "A")
 
         def row_is_already_queued():
             (row,) = alert_db.recent(5)
             assert row.outcome == "queued"
 
         sender = FakeSender(before=row_is_already_queued)
-        service = make_service(alert_db, couriers(sms=sender))
+        service = make_service(alert_db, couriers(email=sender))
         service.enqueue(knife())
         service.step()
         (row,) = alert_db.recent(5)
         assert (row.outcome, row.provider_id, row.attempts) == ("sent", "SM1", 1)
-        assert sender.sent[0][0] == "+201001234567"
+        assert sender.sent[0][0] == "a@school.example"
 
     def test_three_refusals_are_one_failed_row_with_the_couriers_words(self, alert_db):
-        alert_db.update_rule("weapon", sms=True)
-        alert_db.add_recipient("sms", "+201001234567", "A")
-        no = providers.SendResult.failed("provider_refused", "Authenticate (Twilio 20003)")
+        alert_db.update_rule("weapon", email=True)
+        alert_db.add_recipient("email", "a@school.example", "A")
+        no = providers.SendResult.failed("provider_refused", "Username and Password not accepted (SMTP 535)")
         sender = FakeSender([no, no, no])
         clock = Clockwork(NOW)
-        service = make_service(alert_db, couriers(sms=sender), now=clock)
+        service = make_service(alert_db, couriers(email=sender), now=clock)
 
         service.enqueue(knife())
         service.step()                         # attempt 1
@@ -755,15 +741,15 @@ class TestSenderCore:
         service.step()                         # attempt 3
         (row,) = alert_db.recent(5)
         assert (row.outcome, row.reason, row.attempts) == ("failed", "provider_refused", 3)
-        assert row.provider_reason == "Authenticate (Twilio 20003)"
+        assert row.provider_reason == "Username and Password not accepted (SMTP 535)"
         assert len(sender.sent) == 3
 
     def test_a_retry_that_succeeds_is_sent(self, alert_db):
-        alert_db.update_rule("weapon", sms=True)
-        alert_db.add_recipient("sms", "+201001234567", "A")
+        alert_db.update_rule("weapon", email=True)
+        alert_db.add_recipient("email", "a@school.example", "A")
         sender = FakeSender([providers.SendResult.failed("timeout", "TimeoutError")])
         clock = Clockwork(NOW)
-        service = make_service(alert_db, couriers(sms=sender), now=clock)
+        service = make_service(alert_db, couriers(email=sender), now=clock)
         service.enqueue(knife())
         service.step()
         clock.advance(seconds=5)
@@ -772,62 +758,62 @@ class TestSenderCore:
         assert (row.outcome, row.attempts) == ("sent", 2)
 
     def test_no_keys_is_one_skip_for_the_channel(self, alert_db):
-        alert_db.update_rule("weapon", sms=True)
-        alert_db.add_recipient("sms", "+201001234567", "A")
+        alert_db.update_rule("weapon", email=True)
+        alert_db.add_recipient("email", "a@school.example", "A")
         service = make_service(alert_db, couriers())
         service.enqueue(knife())
         service.step()
         (row,) = alert_db.recent(5)
-        assert (row.outcome, row.reason, row.channel) == ("skipped", "provider_missing", "sms")
+        assert (row.outcome, row.reason, row.channel) == ("skipped", "provider_missing", "email")
 
     def test_a_channel_on_with_nobody_on_it_says_so(self, alert_db):
-        alert_db.update_rule("weapon", whatsapp=True)
-        service = make_service(alert_db, couriers(whatsapp=FakeSender()))
+        alert_db.update_rule("weapon", email=True)
+        service = make_service(alert_db, couriers(email=FakeSender()))
         service.enqueue(knife())
         service.step()
         (row,) = alert_db.recent(5)
         assert (row.outcome, row.reason) == ("skipped", "no_recipients")
 
     def test_a_recipient_switched_off_is_skipped_by_name(self, alert_db):
-        alert_db.update_rule("weapon", sms=True)
-        off = alert_db.add_recipient("sms", "+201001234567", "Away", enabled=False)
-        alert_db.add_recipient("sms", "+201001234568", "Here")
+        alert_db.update_rule("weapon", email=True)
+        off = alert_db.add_recipient("email", "a@school.example", "Away", enabled=False)
+        alert_db.add_recipient("email", "b@school.example", "Here")
         sender = FakeSender()
-        service = make_service(alert_db, couriers(sms=sender))
+        service = make_service(alert_db, couriers(email=sender))
         service.enqueue(knife())
         service.step()
         rows = {r.recipient_name: r for r in alert_db.recent(5)}
         assert (rows["Away"].outcome, rows["Away"].reason) == ("skipped", "recipient_off")
         assert rows["Here"].outcome == "sent"
-        assert [d for d, _ in sender.sent] == ["+201001234568"]
+        assert [d for d, _ in sender.sent] == ["b@school.example"]
         assert off.id
 
     def test_a_channel_switched_off_writes_nothing(self, alert_db):
         """Not an attempt, so not a row - otherwise the log drowns in them."""
-        alert_db.add_recipient("sms", "+201001234567", "A")
-        service = make_service(alert_db, couriers(sms=FakeSender()))
+        alert_db.add_recipient("email", "a@school.example", "A")
+        service = make_service(alert_db, couriers(email=FakeSender()))
         service.enqueue(knife())
         service.step()
         assert alert_db.recent(5) == []
 
-    def test_one_row_per_recipient_per_channel(self, alert_db):
-        alert_db.update_rule("weapon", sms=True, email=True)
-        alert_db.add_recipient("sms", "+201001234567", "A")
-        alert_db.add_recipient("sms", "+201001234568", "B")
+    def test_one_row_per_recipient(self, alert_db):
+        alert_db.update_rule("weapon", email=True)
+        alert_db.add_recipient("email", "a@school.example", "A")
+        alert_db.add_recipient("email", "b@school.example", "B")
         alert_db.add_recipient("email", "c@school.example", "C")
-        service = make_service(alert_db, couriers(sms=FakeSender(), email=FakeSender()))
+        service = make_service(alert_db, couriers(email=FakeSender()))
         service.enqueue(knife())
         for _ in range(3):
             service.step()
         rows = alert_db.recent(10)
         assert sorted((r.channel, r.recipient_name, r.outcome) for r in rows) == [
-            ("email", "C", "sent"), ("sms", "A", "sent"), ("sms", "B", "sent")]
+            ("email", "A", "sent"), ("email", "B", "sent"), ("email", "C", "sent")]
 
     def test_the_same_event_twice_writes_nothing_more(self, alert_db):
-        alert_db.update_rule("weapon", sms=True)
-        alert_db.add_recipient("sms", "+201001234567", "A")
+        alert_db.update_rule("weapon", email=True)
+        alert_db.add_recipient("email", "a@school.example", "A")
         sender = FakeSender()
-        service = make_service(alert_db, couriers(sms=sender))
+        service = make_service(alert_db, couriers(email=sender))
         service.enqueue(knife())
         service.enqueue(knife())
         service.step()
@@ -836,9 +822,9 @@ class TestSenderCore:
         assert len(sender.sent) == 1
 
     def test_a_full_queue_drops_the_oldest_and_logs_it(self, alert_db):
-        alert_db.update_rule("weapon", sms=True)
-        alert_db.add_recipient("sms", "+201001234567", "A")
-        service = make_service(alert_db, couriers(sms=FakeSender()),
+        alert_db.update_rule("weapon", email=True)
+        alert_db.add_recipient("email", "a@school.example", "A")
+        service = make_service(alert_db, couriers(email=FakeSender()),
                                config=AlertsConfig(queue_size=2))
         service.enqueue(knife("s1"))
         service.enqueue(knife("s2"))
@@ -852,9 +838,9 @@ class TestSenderCore:
 
     def test_a_test_send_ignores_the_rules_and_the_switch(self, alert_db):
         """An administrator proving the wiring must not be stopped by a chip."""
-        person = alert_db.add_recipient("sms", "+201001234567", "A", enabled=False)
+        person = alert_db.add_recipient("email", "a@school.example", "A", enabled=False)
         sender = FakeSender()
-        service = make_service(alert_db, couriers(sms=sender))
+        service = make_service(alert_db, couriers(email=sender))
         row_id = service.test_send(person.id)
         assert alert_db.row(row_id).outcome == "queued"
         service.step()
@@ -873,17 +859,17 @@ class TestSenderCore:
             service.test_send("no-such-id")
 
     def test_a_restart_fails_the_leftovers_and_sends_nothing(self, alert_db):
-        alert_db.update_rule("weapon", sms=True)
-        alert_db.add_recipient("sms", "+201001234567", "A")
+        alert_db.update_rule("weapon", email=True)
+        alert_db.add_recipient("email", "a@school.example", "A")
         refusing = FakeSender([providers.SendResult.failed("timeout", "TimeoutError")] * 5)
-        first = make_service(alert_db, couriers(sms=refusing))
+        first = make_service(alert_db, couriers(email=refusing))
         first.enqueue(knife())
         first.step()                           # attempt 1 fails; the row stays queued
         assert alert_db.recent(1)[0].outcome == "queued"
 
         # the engine is killed here; a new one starts over the same database
         sender = FakeSender()
-        second = make_service(alert_db, couriers(sms=sender))
+        second = make_service(alert_db, couriers(email=sender))
         second.start(run_thread=False)
         (row,) = alert_db.recent(5)
         assert (row.outcome, row.reason) == ("failed", "engine_stopped")
@@ -891,9 +877,9 @@ class TestSenderCore:
         assert sender.sent == []
 
     def test_a_graceful_stop_logs_what_was_still_waiting(self, alert_db):
-        alert_db.update_rule("weapon", sms=True)
-        alert_db.add_recipient("sms", "+201001234567", "A")
-        service = make_service(alert_db, couriers(sms=FakeSender()))
+        alert_db.update_rule("weapon", email=True)
+        alert_db.add_recipient("email", "a@school.example", "A")
+        service = make_service(alert_db, couriers(email=FakeSender()))
         service.enqueue(knife("s1"))
         service.stop()
         (row,) = alert_db.recent(5)
@@ -901,9 +887,9 @@ class TestSenderCore:
             "weapon:s1:opened", "failed", "engine_stopped")
 
     def test_a_sender_that_raises_is_a_failure_not_a_dead_thread(self, alert_db):
-        alert_db.update_rule("weapon", sms=True)
-        alert_db.add_recipient("sms", "+201001234567", "A")
-        service = make_service(alert_db, couriers(sms=FakeSender([RuntimeError("boom")] * 3)),
+        alert_db.update_rule("weapon", email=True)
+        alert_db.add_recipient("email", "a@school.example", "A")
+        service = make_service(alert_db, couriers(email=FakeSender([RuntimeError("boom")] * 3)),
                                config=AlertsConfig(retries=1))
         service.enqueue(knife())
         service.step()
@@ -911,10 +897,10 @@ class TestSenderCore:
         assert (row.outcome, row.reason) == ("failed", "unreachable")
 
     def test_camera_names_are_filled_by_the_sender(self, alert_db):
-        alert_db.update_rule("weapon", sms=True)
-        alert_db.add_recipient("sms", "+201001234567", "A")
+        alert_db.update_rule("weapon", email=True)
+        alert_db.add_recipient("email", "a@school.example", "A")
         sender = FakeSender()
-        service = make_service(alert_db, couriers(sms=sender))
+        service = make_service(alert_db, couriers(email=sender))
         service.bind(camera_name=lambda camera_id: {"cam-a": "Yard camera"}.get(camera_id))
         service.enqueue(knife())
         service.step()
@@ -942,15 +928,15 @@ class TestSenderCore:
         """Its outcome is the courier's answer, not a guess made while the courier
         is still talking. A stop that gives up waiting leaves that one row
         queued; the courier's answer, when it comes, is what the log says."""
-        alert_db.update_rule("weapon", sms=True)
-        alert_db.add_recipient("sms", "+201001234567", "A")
+        alert_db.update_rule("weapon", email=True)
+        alert_db.add_recipient("email", "a@school.example", "A")
         inside, release = threading.Event(), threading.Event()
 
         def a_slow_courier():
             inside.set()
             release.wait(5)
 
-        service = make_service(alert_db, couriers(sms=FakeSender(before=a_slow_courier)))
+        service = make_service(alert_db, couriers(email=FakeSender(before=a_slow_courier)))
         service.start()
         thread = service._thread
         try:
@@ -986,10 +972,10 @@ class TestSenderCore:
 
     def test_once_stopping_a_pass_records_but_calls_no_courier(self, alert_db):
         """So a stop waits on the one call already running, never a new one."""
-        alert_db.update_rule("weapon", sms=True)
-        alert_db.add_recipient("sms", "+201001234567", "A")
+        alert_db.update_rule("weapon", email=True)
+        alert_db.add_recipient("email", "a@school.example", "A")
         sender = FakeSender()
-        service = make_service(alert_db, couriers(sms=sender))
+        service = make_service(alert_db, couriers(email=sender))
         service.stop()
         service.enqueue(knife())
         service.step()
@@ -1026,11 +1012,11 @@ class TestWhenAWriteFails:
     (P9-FR-023: a message that could not go is a row, never a missing row)."""
 
     def test_an_event_is_written_whole_or_not_at_all(self, alert_db, monkeypatch):
-        alert_db.update_rule("weapon", whatsapp=True, sms=True)
-        alert_db.add_recipient("whatsapp", "+201001234567", "A")
-        alert_db.add_recipient("sms", "+201001234568", "B")
+        alert_db.update_rule("weapon", email=True)
+        alert_db.add_recipient("email", "a@school.example", "A")
+        alert_db.add_recipient("email", "b@school.example", "B")
         sender = FakeSender()
-        service = make_service(alert_db, couriers(whatsapp=sender, sms=sender))
+        service = make_service(alert_db, couriers(email=sender))
         monkeypatch.setattr(alert_db, "_conn", FlakyConnection(alert_db._conn, fail={2}))
 
         service.enqueue(knife())
@@ -1048,9 +1034,9 @@ class TestWhenAWriteFails:
             self, alert_db, monkeypatch):
         from vg.alerts.service import RECORD_TRIES
 
-        alert_db.update_rule("weapon", sms=True)
-        alert_db.add_recipient("sms", "+201001234567", "A")
-        service = make_service(alert_db, couriers(sms=FakeSender()))
+        alert_db.update_rule("weapon", email=True)
+        alert_db.add_recipient("email", "a@school.example", "A")
+        service = make_service(alert_db, couriers(email=FakeSender()))
         broken = FlakyConnection(alert_db._conn, fail=range(1, 100))
         monkeypatch.setattr(alert_db, "_conn", broken)
         service.enqueue(knife())
@@ -1062,11 +1048,11 @@ class TestWhenAWriteFails:
             self, alert_db, monkeypatch):
         """Down and back alike: the camera is only taken as announced once its
         row exists, or no later pass would ever say it."""
-        alert_db.update_rule("camera", sms=True)
-        alert_db.add_recipient("sms", "+201001234567", "A")
+        alert_db.update_rule("camera", email=True)
+        alert_db.add_recipient("email", "a@school.example", "A")
         camera = FakeWorker("down", NOW - timedelta(minutes=10))
         registry = type("Registry", (), {"workers": {"cam-a": camera}})()
-        service = make_service(alert_db, couriers(sms=FakeSender()), registry=registry)
+        service = make_service(alert_db, couriers(email=FakeSender()), registry=registry)
         monkeypatch.setattr(alert_db, "_conn",
                             FlakyConnection(alert_db._conn, fail={1, 3}))
 

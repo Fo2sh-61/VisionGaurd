@@ -1036,22 +1036,20 @@ class AskConfig:
 
 @dataclass(frozen=True)
 class AlertsConfig:
-    """Alert delivery (P9): how the engine tells people by WhatsApp, SMS and email.
+    """Alert delivery (P9): how the engine tells people by email.
 
     How the sender behaves, and nothing else. **Who** is told, and about
     which kind of alert, is not here: recipients and rules are database state
     an administrator edits in Settings, and a yaml edit must never be the way
-    a phone number gets added.
+    an address gets added.
 
-    The provider keys are not here either. They live in `.env` —
-    TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_FROM,
-    TWILIO_SMS_FROM, GMAIL_USER, GMAIL_APP_PASSWORD — the same rule the camera
-    credentials and the Gemini key follow: a secret in engine.yaml is a
-    secret in git.
+    The Gmail keys are not here either. They live in `.env` — GMAIL_USER,
+    GMAIL_APP_PASSWORD — the same rule the camera credentials and the Gemini
+    key follow: a secret in engine.yaml is a secret in git.
     """
 
-    #: False: the sender does not start, nothing goes out by WhatsApp, SMS or
-    #: email, and Settings and System Health say so. Home's list still works.
+    #: False: the sender does not start, nothing goes out by email, and
+    #: Settings and System Health say so. Home's list still works.
     enabled: bool = True
     #: NO SIGNAL for this long is a message. A camera reads "down" after ten
     #: seconds without a frame; a phone buzzing for every hiccup would be
@@ -1120,7 +1118,7 @@ class AlertsConfig:
         if len(url) > 100:
             raise ConfigError(
                 f"{where}.console_url: at most 100 characters, so every "
-                f"message still fits one SMS.")
+                f"message stays short.")
 
         return cls(
             enabled=bool(raw.get("enabled", True)),

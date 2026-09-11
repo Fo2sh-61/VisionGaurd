@@ -56,7 +56,7 @@ Verified in code this cycle. These are why P0 and P1 come before any feature wor
 | FR-11 | Server-enforced login and roles | **missing** |
 | FR-12 | Durable audit trail | **missing** |
 | FR-13 | Retention + erasure | **missing** |
-| FR-14 | Alert delivery | **built** (P9, spec 013, 11 Sep 2026) — WhatsApp and SMS through Twilio, email through Gmail, and Home's list; recipients, rules and a delivery log in the database; knife messages marked "awaiting review" with a verdict follow-up. The real-phone check (SC-001) and the Arabic wording review are still open |
+| FR-14 | Alert delivery | **built** (P9, spec 013, 11 Sep 2026) — email through Gmail, and Home's list; recipients, rules and a delivery log in the database; knife messages marked "awaiting review" with a verdict follow-up. Email confirmed on a real inbox 11 Sep 2026; WhatsApp and SMS were built and then removed the same day. The Arabic wording review is still open |
 | FR-15 | Mobile on real data | **built 3 Sep 2026** — `specs/012-mobile-parity`, unverified on a real phone |
 | FR-16 | Runs at ~208 cameras, measured | not designed for |
 | — | Fight detection | **out of scope** (no model) |
@@ -285,20 +285,20 @@ Synthetic camera harness · staged benchmarks 1 → 8 → 32 → 104 → 208 · 
 
 ### P9 — Notifications · 1–2 wk · `specs/013-alert-delivery`
 
-Alert rules + delivery log · in-app delivery · email/SMS only if required.
+Alert rules + delivery log · in-app delivery · email.
 
 **Built 11 Sep 2026.** One sender thread behind a bounded queue, fed by one
 hook on each store that commits an event, so a courier that is slow or down
 costs detection nothing. Five kinds (knife, restricted zone, gate, camera
-offline, noon attendance report) × four channels (In-app, WhatsApp, SMS,
-email), switched per kind in Settings; any number of recipients per channel,
-each in Arabic or English, each with a Send test. Every attempt is a row in the
+offline, noon attendance report) × two channels (In-app and email),
+switched per kind in Settings; any number of recipients, each in Arabic or
+English, each with a Send test. WhatsApp and SMS through Twilio were built
+too, then removed the same day by the owner's decision: email is enough. Every attempt is a row in the
 delivery log - queued, sent with the courier's id, failed with its words, or
 skipped with a reason - and a restart re-sends nothing. Messages carry facts
-only and never a student's name, a face or a picture. Still open: the
-real-phone check with Mohamed's keys, the native-speaker review of the Arabic
-wording, an approved WhatsApp sender for production, and the 2026–27 term dates
-the noon report needs.
+only and never a student's name, a face or a picture. Email is confirmed on a
+real inbox with Mohamed's keys. Still open: the native-speaker review of the
+Arabic wording, and the 2026–27 term dates the noon report needs.
 
 **Amended 11 Sep 2026 — a knife message goes out on detection** (spec
 `specs/013-alert-delivery`). The owner decided that a knife entry opening sends

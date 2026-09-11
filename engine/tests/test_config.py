@@ -498,6 +498,6 @@ class TestAlertsConfig:
 
     def test_no_secret_can_be_configured_here(self):
         """The keys live in .env. A token in engine.yaml is a token in git."""
-        for key in ("twilio_auth_token", "gmail_app_password", "api_key"):
+        for key in ("gmail_user", "gmail_app_password", "api_key"):
             with pytest.raises(cfg.ConfigError, match="unknown key"):
                 cfg.AlertsConfig.parse({key: "x"}, "alerts")

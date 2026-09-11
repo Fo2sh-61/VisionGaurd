@@ -184,23 +184,22 @@ ask:
   timeout_seconds: 8
 
 # ---------------------------------------------------------------------------
-# Alerts — how the engine tells people by WhatsApp, SMS and email (P9)
+# Alerts — how the engine tells people by email (P9)
 #
 # Only how the sender behaves. WHO is told about WHAT is set in Settings and
-# kept in the database; nothing here adds a phone number.
+# kept in the database; nothing here adds an address.
 #
-# The provider keys are NOT here: TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN,
-# TWILIO_WHATSAPP_FROM, TWILIO_SMS_FROM, GMAIL_USER and GMAIL_APP_PASSWORD go
-# in engine/.env. Without them the channels say so in Settings and System
-# Health, every would-be message is logged as skipped, and detection carries
-# on untouched.
+# The Gmail keys are NOT here: GMAIL_USER and GMAIL_APP_PASSWORD go in
+# engine/.env. Without them email says so in Settings and System Health,
+# every would-be message is logged as skipped, and detection carries on
+# untouched.
 #
-# Twilio sees the text of every WhatsApp and SMS, and Google every email. What
-# leaves is facts only - what happened, where, when, how sure, who decided -
-# and never a student's name, a face or a picture (specs/013-alert-delivery).
+# Google sees the text of every email. What leaves is facts only - what
+# happened, where, when, how sure, who decided - and never a student's name,
+# a face or a picture (specs/013-alert-delivery).
 # ---------------------------------------------------------------------------
 alerts:
-  # false: nothing goes out by WhatsApp, SMS or email. The Home list still works.
+  # false: nothing goes out by email. The Home list still works.
   enabled: true
 
   # NO SIGNAL for this long sends "camera offline". A camera reads down after
@@ -211,7 +210,7 @@ alerts:
   # inside hours.term_from .. hours.term_to above.
   report_time: "12:00"
 
-  # Per call to Twilio or Gmail, and how many tries before a message is logged
+  # Per call to Gmail, and how many tries before a message is logged
   # failed with the courier's own reason.
   timeout_seconds: 10
   retries: 3

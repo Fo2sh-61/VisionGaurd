@@ -1,50 +1,42 @@
-"""Twilio and Gmail - one sender per channel, behind one seam.
+"""Gmail - the one courier, behind one seam.
 
     send(message, destination) -> SendResult: accepted(provider_id) | failed(reason)
 
-That seam is the whole contract. Swapping a provider later is a new class
-here; rules, recipients and the delivery log never learn who carried a
-message. There is deliberately one implementation per channel and no
-fallback: a second courier that silently takes over is a second place a
-message can go without anybody having decided it should.
+That seam is the whole contract. Adding a courier later is a new class here;
+rules, recipients and the delivery log never learn who carried a message.
+There is deliberately one implementation per channel and no fallback: a
+second courier that silently takes over is a second place a message can go
+without anybody having decided it should. (WhatsApp and SMS through Twilio
+were removed on 11 Sep 2026; email is enough.)
 
-**No SDK.** Twilio is one HTTPS form POST and Gmail is `smtplib`, both in the
-standard library, so this adds nothing to requirements.txt (research.md §1).
-Both take an injectable transport, so no test ever touches the network.
+**No SDK.** Gmail is `smtplib`, in the standard library, so this adds nothing
+to requirements.txt (research.md §1). It takes an injectable SMTP factory, so
+no test ever touches the network.
 
 **The keys never leave.** They are read from the environment at send time,
 and every word a failure carries is built from the courier's own error text or
-an exception's class name - never `str(exc)`, which for urllib can include the
-request URL, and Twilio's URL contains the Account SID - and then `redact()`
-is run over it anyway.
+an exception's class name - never `str(exc)` - and then `redact()` is run
+over it anyway.
 """
 
 from __future__ import annotations
 
-import base64
-import json
 import os
 import smtplib
 import ssl
-import urllib.error
-import urllib.parse
-import urllib.request
 from dataclasses import dataclass
 from email.message import EmailMessage
 from email.utils import make_msgid
-from typing import Any, Callable, Protocol
+from typing import Any, Protocol
 
 from vg.alerts.catalogue import Message
 
-TWILIO_URL = "https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json"
 GMAIL_HOST = "smtp.gmail.com"
 GMAIL_PORT = 465
 
 #: What each channel needs in engine/.env. The names are shown to an
 #: administrator when missing; the values never are.
 REQUIRED_ENV: dict[str, tuple[str, ...]] = {
-    "whatsapp": ("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_WHATSAPP_FROM"),
-    "sms": ("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_SMS_FROM"),
     "email": ("GMAIL_USER", "GMAIL_APP_PASSWORD"),
 }
 
@@ -91,12 +83,6 @@ class Sender(Protocol):
     def send(self, message: Message, destination: str) -> SendResult: ...
 
 
-def _is_timeout(exc: BaseException) -> bool:
-    if isinstance(exc, TimeoutError):          # socket.timeout is TimeoutError
-        return True
-    return isinstance(getattr(exc, "reason", None), TimeoutError)
-
-
 def _exception_words(exc: BaseException) -> str:
     """A failure in words that cannot carry a URL: class names and strerror."""
     inner = getattr(exc, "reason", None)
@@ -106,82 +92,6 @@ def _exception_words(exc: BaseException) -> str:
         exc = inner
     strerror = getattr(exc, "strerror", None)
     return f"{name} ({strerror})" if strerror else name
-
-
-# ---------------------------------------------------------------------------
-# Twilio - WhatsApp and SMS
-# ---------------------------------------------------------------------------
-
-Transport = Callable[[str, bytes, dict[str, str], float], tuple[int, bytes]]
-
-
-def _urllib_transport(url: str, data: bytes, headers: dict[str, str],
-                      timeout: float) -> tuple[int, bytes]:
-    request = urllib.request.Request(url, data=data, headers=headers, method="POST")
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            return response.status, response.read()
-    except urllib.error.HTTPError as exc:      # an answer, just not a yes
-        return exc.code, exc.read()
-
-
-def _json(raw: bytes) -> dict[str, Any] | None:
-    try:
-        payload = json.loads(raw.decode("utf-8"))
-    except (ValueError, UnicodeDecodeError):
-        return None
-    return payload if isinstance(payload, dict) else None
-
-
-class TwilioSender:
-    """One Twilio account, two channels: the only difference is `whatsapp:`."""
-
-    FROM = {"whatsapp": "TWILIO_WHATSAPP_FROM", "sms": "TWILIO_SMS_FROM"}
-
-    def __init__(self, channel: str, timeout: float = 10.0,
-                 transport: Transport | None = None) -> None:
-        if channel not in self.FROM:
-            raise ValueError(f"Twilio carries whatsapp or sms, not {channel!r}")
-        self.channel = channel
-        self.timeout = timeout
-        self._transport = transport or _urllib_transport
-
-    def send(self, message: Message, destination: str) -> SendResult:
-        sid = os.environ.get("TWILIO_ACCOUNT_SID", "").strip()
-        token = os.environ.get("TWILIO_AUTH_TOKEN", "").strip()
-        sender = os.environ.get(self.FROM[self.channel], "").strip()
-        to = destination
-        if self.channel == "whatsapp":
-            sender = sender if sender.startswith("whatsapp:") else f"whatsapp:{sender}"
-            to = f"whatsapp:{destination}"
-
-        data = urllib.parse.urlencode(
-            {"From": sender, "To": to, "Body": message.body}).encode("utf-8")
-        auth = base64.b64encode(f"{sid}:{token}".encode("utf-8")).decode("ascii")
-        headers = {
-            "Authorization": f"Basic {auth}",
-            "Content-Type": "application/x-www-form-urlencoded",
-            "Accept": "application/json",
-        }
-        try:
-            status, raw = self._transport(
-                TWILIO_URL.format(sid=sid), data, headers, self.timeout)
-        except Exception as exc:
-            return SendResult.failed("timeout" if _is_timeout(exc) else "unreachable",
-                                     _exception_words(exc))
-
-        payload = _json(raw)
-        if 200 <= status < 300:
-            message_id = (payload or {}).get("sid")
-            if message_id:
-                return SendResult.accepted(str(message_id))
-            return SendResult.failed("provider_refused",
-                                     f"HTTP {status} with no message id")
-        if payload and payload.get("message"):
-            code = payload.get("code")
-            words = str(payload["message"]) + (f" (Twilio {code})" if code else "")
-            return SendResult.failed("provider_refused", words)
-        return SendResult.failed("provider_refused", f"HTTP {status}")
 
 
 # ---------------------------------------------------------------------------
@@ -240,8 +150,6 @@ class GmailSender:
 
 def for_channel(channel: str, timeout: float = 10.0) -> Sender | None:
     """The sender for a channel, or None when its keys are not all set."""
-    if missing_env(channel):
+    if channel not in REQUIRED_ENV or missing_env(channel):
         return None
-    if channel == "email":
-        return GmailSender(timeout)
-    return TwilioSender(channel, timeout)
+    return GmailSender(timeout)

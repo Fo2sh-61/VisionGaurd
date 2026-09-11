@@ -2,7 +2,7 @@
 
 This is the one place the engine writes sentences for people (spec
 P9-FR-009). Everywhere else the engine sends codes and facts and the console
-words them (P11) - but there is no console at the far end of an SMS, so the
+words them (P11) - but there is no console at the far end of an email, so the
 sentence has to be built here, in the recipient's language.
 
 Each template may use only the facts an `AlertEvent` allows, plus the camera's
@@ -28,13 +28,14 @@ from vg.alerts.events import AlertEvent
 #: Flip to True only after a native speaker has read every Arabic line below.
 ARABIC_REVIEWED = False
 
-#: Event messages fit two SMS segments in English, with a 100-character link.
+#: Event messages stay short enough to read on a phone's lock screen, with a
+#: 100-character link.
 EVENT_LIMIT = 320
-#: The noon report may be longer, but not unbounded: Twilio concatenates at
-#: most 1600 characters, and a report that long is a page, not a message.
+#: The noon report may be longer, but not unbounded: a report that long is a
+#: page, not a message.
 REPORT_LIMIT = 1500
 #: Camera names, plates and people are free text; one long one must not push
-#: the part that matters - "awaiting review" - off the end of an SMS.
+#: the part that matters - "awaiting review" - off the end of a preview.
 NAME_LIMIT = 40
 
 #: The console page each kind opens. Paths from web/src/app/navigation.ts.

@@ -2699,8 +2699,7 @@ class LiveStore(MockStore):
     @staticmethod
     def _wire_rule(rule) -> S.AlertRule:
         return S.AlertRule(
-            kind=rule.kind, in_app=rule.in_app, whatsapp=rule.whatsapp,
-            sms=rule.sms, email=rule.email,
+            kind=rule.kind, in_app=rule.in_app, email=rule.email,
             vehicle_blacklist=rule.vehicle_blacklist,
             vehicle_unknown=rule.vehicle_unknown,
             vehicle_expired=rule.vehicle_expired,
@@ -2863,12 +2862,12 @@ class LiveStore(MockStore):
                 f"{self.alerts_error or 'The alert database is not available'}"
                 " - nothing can be listed or sent. Detection is unaffected.", False)
         if not self.config.alerts.enabled:
-            return stage("Switched off in engine.yaml - nothing is sent by WhatsApp, "
-                         "SMS or email. The Home list still works.", True)
+            return stage("Switched off in engine.yaml - nothing is sent by email. "
+                         "The Home list still works.", True)
         if self.alerts is None or self.alerts.dead:
             return stage(
                 f"{self.alerts_error or 'The alert sender is not running'} - nothing "
-                "is sent by WhatsApp, SMS or email. Detection is unaffected.", False)
+                "is sent by email. Detection is unaffected.", False)
         try:
             rules = self.alerts_store.rules()
             counts = self.alerts_store.counts_since(
@@ -2877,7 +2876,7 @@ class LiveStore(MockStore):
             return stage(f"The alert database could not be read ({exc}). "
                          "Detection is unaffected.", False)
 
-        label = {"whatsapp": "WhatsApp", "sms": "SMS", "email": "email"}
+        label = {"email": "email"}
         used = [c for c in CHANNELS if any(r.channel_on(c) for r in rules.values())]
         broken = [c for c in used if providers.missing_env(c)]
         if broken:
@@ -2891,7 +2890,7 @@ class LiveStore(MockStore):
                 f"{' and '.join(label[c] for c in broken)} cannot be sent. "
                 "Detection is unaffected.", False)
         if not used:
-            return stage("Running - no WhatsApp, SMS or email is switched on, so "
+            return stage("Running - email is not switched on for any alert, so "
                          "only the Home list is used.", True)
         return stage(f"Running - {counts.get('sent', 0)} sent, "
                      f"{counts.get('failed', 0)} failed in the last 24 hours.", True)
@@ -2977,7 +2976,7 @@ class LiveStore(MockStore):
                       "The audit trail is kept in memory only and is lost when "
                       "the engine restarts."),
             # Home's list (spec 013). Needs the alert database only; whether
-            # WhatsApp, SMS and email can send is System Health's alert row.
+            # email can send is System Health's alert row.
             "attention": self._attention_state(),
             "ask": self._ask_state(),
         }

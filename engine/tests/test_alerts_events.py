@@ -38,8 +38,7 @@ from vg.ingest.source import Frame
 
 START = (datetime.now(timezone.utc) - timedelta(hours=1)).replace(microsecond=0)
 
-KEYS = ("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_WHATSAPP_FROM",
-        "TWILIO_SMS_FROM", "GMAIL_USER", "GMAIL_APP_PASSWORD")
+KEYS = ("GMAIL_USER", "GMAIL_APP_PASSWORD")
 
 
 # ---------------------------------------------------------------------------
@@ -47,7 +46,7 @@ KEYS = ("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_WHATSAPP_FROM",
 # ---------------------------------------------------------------------------
 
 class Courier:
-    """A fake Twilio: accepts everything and remembers what it was given."""
+    """A fake Gmail: accepts everything and remembers what it was given."""
 
     def __init__(self):
         self.sent: list[tuple[str, str]] = []
@@ -128,7 +127,7 @@ class World:
 
 @pytest.fixture
 def world(tmp_path, monkeypatch):
-    """An alert database, a sender with a fake courier, WhatsApp on for knives
+    """An alert database, a sender with a fake courier, email on for knives
     and two people listed."""
     for name in KEYS:
         monkeypatch.delenv(name, raising=False)
@@ -137,10 +136,19 @@ def world(tmp_path, monkeypatch):
     service = AlertService(AlertsConfig(), alerts, None, FixedClock(offset_minutes=180),
                            senders=lambda channel: courier)
     service.bind(camera_name=lambda camera_id: {"cam-a": "Yard camera"}.get(camera_id))
-    alerts.add_recipient("whatsapp", "+201001234567", "Head of security")
-    alerts.add_recipient("whatsapp", "+201001234568", "Deputy head")
+    alerts.add_recipient("email", "head@school.example", "Head of security")
+    alerts.add_recipient("email", "deputy@school.example", "Deputy head")
     yield World(alerts, service, courier, tmp_path)
     alerts.close_db()
+
+
+def only_recipient(world: World, address: str, name: str) -> None:
+    """Make one person the only recipient. Email is the one channel, so the
+    world's two knife readers would otherwise get the gate and camera
+    messages too."""
+    for person in world.alerts.recipients():
+        world.alerts.remove_recipient(person.id)
+    world.alerts.add_recipient("email", address, name)
 
 
 def rows_for(alerts: AlertStore, key: str):
@@ -155,7 +163,7 @@ def rows_for(alerts: AlertStore, key: str):
 def knives(world):
     scenes = WeaponSceneStore(world.tmp / "weapons.db")
     scenes.on_open = world.service.on_weapon_open
-    world.alerts.update_rule("weapon", whatsapp=True)
+    world.alerts.update_rule("weapon", email=True)
     yield scenes
     scenes.close_db()
 
@@ -209,7 +217,7 @@ class TestKnifeMessages:
             self, world, knives, tmp_path):
         scene_id = knives.open("cam-a", START, 0.76, "knifebest")
         drain(world.service)
-        world.alerts.add_recipient("whatsapp", "+201001234569", "Added later")
+        world.alerts.add_recipient("email", "later@school.example", "Added later")
         store = live_store(tmp_path, weapon_scenes=knives, alerts_store=world.alerts,
                            alerts=world.service)
 
@@ -240,10 +248,10 @@ class TestKnifeMessages:
 
     def test_no_opening_message_means_no_verdict(self, world, knives, tmp_path):
         """Nobody was scared, so nobody is sent an answer."""
-        world.alerts.update_rule("weapon", whatsapp=False)
+        world.alerts.update_rule("weapon", email=False)
         scene_id = knives.open("cam-a", START, 0.76, "knifebest")
         drain(world.service)
-        world.alerts.update_rule("weapon", whatsapp=True)
+        world.alerts.update_rule("weapon", email=True)
         store = live_store(tmp_path, weapon_scenes=knives, alerts_store=world.alerts,
                            alerts=world.service)
         store.review_weapon(scene_id, S.WeaponReview(verdict=S.ReviewVerdict.DISMISSED),
@@ -294,7 +302,7 @@ def zones(world):
 
     scenes = SceneStore(world.tmp / "zones.db")
     scenes.on_open = world.service.on_zone_open
-    world.alerts.update_rule("intrusion", whatsapp=True)
+    world.alerts.update_rule("intrusion", email=True)
     yield scenes
     scenes.close_db()
 
@@ -366,8 +374,8 @@ def gate(world):
 
     vehicles = VehicleStore(world.tmp / "vehicles.db")
     vehicles.on_pass = world.service.on_pass
-    world.alerts.update_rule("vehicles", sms=True)
-    world.alerts.add_recipient("sms", "+201001234570", "Gate supervisor")
+    world.alerts.update_rule("vehicles", email=True)
+    only_recipient(world, "gate@school.example", "Gate supervisor")
     yield vehicles
     vehicles.close_db()
 
@@ -395,7 +403,7 @@ class TestGateMessages:
         drain(world.service)
 
         bodies = [body for _, body in world.courier.sent]
-        assert len(bodies) == 3, "one message per pass, to the one SMS recipient"
+        assert len(bodies) == 3, "one message per pass, to the one gate recipient"
         for record, body in zip(passes, bodies):
             assert record.plate_display in body and "gate 1" in body
         assert "Blacklisted" in bodies[0]
@@ -608,7 +616,7 @@ class Clockwork:
 @pytest.fixture
 def cameras(world):
     world.alerts.update_rule("camera", email=True)
-    world.alerts.add_recipient("email", "office@school.example", "Office")
+    only_recipient(world, "office@school.example", "Office")
     return world
 
 
