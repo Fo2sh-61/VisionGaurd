@@ -179,7 +179,7 @@ textarea {
 }
 
 /* The design's status glyph: a filled circle with a character inside, used
-   for camera status, the sidebar "campus is calm" line, and card badges. */
+   for camera status, the sidebar's alert line, and card badges. */
 .glyph {
   width: 14px;
   height: 14px;
