@@ -70,7 +70,7 @@ export function SystemHealth() {
           <Empty>{t('health.noStages')}</Empty>
         )}
         {health.pipeline.map((p) => (
-          <div key={p.name} className="row" style={{ gridTemplateColumns: '1.2fr 1.6fr 1fr .8fr' }}>
+          <div key={p.name} className="row" style={{ gridTemplateColumns: '1.2fr 1.6fr 1fr' }}>
             <span className="row__name">{p.name}</span>
             <span className="row__muted">{p.detail}</span>
             <span>
@@ -78,13 +78,8 @@ export function SystemHealth() {
                   drew "Needs attention" inside a healthy green badge. */}
               <Badge tone={p.tone} glyph={toneGlyph[p.tone]}>{p.status}</Badge>
             </span>
-            {p.action ? (
-              <button type="button" className="linkbtn">
-                {p.action}
-              </button>
-            ) : (
-              <span />
-            )}
+            {/* No Restart here: no endpoint restarts anything, and the
+                button this row used to carry did nothing when pressed. */}
             {/* Per-worker load, on the one row that carries it.
                 Every figure is a counter the engine already kept and never
                 showed, which is why a saturated machine used to look

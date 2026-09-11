@@ -730,6 +730,8 @@ class PipelineStage(Wire):
     detail: str
     healthy: bool
     severity: Severity
+    #: False on every stage: no endpoint restarts anything. When it was true,
+    #: System Health drew a Restart button that did nothing.
     restartable: bool = False
     model_version: str | None = None
     #: Only the workers stage fills this. Empty everywhere else.

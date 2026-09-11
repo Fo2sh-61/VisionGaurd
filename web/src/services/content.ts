@@ -32,7 +32,6 @@ export const CAPABILITIES: { capability: MessageKey; admin: boolean; it: boolean
   { capability: 'capability.track', admin: true, it: false },
   { capability: 'capability.attendance', admin: true, it: false },
   { capability: 'capability.cameras', admin: true, it: true },
-  { capability: 'capability.restart', admin: true, it: true },
   { capability: 'capability.users', admin: true, it: false },
 ];
 

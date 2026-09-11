@@ -37,7 +37,7 @@
 | P0-04 | person-mode late cutoff | done |
 | P0-05 | fights removed | done |
 | P0-06 | SQLite WAL + busy-timeout | done |
-| P0-07 | dead buttons | done |
+| P0-07 | dead buttons | done — Health "Restart" was missed and stayed dead until 2026-09-11. Removed, because no endpoint restarts anything (`test_health_restart.py`) |
 | P0-08 | error / empty / degraded states on every page | done |
 | P0-09 | person history + groups wired | done |
 | P0-10 | CI: the four gates | done |

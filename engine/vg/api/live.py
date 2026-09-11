@@ -3528,7 +3528,7 @@ class LiveStore(MockStore):
                         + (f" - {disabled} switched off" if disabled else "")),
                 healthy=online == total and total > 0,
                 severity=S.Severity.INFO if online == total else S.Severity.WARN,
-                restartable=True,
+                restartable=False,
             ),
             self._recognition_stage(),
             self._people_stage(),
@@ -3602,7 +3602,7 @@ class LiveStore(MockStore):
                 key="recognition", name="Face recognition",
                 detail=f"Failed to start - {self.recognition_error}. "
                        f"Attendance is showing DEMO DATA.",
-                healthy=False, severity=S.Severity.CRITICAL, restartable=True,
+                healthy=False, severity=S.Severity.CRITICAL, restartable=False,
             )
 
         if not self.recognition_live:
@@ -3636,7 +3636,7 @@ class LiveStore(MockStore):
             key="recognition", name="Face recognition",
             detail=f"{enrolled} enrolled, {self.gallery.embedding_count} faces, "
                    f"running on {cameras} camera(s)",
-            healthy=True, severity=S.Severity.INFO, restartable=True,
+            healthy=True, severity=S.Severity.INFO, restartable=False,
         )
 
     def _people_stage(self) -> S.PipelineStage:
@@ -3645,7 +3645,7 @@ class LiveStore(MockStore):
                 key="detect", name="Person detection",
                 detail=f"Failed to start - {self.people_error}. "
                        f"Counting and intrusion are showing DEMO DATA.",
-                healthy=False, severity=S.Severity.CRITICAL, restartable=True,
+                healthy=False, severity=S.Severity.CRITICAL, restartable=False,
             )
 
         if self.people_worker is None:
@@ -3674,14 +3674,14 @@ class LiveStore(MockStore):
                 key="detect", name="Person detection",
                 detail="Loaded and shared with knife detection. No camera "
                        "asks for counting, intrusion or track.",
-                healthy=True, severity=S.Severity.INFO, restartable=True,
+                healthy=True, severity=S.Severity.INFO, restartable=False,
             )
         detector = getattr(self.people_worker, "detector", None)
         return S.PipelineStage(
             key="detect", name="Person detection",
             detail=f"{self._running_on(detector)} - {stats['cameras']} camera(s), "
                    f"{stats['last_inference_ms']}ms last inference",
-            healthy=True, severity=S.Severity.INFO, restartable=True,
+            healthy=True, severity=S.Severity.INFO, restartable=False,
         )
 
     def _vehicles_stage(self) -> S.PipelineStage:
@@ -3714,7 +3714,7 @@ class LiveStore(MockStore):
             key="vehicles", name="Plate reading",
             detail=f"{self._running_on(reader)} - {stats['cameras']} camera(s), "
                    f"{stats['last_inference_ms']}ms last inference",
-            healthy=True, severity=S.Severity.INFO, restartable=True,
+            healthy=True, severity=S.Severity.INFO, restartable=False,
         )
 
     def _weapons_stage(self) -> S.PipelineStage:
@@ -3748,7 +3748,7 @@ class LiveStore(MockStore):
             key="weapons", name="Knife detection",
             detail=f"{self._running_on(knives)} - {stats['cameras']} camera(s), "
                    f"{stats['last_inference_ms']}ms last inference",
-            healthy=True, severity=S.Severity.INFO, restartable=True,
+            healthy=True, severity=S.Severity.INFO, restartable=False,
         )
 
     # -- people and attendance ---------------------------------------------
