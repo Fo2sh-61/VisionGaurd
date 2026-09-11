@@ -283,7 +283,8 @@ class WeaponsWorker(FeatureWorker[WeaponsResult]):
             self._close(camera_id, now, "limit")
             return WeaponsResult(
                 checked=True, people=len(people), knives=hits,
-                scene_id=self._open(camera_id, now, peak),
+                # Same knife, same hand: a new entry, not a new alert.
+                scene_id=self._open(camera_id, now, peak, continues=True),
             )
 
         return WeaponsResult(
@@ -344,9 +345,10 @@ class WeaponsWorker(FeatureWorker[WeaponsResult]):
     # -- opening and closing ------------------------------------------------
 
     def _open(self, camera_id: str, started_at: datetime, confidence: float,
-              at: datetime | None = None) -> str:
+              at: datetime | None = None, continues: bool = False) -> str:
         scene_id = self.scenes.open(
-            camera_id, started_at, confidence, self.knives.version)
+            camera_id, started_at, confidence, self.knives.version,
+            continues=continues)
         state = SceneState(
             scene_id=scene_id,
             started_at=started_at,

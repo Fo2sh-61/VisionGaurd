@@ -76,6 +76,32 @@ CODES: frozenset[str] = frozenset({
     #: visitor's name typed into the box does leave the site, and the person
     #: who typed it is the person who should know.
     "ask.words_left_site",
+
+    # -- Home's "Needs your attention" (spec 013) ---------------------------
+    #
+    # The item's title is its subject - a camera or a plate - and these say
+    # what happened to it. Each wording carries the consequence, not only
+    # the cause, like every code here.
+
+    #: A knife entry nobody has decided on yet. `confidence` is 0-100. The
+    #: wording must say nobody has confirmed it.
+    "attention.weapon",
+
+    #: Somebody entered a restricted area on this camera today.
+    "attention.intrusion",
+
+    #: A blacklisted car came through `gate` (the gate's name).
+    "attention.vehicles.blacklist",
+
+    #: A car that is not on the register came through `gate`.
+    "attention.vehicles.unknown",
+
+    #: A car whose permit has run out came through `gate`.
+    "attention.vehicles.expired",
+
+    #: No picture for `minutes` minutes. The wording must say that nothing on
+    #: the camera is being watched, which is what makes it urgent.
+    "attention.camera",
 })
 
 

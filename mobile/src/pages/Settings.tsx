@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLanguage } from '@/app/LanguageContext';
 import { useTheme } from '@/app/ThemeContext';
-import { Card, Empty, LoadError, PageHeader, Toggle } from '@/components/ui';
+import { AlertSettingsCards } from '@/components/AlertSettings';
+import { Card, LoadError, PageHeader, Toggle } from '@/components/ui';
 import { LANGUAGES } from '@/i18n';
-import { getAlertRules, getDeliveryTargets, getSchoolProfile, getZones } from '@/services/api';
+import { getSchoolProfile, getZones } from '@/services/api';
 import { formatDayMonthYear } from '@/services/format';
-import type { AlertChannel, AlertRule, DeliveryTarget, SchoolProfile, Zone } from '@/types';
+import type { SchoolProfile, Zone } from '@/types';
 
 const EMPTY_PROFILE: SchoolProfile = {
   name: '',
@@ -16,20 +17,6 @@ const EMPTY_PROFILE: SchoolProfile = {
   termTo: '',
   cutoff: '',
 };
-
-/** Titles for the delivery rows. The engine sends the destination and whether
- *  it is on; how the row reads is the front end's business. */
-const DELIVERY_META: Record<
-  DeliveryTarget['key'],
-  { inputType: DeliveryTarget['inputType']; placeholder: string }
-> = {
-  app: { inputType: 'text', placeholder: 'This device' },
-  email: { inputType: 'email', placeholder: 'name@school.edu' },
-  sms: { inputType: 'tel', placeholder: '+20 100 000 0000' },
-  wa: { inputType: 'tel', placeholder: '+20 100 000 0000' },
-};
-
-const CHANNELS: AlertChannel[] = ['Push', 'Email', 'SMS'];
 
 function fmtTime(t: string) {
   if (!t) return '';
@@ -53,13 +40,11 @@ export function Settings() {
   const [profile, setProfile] = useState<SchoolProfile>(EMPTY_PROFILE);
   const [editKey, setEditKey] = useState<ProfileKey | null>(null);
 
-  const [alerts, setAlerts] = useState<AlertRule[]>([]);
-  const [deliveries, setDeliveries] = useState<DeliveryTarget[]>([]);
-  const [delivEdit, setDelivEdit] = useState<string | null>(null);
   const [zones, setZones] = useState<Zone[]>([]);
 
-  // Four independent reads. One failing must not blank the other three, so
-  // each keeps its own reason and the page renders whatever did arrive.
+  // Independent reads. One failing must not blank the other, so each keeps
+  // its own reason and the page renders whatever did arrive. The alert cards
+  // load and save on their own (`AlertSettingsCards`).
   const [loadError, setLoadError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
   const note = (what: string) => (error: unknown) =>
@@ -80,40 +65,10 @@ export function Settings() {
       }),
     ).catch(note('The school profile'));
 
-    // The engine sends one boolean per channel; the UI groups them.
-    void getAlertRules().then((rules) =>
-      setAlerts(
-        rules.map((r) => ({
-          key: r.key,
-          title: r.title,
-          sub: r.detail,
-          channels: { Push: r.push, Email: r.email, SMS: r.sms },
-        })),
-      ),
-    ).catch(note('Alert rules'));
-
-    void getDeliveryTargets().then((targets) =>
-      setDeliveries(
-        targets.map((t) => ({
-          key: t.key,
-          title: t.title,
-          on: t.enabled,
-          dest: t.destination,
-          editable: t.editable,
-          ...DELIVERY_META[t.key],
-        })),
-      ),
-    ).catch(note('Delivery targets'));
-
     // Zones are managed on the Intrusion page; this is a read-only summary, so
     // both pages agree on the count.
     void getZones().then(setZones).catch(note('The zone summary'));
   }, [tick]);
-
-  const [quiet, setQuiet] = useState(true);
-  const [quietFrom, setQuietFrom] = useState('15:30');
-  const [quietTo, setQuietTo] = useState('07:00');
-  const [quietEditing, setQuietEditing] = useState(false);
 
   const { language, setLanguage, t } = useLanguage();
 
@@ -125,22 +80,6 @@ export function Settings() {
     : `${zones.length} protected areas · ${
         zonesPaused ? `${zonesPaused} paused` : 'all active'
       } — managed on the Intrusion page, so there is one source of truth`;
-
-  function toggleChannel(key: string, ch: AlertChannel) {
-    setAlerts((current) =>
-      current.map((rule) =>
-        rule.key === key ? { ...rule, channels: { ...rule.channels, [ch]: !rule.channels[ch] } } : rule,
-      ),
-    );
-  }
-
-  function toggleDelivery(key: string) {
-    setDeliveries((current) =>
-      current.map((d) => (d.key === key ? { ...d, on: !d.on } : d)),
-    );
-    const target = deliveries.find((d) => d.key === key);
-    if (target && !target.on && target.editable && !target.dest) setDelivEdit(key);
-  }
 
   const profileRows: { key: ProfileKey; label: string; display: string }[] = [
     { key: 'name', label: 'School name', display: profile.name },
@@ -256,151 +195,7 @@ export function Settings() {
         ))}
       </Card>
 
-      <Card>
-        <div style={{ fontWeight: 700, fontSize: 15 }}>Alerts</div>
-        <div style={{ fontSize: 13, color: 'var(--tx2)', margin: '2px 0 4px' }}>
-          Pick how each alert reaches you.
-        </div>
-
-        {alerts.length === 0 && (
-          <Empty>
-            {loadError ? 'Alert rules could not be loaded.' : 'No alert rules are set up yet.'}
-          </Empty>
-        )}
-        {alerts.map((rule) => (
-          <div
-            key={rule.key}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: 14,
-              padding: '13px 0',
-              borderBottom: '1px solid var(--line)',
-              flexWrap: 'wrap',
-            }}
-          >
-            <div style={{ flex: 1, minWidth: 220 }}>
-              <div style={{ fontWeight: 600, fontSize: 14 }}>{rule.title}</div>
-              <div style={{ fontSize: 12.5, color: 'var(--tx2)' }}>{rule.sub}</div>
-            </div>
-            <div style={{ display: 'flex', gap: 6 }}>
-              {CHANNELS.map((ch) => (
-                <button
-                  key={ch}
-                  type="button"
-                  className={`chip-btn ${rule.channels[ch] ? 'chip-btn--on' : 'chip-btn--off'}`}
-                  onClick={() => toggleChannel(rule.key, ch)}
-                >
-                  {ch}
-                </button>
-              ))}
-            </div>
-          </div>
-        ))}
-
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, padding: '13px 0 3px' }}>
-          <div style={{ flex: 1, minWidth: 220 }}>
-            <div style={{ fontWeight: 600, fontSize: 14 }}>
-              Quiet hours · {fmtTime(quietFrom)} – {fmtTime(quietTo)}
-            </div>
-            {!quietEditing ? (
-              <div style={{ fontSize: 12.5, color: 'var(--tx2)' }}>
-                Outside these hours, only knife detections and restricted-zone alerts get through.
-              </div>
-            ) : (
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 6 }}>
-                <input
-                  className="edit-input"
-                  type="time"
-                  autoFocus
-                  defaultValue={quietFrom}
-                  onChange={(e) => e.target.value && setQuietFrom(e.target.value)}
-                  onKeyDown={(e) => (e.key === 'Enter' || e.key === 'Escape') && setQuietEditing(false)}
-                />
-                <span style={{ color: 'var(--tx3)', fontSize: 13 }}>to</span>
-                <input
-                  className="edit-input"
-                  type="time"
-                  defaultValue={quietTo}
-                  onChange={(e) => e.target.value && setQuietTo(e.target.value)}
-                  onKeyDown={(e) => (e.key === 'Enter' || e.key === 'Escape') && setQuietEditing(false)}
-                />
-              </div>
-            )}
-          </div>
-          <span
-            style={{ color: 'var(--ac)', fontWeight: 600, fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap' }}
-            onClick={() => setQuietEditing((v) => !v)}
-          >
-            {quietEditing ? 'Done' : 'Edit'}
-          </span>
-          <Toggle on={quiet} onToggle={() => setQuiet((v) => !v)} label="Quiet hours" />
-        </div>
-      </Card>
-
-      <Card>
-        <div style={{ fontWeight: 700, fontSize: 15 }}>Where alerts reach you</div>
-        <div style={{ fontSize: 13, color: 'var(--tx2)', margin: '2px 0 4px' }}>
-          Switch each channel on or off, and change where it points. Edits save on their own.
-        </div>
-
-        {deliveries.length === 0 && (
-          <Empty>
-            {loadError
-              ? 'Delivery targets could not be loaded.'
-              : 'No delivery targets yet, so alerts have nowhere to go.'}
-          </Empty>
-        )}
-        {deliveries.map((d) => (
-          <div
-            key={d.key}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: 14,
-              padding: '13px 0',
-              borderBottom: '1px solid var(--line)',
-            }}
-          >
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 600, fontSize: 14 }}>{d.title}</div>
-              {delivEdit === d.key ? (
-                <input
-                  className="edit-input"
-                  autoFocus
-                  type={d.inputType}
-                  defaultValue={d.dest}
-                  placeholder={d.placeholder}
-                  style={{ width: '100%', maxWidth: 320, marginTop: 5 }}
-                  onChange={(e) =>
-                    setDeliveries((current) =>
-                      current.map((x) => (x.key === d.key ? { ...x, dest: e.target.value } : x)),
-                    )
-                  }
-                  onKeyDown={(e) => (e.key === 'Enter' || e.key === 'Escape') && setDelivEdit(null)}
-                />
-              ) : (
-                <div style={{ fontSize: 12.5, color: 'var(--tx2)' }}>
-                  {d.key === 'app'
-                    ? `${d.dest} · this device`
-                    : d.dest || `${d.key === 'email' ? 'No address yet' : 'No number yet'}${d.on ? ' — add one so this can work' : ''}`}
-                </div>
-              )}
-            </div>
-            {d.editable && (
-              <span
-                style={{ color: 'var(--ac)', fontWeight: 600, fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap' }}
-                onClick={() => setDelivEdit(delivEdit === d.key ? null : d.key)}
-              >
-                {delivEdit === d.key ? 'Done' : d.dest ? 'Change' : 'Add'}
-              </span>
-            )}
-            <Toggle on={d.on} onToggle={() => toggleDelivery(d.key)} label={d.title} />
-          </div>
-        ))}
-      </Card>
+      <AlertSettingsCards />
 
       <Card tight>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14 }}>

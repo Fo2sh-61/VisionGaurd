@@ -102,6 +102,12 @@ ADMIN_WRITE_PREFIXES: tuple[str, ...] = (
     # whole point of the gate log. A guard must not be able to un-blacklist a
     # car. One line decides both.
     "/vehicles",
+    # Reading the school profile and the alert settings is anybody's job - a
+    # guard should be able to see who is told about a knife, and the delivery
+    # log. Changing who is told, or sending a test to somebody's phone, is an
+    # administrator's (spec 013, P9-FR-032). Acknowledging a Home item lives
+    # under /attention, which no prefix here touches.
+    "/settings",
 )
 
 #: Narrower than `ADMIN_WRITE_PREFIXES`, and checked first.

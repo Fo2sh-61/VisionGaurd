@@ -515,26 +515,9 @@ export interface SchoolProfile {
   cutoff: string;
 }
 
-export type AlertChannel = 'Push' | 'Email' | 'SMS';
-
-export interface AlertRule {
-  key: string;
-  title: string;
-  sub: string;
-  channels: Record<AlertChannel, boolean>;
-}
-
-export type DeliveryKind = 'app' | 'email' | 'sms' | 'wa';
-
-export interface DeliveryTarget {
-  key: DeliveryKind;
-  title: string;
-  on: boolean;
-  dest: string;
-  editable: boolean;
-  inputType: 'email' | 'tel' | 'text';
-  placeholder: string;
-}
+/* Alert rules, recipients and the delivery log have no UI shapes of their own:
+ * Settings renders the wire types (`services/wire.ts`) directly, because every
+ * field there is already a fact the page words - there is nothing to convert. */
 
 /* ---------- camera sources (System health) ---------- */
 

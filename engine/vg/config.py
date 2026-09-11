@@ -1034,6 +1034,107 @@ class AskConfig:
         )
 
 
+@dataclass(frozen=True)
+class AlertsConfig:
+    """Alert delivery (P9): how the engine tells people by WhatsApp, SMS and email.
+
+    How the sender behaves, and nothing else. **Who** is told, and about
+    which kind of alert, is not here: recipients and rules are database state
+    an administrator edits in Settings, and a yaml edit must never be the way
+    a phone number gets added.
+
+    The provider keys are not here either. They live in `.env` —
+    TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_FROM,
+    TWILIO_SMS_FROM, GMAIL_USER, GMAIL_APP_PASSWORD — the same rule the camera
+    credentials and the Gemini key follow: a secret in engine.yaml is a
+    secret in git.
+    """
+
+    #: False: the sender does not start, nothing goes out by WhatsApp, SMS or
+    #: email, and Settings and System Health say so. Home's list still works.
+    enabled: bool = True
+    #: NO SIGNAL for this long is a message. A camera reads "down" after ten
+    #: seconds without a frame; a phone buzzing for every hiccup would be
+    #: switched off within a day.
+    camera_offline_minutes: float = 5.0
+    #: Site-local time of the daily attendance report.
+    report_time: dtime = dtime(12, 0)
+    #: Per courier call. The sender thread waits this long at most, and
+    #: nothing else ever waits on the sender.
+    timeout_seconds: float = 10.0
+    #: The hand-off queue between the cameras and the sender. Two hundred is a
+    #: week of alerts here; it only fills when a courier has been down a while.
+    queue_size: int = 200
+    #: Attempts per message, five seconds apart, before it is logged failed.
+    retries: int = 3
+    #: Delivery-log rows older than this are deleted. Nothing else is.
+    log_retention_days: int = 90
+    #: Send the Arabic wording before a native speaker has read it — only so
+    #: that it can be read on a real phone. Off, Arabic recipients get English.
+    send_draft_arabic: bool = False
+    #: The console's address, used for the link in every message. Empty: no
+    #: link. The engine cannot learn its own public address from a request
+    #: that came through the dev proxy, and a guessed link is a dead link.
+    console_url: str = ""
+
+    @classmethod
+    def parse(cls, raw: dict[str, Any] | None, where: str) -> "AlertsConfig":
+        raw = raw or {}
+        known = {
+            "enabled", "camera_offline_minutes", "report_time",
+            "timeout_seconds", "queue_size", "retries", "log_retention_days",
+            "send_draft_arabic", "console_url",
+        }
+        unknown = sorted(set(raw) - known)
+        if unknown:
+            raise ConfigError(f"{where}: unknown key(s) {unknown}")
+
+        report = _parse_time(raw.get("report_time"), f"{where}.report_time")
+        minutes = float(raw.get("camera_offline_minutes", 5.0))
+        if minutes <= 0:
+            raise ConfigError(
+                f"{where}.camera_offline_minutes: must be above zero, got "
+                f"{minutes}. Zero would send a message for every dropped frame.")
+        seconds = float(raw.get("timeout_seconds", 10.0))
+        if not 1 <= seconds <= 60:
+            raise ConfigError(
+                f"{where}.timeout_seconds: expected 1 <= seconds <= 60, got "
+                f"{seconds}.")
+        retries = int(raw.get("retries", 3))
+        if not 1 <= retries <= 5:
+            raise ConfigError(
+                f"{where}.retries: expected 1 to 5, got {retries}.")
+        size = int(raw.get("queue_size", 200))
+        if size < 10:
+            raise ConfigError(
+                f"{where}.queue_size: expected at least 10, got {size}.")
+        keep = int(raw.get("log_retention_days", 90))
+        if keep < 1:
+            raise ConfigError(
+                f"{where}.log_retention_days: expected at least 1, got {keep}.")
+        url = str(raw.get("console_url", "") or "").strip().rstrip("/")
+        if url and not url.startswith(("http://", "https://")):
+            raise ConfigError(
+                f"{where}.console_url: must start with http:// or https://, "
+                f"got {url!r}. A link a phone cannot open is worse than none.")
+        if len(url) > 100:
+            raise ConfigError(
+                f"{where}.console_url: at most 100 characters, so every "
+                f"message still fits one SMS.")
+
+        return cls(
+            enabled=bool(raw.get("enabled", True)),
+            camera_offline_minutes=minutes,
+            report_time=report or dtime(12, 0),
+            timeout_seconds=seconds,
+            queue_size=size,
+            retries=retries,
+            log_retention_days=keep,
+            send_draft_arabic=bool(raw.get("send_draft_arabic", False)),
+            console_url=url,
+        )
+
+
 ArchiveBackend = Literal["dvr", "footage"]
 
 
@@ -1146,6 +1247,8 @@ class EngineConfig:
     # The natural-language query console. Off, or keyless, changes nothing
     # else — no feature may require another (constitution rule 9).
     ask: AskConfig = field(default_factory=AskConfig)
+    # How alerts leave the building. Who receives them lives in the database.
+    alerts: AlertsConfig = field(default_factory=AlertsConfig)
 
     def camera(self, camera_id: str) -> CameraConfig | None:
         return next((c for c in self.cameras if c.id == camera_id), None)
@@ -1290,6 +1393,7 @@ def load(path: Path | str | None = None) -> EngineConfig:
         archive=archive,
         vehicles=VehiclesConfig.parse(raw.get("vehicles"), "vehicles"),
         ask=AskConfig.parse(raw.get("ask"), "ask"),
+        alerts=AlertsConfig.parse(raw.get("alerts"), "alerts"),
     )
 
 

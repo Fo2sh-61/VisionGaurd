@@ -211,8 +211,23 @@ class Store(Protocol):
     def attention(self) -> list[S.AttentionItem]: ...
     def acknowledge(self, item_id: str, actor: str) -> S.AttentionItem | None: ...
     def school_profile(self) -> S.SchoolProfile: ...
-    def alert_rules(self) -> list[S.AlertRule]: ...
-    def delivery_targets(self) -> list[S.DeliveryTarget]: ...
+
+    # -- alert delivery (spec 013) --
+    #
+    # Every write audits first and is administrator-only by path (`/settings`
+    # in ADMIN_WRITE_PREFIXES). KeyError: no such kind or recipient.
+    # ValueError: a destination or switch that cannot be. SubsystemUnavailable:
+    # no alert database, or no sender for a test.
+    def alert_settings(self) -> S.AlertSettings: ...
+    def update_rule(self, kind: str, update: S.AlertRuleUpdate,
+                    actor: str) -> S.AlertRule: ...
+    def add_recipient(self, body: S.RecipientCreate, actor: str) -> S.Recipient: ...
+    def edit_recipient(self, recipient_id: str, body: S.RecipientUpdate,
+                       actor: str) -> S.Recipient: ...
+    def remove_recipient(self, recipient_id: str, actor: str) -> None: ...
+    def test_send(self, recipient_id: str, actor: str) -> S.DeliveryRow: ...
+    def deliveries(self, limit: int) -> S.DeliveryLog: ...
+
     def audit(self, limit: int) -> list[S.AuditEntry]: ...
     def capabilities(self) -> list[S.Capability]: ...
 
@@ -1198,33 +1213,143 @@ class MockStore:
             timezone="Africa/Cairo",
         )
 
-    def alert_rules(self) -> list[S.AlertRule]:
-        return [
-            S.AlertRule(key="weapon", title="Knife alerts",
-                        detail="Immediately - reviewed by a person first",
-                        push=True, email=True, sms=True),
-            S.AlertRule(key="intrusion", title="Restricted zone alerts",
-                        detail="Immediately, when someone enters a restricted area",
-                        push=True, email=True, sms=False),
-            S.AlertRule(key="camera", title="Camera offline",
-                        detail="Sent after 5 minutes of no signal",
-                        push=False, email=True, sms=False),
-            S.AlertRule(key="attendance", title="Daily attendance ready",
-                        detail="9:00am each school day",
-                        push=False, email=True, sms=False),
-        ]
+    # -- alert delivery (spec 013) --------------------------------------------
+    #
+    # Demo state, mutated in memory so the Settings page's state machines can
+    # be exercised with `-Mock`. It never pretends to send: the demo store has
+    # no courier, so a test send is logged as skipped for want of keys - the
+    # same answer a real engine with no .env gives. Contacts are placeholders.
 
-    def delivery_targets(self) -> list[S.DeliveryTarget]:
-        return [
-            S.DeliveryTarget(key="app", title="This app", enabled=True,
-                             destination="Push notifications", editable=False),
-            S.DeliveryTarget(key="email", title="Email", enabled=True,
-                             destination="mohamed61fouad@gmail.com"),
-            S.DeliveryTarget(key="sms", title="SMS", enabled=False,
-                             destination="+20 100 555 0100"),
-            S.DeliveryTarget(key="wa", title="WhatsApp", enabled=False,
-                             destination="+20 100 555 0100"),
+    def _alert_demo(self) -> dict:
+        demo = getattr(self, "_alerts_state", None)
+        if demo is None:
+            demo = self._alerts_state = {
+                "rules": {
+                    "weapon": S.AlertRule(kind="weapon", in_app=True, whatsapp=True,
+                                          email=True),
+                    "intrusion": S.AlertRule(kind="intrusion", in_app=True, email=True),
+                    "vehicles": S.AlertRule(kind="vehicles", in_app=True,
+                                            vehicle_blacklist=True,
+                                            vehicle_unknown=False,
+                                            vehicle_expired=True),
+                    "camera": S.AlertRule(kind="camera", in_app=True, email=True),
+                    "attendance": S.AlertRule(kind="attendance", in_app=None,
+                                              email=True),
+                },
+                "recipients": [
+                    S.Recipient(id="demo-r1", channel="whatsapp",
+                                destination="+201000000000", name="Head of security",
+                                language="ar", enabled=True, created_at=at(7, 0)),
+                    S.Recipient(id="demo-r2", channel="email",
+                                destination="security@school.example",
+                                name="Security office", language="en", enabled=True,
+                                created_at=at(7, 0)),
+                ],
+                "deliveries": [
+                    S.DeliveryRow(id="demo-d1", at=at(6, 12), kind="intrusion",
+                                  channel="email", recipient_name="Security office",
+                                  outcome="skipped", reason="provider_missing"),
+                ],
+            }
+        return demo
+
+    def alert_settings(self) -> S.AlertSettings:
+        from vg.alerts.events import CHANNELS
+        from vg.alerts.providers import REQUIRED_ENV
+
+        demo = self._alert_demo()
+        rules, people = demo["rules"], demo["recipients"]
+        unreached = [
+            S.Unreached(kind=kind, channel=channel)
+            for kind, rule in rules.items() for channel in CHANNELS
+            if getattr(rule, channel)
+            and not any(p.channel == channel and p.enabled for p in people)
         ]
+        return S.AlertSettings(
+            sending="off", rules=list(rules.values()), recipients=list(people),
+            channels=[S.ChannelStatus(channel=c, configured=False,
+                                      missing=list(REQUIRED_ENV[c])) for c in CHANNELS],
+            unreached=unreached,
+            report=S.ReportStatus(time="12:00", state="scheduled",
+                                  term_from="2025-09-01", term_to="2026-06-20"),
+        )
+
+    def update_rule(self, kind: str, update: S.AlertRuleUpdate,
+                    actor: str) -> S.AlertRule:
+        rules = self._alert_demo()["rules"]
+        if kind not in rules:
+            raise KeyError(kind)
+        changes = update.model_dump(exclude_unset=True, exclude_none=True)
+        current = rules[kind]
+        if "in_app" in changes and current.in_app is None:
+            raise ValueError(f"in_app is not offered for {kind}")
+        if kind != "vehicles" and any(k.startswith("vehicle_") for k in changes):
+            raise ValueError("the gate switches belong to the vehicles rule only")
+        self._log(actor, "alerts.rule", kind,
+                  ", ".join(f"{k} {'on' if v else 'off'}" for k, v in sorted(changes.items()))
+                  or "no change")
+        rules[kind] = current.model_copy(update=changes)
+        return rules[kind]
+
+    def add_recipient(self, body: S.RecipientCreate, actor: str) -> S.Recipient:
+        from vg.alerts.store import (DuplicateRecipient, mask_destination,
+                                     normalise_destination)
+
+        people = self._alert_demo()["recipients"]
+        destination = normalise_destination(body.channel, body.destination)
+        if any(p.channel == body.channel and p.destination == destination for p in people):
+            raise DuplicateRecipient(f"{destination} is already listed for {body.channel}")
+        self._log(actor, "alerts.recipient.add", body.name,
+                  f"{body.channel} {mask_destination(destination)}")
+        person = S.Recipient(
+            id=f"demo-r{len(people) + 1}-{random.randint(1000, 9999)}",
+            channel=body.channel, destination=destination, name=body.name.strip(),
+            language=body.language, enabled=body.enabled, created_at=now())
+        people.append(person)
+        return person
+
+    def edit_recipient(self, recipient_id: str, body: S.RecipientUpdate,
+                       actor: str) -> S.Recipient:
+        from vg.alerts.store import normalise_destination
+
+        people = self._alert_demo()["recipients"]
+        for index, person in enumerate(people):
+            if person.id == recipient_id:
+                changes = body.model_dump(exclude_unset=True, exclude_none=True)
+                if "destination" in changes:
+                    changes["destination"] = normalise_destination(
+                        person.channel, changes["destination"])
+                self._log(actor, "alerts.recipient.edit", person.name,
+                          ", ".join(sorted(changes)) or "no change")
+                people[index] = person.model_copy(update=changes)
+                return people[index]
+        raise KeyError(recipient_id)
+
+    def remove_recipient(self, recipient_id: str, actor: str) -> None:
+        people = self._alert_demo()["recipients"]
+        for person in people:
+            if person.id == recipient_id:
+                self._log(actor, "alerts.recipient.remove", person.name, person.channel)
+                people.remove(person)
+                return
+        raise KeyError(recipient_id)
+
+    def test_send(self, recipient_id: str, actor: str) -> S.DeliveryRow:
+        demo = self._alert_demo()
+        person = next((p for p in demo["recipients"] if p.id == recipient_id), None)
+        if person is None:
+            raise KeyError(recipient_id)
+        self._log(actor, "alerts.test", person.name, person.channel)
+        row = S.DeliveryRow(
+            id=f"demo-d{len(demo['deliveries']) + 1}", at=now(), kind="test",
+            channel=person.channel, recipient_name=person.name,
+            outcome="skipped", reason="provider_missing")
+        demo["deliveries"].insert(0, row)
+        return row
+
+    def deliveries(self, limit: int) -> S.DeliveryLog:
+        return S.DeliveryLog(available=True,
+                             rows=list(self._alert_demo()["deliveries"])[:limit])
 
     def audit(self, limit: int) -> list[S.AuditEntry]:
         return list(reversed(self._audit))[:limit]

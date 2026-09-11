@@ -1243,8 +1243,15 @@ class PersonHistory(Wire):
 # ---------------------------------------------------------------------------
 
 class AttentionItem(Wire):
+    """One open item on Home's "Needs your attention".
+
+    On the live engine (spec 013) `title` is the subject - a camera's name or
+    a plate as displayed - `detail` is empty, and `note` says what happened as
+    a code the console words, so the list reads in the operator's language.
+    """
+
     id: str
-    kind: Literal["weapon", "intrusion", "camera", "attendance", "system"]
+    kind: Literal["weapon", "intrusion", "vehicles", "camera", "attendance", "system"]
     at: Instant
     severity: Severity
     title: str
@@ -1253,10 +1260,7 @@ class AttentionItem(Wire):
     target_id: str | None = None
     acknowledged: bool = False
     clip: Clip | None = None
-
-
-class Acknowledgement(Wire):
-    actor: str
+    note: Note | None = None
 
 
 class LiveEvent(Wire):
@@ -1304,21 +1308,153 @@ class SchoolProfile(Wire):
     timezone: str
 
 
+# ---------------------------------------------------------------------------
+# alert delivery (spec 013) — who is told, how, and what happened
+#
+# Facts and enums only; the console words every state (P11). The one place
+# the engine writes sentences for people is the message itself, because there
+# is no console at the far end of an SMS — and that never crosses this API.
+# ---------------------------------------------------------------------------
+
+AlertKind = Literal["weapon", "intrusion", "vehicles", "camera", "attendance"]
+AlertChannel = Literal["whatsapp", "sms", "email"]
+AlertLanguage = Literal["en", "ar"]
+DeliveryOutcome = Literal["queued", "sent", "failed", "skipped"]
+DeliveryReason = Literal[
+    "no_recipients", "provider_missing", "recipient_off", "engine_down_at_noon",
+    "attendance_unavailable", "queue_full", "engine_stopped", "provider_refused",
+    "timeout", "unreachable",
+]
+
+
 class AlertRule(Wire):
-    key: str
-    title: str
-    detail: str
-    push: bool = False
-    email: bool = False
+    """One kind of alert, and the channels it goes out on.
+
+    `in_app` is None where Home has no item for the kind (the noon report),
+    so no In-app switch is offered for it. The three `vehicle_*` switches exist
+    only on the vehicles rule, and decide which gate alerts count at all - on
+    every channel of the row, In-app included.
+    """
+
+    kind: AlertKind
+    in_app: bool | None = None
+    whatsapp: bool = False
     sms: bool = False
+    email: bool = False
+    vehicle_blacklist: bool | None = None
+    vehicle_unknown: bool | None = None
+    vehicle_expired: bool | None = None
 
 
-class DeliveryTarget(Wire):
-    key: Literal["app", "email", "sms", "wa"]
-    title: str
-    enabled: bool
+class AlertRuleUpdate(Wire):
+    """A partial change. A flag left out is left as it is."""
+
+    in_app: bool | None = None
+    whatsapp: bool | None = None
+    sms: bool | None = None
+    email: bool | None = None
+    vehicle_blacklist: bool | None = None
+    vehicle_unknown: bool | None = None
+    vehicle_expired: bool | None = None
+
+
+class Recipient(Wire):
+    """One person on one channel. They get every kind whose rule has it on."""
+
+    id: str
+    channel: AlertChannel
     destination: str
-    editable: bool = True
+    name: str
+    language: AlertLanguage
+    enabled: bool
+    created_at: Instant
+
+
+class RecipientCreate(Wire):
+    channel: AlertChannel
+    destination: str = Field(min_length=1, max_length=120)
+    name: str = Field(min_length=1, max_length=80)
+    language: AlertLanguage = "en"
+    enabled: bool = True
+
+
+class RecipientUpdate(Wire):
+    """The channel is fixed; a person moving to another channel is a new row."""
+
+    destination: str | None = Field(default=None, min_length=1, max_length=120)
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    language: AlertLanguage | None = None
+    enabled: bool | None = None
+
+
+class ChannelStatus(Wire):
+    """Whether a channel can send, and if not, which .env names are missing.
+
+    Names, never values: a secret must not cross this API in any form.
+    """
+
+    channel: AlertChannel
+    configured: bool
+    missing: list[str] = Field(default_factory=list)
+
+
+class Unreached(Wire):
+    """A rule has this channel on and nobody enabled receives on it."""
+
+    kind: AlertKind
+    channel: AlertChannel
+
+
+class ReportStatus(Wire):
+    """Why the noon report will or will not go out."""
+
+    time: str                       # "12:00", site time
+    state: Literal["scheduled", "no_term_dates", "before_term", "after_term"]
+    term_from: str = ""
+    term_to: str = ""
+
+
+class AlertSettings(Wire):
+    """Everything the Alerts part of Settings shows, in one read."""
+
+    #: running | off (switched off in engine.yaml) | failed (did not start)
+    sending: Literal["running", "off", "failed"]
+    sending_error: str | None = None
+    rules: list[AlertRule]
+    recipients: list[Recipient]
+    channels: list[ChannelStatus]
+    unreached: list[Unreached] = Field(default_factory=list)
+    report: ReportStatus
+    #: How long a camera must show no picture before it is a message.
+    camera_offline_minutes: float = 5.0
+    console_url_set: bool = False
+    #: False until a native speaker has read the Arabic wording; until then an
+    #: Arabic recipient receives English.
+    arabic_reviewed: bool = False
+
+
+class DeliveryRow(Wire):
+    """One attempt. `sent` means the courier accepted it - never "delivered"."""
+
+    id: str
+    at: Instant
+    kind: Literal["weapon", "intrusion", "vehicles", "camera", "attendance", "test"]
+    channel: AlertChannel | None = None
+    recipient_name: str | None = None
+    outcome: DeliveryOutcome
+    reason: DeliveryReason | None = None
+    #: The courier's own words, with every secret value removed.
+    provider_reason: str | None = None
+    provider_id: str | None = None
+    attempts: int = 0
+
+
+class DeliveryLog(Wire):
+    """The log, or why it cannot be read. Never a 5xx (AGENTS rule 7)."""
+
+    available: bool
+    reason: str | None = None
+    rows: list[DeliveryRow] = Field(default_factory=list)
 
 
 class AuditEntry(Wire):

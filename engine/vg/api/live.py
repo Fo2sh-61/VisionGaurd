@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import logging
 import os
+import re
+import sqlite3
 from datetime import date, datetime, timedelta, timezone
 
 from vg import platetext
@@ -25,6 +27,7 @@ from vg.events import vehicles as vehicle_events
 from vg.ingest.recorder import AlreadyRecording
 from vg.config import PERSON_FEATURES, CameraConfig, EngineConfig
 from vg.api import schemas as S
+from vg.api.notes import note
 from vg.api.store import (
     AlreadyBusy,
     MockStore,
@@ -209,6 +212,8 @@ class LiveStore(MockStore):
         vehicles=None,
         vehicle_store=None,
         patrol=None,
+        alerts_store=None,
+        alerts=None,
     ) -> None:
         super().__init__()
         # Accounts. Real since P2, so the Users page stops saying the feature
@@ -278,6 +283,15 @@ class LiveStore(MockStore):
         # assigning a worker over it is what once broke the People page.
         self.vehicles_worker = vehicles
         self.vehicle_store = vehicle_store
+        # Alert delivery (spec 013). `alerts_store` holds recipients, rules,
+        # the delivery log and Home's acknowledgements; `alerts` is the one
+        # sender thread. The Home list needs only the store, so switching
+        # sending off in engine.yaml never empties it.
+        self.alerts_store = alerts_store
+        self.alerts = alerts
+        # When the engine came up: a camera with no frame since then has been
+        # dark since then, which is all the Home list can honestly say.
+        self._started_at = datetime.now(timezone.utc)
         # The site's clock, asked per timestamp. Holding one number from
         # startup left every time an hour out after the October change until
         # somebody restarted the engine, and nothing said so.
@@ -292,6 +306,7 @@ class LiveStore(MockStore):
         self.weapons_error: str | None = None
         self.lost_error: str | None = None
         self.vehicles_error: str | None = None
+        self.alerts_error: str | None = None
 
         # Every camera's own analytics rate, pushed into every worker that
         # serves it. The workers are built in `app.py` with ONE rate each -
@@ -1874,10 +1889,11 @@ class LiveStore(MockStore):
         somebody and which nobody has dismissed. Nothing here can fall out of
         step with the log, because there is nothing here but the log.
 
-        Blacklist alerts appear on this page *and* keep raising their Home
-        attention item: two surfaces, one security record, acknowledged
-        independently. Unknown and expired stay here — Home is for things that
-        need somebody now, and an unregistered car is a data-entry job.
+        Home's "Needs your attention" is built from this list too (spec 013),
+        and the vehicles alert rule's three switches decide which reasons
+        count there and in messages - all three on by default, the owner's
+        choice. Acknowledging on Home takes an item off Home only; dismissing
+        it here takes it off both, because it leaves this list.
         """
         if self.vehicle_store is None:
             return []
@@ -2127,11 +2143,15 @@ class LiveStore(MockStore):
 
     def review_weapon(self, detection_id: str, review: S.WeaponReview,
                       reviewer: str | None = None) -> S.WeaponDetection | None:
-        """A person decides. The only thing in this feature that fans out.
+        """A person decides, and the people who were told hear the answer.
 
-        The detector never notifies, calls or locks anything on its own —
-        this endpoint is the single point an alert spec may hang from, and
-        today it hangs nothing.
+        Since spec 013 (the owner's decision of 11 Sep 2026) the detector's
+        one fan-out is a message marked "awaiting review — not yet confirmed
+        by a person", sent when the entry opens. This verdict sends the
+        second, to exactly the people the first went to, naming who decided —
+        so nobody is left holding a scare. Nothing locks, calls or acts on its
+        own: a message is the only thing that hangs from detection, and a
+        person still decides.
 
         **The audit entry is written first**, before the verdict it
         records. Somebody pressing Confirm is a fact whether or not the
@@ -2161,6 +2181,16 @@ class LiveStore(MockStore):
         scene = self.weapon_scenes.get(detection_id)
         if scene is None:  # pragma: no cover - the row was just updated
             return None
+        if self.alerts is not None:
+            # The verdict is recorded whatever happens here; a sender that
+            # cannot take the follow-up costs the message, never the verdict.
+            try:
+                self.alerts.verdict(scene.id, scene.camera_id, review.verdict.value,
+                                    who, datetime.now(timezone.utc),
+                                    since=scene.started_at)
+            except Exception:
+                log.exception("knife %s: the verdict message could not be queued",
+                              detection_id[:8])
         # Rebuilt through the same mapper the list uses, so a reviewed
         # entry can never render differently from how the list will show it
         # a moment later.
@@ -2508,17 +2538,384 @@ class LiveStore(MockStore):
         # `capabilities()` says so, but what is here actually happened.
         return super().audit(limit)
 
+    def _roster_name(self, camera_id: str | None) -> str | None:
+        """The name the operator gave a camera, from the running roster.
+
+        The roster, not engine.yaml: a camera added in Settings has a name too,
+        and it is the name every page shows. Unknown ids come back as
+        themselves rather than vanishing.
+        """
+        if not camera_id:
+            return None
+        for config in self.registry.configs():
+            if config.id == camera_id:
+                return config.name
+        return self._camera_name(camera_id)
+
     def attention(self) -> list[S.AttentionItem]:
-        return []
+        """Home's "Needs your attention": the real open items, newest first.
+
+        Derived on every read from the stores that already hold them - knife
+        entries awaiting a verdict, today's restricted-zone scenes (running or
+        ended: a ten-second breach must not vanish before anybody looked),
+        today's gate alerts, cameras dark past the window - each kind shown
+        only while its rule has In-app on, minus what somebody acknowledged.
+        No second copy exists to drift from the Weapons, Zones or Vehicles
+        pages. It needs the alert database and nothing else - not the sender,
+        so switching sending off never empties Home.
+        """
+        from vg.alerts.events import camera_item_id, offline_cameras
+
+        if self.alerts_store is None:
+            return []
+        try:
+            rules = self.alerts_store.rules()
+            acked = self.alerts_store.acked()
+        except sqlite3.Error:
+            log.exception("the alert database could not be read for Home")
+            return []
+
+        def shown(kind: str) -> bool:
+            rule = rules.get(kind)
+            return bool(rule and rule.in_app)
+
+        items: list[S.AttentionItem] = []
+
+        if shown("weapon") and self.weapon_scenes is not None:
+            for scene in self.weapon_scenes.pending():
+                items.append(S.AttentionItem(
+                    id=f"weapon:{scene.id}", kind="weapon",
+                    at=_instant(scene.started_at, self.clock),
+                    severity=S.Severity.CRITICAL,
+                    title=self._roster_name(scene.camera_id) or scene.camera_id,
+                    detail="", target="weapons", target_id=scene.id,
+                    note=note("attention.weapon",
+                              confidence=round(scene.peak_confidence * 100)),
+                ))
+
+        if shown("intrusion") and self.scenes is not None:
+            since = self._start_of_day()
+            for scene in self.scenes.recent(since_days=1):
+                if scene.started_at < since:
+                    continue
+                items.append(S.AttentionItem(
+                    id=f"intrusion:{scene.id}", kind="intrusion",
+                    at=_instant(scene.started_at, self.clock),
+                    severity=S.Severity.WARN,
+                    title=self._roster_name(scene.camera_id) or scene.camera_id,
+                    detail="", target="intrusion", target_id=scene.id,
+                    note=note("attention.intrusion"),
+                ))
+
+        if shown("vehicles"):
+            rule = rules["vehicles"]
+            for alert in self.vehicle_alerts():
+                if not rule.reason_on(alert.kind):
+                    continue
+                if alert.kind == "blacklist":
+                    said = note("attention.vehicles.blacklist", gate=alert.gate_name)
+                elif alert.kind == "expired":
+                    said = note("attention.vehicles.expired", gate=alert.gate_name)
+                else:
+                    said = note("attention.vehicles.unknown", gate=alert.gate_name)
+                items.append(S.AttentionItem(
+                    id=f"vehicles:{alert.pass_id}", kind="vehicles", at=alert.at,
+                    severity=(S.Severity.CRITICAL if alert.kind == "blacklist"
+                              else S.Severity.WARN),
+                    title=alert.plate_display, detail="", target="vehicles",
+                    target_id=alert.pass_id, note=said,
+                ))
+
+        if shown("camera"):
+            now = datetime.now(timezone.utc)
+            dark = offline_cameras(self.registry.workers, now,
+                                   self.config.alerts.camera_offline_minutes,
+                                   self._started_at)
+            for camera_id, since in dark.items():
+                items.append(S.AttentionItem(
+                    id=camera_item_id(camera_id, since), kind="camera",
+                    at=_instant(since, self.clock), severity=S.Severity.WARN,
+                    title=self._roster_name(camera_id) or camera_id,
+                    detail="", target="system", target_id=camera_id,
+                    note=note("attention.camera",
+                              minutes=int((now - since).total_seconds() // 60)),
+                ))
+
+        items = [item for item in items if item.id not in acked]
+        items.sort(key=lambda item: item.at.utc, reverse=True)
+        return items
 
     def acknowledge(self, item_id: str, actor: str) -> S.AttentionItem | None:
-        return None
+        """Somebody on duty has dealt with a Home item. Deletes nothing.
 
-    def alert_rules(self) -> list[S.AlertRule]:
-        return []
+        None when the item is not in the current list - unknown, or already
+        acknowledged. Otherwise **the audit entry goes first**, as with every
+        write here, and then the one row that takes the item off Home.
+        """
+        item = next((i for i in self.attention() if i.id == item_id), None)
+        if item is None:
+            return None
+        self._log(actor, "attention.ack", item_id, item.title)
+        self.alerts_store.ack(item_id, actor, datetime.now(timezone.utc))
+        return item.model_copy(update={"acknowledged": True})
 
-    def delivery_targets(self) -> list[S.DeliveryTarget]:
-        return []
+    def _attention_state(self) -> tuple[S.DataState, str | None]:
+        """Home's list needs the alert database and nothing else.
+
+        LIVE carries no reason - a live capability never explains itself - so
+        a missing provider key is said on System Health and Settings instead.
+        """
+        if self.alerts_store is None:
+            return (S.DataState.UNAVAILABLE,
+                    self.alerts_error
+                    or "The alert database is not available, so Home cannot list "
+                       "what needs attention. Detection is unaffected.")
+        return S.DataState.LIVE, None
+
+    # -- alert delivery (spec 013) -------------------------------------------
+    #
+    # Recipients, rules and the delivery log live in `alerts_store`; the
+    # console asks and the engine keeps (P9-FR-016). Every write is audited
+    # BEFORE it happens and is administrator-only by path. No method here
+    # returns a secret in any form: channels report which .env names are
+    # missing, never a value.
+
+    def _need_alerts(self):
+        if self.alerts_store is None:
+            raise SubsystemUnavailable(
+                self.alerts_error
+                or "The alert database is not available, so alerts cannot be "
+                   "set up or listed. Detection is unaffected.")
+        return self.alerts_store
+
+    def _sending(self) -> tuple[str, str | None]:
+        """running | off | failed, and why when it is not running."""
+        if not self.config.alerts.enabled:
+            return "off", None
+        if self.alerts is None or self.alerts.dead:
+            return "failed", self.alerts_error or "the alert sender is not running"
+        return "running", None
+
+    @staticmethod
+    def _wire_rule(rule) -> S.AlertRule:
+        return S.AlertRule(
+            kind=rule.kind, in_app=rule.in_app, whatsapp=rule.whatsapp,
+            sms=rule.sms, email=rule.email,
+            vehicle_blacklist=rule.vehicle_blacklist,
+            vehicle_unknown=rule.vehicle_unknown,
+            vehicle_expired=rule.vehicle_expired,
+        )
+
+    def _wire_recipient(self, person) -> S.Recipient:
+        return S.Recipient(
+            id=person.id, channel=person.channel, destination=person.destination,
+            name=person.name, language=person.language, enabled=person.enabled,
+            created_at=_instant(person.created_at, self.clock),
+        )
+
+    def _wire_delivery(self, row) -> S.DeliveryRow:
+        return S.DeliveryRow(
+            id=row.id, at=_instant(row.at, self.clock), kind=row.kind,
+            channel=row.channel, recipient_name=row.recipient_name,
+            outcome=row.outcome, reason=row.reason,
+            provider_reason=row.provider_reason, provider_id=row.provider_id,
+            attempts=row.attempts,
+        )
+
+    @staticmethod
+    def _masked(destination: str) -> str:
+        from vg.alerts.store import mask_destination
+
+        return mask_destination(re.sub(r"[\s\-().]", "", str(destination or "")))
+
+    def alert_settings(self) -> S.AlertSettings:
+        from vg.alerts import catalogue, providers
+        from vg.alerts.events import CHANNELS, report_state
+
+        store = self._need_alerts()
+        try:
+            rules = store.rules()
+            people = store.recipients()
+        except sqlite3.Error as exc:
+            raise SubsystemUnavailable(
+                f"The alert database could not be read ({exc}).") from exc
+        sending, error = self._sending()
+        hours = self.config.hours
+        today = date.fromisoformat(self.clock.today())
+        return S.AlertSettings(
+            sending=sending, sending_error=error,
+            rules=[self._wire_rule(rule) for rule in rules.values()],
+            recipients=[self._wire_recipient(person) for person in people],
+            channels=[
+                S.ChannelStatus(channel=channel,
+                                configured=not providers.missing_env(channel),
+                                missing=providers.missing_env(channel))
+                for channel in CHANNELS
+            ],
+            unreached=[
+                S.Unreached(kind=kind, channel=channel)
+                for kind, rule in rules.items() for channel in CHANNELS
+                if rule.channel_on(channel)
+                and not any(p.channel == channel and p.enabled for p in people)
+            ],
+            report=S.ReportStatus(
+                time=f"{self.config.alerts.report_time:%H:%M}",
+                state=report_state(today, hours.term_from, hours.term_to),
+                term_from=hours.term_from, term_to=hours.term_to,
+            ),
+            camera_offline_minutes=self.config.alerts.camera_offline_minutes,
+            console_url_set=bool(self.config.alerts.console_url),
+            arabic_reviewed=catalogue.ARABIC_REVIEWED,
+        )
+
+    def update_rule(self, kind: str, update: S.AlertRuleUpdate,
+                    actor: str) -> S.AlertRule:
+        store = self._need_alerts()
+        changes = update.model_dump(exclude_unset=True, exclude_none=True)
+        self._log(actor, "alerts.rule", kind,
+                  ", ".join(f"{name} {'on' if on else 'off'}"
+                            for name, on in sorted(changes.items())) or "no change")
+        return self._wire_rule(store.update_rule(kind, **changes))
+
+    def add_recipient(self, body: S.RecipientCreate, actor: str) -> S.Recipient:
+        store = self._need_alerts()
+        self._log(actor, "alerts.recipient.add", body.name.strip(),
+                  f"{body.channel} {self._masked(body.destination)}")
+        person = store.add_recipient(body.channel, body.destination, body.name,
+                                     body.language, body.enabled)
+        return self._wire_recipient(person)
+
+    def edit_recipient(self, recipient_id: str, body: S.RecipientUpdate,
+                       actor: str) -> S.Recipient:
+        store = self._need_alerts()
+        person = store.recipient(recipient_id)
+        if person is None:
+            raise KeyError(recipient_id)
+        changes = body.model_dump(exclude_unset=True, exclude_none=True)
+        detail = ", ".join(
+            f"destination {self._masked(value)}" if name == "destination"
+            else f"{name} {value}" for name, value in sorted(changes.items()))
+        self._log(actor, "alerts.recipient.edit", person.name, detail or "no change")
+        return self._wire_recipient(store.update_recipient(recipient_id, **changes))
+
+    def remove_recipient(self, recipient_id: str, actor: str) -> None:
+        store = self._need_alerts()
+        person = store.recipient(recipient_id)
+        if person is None:
+            raise KeyError(recipient_id)
+        self._log(actor, "alerts.recipient.remove", person.name,
+                  f"{person.channel} {self._masked(person.destination)}")
+        if not store.remove_recipient(recipient_id):
+            raise KeyError(recipient_id)
+
+    def test_send(self, recipient_id: str, actor: str) -> S.DeliveryRow:
+        """The one way an administrator proves the wiring on a real phone.
+
+        Audited first; sent whatever the rules and the recipient's switch say.
+        """
+        store = self._need_alerts()
+        person = store.recipient(recipient_id)
+        if person is None:
+            raise KeyError(recipient_id)
+        self._log(actor, "alerts.test", person.name,
+                  f"{person.channel} {self._masked(person.destination)}")
+        if self.alerts is None:
+            raise SubsystemUnavailable(
+                "Sending is switched off in engine.yaml, so no test can be sent."
+                if not self.config.alerts.enabled else
+                (self.alerts_error or "The alert sender is not running")
+                + ", so no test can be sent.")
+        row_id = self.alerts.test_send(recipient_id)
+        return self._wire_delivery(store.row(row_id))
+
+    def deliveries(self, limit: int) -> S.DeliveryLog:
+        """The log, or why it cannot be read - never a 5xx."""
+        if self.alerts_store is None:
+            return S.DeliveryLog(
+                available=False,
+                reason=self.alerts_error or "The alert database is not available.")
+        try:
+            rows = self.alerts_store.recent(max(1, min(int(limit), 200)))
+        except sqlite3.Error as exc:
+            return S.DeliveryLog(available=False,
+                                 reason=f"The delivery log could not be read ({exc}).")
+        return S.DeliveryLog(available=True,
+                             rows=[self._wire_delivery(row) for row in rows])
+
+    def _alerts_stage(self) -> S.PipelineStage:
+        """Rule 8 and SC-005: whether alerts can leave the building, and why not.
+
+        A missing key is said HERE and on Settings - not as a reason on the
+        `attention` capability, because a live capability never explains
+        itself and Home's list works without any key at all.
+        """
+        from vg.alerts import providers
+        from vg.alerts.events import CHANNELS
+
+        def stage(detail: str, healthy: bool) -> S.PipelineStage:
+            return S.PipelineStage(
+                key="alerts", name="Alert sending", detail=detail, healthy=healthy,
+                severity=S.Severity.INFO if healthy else S.Severity.WARN,
+                restartable=False)
+
+        if self.alerts_store is None:
+            return stage(
+                f"{self.alerts_error or 'The alert database is not available'}"
+                " - nothing can be listed or sent. Detection is unaffected.", False)
+        if not self.config.alerts.enabled:
+            return stage("Switched off in engine.yaml - nothing is sent by WhatsApp, "
+                         "SMS or email. The Home list still works.", True)
+        if self.alerts is None or self.alerts.dead:
+            return stage(
+                f"{self.alerts_error or 'The alert sender is not running'} - nothing "
+                "is sent by WhatsApp, SMS or email. Detection is unaffected.", False)
+        try:
+            rules = self.alerts_store.rules()
+            counts = self.alerts_store.counts_since(
+                datetime.now(timezone.utc) - timedelta(hours=24))
+        except sqlite3.Error as exc:
+            return stage(f"The alert database could not be read ({exc}). "
+                         "Detection is unaffected.", False)
+
+        label = {"whatsapp": "WhatsApp", "sms": "SMS", "email": "email"}
+        used = [c for c in CHANNELS if any(r.channel_on(c) for r in rules.values())]
+        broken = [c for c in used if providers.missing_env(c)]
+        if broken:
+            names: list[str] = []
+            for channel in broken:
+                for name in providers.missing_env(channel):
+                    if name not in names:
+                        names.append(name)
+            return stage(
+                f"No {', '.join(names)} is set, so "
+                f"{' and '.join(label[c] for c in broken)} cannot be sent. "
+                "Detection is unaffected.", False)
+        if not used:
+            return stage("Running - no WhatsApp, SMS or email is switched on, so "
+                         "only the Home list is used.", True)
+        return stage(f"Running - {counts.get('sent', 0)} sent, "
+                     f"{counts.get('failed', 0)} failed in the last 24 hours.", True)
+
+    def _attendance_counts(self, day: str):
+        """The noon report's figures: one count per group, from the register.
+
+        The same `attendance("group", ...)` the Attendance page runs - the
+        report adds no calculation of its own. None when face recognition is
+        not running: the counts would be invented zeros, and a report that
+        reads "everyone absent" is worse than no report. Groups overlap
+        (Everyone holds everybody) and are listed as they come; nothing here
+        adds them up. A count carries no name.
+        """
+        from vg.alerts.events import GroupCount
+
+        if not self.recognition_live:
+            return None
+        counts = []
+        for group in self.groups():
+            result = self.attendance("group", group.name, day)
+            counts.append(GroupCount(group.name, result.present, result.late,
+                                     result.absent))
+        return tuple(counts)
 
     def capabilities(self) -> list[S.Capability]:
         """What the console can honestly show right now, and why not otherwise.
@@ -2579,9 +2976,9 @@ class LiveStore(MockStore):
             "audit": (S.DataState.UNAVAILABLE,
                       "The audit trail is kept in memory only and is lost when "
                       "the engine restarts."),
-            "attention": (S.DataState.UNAVAILABLE,
-                          "Alerts are not built yet. Nothing is being sent to "
-                          "anybody."),
+            # Home's list (spec 013). Needs the alert database only; whether
+            # WhatsApp, SMS and email can send is System Health's alert row.
+            "attention": self._attention_state(),
             "ask": self._ask_state(),
         }
 
@@ -3061,6 +3458,7 @@ class LiveStore(MockStore):
             self._weapons_stage(),
             self._vehicles_stage(),
             self._lost_stage(),
+            self._alerts_stage(),
             self._workers_stage(),
         ]
 

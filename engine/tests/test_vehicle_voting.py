@@ -842,3 +842,68 @@ class TestTheReadingImprovesWhileTheCarIsThere:
         or the same car reads as a fresh arrival seconds later."""
         recorded, w = run(self.far_then_near())
         assert w._seen_recently("gate1", "بجد 1234", START + timedelta(seconds=4))
+
+
+# ---------------------------------------------------------------------------
+# the car has gone - the reading is final
+# ---------------------------------------------------------------------------
+
+class TestTheReaderSaysWhenItIsDone:
+    """A row can be corrected for as long as its car is in view. Once the car
+    has gone - or the camera has - the reading will not change again, and the
+    worker says so once. The gate's alert message waits for exactly this
+    (spec 013), so it states the final reading, not the first guess."""
+
+    @staticmethod
+    def watched(script, recorded=None):
+        finals: list = []
+        w = worker(script, recorded)
+        w.on_final = lambda camera_id, pass_id: finals.append((camera_id, pass_id))
+        return w, finals
+
+    @staticmethod
+    def feed(w, frames: int) -> None:
+        at = START
+        for i in range(frames):
+            w.analyse(frame(at, i))
+            at += timedelta(seconds=0.25)
+
+    def test_a_recorded_car_that_leaves_is_final_once(self):
+        w, finals = self.watched([[read(PLATE)]] * 3 + [[]] * (LOST_FRAMES + 5))
+        self.feed(w, 3 + LOST_FRAMES + 5)
+        assert finals == [("gate1", "pass-1")]
+
+    def test_a_car_still_in_view_is_not_final(self):
+        w, finals = self.watched([[read(PLATE)]] * 12)
+        self.feed(w, 12)
+        assert finals == []
+
+    def test_the_final_row_is_the_one_its_corrections_went_to(self):
+        recorded: list = []
+        script = (TestTheReadingImprovesWhileTheCarIsThere().far_then_near()
+                  + [[]] * (LOST_FRAMES + 1))
+        w, finals = self.watched(script, recorded)
+        self.feed(w, len(script))
+        assert recorded[-1][1].amends == "pass-1"
+        assert finals == [("gate1", "pass-1")]
+
+    def test_a_car_never_recorded_is_never_final(self):
+        w, finals = self.watched([[read(PLATE)]] * 2 + [[]] * (LOST_FRAMES + 1))
+        self.feed(w, 2 + LOST_FRAMES + 1)
+        assert finals == []
+
+    def test_a_car_in_view_when_the_camera_closes_is_final(self):
+        """The engine stopping, or the camera being removed, ends the reading
+        too - otherwise that car's message would never go."""
+        w, finals = self.watched([[read(PLATE)]] * 3)
+        self.feed(w, 3)
+        w._closing("gate1")
+        assert finals == [("gate1", "pass-1")]
+
+    def test_a_failing_final_does_not_stop_the_camera(self):
+        def explode(camera_id, pass_id):
+            raise RuntimeError("database is locked")
+
+        w = worker([[read(PLATE)]] * 3 + [[]] * (LOST_FRAMES + 2))
+        w.on_final = explode
+        self.feed(w, 3 + LOST_FRAMES + 2)      # must not raise

@@ -17,7 +17,7 @@ export function Home() {
   const [note, setNote] = useState('');
 
   const firstName = account.name.split(' ')[0];
-  const attention = useAttention();
+  const { items: attention, acknowledge } = useAttention();
   const tools = homeTools();
 
   function open(tool: ToolId, autoRun = true) {
@@ -160,10 +160,17 @@ export function Home() {
             <div style={{ fontSize: 13, color: 'var(--tx3)', margin: '3px 0 12px' }}>
               {item.sub}
             </div>
-            <button type="button" className="linkbtn" onClick={() => open(item.to)}>
-              {item.action}{' '}
-              <span className="mirror-rtl" aria-hidden="true">→</span>
-            </button>
+            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+              <button type="button" className="linkbtn" onClick={() => open(item.to)}>
+                {item.action}{' '}
+                <span className="mirror-rtl" aria-hidden="true">→</span>
+              </button>
+              {/* Takes the item off Home under the signed-in name. It changes
+                  nothing else: a knife still waits for its verdict. */}
+              <button type="button" className="linkbtn" onClick={() => void acknowledge(item.id)}>
+                {t('attention.acknowledge')}
+              </button>
+            </div>
           </div>
         ))}
       </div>

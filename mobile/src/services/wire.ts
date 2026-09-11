@@ -650,9 +650,11 @@ export interface User {
 
 /* ---------- home / live ---------- */
 
+/** One open item on Home. On the live engine `title` is the subject (a camera
+ *  or a plate), `detail` is empty, and `note` says what happened, worded here. */
 export interface AttentionItem {
   id: string;
-  kind: 'weapon' | 'intrusion' | 'camera' | 'attendance' | 'system';
+  kind: 'weapon' | 'intrusion' | 'vehicles' | 'camera' | 'attendance' | 'system';
   at: Instant;
   severity: Severity;
   title: string;
@@ -661,6 +663,7 @@ export interface AttentionItem {
   targetId?: string | null;
   acknowledged: boolean;
   clip?: Clip | null;
+  note?: Note | null;
 }
 
 export interface LiveEvent {
@@ -691,21 +694,130 @@ export interface SchoolProfile {
   timezone: string;
 }
 
+/* ---------- alert delivery (spec 013) ----------
+ *
+ * Facts and enums only. The console words every state; the engine writes
+ * sentences only for the messages themselves, which never cross this API. */
+
+export type AlertKind = 'weapon' | 'intrusion' | 'vehicles' | 'camera' | 'attendance';
+export type AlertChannel = 'whatsapp' | 'sms' | 'email';
+export type AlertLanguage = 'en' | 'ar';
+export type DeliveryOutcome = 'queued' | 'sent' | 'failed' | 'skipped';
+export type DeliveryReason =
+  | 'no_recipients'
+  | 'provider_missing'
+  | 'recipient_off'
+  | 'engine_down_at_noon'
+  | 'attendance_unavailable'
+  | 'queue_full'
+  | 'engine_stopped'
+  | 'provider_refused'
+  | 'timeout'
+  | 'unreachable';
+
+/** One kind of alert and its channels. `inApp` is null where Home has no item
+ *  for the kind (the noon report). The `vehicle*` switches exist only on the
+ *  vehicles rule and decide which gate alerts count on every channel. */
 export interface AlertRule {
-  key: string;
-  title: string;
-  detail: string;
-  push: boolean;
-  email: boolean;
+  kind: AlertKind;
+  inApp: boolean | null;
+  whatsapp: boolean;
   sms: boolean;
+  email: boolean;
+  vehicleBlacklist: boolean | null;
+  vehicleUnknown: boolean | null;
+  vehicleExpired: boolean | null;
 }
 
-export interface DeliveryTarget {
-  key: 'app' | 'email' | 'sms' | 'wa';
-  title: string;
-  enabled: boolean;
+/** A partial change: a flag left out is left as it is. */
+export interface AlertRuleUpdate {
+  inApp?: boolean;
+  whatsapp?: boolean;
+  sms?: boolean;
+  email?: boolean;
+  vehicleBlacklist?: boolean;
+  vehicleUnknown?: boolean;
+  vehicleExpired?: boolean;
+}
+
+export interface Recipient {
+  id: string;
+  channel: AlertChannel;
   destination: string;
-  editable: boolean;
+  name: string;
+  language: AlertLanguage;
+  enabled: boolean;
+  createdAt: Instant;
+}
+
+export interface RecipientCreate {
+  channel: AlertChannel;
+  destination: string;
+  name: string;
+  language?: AlertLanguage;
+  enabled?: boolean;
+}
+
+export interface RecipientUpdate {
+  destination?: string;
+  name?: string;
+  language?: AlertLanguage;
+  enabled?: boolean;
+}
+
+/** Whether a channel can send. `missing` names the .env variables - never
+ *  their values. */
+export interface ChannelStatus {
+  channel: AlertChannel;
+  configured: boolean;
+  missing: string[];
+}
+
+/** A rule has this channel on and nobody enabled receives on it. */
+export interface Unreached {
+  kind: AlertKind;
+  channel: AlertChannel;
+}
+
+export interface ReportStatus {
+  time: string;
+  state: 'scheduled' | 'no_term_dates' | 'before_term' | 'after_term';
+  termFrom: string;
+  termTo: string;
+}
+
+export interface AlertSettings {
+  sending: 'running' | 'off' | 'failed';
+  sendingError?: string | null;
+  rules: AlertRule[];
+  recipients: Recipient[];
+  channels: ChannelStatus[];
+  unreached: Unreached[];
+  report: ReportStatus;
+  /** How long a camera must show no picture before it is a message. */
+  cameraOfflineMinutes: number;
+  consoleUrlSet: boolean;
+  arabicReviewed: boolean;
+}
+
+/** One attempt. `sent` means the courier accepted it - never "delivered". */
+export interface DeliveryRow {
+  id: string;
+  at: Instant;
+  kind: AlertKind | 'test';
+  channel?: AlertChannel | null;
+  recipientName?: string | null;
+  outcome: DeliveryOutcome;
+  reason?: DeliveryReason | null;
+  providerReason?: string | null;
+  providerId?: string | null;
+  attempts: number;
+}
+
+export interface DeliveryLog {
+  available: boolean;
+  reason?: string | null;
+  rows: DeliveryRow[];
 }
 
 /** What the app chrome needs before any page loads.

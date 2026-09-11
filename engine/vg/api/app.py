@@ -314,6 +314,9 @@ async def lifespan(app: FastAPI):
     app.state.vehicles_error: str | None = None
     app.state.vehicles = None
     app.state.vehicle_store = None
+    app.state.alerts_error: str | None = None
+    app.state.alerts_store = None
+    app.state.alerts = None
 
     if cfg is not None and os.getenv("VG_MOCK") != "1":
         from pathlib import Path
@@ -392,6 +395,16 @@ async def lifespan(app: FastAPI):
             app.state.counts_error,
         ) = _start_counts(cfg, registry, roster, people)
         app.state.counts = counts_store
+        # Alert delivery (spec 013). Built BEFORE the knife, zone and gate
+        # workers start, so each of their stores can be given its hook the
+        # moment it exists - no scene can open unheard in between. The sender
+        # thread itself starts after LiveStore, which names cameras for it;
+        # until then events simply wait on its queue.
+        (
+            app.state.alerts_store,
+            app.state.alerts,
+            app.state.alerts_error,
+        ) = _start_alerts(cfg, registry)
         # Restricted zones. Shares the person detector; needs no other feature
         # switched on, and a camera nobody restricted costs it nothing.
         (
@@ -401,6 +414,9 @@ async def lifespan(app: FastAPI):
         ) = _start_zones(
             cfg, registry, roster, getattr(people, "detector", None), cameras,
         )
+        # The breach message - spec 013. Attached the moment the store exists.
+        if app.state.alerts is not None and app.state.scenes is not None:
+            app.state.scenes.on_open = app.state.alerts.on_zone_open
         # Knife detection. Shares the same person detector, needs no other
         # feature switched on, and every enabled camera is checked.
         (
@@ -410,6 +426,10 @@ async def lifespan(app: FastAPI):
         ) = _start_weapons(
             cfg, registry, roster, getattr(people, "detector", None),
         )
+        # The knife message, marked "awaiting review" - spec 013. On the line
+        # after the store exists, so no entry can open unheard.
+        if app.state.alerts is not None and app.state.weapon_scenes is not None:
+            app.state.weapon_scenes.on_open = app.state.alerts.on_weapon_open
         # Bag detection. The thread starts but sleeps: work happens only
         # for cameras somebody is actually looking at.
         app.state.lost, app.state.lost_error = _start_lost(cfg, registry, roster)
@@ -417,11 +437,24 @@ async def lifespan(app: FastAPI):
         # not a person, so there is no person pass to reuse. The register
         # comes up even when the cameras do not, because a school fills the
         # vehicle list before the gate is wired.
+        vehicles_started = datetime.now(timezone.utc)
         (
             app.state.vehicles,
             app.state.vehicle_store,
             app.state.vehicles_error,
         ) = _start_vehicles(cfg, registry, roster)
+        # Cars the last run recorded but never saw leave - it was stopped with
+        # them in view - are closed now, alerts on or off, so none is left
+        # waiting for a reader that has gone (spec 013).
+        unfinished = (
+            app.state.vehicle_store.close_unfinished(before=vehicles_started)
+            if app.state.vehicle_store is not None else [])
+        # The gate message - spec 013. Attached the moment the register exists;
+        # sent once the reader is done with a pass. The last run's unfinished
+        # ones are logged as not sent, never sent late.
+        if app.state.alerts is not None and app.state.vehicle_store is not None:
+            app.state.vehicle_store.on_pass = app.state.alerts.on_pass
+            app.state.alerts.not_sent(unfinished, "engine_stopped")
         # Where somebody has been. Written by whichever recognition tier saw
         # them, read by the Track page as one indexed query — which is the
         # whole reason the past-path question is instant.
@@ -481,6 +514,8 @@ async def lifespan(app: FastAPI):
             vehicles=app.state.vehicles,
             vehicle_store=app.state.vehicle_store,
             patrol=patrol,
+            alerts_store=app.state.alerts_store,
+            alerts=app.state.alerts,
         )
         store.recognition_error = app.state.recognition_error
         store.people_error = app.state.people_error
@@ -488,6 +523,21 @@ async def lifespan(app: FastAPI):
         store.weapons_error = app.state.weapons_error
         store.lost_error = app.state.lost_error
         store.vehicles_error = app.state.vehicles_error
+        store.alerts_error = app.state.alerts_error
+        if app.state.alerts is not None:
+            # The roster's names - the ones every page shows, runtime cameras
+            # included - so a message names a camera the way the console does.
+            # And the noon report's counts, from the same register the
+            # Attendance page reads.
+            app.state.alerts.bind(camera_name=store._roster_name,
+                                  attendance_counts=store._attendance_counts)
+            try:
+                app.state.alerts.start()
+            except Exception as exc:
+                # Rule 8: said on System Health and Settings, not only here.
+                log.exception("alert sender failed to start")
+                store.alerts_error = f"the alert sender failed to start: {exc}"
+                app.state.alerts = store.alerts = None
         set_store(store)
 
         # The banner. A console showing invented attendance next to real camera
@@ -547,6 +597,11 @@ async def lifespan(app: FastAPI):
                 worker.stop()
         if app.state.registry is not None:
             app.state.registry.stop()
+        # After the workers and cameras, so nothing is still handing it events;
+        # before the stores close, so whatever it still held reaches the log.
+        # False while a courier is still talking past the wait.
+        alerts = getattr(app.state, "alerts", None)
+        alerts_done = alerts.stop() if alerts is not None else True
         # After the workers, never before: a store closed under a running
         # writer is the one way this loses a row it already decided to keep.
         runner = getattr(app.state, "archive", None)
@@ -559,6 +614,11 @@ async def lifespan(app: FastAPI):
         vehicle_store = getattr(app.state, "vehicle_store", None)
         if vehicle_store is not None:
             vehicle_store.close_db()
+        # Never under a courier still talking: its answer is that row's truth.
+        # The process is ending, and the connection goes with it.
+        alerts_store = getattr(app.state, "alerts_store", None)
+        if alerts_store is not None and alerts_done:
+            alerts_store.close_db()
 
 
 # Features that need to know where bodies are. Face recognition is
@@ -848,6 +908,34 @@ def _database(cfg) -> Path:
     """
     raw = Path(str(cfg.storage.database_url).replace("sqlite:///", ""))
     return raw if raw.is_absolute() else vgconfig.REPO_DIR / raw
+
+
+def _start_alerts(cfg, registry):
+    """The alert database and, when sending is on, the sender - not yet started.
+
+    Returns `(store, service, error)`. The store is what Settings and Home's
+    list need; it is built whether or not sending is switched on, because
+    switching sending off must not empty Home. A failure here costs alerts
+    and nothing else: every feature starts as it would have without it
+    (constitution rule 9), and the reason reaches System Health (rule 8).
+    """
+    try:
+        from vg.alerts.service import AlertService
+        from vg.alerts.store import AlertStore
+
+        store = AlertStore(_database(cfg))
+        if not cfg.alerts.enabled:
+            log.info("alert sending is switched off in engine.yaml - the Home "
+                     "list still works, nothing goes out by WhatsApp, SMS or email")
+            return store, None, None
+        service = AlertService(cfg.alerts, store, registry,
+                               clock_for(cfg.timezone), hours=cfg.hours)
+        return store, service, None
+    except Exception as exc:
+        log.exception("alert delivery failed to start")
+        _reraise_if_strict(exc, "alert delivery")
+        return None, None, f"the alert database could not be opened: {_reason(exc)}"
+
 
 def _face_finder(cfg, pipeline, gallery):
     """What a sweep looks for in a fetched segment: a face, at the same bar.
@@ -1392,10 +1480,15 @@ def _start_vehicles(cfg, registry, roster):
 
             return written.id if written else None
 
+        def final(camera_id: str, pass_id: str) -> None:
+            """The car has left the camera, so its row is the final reading -
+            the moment a gate alert may go out (spec 013)."""
+            store.finish_pass(pass_id)
+
         rate = min((c.fps for c in gates), default=4.0)
         worker = VehiclesWorker(
             registry.bus, reader, [c.id for c in gates],
-            on_pass=record, rate_hz=rate, boost_hz=12.0,
+            on_pass=record, on_final=final, rate_hz=rate, boost_hz=12.0,
             dedupe_seconds=cfg.vehicles.dedupe_seconds,
             near_dedupe_seconds=cfg.vehicles.near_dedupe_seconds,
         )
@@ -3572,9 +3665,20 @@ def _mount(app: FastAPI) -> None:
     @app.post("/attention/{item_id}/ack", response_model=S.AttentionItem,
               tags=["home"])
     async def ack_attention(
-        item_id: str, ack: S.Acknowledgement, store: StoreDep
+        item_id: str, store: StoreDep, user: auth_deps.CurrentUser
     ) -> S.AttentionItem:
-        item = store.acknowledge(item_id, ack.actor)
+        """Acknowledge one Home item, under the signed-in account's name.
+
+        The actor comes from the session, never the body: the body used to
+        carry it, so anybody could acknowledge under anybody's name. This is
+        the one alert write a non-administrator may make - `/attention` sits
+        under no admin prefix, as clearing a gate alert does. Audited by the
+        store before the row is written; nothing is deleted.
+
+        404 when the id is not in the current list, which includes an item
+        somebody has already acknowledged.
+        """
+        item = store.acknowledge(item_id, user.name)
         if item is None:
             raise HTTPException(404, f"no attention item {item_id!r}")
         return item
@@ -3584,14 +3688,72 @@ def _mount(app: FastAPI) -> None:
     async def get_school(store: StoreDep) -> S.SchoolProfile:
         return store.school_profile()
 
-    @app.get("/settings/alerts", response_model=list[S.AlertRule], tags=["settings"])
-    async def get_alerts(store: StoreDep) -> list[S.AlertRule]:
-        return store.alert_rules()
+    # -------------------------------------------------------------- alerts
+    #
+    # Spec 013. Reading is anybody's; every write here is administrator-only
+    # by path (`/settings` in ADMIN_WRITE_PREFIXES) and audited by the store
+    # BEFORE it happens. The console never talks to a courier: it configures
+    # and reads, and the engine sends.
 
-    @app.get("/settings/delivery", response_model=list[S.DeliveryTarget],
+    from vg.alerts.store import DuplicateRecipient
+
+    def _alerts_call(fn, *args):
+        """One mapping from what the store raises to what the caller is told."""
+        try:
+            return fn(*args)
+        except SubsystemUnavailable as exc:
+            raise HTTPException(503, str(exc)) from exc
+        except KeyError as exc:
+            raise HTTPException(404, f"not found: {exc.args[0]!r}") from exc
+        except DuplicateRecipient as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(422, f"not accepted: {exc}") from exc
+
+    @app.get("/settings/alerts", response_model=S.AlertSettings, tags=["settings"])
+    async def get_alert_settings(store: StoreDep) -> S.AlertSettings:
+        """Rules, recipients, and every reason something cannot be sent."""
+        return _alerts_call(store.alert_settings)
+
+    @app.patch("/settings/alerts/rules/{kind}", response_model=S.AlertRule,
+               tags=["settings"])
+    async def patch_alert_rule(kind: str, body: S.AlertRuleUpdate, store: StoreDep,
+                               user: auth_deps.CurrentUser) -> S.AlertRule:
+        return _alerts_call(store.update_rule, kind, body, user.name)
+
+    @app.post("/settings/alerts/recipients", response_model=S.Recipient,
+              status_code=201, tags=["settings"])
+    async def add_alert_recipient(body: S.RecipientCreate, store: StoreDep,
+                                  user: auth_deps.CurrentUser) -> S.Recipient:
+        return _alerts_call(store.add_recipient, body, user.name)
+
+    @app.patch("/settings/alerts/recipients/{recipient_id}",
+               response_model=S.Recipient, tags=["settings"])
+    async def edit_alert_recipient(recipient_id: str, body: S.RecipientUpdate,
+                                   store: StoreDep,
+                                   user: auth_deps.CurrentUser) -> S.Recipient:
+        return _alerts_call(store.edit_recipient, recipient_id, body, user.name)
+
+    @app.delete("/settings/alerts/recipients/{recipient_id}", status_code=204,
+                tags=["settings"])
+    async def remove_alert_recipient(recipient_id: str, store: StoreDep,
+                                     user: auth_deps.CurrentUser) -> Response:
+        _alerts_call(store.remove_recipient, recipient_id, user.name)
+        return Response(status_code=204)
+
+    @app.post("/settings/alerts/recipients/{recipient_id}/test",
+              response_model=S.DeliveryRow, status_code=202, tags=["settings"])
+    async def test_alert_recipient(recipient_id: str, store: StoreDep,
+                                   user: auth_deps.CurrentUser) -> S.DeliveryRow:
+        """Really sends, and lands in the log. 202: accepted for sending, and
+        the log is where the courier's answer appears."""
+        return _alerts_call(store.test_send, recipient_id, user.name)
+
+    @app.get("/settings/alerts/deliveries", response_model=S.DeliveryLog,
              tags=["settings"])
-    async def get_delivery(store: StoreDep) -> list[S.DeliveryTarget]:
-        return store.delivery_targets()
+    async def alert_deliveries(store: StoreDep, limit: int = 50) -> S.DeliveryLog:
+        """Newest first. `available=false` with the reason - never a 5xx."""
+        return store.deliveries(limit)
 
 
 app = create_app()

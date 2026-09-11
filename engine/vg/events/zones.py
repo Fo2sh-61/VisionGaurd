@@ -125,11 +125,21 @@ class SceneStore:
         self._conn = db.connect(self.path)
         self._conn.executescript(SCHEMA)
         self._conn.commit()
+        #: Called after a scene's row is committed, with
+        #: `(scene_id, camera_id, started_at, continues)`. Alert delivery
+        #: (spec 013) sets it; it must only hand the event over.
+        self.on_open = None
 
     # -- writing ------------------------------------------------------------
 
-    def open(self, camera_id: str, started_at: datetime) -> str:
-        """Start a scene. Returns its id."""
+    def open(self, camera_id: str, started_at: datetime,
+             continues: bool = False) -> str:
+        """Start a scene. Returns its id.
+
+        `continues` marks the scene the worker opens at once when it cuts a
+        long visit at the two-minute limit: the same person, still there. A
+        new row, not a new alert.
+        """
         scene_id = uuid.uuid4().hex
         with self._lock:
             self._conn.execute(
@@ -138,6 +148,13 @@ class SceneStore:
                 (scene_id, camera_id, _iso(started_at)),
             )
             self._conn.commit()
+        # After the commit: the row is the event, and a failing hook costs a
+        # message, never the record that somebody was there.
+        if self.on_open is not None:
+            try:
+                self.on_open(scene_id, camera_id, started_at, continues)
+            except Exception:
+                log.exception("zone scene %s: the alert hook failed", scene_id[:8])
         return scene_id
 
     def note_people(self, scene_id: str, count: int) -> None:

@@ -184,6 +184,54 @@ ask:
   timeout_seconds: 8
 
 # ---------------------------------------------------------------------------
+# Alerts — how the engine tells people by WhatsApp, SMS and email (P9)
+#
+# Only how the sender behaves. WHO is told about WHAT is set in Settings and
+# kept in the database; nothing here adds a phone number.
+#
+# The provider keys are NOT here: TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN,
+# TWILIO_WHATSAPP_FROM, TWILIO_SMS_FROM, GMAIL_USER and GMAIL_APP_PASSWORD go
+# in engine/.env. Without them the channels say so in Settings and System
+# Health, every would-be message is logged as skipped, and detection carries
+# on untouched.
+#
+# Twilio sees the text of every WhatsApp and SMS, and Google every email. What
+# leaves is facts only - what happened, where, when, how sure, who decided -
+# and never a student's name, a face or a picture (specs/013-alert-delivery).
+# ---------------------------------------------------------------------------
+alerts:
+  # false: nothing goes out by WhatsApp, SMS or email. The Home list still works.
+  enabled: true
+
+  # NO SIGNAL for this long sends "camera offline". A camera reads down after
+  # ten seconds without a frame; five minutes keeps a hiccup off people's phones.
+  camera_offline_minutes: 5
+
+  # The daily attendance report, site time, on school days: Sunday to Thursday
+  # inside hours.term_from .. hours.term_to above.
+  report_time: "12:00"
+
+  # Per call to Twilio or Gmail, and how many tries before a message is logged
+  # failed with the courier's own reason.
+  timeout_seconds: 10
+  retries: 3
+
+  # Between the cameras and the one sender thread. It only fills when a courier
+  # has been down a long while; the oldest is then dropped and logged failed.
+  queue_size: 200
+
+  # Delivery-log rows are deleted after this many days. Nothing else is.
+  log_retention_days: 90
+
+  # The Arabic wording has not been read by a native speaker yet, so Arabic
+  # recipients get English. true sends the draft - only to review it on a phone.
+  send_draft_arabic: false
+
+  # The console's address, for the link in each message, e.g.
+  # "http://192.168.1.20:5173". Empty: messages carry no link.
+  console_url: ""
+
+# ---------------------------------------------------------------------------
 # Archive — where recorded video comes from when somebody asks to watch a leg
 #
 #   footage   slice files already on disk under storage.footage_dir. Needs no

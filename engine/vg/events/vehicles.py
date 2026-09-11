@@ -94,7 +94,12 @@ CREATE TABLE IF NOT EXISTS vehicle_pass (
     -- the automatic "the car got closer and reads better now" amendment
     -- leaves the row alone. Somebody looked at the photograph.
     corrected_by  TEXT,
-    corrected_at  TEXT
+    corrected_at  TEXT,
+    -- When the reader was done with this pass: its car left the camera, so
+    -- the reading could not change again. NULL while it still can. The gate
+    -- alert waits for this (spec 013); a NULL left by a stopped engine is
+    -- closed at the next start (`close_unfinished`).
+    finished_at   TEXT
 );
 CREATE INDEX IF NOT EXISTS ix_pass_at    ON vehicle_pass(at DESC);
 CREATE INDEX IF NOT EXISTS ix_pass_plate ON vehicle_pass(plate, at DESC);
@@ -272,6 +277,11 @@ class VehicleStore:
         self._conn.executescript(SCHEMA)
         self._add_missing_columns()
         self._conn.commit()
+        #: Called with the `VehiclePass` once the reader is done with it - see
+        #: `finish_pass`. Alert delivery (spec 013) sets it and reads only the
+        #: facts a message may carry - never the owner's name. Not the worker's
+        #: `on_pass`, which is what writes the pass in the first place.
+        self.on_pass = None
 
     def _add_missing_columns(self) -> None:
         """Bring an existing database up to the current shape.
@@ -294,6 +304,15 @@ class VehicleStore:
             if column not in existing:
                 self._conn.execute(
                     f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+        # When the reader was done with each pass. Every pass a running gate
+        # already holds is done - the code before this column sent its alert at
+        # the first reading - so they are marked as they are. Left NULL, the
+        # first start after the upgrade would log each one as never sent.
+        existing = {r["name"] for r in
+                    self._conn.execute("PRAGMA table_info(vehicle_pass)")}
+        if "finished_at" not in existing:
+            self._conn.execute("ALTER TABLE vehicle_pass ADD COLUMN finished_at TEXT")
+            self._conn.execute("UPDATE vehicle_pass SET finished_at = created_at")
 
     def close_db(self) -> None:
         with self._lock:
@@ -680,6 +699,60 @@ class VehicleStore:
                     if old not in (snapshot, plate_crop):
                         _unlink(old)
         return self.pass_by_id(pass_id)
+
+    def finish_pass(self, pass_id: str) -> VehiclePass | None:
+        """The reader is done with this pass: its car has left the camera.
+
+        The row now holds the best reading there will be, so this - not
+        `record_pass` - is what hands it to `on_pass`. The first three frames
+        that agree are the worst look the camera gets, and `amend_pass` can
+        still turn an unregistered car into a blacklisted one; a message sent
+        from the first reading would be the wrong message whenever the reader
+        corrects itself. A few seconds late and right (decided 11 Sep 2026).
+
+        A person's correction (`set_plate`) does not come through here:
+        somebody has already looked at the photograph.
+
+        Once only: a pass already finished, or closed at a start, hands
+        nothing on. Read before it is marked, so a failed read leaves the pass
+        unfinished for the next start to close rather than silently done.
+        """
+        record = self.pass_by_id(pass_id)
+        if record is None:
+            return None
+        with self._lock:
+            cursor = self._conn.execute(
+                "UPDATE vehicle_pass SET finished_at = ?"
+                " WHERE id = ? AND finished_at IS NULL", (_iso(_now()), pass_id))
+            self._conn.commit()
+        # A failing hook costs a message, never the pass.
+        if cursor.rowcount == 1 and self.on_pass is not None:
+            try:
+                self.on_pass(record)
+            except Exception:
+                log.exception("pass %s: the alert hook failed", pass_id[:8])
+        return record
+
+    def close_unfinished(self, before: datetime) -> list[VehiclePass]:
+        """Passes the last run recorded but never finished, now closed.
+
+        A hard kill runs no `finally`, so a car still in view when the engine
+        stopped never had its reading finished. Closed here, at the next start,
+        and handed back so the caller can log their messages as not sent -
+        never send them late. `before` is this start: a pass the new reader
+        wrote since is still its to finish.
+        """
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT p.*, v.owner_name AS v_owner, v.unit AS v_unit"
+                " FROM vehicle_pass p LEFT JOIN vehicle v ON v.id = p.vehicle_id"
+                " WHERE p.finished_at IS NULL AND p.created_at < ?"
+                " ORDER BY p.at", (_iso(before),)).fetchall()
+            self._conn.executemany(
+                "UPDATE vehicle_pass SET finished_at = ? WHERE id = ?",
+                [(_iso(_now()), row["id"]) for row in rows])
+            self._conn.commit()
+        return [_to_pass(row) for row in rows]
 
     def set_plate(self, pass_id: str, plate: str, by_who: str,
                   today: date) -> VehiclePass | None:

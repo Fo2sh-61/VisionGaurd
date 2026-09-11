@@ -44,6 +44,14 @@ NO_DATA = {
     "Home",        # navigation and static copy only
 }
 
+# Pages whose lists live in a component they mount, which must then say
+# "nothing here" for them. Explicit, like NO_DATA: moving a list into a
+# component moves the duty with it, it does not drop it.
+COMPONENTS = REPO / "web" / "src" / "components"
+LISTS_IN = {
+    "Settings": "AlertSettings",   # recipients, rules, the delivery log (spec 013)
+}
+
 
 def _pages() -> list[Path]:
     return sorted(PAGES.glob("*.tsx"))
@@ -110,7 +118,16 @@ class TestPagesReportFailure:
         if page.stem in NO_DATA or not _fetches(source):
             return
 
-        assert _has_empty_state(source), (
+        mounted = ""
+        if page.stem in LISTS_IN:
+            module = LISTS_IN[page.stem]
+            assert f"from '@/components/{module}'" in source, (
+                f"{page.stem} is listed as keeping its lists in {module}, but no "
+                f"longer mounts it. Remove it from LISTS_IN."
+            )
+            mounted = (COMPONENTS / f"{module}.tsx").read_text(encoding="utf-8")
+
+        assert _has_empty_state(source) or _has_empty_state(mounted), (
             f"{page.stem} loads from the engine but never says 'nothing here'. "
             f"A page with no rows and no message reads as broken. Mount "
             f"`<Empty>` for the no-rows case."

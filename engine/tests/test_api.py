@@ -303,8 +303,15 @@ class TestCoverage:
         ("GET", "/attention"),           # (new) Home feed
         ("POST", "/attention/{id}/ack"),
         ("GET", "/settings/school"),     # (new) Settings persistence
+        # Alert delivery (spec 013). `/settings/delivery` - one destination
+        # per channel - is gone; recipients replaced it.
         ("GET", "/settings/alerts"),
-        ("GET", "/settings/delivery"),
+        ("PATCH", "/settings/alerts/rules/{kind}"),
+        ("POST", "/settings/alerts/recipients"),
+        ("PATCH", "/settings/alerts/recipients/{recipient_id}"),
+        ("DELETE", "/settings/alerts/recipients/{recipient_id}"),
+        ("POST", "/settings/alerts/recipients/{recipient_id}/test"),
+        ("GET", "/settings/alerts/deliveries"),
     ]
 
     def test_every_required_route_exists(self):

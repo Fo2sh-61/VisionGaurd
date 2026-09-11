@@ -287,9 +287,10 @@ class VehiclesResult:
 class VehiclesWorker(FeatureWorker[VehiclesResult]):
     """Reads plates at gate cameras and emits one pass per car.
 
-    `on_pass` is called for each settled plate. It is a plain callback rather
-    than a store reference so this file stays testable without a database and
-    without a camera.
+    `on_pass` is called for each settled plate, and again for each correction.
+    `on_final` is called once the car has gone, when the reading can no longer
+    change. Both are plain callbacks rather than a store reference so this
+    file stays testable without a database and without a camera.
     """
 
     def __init__(
@@ -298,6 +299,7 @@ class VehiclesWorker(FeatureWorker[VehiclesResult]):
         reader: PlateReader,
         cameras: list[str],
         on_pass=None,
+        on_final=None,
         rate_hz: float = 4.0,
         boost_hz: float = 12.0,
         dedupe_seconds: float = DEDUPE_SECONDS,
@@ -309,6 +311,10 @@ class VehiclesWorker(FeatureWorker[VehiclesResult]):
         # loaded onto. Asked rather than assumed, like every other worker.
         self.device = getattr(reader, "device", None)
         self.on_pass = on_pass
+        #: Called with (camera id, row id) when a recorded car's track ends -
+        #: it left the camera, or the camera left the worker. Corrections go
+        #: through the track, so after this the row's reading is final.
+        self.on_final = on_final
         self.dedupe_seconds = float(dedupe_seconds)
         self.near_dedupe_seconds = float(near_dedupe_seconds)
         # camera id -> tracks currently in view
@@ -382,6 +388,9 @@ class VehiclesWorker(FeatureWorker[VehiclesResult]):
             self._note_attempt(frame.camera_id, now, read, track)
 
         passes = tuple(self._settle(frame.camera_id, tracks, now))
+        for track in tracks:
+            if track.misses > LOST_FRAMES:
+                self._final(frame.camera_id, track)
         self._tracks[frame.camera_id] = [
             t for t in tracks if t.misses <= LOST_FRAMES]
 
@@ -396,8 +405,11 @@ class VehiclesWorker(FeatureWorker[VehiclesResult]):
         read time. Leaving `_recent` behind would be the harmful one - a plate
         read at this camera before it was removed would silently suppress the
         first pass if the camera were ever added back.
+
+        A car still in view is as read as it will get, so its pass is final.
         """
-        self._tracks.pop(camera_id, None)
+        for track in self._tracks.pop(camera_id, None) or ():
+            self._final(camera_id, track)
         self._attempts.pop(camera_id, None)
         self._read_ms.pop(camera_id, None)
         for key in [k for k in self._recent if k[0] == camera_id]:
@@ -555,6 +567,20 @@ class VehiclesWorker(FeatureWorker[VehiclesResult]):
             log.warning(
                 "%s recorded a pass but returned no row id, so this car "
                 "cannot be corrected as it approaches", camera_id)
+
+    def _final(self, camera_id: str, track: _Track) -> None:
+        """This track is ending: if it wrote a row, that row is final.
+
+        A track that never settled wrote nothing, and one that re-found a car
+        already filed holds no row id - the track that wrote the row said so.
+        """
+        if self.on_final is None or track.pass_id is None:
+            return
+        try:
+            self.on_final(camera_id, track.pass_id)
+        except Exception:
+            # Like a refused write: it must not stop the camera.
+            log.exception("could not finish a gate pass on %s", camera_id)
 
     def _matches_recent(self, plate: str, seen_plate: str,
                         age: timedelta) -> bool:

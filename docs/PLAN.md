@@ -48,7 +48,7 @@ Verified in code this cycle. These are why P0 and P1 come before any feature wor
 | FR-03 | Live camera view, per-feature overlays, honest offline state | partial |
 | FR-04 | People counting per area, live + history | partial |
 | FR-05 | Restricted-zone breaches with evidence clip | missing |
-| FR-06 | Weapon detection with mandatory human review | **partial** — knives detected, recorded and reviewed by a person; no alert fan-out until P9, and no gun detection |
+| FR-06 | Weapon detection with mandatory human review | **partial** — knives detected, recorded and reviewed by a person; an entry opening sends one message marked "awaiting review" and the verdict sends the second (P9, spec 013); no gun detection |
 | FR-07 | Track a person; face and appearance kept distinct | partial |
 | FR-08 | Lost-item search over recorded footage | **partial** — live search of chosen cameras on demand, shipped 23 Aug 2026. No search of recorded footage, because there is no recorded footage |
 | FR-09 | People directory, groups, person history | partial |
@@ -56,7 +56,7 @@ Verified in code this cycle. These are why P0 and P1 come before any feature wor
 | FR-11 | Server-enforced login and roles | **missing** |
 | FR-12 | Durable audit trail | **missing** |
 | FR-13 | Retention + erasure | **missing** |
-| FR-14 | Alert delivery | missing |
+| FR-14 | Alert delivery | **built** (P9, spec 013, 11 Sep 2026) — WhatsApp and SMS through Twilio, email through Gmail, and Home's list; recipients, rules and a delivery log in the database; knife messages marked "awaiting review" with a verdict follow-up. The real-phone check (SC-001) and the Arabic wording review are still open |
 | FR-15 | Mobile on real data | **built 3 Sep 2026** — `specs/012-mobile-parity`, unverified on a real phone |
 | FR-16 | Runs at ~208 cameras, measured | not designed for |
 | — | Fight detection | **out of scope** (no model) |
@@ -283,9 +283,34 @@ Synthetic camera harness · staged benchmarks 1 → 8 → 32 → 104 → 208 · 
 
 **Done when:** the real camera mix holds its latency budgets for 4 hours on the real hardware, and killing one partition doesn't affect the others.
 
-### P9 — Notifications · 1–2 wk
+### P9 — Notifications · 1–2 wk · `specs/013-alert-delivery`
 
 Alert rules + delivery log · in-app delivery · email/SMS only if required.
+
+**Built 11 Sep 2026.** One sender thread behind a bounded queue, fed by one
+hook on each store that commits an event, so a courier that is slow or down
+costs detection nothing. Five kinds (knife, restricted zone, gate, camera
+offline, noon attendance report) × four channels (In-app, WhatsApp, SMS,
+email), switched per kind in Settings; any number of recipients per channel,
+each in Arabic or English, each with a Send test. Every attempt is a row in the
+delivery log - queued, sent with the courier's id, failed with its words, or
+skipped with a reason - and a restart re-sends nothing. Messages carry facts
+only and never a student's name, a face or a picture. Still open: the
+real-phone check with Mohamed's keys, the native-speaker review of the Arabic
+wording, an approved WhatsApp sender for production, and the 2026–27 term dates
+the noon report needs.
+
+**Amended 11 Sep 2026 — a knife message goes out on detection** (spec
+`specs/013-alert-delivery`). The owner decided that a knife entry opening sends
+a message marked **"awaiting review — not yet confirmed by a person"**, and that
+the verdict (Confirmed or False alarm, with the reviewer's name) sends a second
+message to exactly the same people, so nobody is left holding a scare. This
+changes the §6 row that said no notification could be triggered by the
+detector. **The cost is stated, not hidden**: the knife model's false-alarm
+rate is not zero — one 12.5 s entry per roughly four loops of clean footage
+(STATUS) — so false alarms will reach phones, followed by their "false alarm"
+message once somebody looks. What did not change: no lock, call or other action
+hangs from detection, a person still decides, and false alarms stay in history.
 
 **The mobile half of this phase is superseded** by P13 below. It said the phone
 would be wired **read-only** — "view, don't act, actions are riskier on a
@@ -340,7 +365,7 @@ The UI makes these promises. Each is a backend test — carried forward from the
 | Promise on screen | Test |
 |---|---|
 | "NO SIGNAL — showing last received frame" | When a stream drops, the API returns the last frame with `offline: true` within one poll. It never returns a stale frame as current. |
-| A weapon alert always waits for a human | No notify/call/lock can be triggered by the detector. The review endpoint is the only thing that fans out. |
+| A knife message says *awaiting review*; only a person confirms it | The detection message carries "awaiting review — not yet confirmed by a person"; the verdict message goes to exactly the same people and names the reviewer; no lock, call or other action can be triggered by the detector. *Amended 11 Sep 2026 (spec 013) — see P9.* |
 | False alarms stay in history | Dismissed detections are retained and returned. There is no delete operation. |
 | "Every tracking search is recorded" | The audit row is committed **before** the result returns. If the audit write fails, the search fails. |
 | A paused zone stays visible | Disabling changes only the `enabled` flag; it is never filtered from any response. |

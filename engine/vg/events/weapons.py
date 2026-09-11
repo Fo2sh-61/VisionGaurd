@@ -133,6 +133,10 @@ class WeaponSceneStore:
         self._conn = db.connect(self.path)
         self._conn.executescript(SCHEMA)
         self._conn.commit()
+        #: Called after a scene's row is committed, with
+        #: `(scene_id, camera_id, started_at, confidence, continues)`. Alert
+        #: delivery (spec 013) sets it; it must only hand the event over.
+        self.on_open = None
 
     # -- writing ------------------------------------------------------------
 
@@ -142,12 +146,17 @@ class WeaponSceneStore:
         started_at: datetime,
         confidence: float,
         model_version: str,
+        continues: bool = False,
     ) -> str:
         """Start a scene. Returns its id.
 
         `started_at` is the first sighting of the confirming run, not the
         moment the third sighting tipped it over. An operator watching the
         clip should see the knife arrive, not already be there.
+
+        `continues` marks the scene the worker opens at once when it cuts a
+        long incident at the two-minute limit. It is the same knife in the
+        same hand, so it is a new entry but not a new alert.
         """
         scene_id = uuid.uuid4().hex
         with self._lock:
@@ -164,6 +173,13 @@ class WeaponSceneStore:
                 ),
             )
             self._conn.commit()
+        # After the commit, never inside it: the row is the event. A hook that
+        # fails costs a message, never the record of what was seen.
+        if self.on_open is not None:
+            try:
+                self.on_open(scene_id, camera_id, started_at, confidence, continues)
+            except Exception:
+                log.exception("knife scene %s: the alert hook failed", scene_id[:8])
         return scene_id
 
     def note_confidence(self, scene_id: str, confidence: float) -> None:
@@ -359,6 +375,18 @@ class WeaponSceneStore:
 
         with self._lock:
             rows = self._conn.execute(query, params).fetchall()
+        return [_to_scene(r) for r in rows]
+
+    def pending(self) -> list[WeaponScene]:
+        """Every entry still waiting for a person to decide, newest first.
+
+        Any day, not just today: a knife nobody has looked at is still waiting
+        tomorrow, and that is what Home's list has to show.
+        """
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM weapon_scene WHERE verdict = 'pending' "
+                "ORDER BY started_at DESC").fetchall()
         return [_to_scene(r) for r in rows]
 
     def close_db(self) -> None:

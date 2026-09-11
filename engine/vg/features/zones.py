@@ -196,15 +196,17 @@ class ZonesWorker(FeatureWorker[ZonesResult]):
             self._close(camera_id, now, "limit")
             return ZonesResult(
                 restricted=True, people=people,
-                scene_id=self._open(camera_id, now, people),
+                # Same visit, still going: a new scene, not a new alert.
+                scene_id=self._open(camera_id, now, people, continues=True),
             )
 
         return ZonesResult(restricted=True, people=people, scene_id=state.scene_id)
 
     # -- opening and closing ------------------------------------------------
 
-    def _open(self, camera_id: str, at: datetime, people: int) -> str:
-        scene_id = self.scenes.open(camera_id, at)
+    def _open(self, camera_id: str, at: datetime, people: int,
+              continues: bool = False) -> str:
+        scene_id = self.scenes.open(camera_id, at, continues=continues)
         if people > 1:
             self.scenes.note_people(scene_id, people)
         state = SceneState(

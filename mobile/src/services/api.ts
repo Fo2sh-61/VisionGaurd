@@ -1380,15 +1380,43 @@ export async function getAttention(): Promise<W.AttentionItem[]> {
   return get<W.AttentionItem[]>('/attention');
 }
 
-export async function acknowledgeAttention(id: string, actor: string): Promise<void> {
-  await post<W.AttentionItem>(`/attention/${encodeURIComponent(id)}/ack`, { actor });
+/** Acknowledge one Home item. No body: the engine takes the name from the
+ *  session - a body-supplied actor let anybody sign as anybody. */
+export async function acknowledgeAttention(id: string): Promise<void> {
+  await post<W.AttentionItem>(`/attention/${encodeURIComponent(id)}/ack`);
 }
 
 /* ---------- settings ---------- */
 
 export const getSchoolProfile = () => get<W.SchoolProfile>('/settings/school');
-export const getAlertRules = () => get<W.AlertRule[]>('/settings/alerts');
-export const getDeliveryTargets = () => get<W.DeliveryTarget[]>('/settings/delivery');
+
+/* ---------- alert delivery (spec 013) ----------
+ *
+ * Every write is an administrator's, decided by the engine by path; the page
+ * hiding its controls from a guard is only a hint. The console never talks to
+ * Twilio or Gmail: it configures and reads, and the engine sends. */
+
+export const getAlertSettings = () => get<W.AlertSettings>('/settings/alerts');
+
+export const updateAlertRule = (kind: W.AlertKind, change: W.AlertRuleUpdate) =>
+  patch<W.AlertRule>(`/settings/alerts/rules/${encodeURIComponent(kind)}`, change);
+
+export const addRecipient = (body: W.RecipientCreate) =>
+  post<W.Recipient>('/settings/alerts/recipients', body);
+
+export const updateRecipient = (id: string, change: W.RecipientUpdate) =>
+  patch<W.Recipient>(`/settings/alerts/recipients/${encodeURIComponent(id)}`, change);
+
+export const removeRecipient = (id: string) =>
+  del<void>(`/settings/alerts/recipients/${encodeURIComponent(id)}`);
+
+/** Really sends. The row comes back queued (or skipped, with why); the
+ *  courier's answer appears in the delivery log a moment later. */
+export const sendTestAlert = (id: string) =>
+  post<W.DeliveryRow>(`/settings/alerts/recipients/${encodeURIComponent(id)}/test`);
+
+export const getDeliveries = (limit = 50) =>
+  get<W.DeliveryLog>('/settings/alerts/deliveries', { limit });
 
 /* ---------- auth ---------- */
 

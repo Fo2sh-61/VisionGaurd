@@ -454,3 +454,50 @@ class TestARateThatCannotWork:
             for feature, floor in cfg.MIN_ANALYTICS_HZ.items():
                 if feature in cam.features:
                     assert cam.fps >= floor, cam.id
+
+
+# --- alerts (P9) -----------------------------------------------------------
+
+class TestAlertsConfig:
+    """How the sender behaves. Who is told lives in the database, not here."""
+
+    def test_the_shipped_file_loads_with_the_agreed_defaults(self):
+        loaded = cfg.load().alerts
+        assert loaded.enabled is True
+        assert loaded.camera_offline_minutes == 5
+        assert loaded.report_time == dtime(12, 0)
+        assert loaded.retries == 3
+        assert loaded.log_retention_days == 90
+        assert loaded.send_draft_arabic is False
+        assert loaded.console_url == ""
+
+    def test_an_absent_block_is_the_defaults(self):
+        assert cfg.AlertsConfig.parse(None, "alerts") == cfg.AlertsConfig()
+
+    def test_an_unknown_key_is_refused(self):
+        """A misspelt key is a setting somebody believes is on."""
+        with pytest.raises(cfg.ConfigError, match="unknown key"):
+            cfg.AlertsConfig.parse({"quiet_hours": "22:00"}, "alerts")
+
+    def test_a_time_that_does_not_exist_is_refused(self):
+        with pytest.raises(cfg.ConfigError, match="cannot parse time"):
+            cfg.AlertsConfig.parse({"report_time": "25:00"}, "alerts")
+
+    def test_zero_offline_minutes_is_refused(self):
+        with pytest.raises(cfg.ConfigError, match="above zero"):
+            cfg.AlertsConfig.parse({"camera_offline_minutes": 0}, "alerts")
+
+    def test_a_link_a_phone_cannot_open_is_refused(self):
+        with pytest.raises(cfg.ConfigError, match="http"):
+            cfg.AlertsConfig.parse({"console_url": "192.168.1.20:5173"}, "alerts")
+
+    def test_a_trailing_slash_on_the_console_url_is_dropped(self):
+        parsed = cfg.AlertsConfig.parse(
+            {"console_url": "http://192.168.1.20:5173/"}, "alerts")
+        assert parsed.console_url == "http://192.168.1.20:5173"
+
+    def test_no_secret_can_be_configured_here(self):
+        """The keys live in .env. A token in engine.yaml is a token in git."""
+        for key in ("twilio_auth_token", "gmail_app_password", "api_key"):
+            with pytest.raises(cfg.ConfigError, match="unknown key"):
+                cfg.AlertsConfig.parse({key: "x"}, "alerts")

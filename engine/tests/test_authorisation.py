@@ -398,6 +398,22 @@ class TestAdminPathRule:
         assert auth_deps.requires_admin(method, "/cameras/c1/recording")
         assert auth_deps.requires_admin(method, "/zones/z1")
 
+    @pytest.mark.parametrize("method", ["POST", "PATCH", "DELETE", "PUT"])
+    def test_changing_who_is_alerted_is_admin_only(self, method):
+        """Spec 013: recipients, rules and test sends are an administrator's."""
+        assert auth_deps.requires_admin(method, "/settings/alerts/rules/weapon")
+        assert auth_deps.requires_admin(method, "/settings/alerts/recipients/r1")
+        assert auth_deps.requires_admin(method, "/settings/alerts/recipients/r1/test")
+
+    @pytest.mark.parametrize("path", ["/settings/alerts", "/settings/alerts/deliveries",
+                                      "/settings/school"])
+    def test_reading_the_settings_is_open_to_any_signed_in_user(self, path):
+        assert not auth_deps.requires_admin("GET", path)
+
+    def test_acknowledging_a_home_item_is_anybodys(self):
+        """The one alert write a guard makes, as clearing a gate alert is."""
+        assert not auth_deps.requires_admin("POST", "/attention/weapon:s1/ack")
+
     def test_a_lookalike_prefix_is_not_caught(self):
         """`/sources` must not make `/sourcesomething` admin-only, and more
         importantly the reverse: a real prefix must not be escapable."""
