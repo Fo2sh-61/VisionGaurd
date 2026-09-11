@@ -26,9 +26,32 @@ import { CameraModal } from './CameraModal';
  *  Paging feeds this the number of tiles ACTUALLY rendered, not the roster
  *  size. That is the whole reason the two belong in one component: a page of
  *  eight tiles out of two hundred should refresh like eight, and it only can
- *  if whatever does the paging is also what computes this. */
+ *  if whatever does the paging is also what computes this.
+ *
+ *  Raised on 11 Sep 2026 from 5 / 2 / 0.67 a second, which read as a slide
+ *  show next to the enlarged view. Two things make it affordable. Each tile
+ *  asks for a picture sized to the tile — it used to be sent 1280 px to show
+ *  at 128 px tall, and compressing that was most of what a tile cost. And
+ *  the tile tells the engine its rate, so the camera decodes that fast while
+ *  the tile is on screen instead of at its analytics rate (5 a second or
+ *  less), which used to cap every tile whatever it asked for. Measured at
+ *  1080p on the dev laptop, one tile at 15 a second now costs about what one
+ *  at 5 did. The AI does not run any faster for it: models keep their own
+ *  rate. */
 function tileRefreshMs(count: number): number {
-  if (count <= 4) return 200; // 5 fps — reads as live
+  if (count <= 4) return 1_000 / 15; // 15 a second — reads as video
+  if (count <= 12) return 200; // 5 a second
+  return 500; // 2 a second
+}
+
+/** How often a tile's OVERLAY re-fetches, on the pages that draw one.
+ *
+ *  Deliberately left at the old picture rates. An overlay poll is its own
+ *  request and renews a worker's boost, its boxes only change when the model
+ *  runs, and tripling the knife page's polls was never the point of making
+ *  the picture smoother. */
+function tileBoxRefreshMs(count: number): number {
+  if (count <= 4) return 200;
   if (count <= 12) return 500;
   return 1_500;
 }
@@ -157,6 +180,7 @@ export function CamGrid({
     : ranked;
 
   const refreshMs = tileRefreshMs(ordered.length);
+  const boxRefreshMs = tileBoxRefreshMs(ordered.length);
   const [counts, setCounts] = useState<Record<string, number | null>>({});
 
   // The camera payload is fetched once when the page runs its query, so the
@@ -200,6 +224,7 @@ export function CamGrid({
       <CameraFrame
         camera={cam}
         refreshMs={refreshMs}
+        boxRefreshMs={boxRefreshMs}
         feature={tileOverlay ? feature : undefined}
         colour={colour}
         tileOverlay={tileOverlay}

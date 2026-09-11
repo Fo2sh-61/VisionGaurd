@@ -89,7 +89,8 @@ class SourceHealth:
     frames_read: int = 0
     frames_dropped: int = 0
     #: Frames pulled off the device and deliberately NOT decoded, because
-    #: nobody was looking at this camera and the analytics rate had been met.
+    #: nobody had this camera open and the rate it was being read at - the
+    #: analytics rate, or a grid tile's - had been met.
     #: Not a drop and not a fault - the saving, made visible so it can be
     #: checked rather than believed.
     frames_skipped: int = 0
@@ -121,6 +122,16 @@ _NONBLOCKING_GRAB_SECONDS = 0.004
 #: more than this stale when the decode is due, long enough to turn a busy
 #: loop into nothing measurable.
 _IDLE_GRAB_SLEEP = 0.002
+
+#: How long one grid tile's picture request keeps its camera at the tile's
+#: rate. A tile asks every 67-500 ms, so the rate holds while the page is open
+#: and lapses within two seconds of it closing. It expires on its own, like a
+#: feature's boost, so a closed tab has nothing to release and cannot leak it.
+TILE_VIEW_SECONDS = 2.0
+
+#: The fastest a grid tile may ask a camera to decode. A tile is small and a
+#: page may show several; the full rate is what opening the camera is for.
+MAX_TILE_FPS = 15
 
 
 def parse_source(spec: str) -> tuple[SourceKind, str | int]:
@@ -261,6 +272,10 @@ class CameraSource:
         self.live_capture = live_capture
         self._watchers = 0
         self._decode_due = 0.0
+        # Grid tiles showing this camera: {pictures a second: when it lapses}.
+        # Keyed by rate rather than one shared expiry, so a tile at 5 that
+        # keeps asking cannot hold the camera at a closed page's 15.
+        self._tile_views: dict[int, float] = {}
 
         self._has_credentials = bool(
             isinstance(self.handle, str) and _CREDENTIALS.search(self.handle)
@@ -365,12 +380,45 @@ class CameraSource:
             with self._lock:
                 self._watchers = max(0, self._watchers - 1)
 
+    def note_tile(self, fps: float, now: float | None = None) -> None:
+        """A grid tile is showing this camera at about `fps` pictures a second.
+
+        The step between nobody and `watched()`. An open camera decodes every
+        frame; a tile only needs the pictures it will actually show, so the
+        camera decodes at the tile's rate - never below its own analytics
+        rate, never above `MAX_TILE_FPS` - for `TILE_VIEW_SECONDS`. Every
+        picture the tile fetches renews it. Cameras on nobody's screen keep
+        the saving.
+
+        Without this a tile could fetch as often as it liked and still get a
+        new picture only at `fps` - the analytics rate, which is 5 a second
+        or less.
+        """
+        if not fps > 0:  # also refuses NaN
+            return
+        rate = max(1, round(min(float(MAX_TILE_FPS), fps)))
+        now = time.monotonic() if now is None else now
+        with self._lock:
+            self._tile_views[rate] = now + TILE_VIEW_SECONDS
+
+    def _tile_fps(self, now: float) -> float:
+        """The fastest rate a tile on screen is still asking for, or 0."""
+        # The usual case, and it is on the grab loop's hot path: no lock.
+        if not self._tile_views:
+            return 0.0
+        with self._lock:
+            for rate, until in list(self._tile_views.items()):
+                if until <= now:
+                    del self._tile_views[rate]
+            return float(max(self._tile_views, default=0))
+
     def wants_decode(self, now: float | None = None) -> bool:
         """Should the frame just grabbed actually be turned into pixels?
 
         Yes if somebody is watching - the live view needs every frame to look
-        smooth. Yes if this camera is set to `always`. Otherwise only at the
-        analytics rate, because that is all anything downstream reads.
+        smooth. Yes if this camera is set to `always`. Otherwise at the
+        analytics rate, or at the rate a grid tile showing this camera asked
+        for if that is faster, because that is all anything downstream reads.
 
         Not a throttle on capture. The frame has already been pulled off the
         device by the time this is asked; the only question is whether to pay
@@ -378,10 +426,11 @@ class CameraSource:
         """
         if self.live_capture == "always" or self._watchers > 0:
             return True
-        interval = 1.0 / self.target_fps if self.target_fps > 0 else 0.0
+        now = time.monotonic() if now is None else now
+        rate = max(self.target_fps, self._tile_fps(now))
+        interval = 1.0 / rate if rate > 0 else 0.0
         if interval <= 0:
             return True
-        now = time.monotonic() if now is None else now
         if now < self._decode_due:
             return False
         # Anchored to now rather than advanced by one interval, so a camera

@@ -213,6 +213,20 @@ _store: Store = MockStore()
 # generator learns to stop on its own. See `stream()` below.
 SHUTTING_DOWN = threading.Event()
 
+#: The picture widths a grid tile can be sent. A requested width rounds UP to
+#: the next of these, so every tile of one size shares one encode per frame
+#: and the per-size cache stays a handful of entries. 1280 is the full picture.
+TILE_WIDTHS = (320, 480, 640, 960, 1280)
+
+#: JPEG quality for a tile-sized picture: the quality the enlarged view's
+#: stream already uses. A full-size snapshot keeps its 80.
+TILE_QUALITY = 70
+
+
+def _tile_width(requested: int) -> int:
+    """The smallest allowed tile width that is at least `requested`."""
+    return next((w for w in TILE_WIDTHS if w >= requested), TILE_WIDTHS[-1])
+
 
 def get_store() -> Store:
     return _store
@@ -1990,13 +2004,33 @@ def _mount(app: FastAPI) -> None:
         summary="Latest frame as JPEG",
         response_class=Response,
     )
-    async def snapshot(request: Request, camera_id: str) -> Response:
+    def snapshot(
+        request: Request,
+        camera_id: str,
+        width: Annotated[int | None, Query(gt=0)] = None,
+        fps: Annotated[float | None, Query(gt=0, le=60)] = None,
+    ) -> Response:
         """The last good frame.
 
         `X-Frame-Stale: true` marks a frame served from a dropped stream. The
         image is real but not current, and the UI draws NO SIGNAL over it. A
         404 means nothing was ever captured — the tile renders as offline
         rather than showing a black rectangle that looks like a working camera.
+
+        `width` asks for a picture about that wide, rounded up to one of
+        `TILE_WIDTHS`. A grid tile is 128 px tall and used to be sent a
+        1280 px picture; compressing it was most of what a tile cost. Left
+        out, the picture is the full 1280 px, as before.
+
+        `fps` is how often the tile will ask again. The camera then decodes
+        at that rate for the next two seconds (`CameraSource.note_tile`), so
+        a faster tile gets new pictures rather than the same one twice. Left
+        out, the camera's decode rate is untouched - the phone app does not
+        send it.
+
+        A plain `def`, not `async`: FastAPI runs it on a worker thread. The
+        encode is processor work, and inside `async def` it held up every
+        other request on the server for as long as it ran.
         """
         registry = request.app.state.registry
         if registry is None:
@@ -2006,7 +2040,14 @@ def _mount(app: FastAPI) -> None:
         if worker is None:
             raise HTTPException(404, f"no camera {camera_id!r}")
 
-        jpeg = worker.snapshot_jpeg()
+        if fps is not None:
+            worker.source.note_tile(fps)
+
+        if width is None:
+            jpeg = worker.snapshot_jpeg()
+        else:
+            jpeg = worker.snapshot_jpeg(
+                quality=TILE_QUALITY, max_width=_tile_width(width))
         if jpeg is None:
             raise HTTPException(404, f"camera {camera_id!r} has produced no frames")
 

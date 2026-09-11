@@ -45,8 +45,12 @@ class CameraWorker:
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
         self._jpeg_lock = threading.Lock()
-        self._jpeg_key: tuple | None = None
-        self._jpeg_cache: bytes | None = None
+        # (quality, width) -> (frame sequence, encoded picture). One entry per
+        # size, not one slot: console tiles, the phone and the enlarged view's
+        # NO SIGNAL frame can all want the same camera at different sizes,
+        # and a single slot would throw each away for the next and encode the
+        # same frame again for every caller.
+        self._jpeg_cache: dict[tuple[int, int], tuple[int, bytes | None]] = {}
 
     def start(self) -> None:
         if self._thread is not None:
@@ -129,8 +133,9 @@ class CameraWorker:
         Cached per frame. Several tiles, a modal and a polling grid can all ask
         for the same camera within one frame interval, and JPEG encoding a
         1280px image is not free — at 208 cameras being polled once a second it
-        is the difference between idle and saturated. The cache key is the
-        frame sequence number, so a new frame invalidates it automatically.
+        is the difference between idle and saturated. Each size is checked
+        against the frame sequence number, so a new frame invalidates it
+        automatically.
 
         Returns None when nothing has ever been captured — the caller sends a
         404 and the UI draws an offline tile, rather than showing a black
@@ -140,15 +145,15 @@ class CameraWorker:
         if frame is None:
             return None
 
-        key = (frame.sequence, quality, max_width)
+        size = (quality, max_width)
         with self._jpeg_lock:
-            if self._jpeg_key == key:
-                return self._jpeg_cache
+            cached = self._jpeg_cache.get(size)
+            if cached is not None and cached[0] == frame.sequence:
+                return cached[1]
 
         encoded = self.encode_jpeg(frame, quality, max_width)
         with self._jpeg_lock:
-            self._jpeg_key = key
-            self._jpeg_cache = encoded
+            self._jpeg_cache[size] = (frame.sequence, encoded)
         return encoded
 
     @staticmethod

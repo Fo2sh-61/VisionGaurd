@@ -46,6 +46,13 @@ const SCALE = {
  *  screen — see `tileRefreshMs` there. */
 const SNAPSHOT_REFRESH_MS = 1_000;
 
+/** How long a tile waits for a picture before asking again anyway.
+ *
+ *  A tile asks for its next picture only once the last one has arrived, so a
+ *  slow link slows the tile down instead of piling requests up behind it.
+ *  This is the way out when a request never comes back at all. */
+const STALLED_MS = 5_000;
+
 /** How often the on-screen clock ticks. */
 const CLOCK_TICK_MS = 1_000;
 
@@ -71,6 +78,7 @@ export function CameraFrame({
   size = 'sm',
   live = false,
   refreshMs = SNAPSHOT_REFRESH_MS,
+  boxRefreshMs: tileBoxMs,
   onCount,
   onBoxes,
   badge = 'LIVE',
@@ -86,6 +94,9 @@ export function CameraFrame({
   live?: boolean;
   /** Snapshot poll interval. `CamGrid` scales this to the grid size. */
   refreshMs?: number;
+  /** How often a `tileOverlay` tile re-fetches its boxes. Defaults to
+   *  `refreshMs`; `CamGrid` keeps it slower than the picture. */
+  boxRefreshMs?: number;
   /** Called with each live headcount, so the enlarged view can show it
    *  without running a second poll of its own. */
   onCount?: (count: number | null) => void;
@@ -119,7 +130,7 @@ export function CameraFrame({
    *  a camera to ask it.
    *
    *  It is affordable there for two reasons. The poll runs at the tile's own
-   *  `refreshMs`, not the enlarged view's 100 ms. And the server no longer
+   *  `boxRefreshMs`, not the enlarged view's 100 ms. And the server no longer
    *  wakes face recognition for a weapons poll, so a grid of tiles costs the
    *  knife worker's boost and nothing else. */
   tileOverlay?: boolean;
@@ -171,9 +182,26 @@ export function CameraFrame({
   // the first frame lands.
   useEffect(() => setAspect(null), [camera.id]);
 
+  // One picture in flight at a time.
+  //
+  // The timer used to swap the picture's address every interval whether or
+  // not the last picture had arrived. At 15 a second on a slow link that is
+  // a request abandoned every 67 ms and a tile that never finishes loading
+  // one. Now a tick is skipped while the last picture is still on its way,
+  // so the tile runs at `refreshMs` on a fast link and as fast as the link
+  // allows on a slow one. Refs, not state: nothing here should re-render.
+  const requested = useRef({ tick: 0, at: performance.now() });
+  const loadedTick = useRef(-1);
+
   useEffect(() => {
     if (!usePolling) return;
-    const timer = setInterval(() => setTick((n) => n + 1), refreshMs);
+    const timer = setInterval(() => {
+      const now = performance.now();
+      const last = requested.current;
+      if (loadedTick.current < last.tick && now - last.at < STALLED_MS) return;
+      requested.current = { tick: last.tick + 1, at: now };
+      setTick(last.tick + 1);
+    }, refreshMs);
     return () => clearInterval(timer);
   }, [usePolling, refreshMs]);
 
@@ -191,9 +219,11 @@ export function CameraFrame({
   // attendance is unaffected by any of this.
   const wantLiveBoxes = (useStream || tileOverlay) && detections;
   // The enlarged view tracks a moving box at 100 ms. A tile is small and there
-  // may be a screenful of them, so it polls at its own snapshot rate — the
-  // same request it was already making for the picture, near enough.
-  const boxRefreshMs = useStream ? DETECTION_REFRESH_MS : refreshMs;
+  // may be a screenful of them, so it polls at the grid's overlay rate, which
+  // stayed where it was when the pictures sped up.
+  const boxRefreshMs = useStream
+    ? DETECTION_REFRESH_MS
+    : (tileBoxMs ?? refreshMs);
 
   useEffect(() => {
     if (!wantLiveBoxes) {
@@ -277,10 +307,25 @@ export function CameraFrame({
 
   // Cache-busting: the URL is stable, so without this the browser would serve
   // the first frame forever.
+  //
+  // `width` asks for a picture the size the tile will show, in device pixels;
+  // the engine rounds it up to one of a few sizes. Rounded up here to a step
+  // of 160 as well, so dragging the window edge does not re-request the
+  // picture at every pixel. Left out until the tile has been measured, which
+  // gets the full picture once rather than a tiny one.
+  //
+  // `fps` tells the engine how often this tile will ask, so the camera
+  // prepares new pictures that fast while the tile is on screen.
+  const devicePixels = frameSize.width * (window.devicePixelRatio || 1);
+  const requestWidth = Math.ceil(devicePixels / 160) * 160;
+  const snapshotQuery =
+    `t=${tick}` +
+    (requestWidth > 0 ? `&width=${requestWidth}` : '') +
+    `&fps=${Math.max(1, Math.round(1_000 / refreshMs))}`;
   const frameSrc = useStream
     ? camera.streamUrl
     : usePolling
-      ? `${camera.snapshotUrl}?t=${tick}`
+      ? `${camera.snapshotUrl}?${snapshotQuery}`
       : undefined;
 
   return (
@@ -303,6 +348,7 @@ export function CameraFrame({
           alt={camera.name}
           onError={() => setImageFailed(true)}
           onLoad={(e) => {
+            loadedTick.current = tick;
             const { naturalWidth, naturalHeight } = e.currentTarget;
             if (naturalWidth > 0 && naturalHeight > 0) {
               setAspect(naturalWidth / naturalHeight);
