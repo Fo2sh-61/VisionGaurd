@@ -22,10 +22,11 @@
 #     .\launch.ps1              webcam - the same thing you run by hand
 #     .\launch.ps1 -Clip        the labelled recording instead of the webcam
 #     .\launch.ps1 -Mock        fixtures only, no models, no camera
-#     .\launch.ps1 -Mobile      the phone app too, on 5174
+#     .\launch.ps1 -Mobile      the phone app too, on 5174, and the tab opens on it
 #     .\launch.ps1 -NoBrowser   start it, do not open a tab
 #
 # Re-create the desktop shortcut with:  .\tools\install-shortcut.ps1
+# and the phone app's, which passes -Mobile:  .\tools\install-shortcut.ps1 -Mobile
 
 [CmdletBinding()]
 param(
@@ -39,9 +40,22 @@ $ErrorActionPreference = 'Stop'
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ApiPort = 8000
 $WebPort = 5173
-$Url = "http://localhost:$WebPort/"
+$MobilePort = 5174
 
-$Host.UI.RawUI.WindowTitle = 'VisionGuard'
+# The tab opens on what was asked for. -Mobile is what the "VisionGuard
+# Mobile" icon passes, so there it is the phone app; the console is still up
+# on 5173 behind it, one address away.
+if ($Mobile) {
+    $Title = 'VisionGuard Mobile'
+    $Opens = 'phone app'
+    $Url = "http://localhost:$MobilePort/"
+} else {
+    $Title = 'VisionGuard'
+    $Opens = 'console'
+    $Url = "http://localhost:$WebPort/"
+}
+
+$Host.UI.RawUI.WindowTitle = $Title
 
 # ---------------------------------------------------------------------------
 # Kill on close
@@ -203,7 +217,7 @@ function Start-BrowserWhenReady {
 # ---------------------------------------------------------------------------
 
 Write-Host ''
-Write-Host '  VisionGuard' -ForegroundColor Cyan
+Write-Host "  $Title" -ForegroundColor Cyan
 
 if (Enable-KillOnClose) {
     Write-Host '  [ ok ] closing this window will stop the engine and the web server' `
@@ -223,7 +237,7 @@ if (-not $NoBrowser) {
     # The address, not just the promise. If the tab never arrives - a browser
     # that refuses to be launched from a background job, a start that takes
     # longer than the deadline - the thing to type is already on screen.
-    Write-Host "  [ ok ] console at $Url - a tab opens once the engine answers" `
+    Write-Host "  [ ok ] $Opens at $Url - a tab opens once the engine answers" `
         -ForegroundColor Green
     Start-BrowserWhenReady
 }

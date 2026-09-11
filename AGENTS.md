@@ -135,9 +135,12 @@ double-click needs: it detects the missing venv and passes the flag itself,
 and it puts itself in a Win32 job object marked `KILL_ON_JOB_CLOSE`, so
 **closing the window really does stop everything** — which `dev.ps1`'s
 `finally` cannot promise when somebody clicks the X. It opens the console
-once `/healthz` answers, never before. `-Clip`, `-Mock` and `-NoBrowser` pass
-through. Re-create the shortcut with `.\tools\install-shortcut.ps1`; the icon
-is generated from `web/src/components/Logo.tsx` by `tools/make_icon.py`.
+once `/healthz` answers, never before. `-Clip`, `-Mock`, `-Mobile` and
+`-NoBrowser` pass through; the **VisionGuard Mobile** shortcut is the same
+launcher with `-Mobile`, and its tab opens on the phone app instead. Re-create
+the shortcuts with `.\tools\install-shortcut.ps1` (`-Mobile` for the phone
+app's); both icons are generated from `web/src/components/Logo.tsx` by
+`tools/make_icon.py`.
 
 - **Debug against the recorded clip, not the webcam.** It is identical every run, locks no device, and has 21 labelled ground-truth points. Use the webcam only for final confirmation.
 - **Tests beat hot reload.** Write a test and run `pytest` — milliseconds, no server. Do not enable `--reload` on the engine; it orphans processes on Windows.

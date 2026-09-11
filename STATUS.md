@@ -213,6 +213,7 @@ ONVIF. Camera count remains an input, never a constant.
 
 ```powershell
 .\launch.ps1                         # or the desktop shortcut — the double-click path
+.\launch.ps1 -Mobile                 # or the VisionGuard Mobile shortcut — opens the phone app
 .\dev.ps1 doctor                     # pre-flight, run each morning
 .\dev.ps1 up -Mock                   # UI work — instant, no models
 .\dev.ps1 up -Clip                   # pipeline work — deterministic
