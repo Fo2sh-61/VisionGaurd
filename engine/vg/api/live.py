@@ -3573,10 +3573,12 @@ class LiveStore(MockStore):
                 S.Metric(key="dropped", label="Frames dropped", value=dropped,
                          severity=(S.Severity.WARN if dropped
                                    else S.Severity.INFO)),
-                # NOT a drop. Frames pulled off the camera and deliberately
-                # not decoded because nobody was watching it - the saving,
-                # shown so it can be checked rather than believed.
-                S.Metric(key="skipped", label="Frames not decoded",
+                # NOT a drop. Frames pulled off the camera - and so decoded,
+                # because `grab()` is the decode - but deliberately never
+                # turned into pixels, because nobody was watching it. The
+                # saving, shown so it can be checked rather than believed.
+                # It was labelled "not decoded" until 12 Sep 2026: untrue.
+                S.Metric(key="skipped", label="Frames decoded, not used",
                          value=skipped),
             ],
             capacity=self._machine_capacity(),

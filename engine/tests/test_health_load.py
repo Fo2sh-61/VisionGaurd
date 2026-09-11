@@ -250,6 +250,16 @@ class TestSkippedFramesAreNotDrops:
         assert "skipped" in metrics
         assert metrics["dropped"].label != metrics["skipped"].label
 
+    def test_they_are_not_called_undecoded(self, bare_live_store):
+        """They were decoded. `grab()` is the decode on OpenCV's FFmpeg backend.
+
+        What an unwatched camera skips is `retrieve()`, the conversion to
+        pixels. The page said "Frames not decoded" until 12 Sep 2026, which
+        told an operator the expensive part was being saved when it was not.
+        """
+        label = {m.key: m for m in bare_live_store.health().metrics}["skipped"].label
+        assert "not decoded" not in label.lower()
+
 
 # ---------------------------------------------------------------------------
 # a worker that cannot count itself

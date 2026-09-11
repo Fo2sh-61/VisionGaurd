@@ -88,11 +88,12 @@ class SourceHealth:
     reconnects: int = 0
     frames_read: int = 0
     frames_dropped: int = 0
-    #: Frames pulled off the device and deliberately NOT decoded, because
-    #: nobody had this camera open and the rate it was being read at - the
-    #: analytics rate, or a grid tile's - had been met.
-    #: Not a drop and not a fault - the saving, made visible so it can be
-    #: checked rather than believed.
+    #: Frames grabbed - and so decoded - but deliberately never turned into
+    #: pixels, because nobody had this camera open and the rate it was being
+    #: read at - the analytics rate, or a grid tile's - had been met. Not a
+    #: drop and not a fault - the saving, made visible so it can be checked
+    #: rather than believed. The saving is the conversion only: `grab()` had
+    #: already paid for the decode.
     frames_skipped: int = 0
     opened_at: datetime | None = None
 
@@ -119,7 +120,7 @@ class SourceHealth:
 _NONBLOCKING_GRAB_SECONDS = 0.004
 
 #: How long to wait after such a grab. Short enough that a frame is never
-#: more than this stale when the decode is due, long enough to turn a busy
+#: more than this stale when a conversion is due, long enough to turn a busy
 #: loop into nothing measurable.
 _IDLE_GRAB_SLEEP = 0.002
 
@@ -129,8 +130,9 @@ _IDLE_GRAB_SLEEP = 0.002
 #: feature's boost, so a closed tab has nothing to release and cannot leak it.
 TILE_VIEW_SECONDS = 2.0
 
-#: The fastest a grid tile may ask a camera to decode. A tile is small and a
-#: page may show several; the full rate is what opening the camera is for.
+#: The fastest a grid tile may ask a camera to turn frames into pictures. A
+#: tile is small and a page may show several; the full rate is what opening
+#: the camera is for.
 MAX_TILE_FPS = 15
 
 
@@ -260,15 +262,21 @@ class CameraSource:
         self._backoff_index = 0
         self._stop = threading.Event()
 
-        # Whether every frame is DECODED, or only the ones something reads.
+        # Whether every frame is turned into pixels, or only the ones
+        # something reads.
         #
         # `watched` is the saving and `always` is what this did before. Note
         # what it does NOT change: frames are grabbed off the device at its
         # own rate either way. That is the whole design. `cap.read()` returns
         # the next BUFFERED frame rather than the newest, so a loop that
         # reads less often falls further behind every second - see frames()
-        # for the trap. Grabbing keeps the buffer drained; skipping only the
-        # decode takes the cost without taking the lag.
+        # for the trap. Grabbing keeps the buffer drained; skipping only
+        # `retrieve()` takes part of the cost without taking the lag.
+        #
+        # PART of the cost. On OpenCV's FFmpeg backend `grab()` is the
+        # decode and `retrieve()` only converts to BGR, so every frame is
+        # decoded whatever this is set to. What the conversion is worth is
+        # measured, not assumed: `engine/tools/benchmark.py --decode`.
         self.live_capture = live_capture
         self._watchers = 0
         self._decode_due = 0.0
@@ -368,7 +376,7 @@ class CameraSource:
 
         A context manager rather than a pair of calls, because the usual way
         an MJPEG response ends is the client vanishing mid-frame. A leaked
-        watcher would pin a camera at full decode for the life of the
+        watcher would pin a camera at full-rate conversion for the life of the
         process, and nothing would look broken - which is exactly the kind of
         cost that never gets found.
         """
@@ -383,12 +391,13 @@ class CameraSource:
     def note_tile(self, fps: float, now: float | None = None) -> None:
         """A grid tile is showing this camera at about `fps` pictures a second.
 
-        The step between nobody and `watched()`. An open camera decodes every
-        frame; a tile only needs the pictures it will actually show, so the
-        camera decodes at the tile's rate - never below its own analytics
-        rate, never above `MAX_TILE_FPS` - for `TILE_VIEW_SECONDS`. Every
-        picture the tile fetches renews it. Cameras on nobody's screen keep
-        the saving.
+        The step between nobody and `watched()`. An open camera turns every
+        frame into pixels; a tile only needs the pictures it will actually
+        show, so the camera converts at the tile's rate - never below its own
+        analytics rate, never above `MAX_TILE_FPS` - for `TILE_VIEW_SECONDS`.
+        Every picture the tile fetches renews it. Cameras on nobody's screen
+        keep the saving - which is the conversion only: every frame is
+        decoded regardless, because `grab()` is the decode.
 
         Without this a tile could fetch as often as it liked and still get a
         new picture only at `fps` - the analytics rate, which is 5 a second
@@ -420,9 +429,11 @@ class CameraSource:
         analytics rate, or at the rate a grid tile showing this camera asked
         for if that is faster, because that is all anything downstream reads.
 
-        Not a throttle on capture. The frame has already been pulled off the
-        device by the time this is asked; the only question is whether to pay
-        for the decode.
+        Not a throttle on capture - and despite the name, not a choice about
+        decoding either. By the time this is asked the frame has been pulled
+        off the device and, on the FFmpeg backend, decoded by `grab()`. The
+        only question is whether to pay for `retrieve()`: the conversion to
+        BGR pixels and the copy.
         """
         if self.live_capture == "always" or self._watchers > 0:
             return True
@@ -434,7 +445,7 @@ class CameraSource:
         if now < self._decode_due:
             return False
         # Anchored to now rather than advanced by one interval, so a camera
-        # that has been idle does not owe a burst of catch-up decodes.
+        # that has been idle does not owe a burst of catch-up conversions.
         self._decode_due = now + interval
         return True
 
@@ -450,15 +461,21 @@ class CameraSource:
 
         assert self._cap is not None
         try:
-            # Grab, then decide, then decode. `grab()` pulls the next frame
-            # off the device without turning it into pixels; `retrieve()` is
-            # the expensive half. Splitting them is the whole of change 4:
-            # the buffer is drained at the camera's own rate whatever
-            # happens, so no lag builds up, but on a camera nobody is looking
-            # at we skip the decode for five frames in six.
+            # Grab, then decide, then convert. `grab()` pulls the next frame
+            # off the device AND decodes it - on OpenCV's FFmpeg backend that
+            # is where the H.264 work happens. `retrieve()` only turns the
+            # decoded frame into BGR pixels and copies it out. Splitting them
+            # is the whole of change 4: the buffer is drained at the camera's
+            # own rate whatever happens, so no lag builds up, and on a camera
+            # nobody is looking at we skip the conversion on the frames
+            # nothing reads. The decode is paid on every frame regardless.
+            #
+            # So the saving is the conversion's share of a frame, not the
+            # frame. Workload placement once counted it as the whole decode;
+            # `engine/tools/benchmark.py --decode` measures what it really is.
             #
             # Both halves are needed. Skipping the GRAB is the classic OpenCV
-            # latency bug - see frames() - and skipping only the decode
+            # latency bug - see frames() - and skipping only the conversion
             # avoids it entirely.
             ok, image = False, None
             while not self._stop.is_set():
@@ -469,9 +486,10 @@ class CameraSource:
                 if self.wants_decode():
                     ok, image = self._cap.retrieve()
                     break
-                # Grabbed and thrown away without decoding. Counted, not
-                # silent: this is the saving, and an operator seeing it climb
-                # on a camera they are watching would be seeing a bug.
+                # Grabbed - so decoded - and thrown away without being
+                # converted. Counted, not silent: this is the saving, and an
+                # operator seeing it climb on a camera they are watching would
+                # be seeing a bug.
                 self.health.frames_skipped += 1
 
                 # Do not spin.
@@ -481,7 +499,7 @@ class CameraSource:
                 # which is the whole reason for grabbing rather than sleeping.
                 # On a webcam it can return instantly, and then this loop
                 # burns a core: measured at 658,000 grabs a second, which
-                # would cost far more than the decodes it saves.
+                # would cost far more than the conversions it saves.
                 #
                 # So the sleep is conditional on the evidence. A backend that
                 # blocks never reaches it; one that does not gets paced.

@@ -1,6 +1,8 @@
 """How fast the models run on this machine, and what that means for 208 cameras.
 
 Run:  python engine/tools/benchmark.py
+      python engine/tools/benchmark.py --site 100     # size a whole site
+      python engine/tools/benchmark.py --decode       # what capture costs
 
 P1-06. `docs/PLAN.md` section 7 lists latency targets and says plainly that
 nothing has been measured. This measures the one that sets the hardware bill:
@@ -19,6 +21,11 @@ every camera will run every model. Treat it as an upper bound to design down
 from, and re-run it on the real workstation before anything is bought.
 
 Nothing here is a claim about accuracy. It measures speed only.
+
+`--decode` measures something else, and needs no model: how a camera frame's
+capture cost splits between `grab()` and `retrieve()`. That split decides
+what `live_capture: watched` saves, and it was once assumed rather than
+measured - see `_decode_split`.
 """
 
 from __future__ import annotations
@@ -28,6 +35,7 @@ import glob
 import statistics
 import sys
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 import cv2
@@ -66,11 +74,21 @@ ASSUMED_MS = {
     # always in the rate and the camera count, never in the model.
     "patrol": 44.0,
     "plates": 12.0,
+    # One camera frame taken all the way to pixels: `grab()` plus
+    # `retrieve()`. How that splits between the two IS measured - by
+    # `_decode_split`, on the clip. The 6 ms total is not: nothing in the
+    # repository records where it came from. It stays, labelled as assumed,
+    # until a recording from a real site camera is timed with `--clip`.
     "decode": 6.0,
 }
 
-#: Frames per second a camera actually delivers, for the decode line.
+#: Frames per second a camera actually delivers, for the capture rows.
 CAMERA_FPS = 25.0
+
+#: Passes over the clip for each column of the decode split. The two columns
+#: are timed alternately, so a laptop that warms up or throttles part-way
+#: through shifts both of them rather than one.
+DECODE_ROUNDS = 3
 
 
 def _parse_mix(spec):
@@ -97,77 +115,280 @@ def _parse_mix(spec):
     return mix
 
 
-def _site(cameras, mix_spec, person_ms, cores, decode_hz=CAMERA_FPS):
-    """What a whole site costs per second, and how many boxes that needs.
+def _demand(cameras, mix, person_ms, decode_hz, share):
+    """One row per cost: (what, cameras, Hz, ms a frame, cores).
 
-    The unit is **seconds of processor time per second of wall clock**, and it
-    is the honest one for this question. An 8-core box supplies 8 seconds of
-    processor time every second, so "needs 25" against "has 8" is a
-    comparison anybody can make. Frames per second is not - it hides how many
-    models each frame goes through.
+    Capture is two rows because it is two costs, and only one of them is
+    optional:
+
+    - `grab` is paid on EVERY frame each camera sends, watched or not. On
+      OpenCV's FFmpeg backend `grab()` reads the frame and decodes it.
+    - `retrieve` is paid only on frames something reads - `decode_hz` of them
+      a second. It turns the decoded frame into BGR pixels and copies it out.
+
+    `share` is retrieve()'s part of a whole frame's cost, 0..1. At 0,
+    `live_capture: watched` saves nothing; at 1, skipping retrieve() would
+    skip the whole decode - which is what the 30 Aug figures assumed, and
+    what OpenCV does not do.
+    """
+    rows = []
+    for name, (part, hz) in mix.items():
+        count = cameras * part
+        ms = person_ms if name == "person" else ASSUMED_MS.get(name, 0.0)
+        rows.append((name, count, hz, ms, count * hz * ms / 1000.0))
+
+    grab_ms = ASSUMED_MS["decode"] * (1.0 - share)
+    retrieve_ms = ASSUMED_MS["decode"] * share
+    rows.append(("grab", cameras, CAMERA_FPS, grab_ms,
+                 cameras * CAMERA_FPS * grab_ms / 1000.0))
+    rows.append(("retrieve", cameras, decode_hz, retrieve_ms,
+                 cameras * decode_hz * retrieve_ms / 1000.0))
+    return rows
+
+
+def _fit(total, cameras, cores):
+    """(cores per camera, boxes needed, cameras one box carries)."""
+    per_camera = total / cameras if cameras else 0.0
+    boxes = max(1, int(-(-total // cores))) if total else 1
+    fits = int(cores / per_camera) if per_camera else 0
+    return per_camera, boxes, fits
+
+
+def _site(cameras, mix_spec, person_ms, cores, decode_hz=CAMERA_FPS, shares=()):
+    """What a whole site costs, and how many boxes that needs.
+
+    The unit is **cores**: how many processor cores the work would keep
+    busy, flat out, all the time. An 8-core box supplies 8, so "needs 25"
+    against "has 8" is a comparison anybody can make. (It is the same number
+    as seconds of processor time per second, said plainly.) Frames per
+    second is not - it hides how many models each frame goes through.
+
+    `shares` are the measured retrieve() shares from `_decode_split`. The
+    table uses the SMALLEST, because it credits `watched` with the least and
+    so gives the biggest bill - a sizing figure that is too low is how a site
+    ends up one box short. The other end is printed beside it, since the
+    real figure lies between them. No shares means nothing was measured,
+    and then `watched` is credited with no saving at all.
 
     Two things this deliberately does NOT do:
 
     - **Assume a camera count.** It is an argument. The site being sized has
       not fixed its count, and a tool with 208 written into it would have to
       be edited the day that changed.
-    - **Blur measured and assumed.** The person figure was timed by this run
-      on this machine. Everything else is a number carried in from an earlier
-      one. They are printed under separate headings because a reader deciding
-      what hardware to buy needs to know which is which.
+    - **Blur measured and assumed.** The person figure and the capture split
+      were timed by this run on this machine. Everything else is a number
+      carried in from an earlier one. They are printed under separate
+      headings because a reader deciding what hardware to buy needs to know
+      which is which.
     """
     mix = _parse_mix(mix_spec)
+    low = min(shares) if shares else 0.0
+    high = max(shares) if shares else 0.0
 
     print()
     print(f"  Sizing {cameras} cameras")
     print()
-    print(f"    {'what':<10} {'cameras':>8} {'Hz':>6} {'ms':>7} {'s/s':>8}")
+    print(f"    {'what':<10} {'cameras':>8} {'Hz':>6} {'ms':>7} {'cores':>8}")
     print(f"    {'-' * 10} {'-' * 8} {'-' * 6} {'-' * 7} {'-' * 8}")
 
-    total = 0.0
-    for name, (share, hz) in mix.items():
-        count = cameras * share
-        ms = person_ms if name == "person" else ASSUMED_MS.get(name, 0.0)
-        cost = count * hz * ms / 1000.0
-        total += cost
+    rows = _demand(cameras, mix, person_ms, decode_hz, low)
+    for name, count, hz, ms, cost in rows:
         print(f"    {name:<10} {count:>8.0f} {hz:>6.1f} {ms:>7.1f} {cost:>8.2f}")
-
-    # Every camera, every frame, whether anything reads it or not. This is the
-    # line workload placement removes: decoding at the camera's rate when the
-    # analytics only ever look at a few frames a second.
-    decode = cameras * ASSUMED_MS["decode"] * decode_hz / 1000.0
-    total += decode
-    print(f"    {'decode':<10} {cameras:>8d} {decode_hz:>6.1f} "
-          f"{ASSUMED_MS['decode']:>7.1f} {decode:>8.2f}")
-
-    per_camera = total / cameras if cameras else 0.0
-    boxes = max(1, int(-(-total // cores))) if total else 1
-    fits = int(cores / per_camera) if per_camera else 0
+    total = sum(row[-1] for row in rows)
 
     print()
-    print(f"    site         {total:8.2f} s of processor time per second")
-    print(f"    per camera   {per_camera:8.3f} s/s")
-    print(f"    on {cores} cores  {total / cores:8.2f}x the box  ->  {boxes} box(es)")
+    print("    grab      the decode. Every frame each camera sends, watched or not.")
+    print("    retrieve  turning a decoded frame into pixels. Only the frames")
+    if shares:
+        print(f"              something reads; {low:.0%} of a frame's cost, measured.")
+    else:
+        print("              something reads. NOT measured - no clip - so no")
+        print("              saving is credited to `live_capture: watched`.")
+
+    per_camera, boxes, fits = _fit(total, cameras, cores)
+    print()
+    print(f"    site needs   {total:6.2f} cores working flat out")
+    print(f"    per camera   {per_camera:6.3f} of a core")
+    print(f"    on {cores} cores   {total / cores:6.2f}x the box  ->  {boxes} box(es)")
     print(f"    one {cores}-core box carries about {fits} cameras of this mix")
+
+    other = sum(row[-1] for row in _demand(cameras, mix, person_ms, decode_hz, high))
+    if shares and round(other, 2) != round(total, 2):
+        _, other_boxes, other_fits = _fit(other, cameras, cores)
+        print()
+        print(f"    At the other measured share, {high:.0%}, the same site needs")
+        print(f"    {other:.2f} cores, {other_boxes} box(es), about {other_fits} "
+              f"cameras a box.")
+        print("    The real figure is between the two; this tool cannot say where.")
+
     print()
-    print("    MEASURED by this run, on this machine: the person row.")
-    print("    ASSUMED from earlier runs: faces, plates, decode.")
+    print("    MEASURED by this run, on this machine: the person row, and how a")
+    print("    frame's capture cost splits between grab and retrieve.")
+    print("    ASSUMED, carried from earlier runs: every other row's ms, and the")
+    print(f"    {ASSUMED_MS['decode']:.0f} ms a frame costs to capture in all.")
     print("    The site total is arithmetic over those, not an observation of")
     print("    a site that exists. Re-run on the deployment box before buying.")
     print()
     return 0
 
 
-def _frames(count: int) -> list[np.ndarray]:
-    """Real frames from the labelled clip, or synthetic if it is not here."""
+# ---------------------------------------------------------------------------
+# What capture costs, and which part of it `live_capture: watched` removes
+# ---------------------------------------------------------------------------
+#
+# `CameraSource.read()` calls `grab()` on every frame and `retrieve()` only on
+# the frames something will read. Workload placement costed that as skipping
+# the decode on four frames in five. OpenCV does not work that way: on the
+# FFmpeg backend `grab()` reads the packet AND decodes it, and `retrieve()`
+# only converts the decoded frame to BGR and copies it out. So what `watched`
+# skips is the retrieve() share of a frame, and this measures that share
+# instead of assuming it.
+
+
+@dataclass
+class DecodeSplit:
+    """Processor ms per frame for `grab()` alone and `grab()` + `retrieve()`."""
+
+    threads: int
+    frames: int
+    grab_ms: float
+    both_ms: float
+    round_shares: list[float]
+
+    @property
+    def share(self) -> float:
+        """retrieve()'s part of a frame's cost, 0..1.
+
+        Floored at 0. When retrieve() is lost in the noise the two columns can
+        come out the wrong way round, and a negative share would mean skipping
+        retrieve() made capture dearer - noise, not a finding.
+        """
+        if self.both_ms <= 0:
+            return 0.0
+        return min(1.0, max(0.0, (self.both_ms - self.grab_ms) / self.both_ms))
+
+
+def _clip(path: str | None = None) -> Path | None:
+    """The recording to time: `--clip` if given, else the labelled clip."""
+    if path:
+        if not Path(path).is_file():
+            # Refused rather than replaced by the default. A timing that
+            # quietly came from a different recording would be reported as
+            # the one asked for.
+            raise SystemExit(f"no such clip: {path}")
+        return Path(path)
     clips = sorted(glob.glob(str(ENGINE_DIR / "data" / "footage" / "*.mp4")))
     walk = [c for c in clips if "walk-through" in c] or clips
-    if not walk:
+    return Path(walk[0]) if walk else None
+
+
+def _decode_pass(clip: Path, retrieve: bool,
+                 threads: int | None) -> tuple[int, int, float]:
+    """One pass over the whole clip: (decoder threads, frames, processor s).
+
+    Processor time for the whole process, not wall time: FFmpeg decodes on
+    threads of its own, and a wall clock would show the work being shared
+    out rather than the work. It is the unit `--site` adds up.
+
+    Not paced. A real camera hands over a frame every 40 ms; this takes them
+    as fast as they come. Pacing was tried and is not reliable here: Windows
+    charges processor time, at each clock tick, to whichever thread happens
+    to be running, so a loop that sleeps between frames is mis-counted. Paced
+    runs on this laptop put retrieve() anywhere from 35% to 90% of a frame.
+    """
+    params = [] if threads is None else [cv2.CAP_PROP_N_THREADS, threads]
+    cap = cv2.VideoCapture(str(clip), cv2.CAP_FFMPEG, params)
+    if not cap.isOpened():
+        raise SystemExit(f"FFmpeg could not open {clip}")
+    used = int(cap.get(cv2.CAP_PROP_N_THREADS))
+    frames = 0
+    started = time.process_time()
+    while cap.grab():
+        if retrieve:
+            cap.retrieve()
+        frames += 1
+    spent = time.process_time() - started
+    cap.release()
+    return used, frames, spent
+
+
+def _decode_split(clip: Path, threads: int | None = None,
+                  rounds: int = DECODE_ROUNDS) -> DecodeSplit:
+    """Time `grab()` alone against `grab()` + `retrieve()` over the clip.
+
+    `threads=None` is FFmpeg's own choice, which is how the engine opens a
+    camera. `threads=1` is the work alone, without the cost of sharing it
+    out - and the two give very different answers, which is why both are
+    reported rather than one.
+    """
+    _decode_pass(clip, False, threads)          # warm-up: disk cache, codec start
+    used = frames = 0
+    grab_s = both_s = 0.0
+    shares: list[float] = []
+    for _ in range(rounds):
+        used, grab_n, grab_t = _decode_pass(clip, False, threads)
+        _, both_n, both_t = _decode_pass(clip, True, threads)
+        frames += grab_n
+        grab_s += grab_t
+        both_s += both_t
+        if grab_n and both_n and both_t > 0:
+            per_grab, per_both = grab_t / grab_n, both_t / both_n
+            shares.append((per_both - per_grab) / per_both)
+    per_pass = frames // rounds if rounds else 0
+    return DecodeSplit(
+        threads=used,
+        frames=per_pass,
+        grab_ms=grab_s * 1000 / frames if frames else 0.0,
+        both_ms=both_s * 1000 / frames if frames else 0.0,
+        round_shares=shares,
+    )
+
+
+def _measure_capture(clip: Path | None) -> list[DecodeSplit]:
+    """Measure and print the decode split. Empty if there is no clip."""
+    print()
+    if clip is None:
+        print("  Capture split NOT measured - no clip. Pass --clip, or put the")
+        print("  labelled recording in engine/data/footage/.")
+        return []
+
+    probe = cv2.VideoCapture(str(clip), cv2.CAP_FFMPEG)
+    size = (f"{int(probe.get(cv2.CAP_PROP_FRAME_WIDTH))}x"
+            f"{int(probe.get(cv2.CAP_PROP_FRAME_HEIGHT))}, "
+            f"{probe.get(cv2.CAP_PROP_FPS):.0f} fps")
+    probe.release()
+
+    print(f"  What a camera frame costs to capture - {clip.name} ({size})")
+    print(f"  measuring, {DECODE_ROUNDS} passes over the whole clip for each column...")
+    splits = [_decode_split(clip, None), _decode_split(clip, 1)]
+    labels = [f"{splits[0].threads} threads, as the engine", "1 thread, the work alone"]
+
+    print()
+    print(f"    {'':<27} {'grab()':>9} {'+ retrieve()':>13} {'retrieve() share':>18}")
+    for label, split in zip(labels, splits):
+        spread = (f"({min(split.round_shares):.0%} to {max(split.round_shares):.0%})"
+                  if split.round_shares else "")
+        print(f"    {label:<27} {split.grab_ms:6.3f} ms {split.both_ms:10.3f} ms "
+              f"{split.share:9.0%}  {spread}")
+    print()
+    print(f"    Processor ms per frame, every thread in the process, {splits[0].frames}")
+    print("    frames a pass, not paced. The bracket is the lowest and highest pass.")
+    print()
+    print("    grab() IS the decode: it reads the frame and decodes it.")
+    print("    retrieve() only turns the decoded frame into pixels and copies it.")
+    print("    `live_capture: watched` skips retrieve() on frames nobody reads,")
+    print("    so it saves the retrieve() share of those frames - never their decode.")
+    return splits
+
+
+def _frames(count: int, clip: Path | None) -> list[np.ndarray]:
+    """Real frames from the labelled clip, or synthetic if it is not here."""
+    if clip is None:
         print("  no clip found - using synthetic frames, timings are indicative")
         return [np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
                 for _ in range(count)]
 
-    cap = cv2.VideoCapture(walk[0])
+    cap = cv2.VideoCapture(str(clip))
     out: list[np.ndarray] = []
     while len(out) < count:
         ok, frame = cap.read()
@@ -175,7 +396,7 @@ def _frames(count: int) -> list[np.ndarray]:
             break
         out.append(frame)
     cap.release()
-    print(f"  frames from {Path(walk[0]).name}")
+    print(f"  frames from {clip.name}")
     return out or [np.zeros((480, 640, 3), dtype=np.uint8)]
 
 
@@ -201,11 +422,31 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--cores", type=int, default=8,
                         help="processor cores on the target box (default 8)")
     parser.add_argument("--decode-hz", type=float, default=CAMERA_FPS,
-                        help=f"frames decoded per camera per second "
-                             f"(default {CAMERA_FPS:.0f} - the camera's own "
-                             f"rate. Pass the analytics rate to see what "
-                             f"`live_capture: watched` saves)")
+                        help=f"frames per camera per second turned into "
+                             f"pixels by retrieve() (default {CAMERA_FPS:.0f} "
+                             f"- every frame, as `live_capture: always` does). "
+                             f"Pass the analytics rate for an unwatched camera "
+                             f"under `watched`. Every frame is still decoded "
+                             f"either way")
+    parser.add_argument("--decode", action="store_true",
+                        help="measure only how capture cost splits between "
+                             "grab() and retrieve(); loads no model")
+    parser.add_argument("--clip", metavar="PATH",
+                        help="recording to time (default: the labelled "
+                             "walk-through clip in engine/data/footage)")
     args = parser.parse_args(argv)
+
+    clip = _clip(args.clip)
+
+    # Measured before any model loads, so no GPU runtime thread is in the
+    # process to have its processor time counted as capture.
+    splits: list[DecodeSplit] = []
+    if args.decode or args.site:
+        print("\nVisionGuard benchmark - capture")
+        splits = _measure_capture(clip)
+        if args.decode:
+            print()
+            return 0
 
     # The knife model is timed the same way, on the same clip, so the two rows
     # in PLAN section 7 are comparable. It is a second pass on top of the
@@ -219,7 +460,7 @@ def main(argv: list[str] | None = None) -> int:
         from vg.infer.persons import PersonDetector as Detector
 
     print(f"\nVisionGuard benchmark - {args.model} detection\n")
-    frames = _frames(args.frames + WARMUP)
+    frames = _frames(args.frames + WARMUP, clip)
 
     detector = Detector()
     print(f"  device  {detector.device}")
@@ -297,7 +538,8 @@ def main(argv: list[str] | None = None) -> int:
     print("\n  Upper bound: assumes every camera runs person detection at that")
     print("  rate. Real deployments run fewer models on fewer cameras.\n")
     if args.site:
-        return _site(args.site, args.mix, mean, args.cores, args.decode_hz)
+        return _site(args.site, args.mix, mean, args.cores, args.decode_hz,
+                     [split.share for split in splits])
 
     return 0
 

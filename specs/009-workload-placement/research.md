@@ -24,10 +24,20 @@ It concludes: *"at 208 cameras the answer is sub-streams and a lower device rate
 re-introducing the lag."*
 
 **Decision: split grab from decode.** OpenCV's `VideoCapture` already separates
-`grab()` (demux the next frame, no decode) from `retrieve()` (decode the grabbed
-frame). Grab every frame — the buffer stays drained and the latency trap is avoided —
+`grab()` ~~(demux the next frame, no decode)~~ from `retrieve()` ~~(decode the grabbed
+frame)~~. Grab every frame — the buffer stays drained and the latency trap is avoided —
 and `retrieve()` only when a frame is actually wanted. This gets the saving *without*
 the trade the docstring warns about.
+
+> **Corrected 12 Sep 2026 — the split struck through above is wrong for the backend
+> that matters.** On OpenCV's FFmpeg backend, which every RTSP camera uses, `grab()`
+> reads the packet **and decodes it**; `retrieve()` only converts the decoded frame
+> to BGR and copies it out. The decision still stands — it avoids the lag trap and
+> `live_capture: watched` is unchanged — but what it saves is the conversion, not the
+> decode: somewhere between about 10% and 60% of a frame's capture cost on the
+> labelled clip, not five frames in six (`benchmark.py --decode`; `measurements.md` §1b). The
+> decoded-and-discarded frames in the Finding above are still decoded. Removing that
+> cost needs hardware decode or camera sub-streams — a follow-on, recorded in §1b.
 
 **Alternatives rejected:**
 - *Lower `target_fps` and use `frames()`* — re-introduces exactly the lag the docstring

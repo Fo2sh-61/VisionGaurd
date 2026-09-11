@@ -182,7 +182,8 @@ GATE_DIRECTIONS: tuple[str, ...] = ("entry", "exit")
 #: Where face detection looks. "" means "decide from the feature list".
 FACE_GATES: frozenset[str] = frozenset({"", "person", "frame"})
 
-#: Whether every frame is decoded, or only the ones something reads.
+#: Whether every frame is turned into pixels, or only the ones something
+#: reads. Every frame is DECODED either way - see CameraConfig.live_capture.
 LIVE_CAPTURE: frozenset[str] = frozenset({"watched", "always"})
 
 #: Features that already run the shared person pass. A camera carrying
@@ -277,17 +278,23 @@ class CameraConfig:
     # all - costing time rather than saving it.
     face_gate: str = ""
 
-    # How often frames are DECODED when nobody is looking at this camera.
+    # How often frames are turned into pixels when nobody is looking at this
+    # camera.
     #
-    #   watched  decode every frame only while an operator has it open;
-    #            otherwise decode at `fps`
-    #   always   decode every frame, which is what this did before
+    #   watched  convert every frame only while an operator has it open;
+    #            otherwise convert at `fps`
+    #   always   convert every frame, which is what this did before
     #
     # Frames are still GRABBED at the camera's own rate either way. That is
     # the whole trick: `cap.read()` returns the next buffered frame rather
     # than the newest, so skipping reads makes the stream fall further behind
-    # every second. Grabbing keeps the buffer drained; only the decode is
+    # every second. Grabbing keeps the buffer drained; only the conversion is
     # skipped. See CameraSource.frames() for the trap this avoids.
+    #
+    # Grabbing is also the decode - OpenCV's FFmpeg backend decodes inside
+    # `grab()` - so every frame is decoded whatever this says. `watched`
+    # saves the conversion, which is a fraction of a frame's cost;
+    # `engine/tools/benchmark.py --decode` measures how big a fraction.
     live_capture: str = "watched"
 
     @property

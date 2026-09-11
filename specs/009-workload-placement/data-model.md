@@ -31,6 +31,10 @@ P8-FR-004.
 - `always` — decode every frame, as today.
 - Default `watched`.
 
+> **Corrected 12 Sep 2026:** "decode" in this file means `retrieve()`, which on
+> OpenCV's FFmpeg backend is only the conversion to pixels. `grab()` is the decode,
+> and it runs on every frame in both states. See `measurements.md` §1b.
+
 ### Validation rules
 - `patrol_hz`: existing rule holds — `0 <= patrol_hz <= 30`, `0` means off
   (`config.py:715`). No change needed; the value moves, the rule does not.

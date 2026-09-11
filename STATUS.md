@@ -6,7 +6,7 @@
 
 | Feature | State |
 |---|---|
-| Camera ingest, stream, snapshot | **Real** — reconnect, NO SIGNAL, stale flagging all work. **Console grid tiles sped up (11 Sep 2026)**: 15 pictures a second with 1–4 tiles on screen, 5 with 5–12, 2 with more (were 5 / 2 / 0.67). Two brakes were in the way: the tile's own timer, and the camera, which prepared new pictures only at its analytics rate (5 a second or less) unless somebody had it open. A tile now tells the engine its rate, and the camera decodes that fast for two seconds after each request, capped at 15; each tile also gets a picture sized to it instead of 1280 px. On a 1080p test video on the dev laptop, one tile at 15 a second cost about the same as one at 5 did before (4.2% against 4.1% of the processor). The AI's rates are unchanged. Tile overlays (knives, plates) re-fetch at the old rates. **The phone app is unchanged**: it sends neither setting and gets exactly what it got before |
+| Camera ingest, stream, snapshot | **Real** — reconnect, NO SIGNAL, stale flagging all work. **Console grid tiles sped up (11 Sep 2026)**: 15 pictures a second with 1–4 tiles on screen, 5 with 5–12, 2 with more (were 5 / 2 / 0.67). Two brakes were in the way: the tile's own timer, and the camera, which prepared new pictures only at its analytics rate (5 a second or less) unless somebody had it open. A tile now tells the engine its rate, and the camera turns frames into pictures that fast for two seconds after each request, capped at 15 (it decodes every frame either way — see Workload placement below); each tile also gets a picture sized to it instead of 1280 px. On a 1080p test video on the dev laptop, one tile at 15 a second cost about the same as one at 5 did before (4.2% against 4.1% of the processor). The AI's rates are unchanged. Tile overlays (knives, plates) re-fetch at the old rates. **The phone app is unchanged**: it sends neither setting and gets exactly what it got before |
 | Camera setup | **Real** (1 Sep 2026) — recorders are probed channel by channel and report what actually answered; everything added is saved; all seven features assignable per camera with their settings, taking effect without a restart; cameras editable; every change audited. **Network discovery is not built** and says so. See the section below. **The analytics rate became a real setting on 2 Sep 2026.** Until then every worker held one rate — `min(fps)` across its cameras, fixed at construction — with two consequences nobody could see: turning one camera down to 2/sec quietly turned every other camera on that worker down with it, and editing the rate in the console changed the *decode* rate only, so the models carried on at the old rate until somebody restarted the engine. The rate is now per camera, takes effect on the next frame, and sits on the add form beside the features it multiplies rather than being reachable only by adding a camera and reopening it. The form also says what the ticked features actually need — 2/sec for counting, intrusion and attendance, 5 for track, weapons and vehicles, where a moment is the answer — as a recommendation with a one-click apply, never a value written into the field behind the operator. **And there is now a floor**: `weapons` below 3/sec is refused at parse time, because knife detection opens an entry on three sightings inside one second, so at 2/sec the third sighting can never arrive — the camera would watch for knives it is incapable of reporting while every screen said the feature was running |
 | Attendance | **Real** — register, late cutoff, CSV export. Owner considers it done |
 | Enrolment Studio | **Real** — `/people/enrol`, quality scoring, 5-photo floor (nobody is enrolled without them). Admin-only (P2). Live moving view with the detected face outlined and its five feature points tracking it, plain-language guidance, and a way back at every step |
@@ -75,27 +75,40 @@ deployment: `git grep -niE "dev.?sign.?in"` lists every line. Details in
 python engine/tools/create_user.py
 ```
 
-## Workload placement (30 Aug 2026) — `specs/009-workload-placement`
+## Workload placement (30 Aug 2026, corrected 12 Sep) — `specs/009-workload-placement`
 
-Removing processor work nothing reads. Measured before and after with
-`benchmark.py --site`; full figures in `specs/009-workload-placement/measurements.md`.
+Removing processor work nothing reads. Measured with `benchmark.py --site`; full
+figures in `specs/009-workload-placement/measurements.md`. Figures are in
+**cores**: how many processor cores the work keeps busy flat out. An 8-core box
+supplies 8.
 
-| | |
+| 100 cameras | |
 |---|---|
-| Before, 100 cameras | **23.03 s** of processor time per second — 3 boxes |
-| After | **9.17 s/s** — 2 boxes; one 8-core box carries 87 cameras, up from 34 |
+| Before | **23.0 cores** — 3 boxes; one 8-core box carries 34 cameras |
+| After | **about 14–20 cores** — 2–3 boxes; one box carries about 40–57 cameras |
+
+**The after figure first published, 9.17 cores and 87 cameras a box, was
+wrong.** It assumed an unwatched camera skips the decode on four frames in
+five. It does not: OpenCV's `grab()` is the decode, and `retrieve()` — the part
+that is skipped — only turns the decoded frame into pixels. Every frame of
+every camera is still decoded. `benchmark.py --decode` now measures what the
+conversion is worth: somewhere between about 10% and 60% of a frame's capture
+cost on the labelled clip, depending on how FFmpeg threads the decode and on
+the run. `--site` uses that measurement instead of assuming. The saving is real
+but small: about 3–9 cores of the 23, not 14.
 
 23.03 corroborates the Workload Plan's ~25 figure, which matters because that
-document is not in this repository.
+document is not in this repository. Both rest on an assumed 6 ms to capture a
+frame, and nothing in the repository records where that came from.
 
-**Decode was 65% of the bill** — frames pulled off cameras nobody was watching
-and thrown away. Unwatched cameras now grab every frame (so no lag builds up)
-and decode only at the analytics rate. That one change is most of the saving.
+**Decoding is now the biggest cost left** — 6 to 13.5 of the after figure's
+cores, on every frame of every camera, watched or not. Hardware decode is what
+would cut it (below).
 
 | Change | State |
 |---|---|
 | Patrol face recognition off | **on** — `patrol_hz: 0` is now the default |
-| Capture unwatched at the analytics rate | **on** — `live_capture: watched` |
+| Convert unwatched frames to pixels only at the analytics rate | **on** — `live_capture: watched`. Saves the conversion, not the decode |
 | Batch the shared person pass | shipped, **off**, and buys nothing yet — see below |
 | Face detection gated to person crops | shipped, **off** by default — see below |
 | Bag TensorRT removal | **rejected on measurement** |
@@ -108,23 +121,37 @@ waits on a measurement against a real enrolled roll.
 
 **Batching cannot work on TensorRT.** The compiled engines have a fixed batch size of 1 and raise when handed several frames. That exception lands where `FeatureWorker` catches it per frame, so switching batching on would have made detection **quietly stop** — a log line nobody reads and boxes silently missing. It now detects this once, says so, and runs one frame at a time. Rebuilding the engines with a dynamic batch would unlock it; P8-FR-018 says not before the GPU driver is current.
 
-**The capture change nearly cost more than it saved.** Skipping the decode only helps if grabbing a frame WAITS for one. On RTSP it does; on a webcam it returns instantly, and the loop spun at 658,000 grabs a second - a whole core per camera, which would have looked like a busy machine rather than a bug. It now paces itself: 653 grabs where there were 1.3 million, same 5 Hz decoded.
+**The capture change nearly cost more than it saved.** Skipping the conversion only helps if grabbing a frame WAITS for one. On RTSP it does; on a webcam it returns instantly, and the loop spun at 658,000 grabs a second - a whole core per camera, which would have looked like a busy machine rather than a bug. It now paces itself: 653 grabs where there were 1.3 million, same 5 Hz converted.
 
 **The bag TensorRT claim was wrong.** Deleting the engine was supposed to be "a
 free ~31%". Measured: TensorRT 23.3 ms p95, PyTorch 29.0 ms. No saving, and
 TensorRT is better where it counts. Reverted.
 
-**SC-001 is not met.** The target was ≤5 s/s and the result is 9.17. The gap is
-face gating, which is off for the reason above. 60% of the waste is gone, not 80%.
+**SC-001 is not met, by a long way.** The target was ≤5 cores and the result is
+about 14–20. The gap is decoding, not face gating: the whole faces row is 3.3
+cores. 13–39% of the before is gone, not the 60% first reported.
+
+**Follow-on, not built: hardware decode.** This OpenCV build decodes on the GPU
+when asked — `cv2.VideoCapture(path, cv2.CAP_FFMPEG,
+[cv2.CAP_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY])` opened D3D11VA. On
+a 1080p test file — encoded far above a real camera's bitrate, so the 21 ms is
+inflated — the processor time for `grab()` fell from 21 ms a frame to 0.39 ms,
+at about 1,000 frames a second. `retrieve()` then costs about 11 ms
+(copying the frame back from the GPU and converting it), which is exactly the
+part `watched` skips — so with hardware decode, `watched` would save what it
+was meant to. On this laptop it picked the Intel UHD 630, not the NVIDIA;
+`CAP_PROP_HW_DEVICE` chooses the adapter. Measured by hand on 11 Sep; details
+in measurements.md §1b.
 
 **Patrol off is visible, not silent.** Track a Person now says when only the
 entrance cameras were looking for faces, so a thinner path cannot read as a
 person who was not there.
 
 **System Health shows real load** — per worker: frames processed, last inference
-ms, queue depth, dropped frames, and whether it is behind. Frames deliberately
-not decoded are counted separately from frames dropped; they are not the same
-thing. Per-worker processor share is **not** shown: workers are threads in one
+ms, queue depth, dropped frames, and whether it is behind. Frames decoded but
+deliberately not used are counted separately from frames dropped; they are not
+the same thing. (The page called them "Frames not decoded" until 12 Sep, which
+was untrue.) Per-worker processor share is **not** shown: workers are threads in one
 process, so that number could only be invented.
 
 Found and not fixed: **`accelerate: false` is silently ignored for the bag and

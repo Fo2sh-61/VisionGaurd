@@ -448,7 +448,7 @@ access without a child's face ever leaving the building.
 Plates are ten times heavier than anything else. Put them only at real gates.
 The GPU is 60–70% of the bill; everything else is a fixed supporting cast.
 
-### Whole-site demand, 30 Aug 2026
+### Whole-site demand, 30 Aug 2026 (corrected 12 Sep)
 
 Per-model milliseconds do not answer "how many boxes do we buy". This does:
 
@@ -456,19 +456,24 @@ Per-model milliseconds do not answer "how many boxes do we buy". This does:
 python engine/tools/benchmark.py --site 100
 ```
 
-It takes a camera count and a per-feature mix and prints seconds of processor
-time per second, the same figure per camera, and how many cameras one box
-carries. **The camera count is an argument, never a constant** — the site has
-not fixed one, and a tool with 208 written into it would need editing the day
-that changed.
+It takes a camera count and a per-feature mix and prints how many processor
+cores the site keeps busy flat out, the same figure per camera, and how many
+cameras one box carries. **The camera count is an argument, never a constant** —
+the site has not fixed one, and a tool with 208 written into it would need
+editing the day that changed.
 
-| 100 cameras | site s/s | per camera | cameras per 8-core box |
+| 100 cameras | cores needed | per camera | cameras per 8-core box |
 |---|---|---|---|
 | Before workload placement | 23.03 | 0.230 | 34 |
-| After | 9.17 | 0.092 | 87 |
+| After | about 14–20 | 0.14–0.20 | about 40–57 |
 
-Decode was **65%** of the before figure — frames pulled off cameras nobody was
-watching and discarded. Full breakdown and caveats in
+The after figure was first published as 9.17 cores and 87 cameras a box. That
+assumed an unwatched camera skips the decode on four frames in five. In fact
+OpenCV's `grab()` decodes every frame, and only the conversion to pixels is
+skipped. `benchmark.py --decode` measures what the conversion is worth — about
+10% to 60% of a frame's capture cost — and `--site` now uses it. Capture, which
+is mostly decoding, is 65% of the before figure and still about 55–70% of the
+after. Full breakdown and caveats in
 `specs/009-workload-placement/measurements.md`.
 
 The knife model costs the same as the person model, and it ran on that clip without
