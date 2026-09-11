@@ -3119,6 +3119,10 @@ class LiveStore(MockStore):
         ]
 
         loads: list[S.WorkerLoad] = []
+        # Workers whose thread died, and which of the rows below are theirs.
+        stopped: list[str] = []
+        stopped_rows: set[int] = set()
+        dead_threads = 0
         for worker in candidates:
             if worker is None:
                 continue
@@ -3139,12 +3143,37 @@ class LiveStore(MockStore):
                 frames_dropped=int(stats.get("frames_dropped", 0)),
                 behind=stats.get("behind"),
             ))
+            died = self._died_on(stats)
+            if died:
+                stopped.append(
+                    f"{loads[-1].name} on {self._camera_names(died)}")
+                stopped_rows.add(len(loads) - 1)
+                dead_threads += len(died)
 
         if not loads:
             return S.PipelineStage(
                 key="workers", name="Feature workers",
                 detail="Nothing is running.",
                 healthy=False, severity=S.Severity.WARN, restartable=False,
+            )
+
+        if stopped:
+            # Before "behind": a worker doing nothing is worse than one
+            # falling behind, and "N running" over a dead thread is the
+            # sentence that hid the vehicles worker for a whole day. Its own
+            # row is left off the list, for the reason the docstring gives -
+            # a dead thread's counters read as idle, so under a "stopped"
+            # headline that row would say "keeping up".
+            return S.PipelineStage(
+                key="workers", name="Feature workers",
+                detail=(f"Stopped - "
+                        f"{'a thread' if dead_threads == 1 else 'threads'} "
+                        f"died in {'; '.join(sorted(stopped))}. "
+                        f"Restart the engine."),
+                healthy=False, severity=S.Severity.CRITICAL,
+                restartable=False,
+                workers=[w for i, w in enumerate(loads)
+                         if i not in stopped_rows],
             )
 
         behind = [w.name for w in loads if w.behind]
@@ -3230,6 +3259,55 @@ class LiveStore(MockStore):
             log.exception("could not read counters for %s",
                           type(worker).__name__)
             return None
+
+    @staticmethod
+    def _died_on(stats: dict | None) -> list[str]:
+        """Cameras a worker's thread has died on. Empty when it cannot say.
+
+        Rule 8. A dying thread takes itself off the worker's books but leaves
+        its camera configured, so every other counter reads as idle rather
+        than stopped - the vehicles worker sat like that for a whole day,
+        4-5 Sep 2026, under "all keeping up". A worker whose counters carry
+        no `died_on` at all (bag detection, a test double) gets exactly
+        today's answer, because this returns nothing for it.
+        """
+        died = (stats or {}).get("died_on")
+        if not isinstance(died, (list, tuple, set, frozenset)):
+            return []
+        return sorted(str(c) for c in died)
+
+    def _camera_names(self, camera_ids: list[str]) -> str:
+        """The names the operator typed, quoted, for a list of camera ids.
+
+        Quoted because a name is free text: unquoted, "Gate, north" beside
+        "Lobby" reads as three cameras. An id with no name on the roster is
+        shown as itself rather than dropped - a camera whose thread died must
+        never vanish from the sentence that reports it.
+        """
+        names = {c.id: c.name for c in self.registry.configs()}
+        return ", ".join(f'"{names.get(c, c)}"' for c in camera_ids)
+
+    def _stopped_stage(self, key: str, name: str, stats: dict | None,
+                       what: str) -> S.PipelineStage | None:
+        """A feature's row when its thread has died, or None if none has.
+
+        Same key and name as the feature's usual row, so the console shows
+        this in its place rather than beside it. Not restartable: the only
+        thing that brings a thread back is the engine starting it again.
+        """
+        died = self._died_on(stats)
+        if not died:
+            return None
+        total = int((stats or {}).get("cameras", 0) or 0) or len(died)
+        # One thread per camera, so two dead cameras are two dead threads.
+        threads = "thread" if len(died) == 1 else "threads"
+        return S.PipelineStage(
+            key=key, name=name,
+            detail=(f"Stopped on {self._camera_names(died)} ({len(died)} of "
+                    f"{total} camera(s)) - its {threads} died, so {what} "
+                    f"there. Restart the engine."),
+            healthy=False, severity=S.Severity.CRITICAL, restartable=False,
+        )
 
     @staticmethod
     def _pool(device: str | None) -> str | None:
@@ -3535,6 +3613,15 @@ class LiveStore(MockStore):
                 healthy=False, severity=S.Severity.WARN, restartable=False,
             )
 
+        # Before "nobody is enrolled": a thread that died recognises nobody
+        # whoever is enrolled, and "running on N camera(s)" below would say
+        # the opposite.
+        stopped = self._stopped_stage(
+            "recognition", "Face recognition",
+            self._stats_of(self.recogniser), "nobody is recognised")
+        if stopped is not None:
+            return stopped
+
         enrolled = self.gallery.size
         if enrolled == 0:
             return S.PipelineStage(
@@ -3575,6 +3662,10 @@ class LiveStore(MockStore):
                 detail="Running, but it could not report its counters.",
                 healthy=False, severity=S.Severity.WARN, restartable=True,
             )
+        stopped = self._stopped_stage("detect", "Person detection", stats,
+                                      "nobody is counted")
+        if stopped is not None:
+            return stopped
         if not stats["cameras"]:
             # The model is loaded and knife detection is using it, but no
             # camera asked for counting, intrusion or track. "Running on 0
@@ -3614,6 +3705,10 @@ class LiveStore(MockStore):
                 detail="Running, but it could not report its counters.",
                 healthy=False, severity=S.Severity.WARN, restartable=True,
             )
+        stopped = self._stopped_stage("vehicles", "Plate reading", stats,
+                                      "no plates are read")
+        if stopped is not None:
+            return stopped
         reader = getattr(self.vehicles_worker, "reader", None)
         return S.PipelineStage(
             key="vehicles", name="Plate reading",
@@ -3644,6 +3739,10 @@ class LiveStore(MockStore):
                 detail="Running, but it could not report its counters.",
                 healthy=False, severity=S.Severity.WARN, restartable=True,
             )
+        stopped = self._stopped_stage("weapons", "Knife detection", stats,
+                                      "no knife is looked for")
+        if stopped is not None:
+            return stopped
         knives = getattr(self.weapons_worker, "knives", None)
         return S.PipelineStage(
             key="weapons", name="Knife detection",

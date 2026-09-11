@@ -19,11 +19,20 @@ Two rules are under test, and they pull in opposite directions on purpose:
 from __future__ import annotations
 
 import sys
+import threading
+import time
+from datetime import datetime, timezone
 from pathlib import Path
+
+import numpy as np
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from vg.api import schemas as S  # noqa: E402
+from vg.features.base import FeatureWorker  # noqa: E402
+from vg.ingest.framebus import FrameBus  # noqa: E402
+from vg.ingest.source import Frame  # noqa: E402
 
 
 def _stage(health: S.SystemHealth, key: str) -> S.PipelineStage | None:
@@ -340,3 +349,237 @@ class TestOffIsNotDown:
         way, or the top bar contradicts System Health."""
         store = self._store(self._camera("on", True), self._camera("off", False))
         assert store.site().cameras_total == 1
+
+
+# ---------------------------------------------------------------------------
+# a thread that died
+# ---------------------------------------------------------------------------
+
+class _ThreadKilled(BaseException):
+    """Not an `Exception`, so the loop's one-bad-frame guard lets it past.
+
+    The thread then dies through the same `finally` the vehicles worker's
+    threads went through on 4-5 Sep 2026, when an ordinary AttributeError in
+    the loop's own bookkeeping - outside that guard - killed each of them on
+    its first frame.
+    """
+
+
+class Mortal(FeatureWorker[int]):
+    """A real worker whose thread dies on each of its first `deaths` frames."""
+
+    def __init__(self, bus, cameras, *, deaths: int = 0) -> None:
+        super().__init__("mortal", bus, cameras, rate_hz=0)
+        self.deaths_to_come = deaths
+
+    def analyse(self, frame) -> int:
+        if self.deaths_to_come > 0:
+            self.deaths_to_come -= 1
+            raise _ThreadKilled()
+        return 0
+
+
+def _feed_until(bus, camera_id: str, predicate, *, timeout: float = 5.0) -> None:
+    """Publish frames until `predicate()` holds.
+
+    Waits on the worker, never on a fixed sleep, so a slow machine makes the
+    test slower rather than wrong.
+    """
+    deadline = time.monotonic() + timeout
+    sequence = 0
+    while time.monotonic() < deadline:
+        if predicate():
+            return
+        bus.publish(Frame(camera_id, np.zeros((4, 4, 3), np.uint8),
+                          datetime.now(timezone.utc), sequence))
+        sequence += 1
+        time.sleep(0.02)
+    raise AssertionError("condition never became true")
+
+
+def _thread_alive(name: str) -> bool:
+    return any(t.name == name and t.is_alive() for t in threading.enumerate())
+
+
+@pytest.fixture
+def dead_worker():
+    """A worker whose only thread has died. Nothing asked it to stop."""
+    bus = FrameBus()
+    worker = Mortal(bus, ["gate-1"], deaths=1)
+    worker.start()
+    try:
+        _feed_until(bus, "gate-1", lambda: not _thread_alive("mortal-gate-1"))
+        yield worker
+    finally:
+        worker.stop()
+        bus.close()
+
+
+@pytest.mark.filterwarnings(
+    "ignore::pytest.PytestUnhandledThreadExceptionWarning")
+class TestADeadThreadIsNotIdle:
+    """Rule 8: a worker whose thread has died must not read as running.
+
+    A dying thread takes itself out of `_threads`, but its camera stays in
+    `cameras`. Every other counter then reads zero, which is exactly what an
+    idle worker looks like - so System Health said "all keeping up" over the
+    dead vehicles worker for a whole day, 4-5 Sep 2026.
+    """
+
+    def test_the_workers_stage_stops_saying_running(
+            self, bare_live_store, dead_worker):
+        bare_live_store.vehicles_worker = dead_worker
+
+        stage = _stage(bare_live_store.health(), "workers")
+        assert stage.healthy is False
+        assert stage.severity is S.Severity.CRITICAL
+        assert "mortal" in stage.detail
+        assert "gate-1" in stage.detail, "named, not just counted"
+        assert "running" not in stage.detail.lower()
+        # Its own row would read "keeping up" under a "stopped" headline:
+        # the counters of a dead thread look exactly like an idle one's.
+        assert "mortal" not in [w.name for w in stage.workers]
+
+    def test_the_features_own_row_says_it_stopped(
+            self, bare_live_store, dead_worker):
+        bare_live_store.people_worker = dead_worker
+
+        stage = _stage(bare_live_store.health(), "detect")
+        assert stage.healthy is False
+        assert stage.severity is S.Severity.CRITICAL
+        assert "stopped" in stage.detail.lower()
+        assert "gate-1" in stage.detail
+        assert stage.restartable is False, "the Restart button does nothing"
+
+    def test_a_worker_that_cannot_say_reads_exactly_as_today(
+            self, bare_live_store):
+        """Additive. No `died_on` in its counters, no change on the page."""
+        bare_live_store.people_worker = FakeWorker("people")
+
+        health = bare_live_store.health()
+        workers = _stage(health, "workers")
+        assert workers.healthy is True
+        assert workers.detail == "1 running, all keeping up"
+        assert _stage(health, "detect").healthy is True
+
+    def test_stopping_is_not_a_death(self):
+        bus = FrameBus()
+        worker = Mortal(bus, ["gate-1"])
+        worker.start()
+        try:
+            _feed_until(bus, "gate-1", lambda: worker.frames_processed > 0)
+        finally:
+            worker.stop()
+            bus.close()
+        assert worker.stats["died_on"] == []
+
+    def test_a_fresh_thread_clears_the_death(self):
+        bus = FrameBus()
+        worker = Mortal(bus, ["gate-1"], deaths=1)
+        worker.start()
+        try:
+            _feed_until(bus, "gate-1",
+                        lambda: worker.stats.get("died_on") == ["gate-1"])
+            worker.unwatch("gate-1")
+            worker.watch("gate-1")
+            _feed_until(bus, "gate-1", lambda: worker.frames_processed > 0)
+            assert worker.stats["died_on"] == []
+        finally:
+            worker.stop()
+            bus.close()
+
+    def test_a_dead_camera_switched_off_is_no_longer_reported(self, dead_worker):
+        """Off is not down, here as on the ingest row. `unwatch` alone - no
+        fresh thread to clear the record - must still end the alarm."""
+        dead_worker.unwatch("gate-1")
+
+        assert dead_worker.stats["died_on"] == []
+
+    def test_several_dead_cameras_are_each_named(self, bare_live_store):
+        bus = FrameBus()
+        worker = Mortal(bus, ["gate-1", "gate-2"], deaths=2)
+        worker.start()
+        try:
+            for camera_id in ("gate-1", "gate-2"):
+                _feed_until(bus, camera_id,
+                            lambda c=camera_id: not _thread_alive(f"mortal-{c}"))
+            bare_live_store.people_worker = worker
+
+            health = bare_live_store.health()
+            detect = _stage(health, "detect")
+            assert '"gate-1", "gate-2"' in detect.detail
+            assert "threads died" in detect.detail
+            assert "threads died" in _stage(health, "workers").detail
+        finally:
+            worker.stop()
+            bus.close()
+
+    def test_knife_detection_says_it_stopped(self, bare_live_store, dead_worker):
+        """On this feature above all others, an empty log must never read
+        as an all-clear."""
+        # Only ever compared with None on the way to this row.
+        bare_live_store.weapon_scenes = object()
+        bare_live_store.weapons_worker = dead_worker
+
+        stage = _stage(bare_live_store.health(), "weapons")
+        assert stage.healthy is False
+        assert stage.severity is S.Severity.CRITICAL
+        assert '"gate-1"' in stage.detail
+        assert stage.restartable is False
+
+    def test_plate_reading_names_the_camera_as_the_operator_typed_it(
+            self, dead_worker):
+        """The typed name, quoted - so the comma inside this one cannot read
+        as a second camera."""
+        from vg import config as vgconfig
+        from vg.api.live import LiveStore
+        from vg.config import CameraConfig
+        from vg.ingest.registry import CameraRegistry
+
+        gate = CameraConfig.parse(
+            {"id": "gate-1", "name": "Gate, north", "source": "webcam:99",
+             "features": ["vehicles"], "gate": 1, "direction": "entry"},
+            "c")
+        store = LiveStore(config=vgconfig.load(),
+                          registry=CameraRegistry([gate]))
+        # Only ever compared with None on the way to this row.
+        store.vehicle_store = object()
+        store.vehicles_worker = dead_worker
+
+        stage = _stage(store.health(), "vehicles")
+        assert stage.healthy is False
+        assert stage.severity is S.Severity.CRITICAL
+        assert '"Gate, north"' in stage.detail
+        assert "gate-1" not in stage.detail, "a database key, not a name"
+
+    def test_face_recognition_says_it_stopped_before_nobody_is_enrolled(
+            self, dead_worker):
+        """A dead thread recognises nobody, however many are enrolled, so
+        it outranks the empty-gallery warning on the same row."""
+        import tempfile
+
+        from vg import config as vgconfig
+        from vg.api.live import LiveStore
+        from vg.events.sightings import SightingStore
+        from vg.identity.gallery import FaceGallery
+        from vg.ingest.registry import CameraRegistry
+
+        tmp = tempfile.TemporaryDirectory()
+        gallery = FaceGallery(Path(tmp.name) / "g.db", model="sface-2021dec",
+                              threshold=0.363)
+        sightings = SightingStore(Path(tmp.name) / "s.db", clock=180)
+        try:
+            store = LiveStore(config=vgconfig.load(),
+                              registry=CameraRegistry([]),
+                              gallery=gallery, sightings=sightings)
+            store.recogniser = dead_worker
+
+            stage = _stage(store.health(), "recognition")
+            assert stage.healthy is False
+            assert stage.severity is S.Severity.CRITICAL
+            assert "nobody is recognised" in stage.detail
+        finally:
+            sightings.close()
+            # Before the directory, or Windows fails the teardown.
+            gallery.close()
+            tmp.cleanup()

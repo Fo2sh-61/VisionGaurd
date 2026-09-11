@@ -142,6 +142,15 @@ class FeatureWorker(ABC, Generic[R]):
         self.__load_window: deque[tuple[float, float, float]] = deque()
         self._started_at = time.monotonic()
 
+        # Cameras whose thread ended without anybody asking it to - no
+        # `stop()`, no `unwatch()`. A dying thread takes itself out of
+        # `_threads`, but its camera stays in `self.cameras`, and every other
+        # counter then reads zero - exactly what an idle worker looks like.
+        # That is how the vehicles worker sat dead for a whole day on 4-5 Sep
+        # 2026 while System Health said "all keeping up". Double underscore
+        # for the same reason as `__load_window`: a subclass cannot take it.
+        self.__died_on: set[str] = set()
+
     # -- what a feature implements -----------------------------------------
 
     @abstractmethod
@@ -175,6 +184,8 @@ class FeatureWorker(ABC, Generic[R]):
         with self._lock:
             self._drop[camera_id] = threading.Event()
             self._threads[camera_id] = thread
+            # A fresh thread for this camera. The last one dying is history.
+            self.__died_on.discard(camera_id)
         thread.start()
 
     def watch(self, camera_id: str) -> None:
@@ -312,6 +323,12 @@ class FeatureWorker(ABC, Generic[R]):
                     self._drop.pop(camera_id, None)
                 if self._threads.get(camera_id) is threading.current_thread():
                     self._threads.pop(camera_id, None)
+                    # The loop only ends on its own when `stop()` or
+                    # `unwatch()` asked it to. Neither did, so an exception
+                    # killed it. Recorded under the same lock that took it
+                    # out of `_threads`, so no read sees it gone but unsaid.
+                    if not self._stop.is_set() and not dropped.is_set():
+                        self.__died_on.add(camera_id)
             self.bus.unsubscribe(subscription)
 
     # -- demand-driven rate -------------------------------------------------
@@ -407,6 +424,9 @@ class FeatureWorker(ABC, Generic[R]):
             # Two cameras at 2/sec beside one at 5 is nine analysed frames a
             # second, and an average would understate the busy one.
             per_second = sum(self._rate_locked(c) for c in self.cameras)
+            # Only cameras still served: one switched off since is not dead,
+            # just no longer this worker's.
+            died_on = sorted(c for c in self.__died_on if c in self.cameras)
 
         # Deepest queue and total drops across this worker's cameras. The
         # worst camera is the one worth naming: an average would hide a
@@ -441,4 +461,8 @@ class FeatureWorker(ABC, Generic[R]):
             # Full AND dropping. A full queue on its own is a worker that
             # happened to be mid-frame; drops are what say it did not catch up.
             "behind": bool(capacity and depth >= capacity and dropped > 0),
+            # Cameras whose thread has died. Always present, and empty when
+            # none has, so a reader can tell "none died" from a worker that
+            # cannot say at all (the key is missing).
+            "died_on": died_on,
         }
