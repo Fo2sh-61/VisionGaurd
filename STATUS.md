@@ -131,17 +131,23 @@ TensorRT is better where it counts. Reverted.
 about 14–20. The gap is decoding, not face gating: the whole faces row is 3.3
 cores. 13–39% of the before is gone, not the 60% first reported.
 
-**Follow-on, not built: hardware decode.** This OpenCV build decodes on the GPU
-when asked — `cv2.VideoCapture(path, cv2.CAP_FFMPEG,
-[cv2.CAP_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY])` opened D3D11VA. On
-a 1080p test file — encoded far above a real camera's bitrate, so the 21 ms is
-inflated — the processor time for `grab()` fell from 21 ms a frame to 0.39 ms,
-at about 1,000 frames a second. `retrieve()` then costs about 11 ms
-(copying the frame back from the GPU and converting it), which is exactly the
-part `watched` skips — so with hardware decode, `watched` would save what it
-was meant to. On this laptop it picked the Intel UHD 630, not the NVIDIA;
-`CAP_PROP_HW_DEVICE` chooses the adapter. Measured by hand on 11 Sep; details
-in measurements.md §1b.
+**Follow-on, measured but NOT built: hardware decode.** `benchmark.py --decode
+--hw` and `--streams` now time every graphics chip on the machine against the
+processor, on an H.264 copy of the labelled clip, and ramp streams until one
+falls behind a camera. On this laptop a chip decodes a frame for about **a
+tenth of the processor time** — 0.35 ms on the Intel UHD 630 and 0.62 ms on
+the NVIDIA against 3.80 ms — and the two halves of capture swap over: the
+decode becomes nearly free and the conversion becomes almost all of what is
+left. That conversion is exactly what `live_capture: watched` already skips,
+so the two changes multiply. For 100 cameras of 1080p, capture only: **67
+cores on the processor, about 10 on a graphics chip** — but one chip carried
+only 37 of those cameras, so 100 would need three chips whatever the cores
+say. Every figure is a re-encode of one laptop clip; two minutes off a real
+site camera through `--clip` would replace the lot. **Nothing about capture
+has changed** — `CameraSource.open()` still asks for no acceleration, and a
+test pins that until the owner chooses. Three shapes for the setting, three
+for what System Health should say, and what a fallback has to handle, are in
+measurements.md §1c for him to pick from.
 
 **Patrol off is visible, not silent.** Track a Person now says when only the
 entrance cameras were looking for faces, so a thinner path cannot read as a

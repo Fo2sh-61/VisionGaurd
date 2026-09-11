@@ -10,6 +10,12 @@ old claim cannot come back quietly.
 Nothing here times anything real - the figures are fed in - except the one
 test that runs the decode split over a tiny generated clip, and that checks
 only that it counts the frames and keeps the share inside 0..1.
+
+`TestHardwareDecode` covers `--hw` and `--streams`, added 12 Sep 2026. Same
+rule: no figure is asserted, because every machine answers differently. What
+is pinned is that the tool cannot report a graphics chip's name over numbers
+the processor produced - which is what OpenCV does by default when a chip
+will not decode a file.
 """
 
 import importlib.util
@@ -98,20 +104,8 @@ class TestCaptureArithmetic:
 
 
 class TestDecodeSplit:
-    def test_counts_every_frame_and_keeps_the_share_in_range(self, bench, tmp_path):
-        clip = tmp_path / "tiny.avi"
-        writer = cv2.VideoWriter(str(clip), cv2.VideoWriter_fourcc(*"MJPG"), 15, (64, 48))
-        for i in range(20):
-            writer.write(np.full((48, 64, 3), i * 10, np.uint8))
-        writer.release()
-
-        probe = cv2.VideoCapture(str(clip), cv2.CAP_FFMPEG)
-        opened = probe.isOpened()
-        probe.release()
-        if not opened:
-            pytest.skip("this OpenCV build cannot read the clip through FFmpeg")
-
-        split = bench._decode_split(clip, threads=1, rounds=1)
+    def test_counts_every_frame_and_keeps_the_share_in_range(self, bench, tiny_clip):
+        split = bench._decode_split(tiny_clip, threads=1, rounds=1)
 
         assert split.frames == 20
         assert 0.0 <= split.share <= 1.0
@@ -124,3 +118,105 @@ class TestDecodeSplit:
     def test_a_missing_clip_is_refused_not_swapped_for_another(self, bench, tmp_path):
         with pytest.raises(SystemExit):
             bench._clip(str(tmp_path / "not-here.mp4"))
+
+
+@pytest.fixture
+def tiny_clip(tmp_path):
+    """A 20-frame recording in a format no graphics chip decodes."""
+    clip = tmp_path / "tiny.avi"
+    writer = cv2.VideoWriter(str(clip), cv2.VideoWriter_fourcc(*"MJPG"), 15, (64, 48))
+    for i in range(20):
+        writer.write(np.full((48, 64, 3), i * 10, np.uint8))
+    writer.release()
+
+    probe = cv2.VideoCapture(str(clip), cv2.CAP_FFMPEG)
+    opened = probe.isOpened()
+    probe.release()
+    if not opened:
+        pytest.skip("this OpenCV build cannot read the clip through FFmpeg")
+    return clip
+
+
+class TestHardwareDecode:
+    """`--hw`: what a graphics chip would take off the processor."""
+
+    def test_naming_a_chip_never_uses_the_combination_opencv_refuses(self, bench):
+        # `VIDEO_ACCELERATION_ANY` with `CAP_PROP_HW_DEVICE` is rejected at
+        # open - "Invalid usage of CAP_PROP_HW_DEVICE with 'ANY'" - and the
+        # capture then falls back to the processor. Naming a chip has to name
+        # the interface too.
+        #
+        # Read as pairs, never as a flat list: the parameters are
+        # property, value, property, value, and every one of them is a small
+        # integer. `VIDEO_ACCELERATION_ANY` is 1, and so is graphics chip 1 -
+        # which is how the first version of this test failed on a list that
+        # was perfectly correct.
+        params = bench._hw_params(1)
+        asked = dict(zip(params[::2], params[1::2]))
+
+        assert asked[cv2.CAP_PROP_HW_DEVICE] == 1
+        assert asked[cv2.CAP_PROP_HW_ACCELERATION] != cv2.VIDEO_ACCELERATION_ANY
+
+    def test_the_processor_row_is_opened_with_nothing(self, bench):
+        # The first run of this tool asked for `VIDEO_ACCELERATION_ANY` on the
+        # row it called "processor", so the Intel chip answered both rows and
+        # the two agreeing looked like corroboration. Nothing at all, or it is
+        # not the processor.
+        assert bench._capture_params(None) == []
+        assert bench._capture_params(1) == bench._hw_params(1)
+
+    def test_a_chip_that_will_not_decode_the_clip_is_left_out(self, bench, tiny_clip):
+        # No graphics chip decodes Motion JPEG. Every one of them must be
+        # skipped rather than measured, because OpenCV opens the file anyway
+        # and decodes it on the processor without saying so.
+        decoders = bench._decoders(tiny_clip)
+
+        assert [device for _, device in decoders] == [None]
+
+    def test_a_chip_that_took_nothing_is_labelled_so(self, bench, capsys):
+        split = bench.DecodeSplit(threads=1, frames=10, grab_ms=1.0, both_ms=2.0,
+                                  round_shares=[0.5], label="Some Chip",
+                                  device=1, accelerated=False)
+        bench._print_hardware([split])
+
+        assert "REFUSED" in capsys.readouterr().out
+
+    def test_a_chip_that_did_the_work_is_not(self, bench, capsys):
+        split = bench.DecodeSplit(threads=1, frames=10, grab_ms=1.0, both_ms=2.0,
+                                  round_shares=[0.5], label="Some Chip",
+                                  device=1, accelerated=True)
+        bench._print_hardware([split])
+
+        assert "REFUSED" not in capsys.readouterr().out
+
+    def test_the_copy_is_refused_rather_than_faked(self, bench, tmp_path):
+        not_a_video = tmp_path / "notes.txt"
+        not_a_video.write_text("no frames here")
+
+        assert bench._h264_copy(not_a_video, tmp_path / "copy.mp4") is None
+
+    def test_what_is_being_decoded_is_named(self, bench, tiny_clip):
+        described = bench._describe(tiny_clip)
+
+        assert "64x48" in described
+        assert "Mbit/s" in described
+
+    def test_streams_are_counted_while_they_run(self, bench, tiny_clip):
+        level = bench._stream_level(tiny_clip, None, streams=2, seconds=0.3)
+
+        assert level is not None
+        frames_per_second, cores = level
+        assert frames_per_second > 0
+        assert cores >= 0
+
+    def test_the_engine_still_decodes_on_the_processor(self):
+        """`--hw` measures; it does not switch anything on.
+
+        The owner has not chosen hardware decode yet, so `CameraSource.open()`
+        asks for none. When he does choose it, this test is the one to change
+        - deliberately, and with the System Health wording that goes with it.
+        """
+        source = (Path(__file__).resolve().parents[1] / "vg" / "ingest"
+                  / "source.py").read_text(encoding="utf-8")
+
+        assert "CAP_PROP_HW_ACCELERATION" not in source

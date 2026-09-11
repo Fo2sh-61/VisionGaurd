@@ -3,6 +3,8 @@
 Run:  python engine/tools/benchmark.py
       python engine/tools/benchmark.py --site 100     # size a whole site
       python engine/tools/benchmark.py --decode       # what capture costs
+      python engine/tools/benchmark.py --decode --hw  # ... on a graphics chip
+      python engine/tools/benchmark.py --streams      # how many cameras a chip carries
 
 P1-06. `docs/PLAN.md` section 7 lists latency targets and says plainly that
 nothing has been measured. This measures the one that sets the hardware bill:
@@ -26,6 +28,11 @@ Nothing here is a claim about accuracy. It measures speed only.
 capture cost splits between `grab()` and `retrieve()`. That split decides
 what `live_capture: watched` saves, and it was once assumed rather than
 measured - see `_decode_split`.
+
+`--hw` adds the graphics chips to that comparison, and `--streams` asks how
+many cameras at once each one carries. Neither changes how the engine
+captures: they measure what a change would be worth, on this machine, so the
+decision rests on figures rather than on a hope. See `_measure_hardware`.
 """
 
 from __future__ import annotations
@@ -34,6 +41,8 @@ import argparse
 import glob
 import statistics
 import sys
+import tempfile
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -89,6 +98,14 @@ CAMERA_FPS = 25.0
 #: are timed alternately, so a laptop that warms up or throttles part-way
 #: through shifts both of them rather than one.
 DECODE_ROUNDS = 3
+
+#: Streams tried at once in the `--streams` ramp, in order. It stops early at
+#: the first count where a stream can no longer keep up with a camera.
+STREAM_RAMP = (1, 2, 4, 8, 16, 24, 32)
+
+#: How long each count in the ramp runs for. Long enough to average over a
+#: laptop's clock ticks, short enough that the whole ramp is a few minutes.
+STREAM_SECONDS = 6.0
 
 
 def _parse_mix(spec):
@@ -247,13 +264,26 @@ def _site(cameras, mix_spec, person_ms, cores, decode_hz=CAMERA_FPS, shares=()):
 
 @dataclass
 class DecodeSplit:
-    """Processor ms per frame for `grab()` alone and `grab()` + `retrieve()`."""
+    """Processor ms per frame for `grab()` alone and `grab()` + `retrieve()`.
+
+    The last four fields say WHO decoded. A run on a graphics chip carries
+    the chip's name, the adapter number OpenCV was given, whether the chip
+    actually took the work - `accelerated` - and how fast one stream ran by
+    the wall clock. `accelerated` is the one that matters: asking for a
+    graphics chip and being handed the processor looks like success from
+    every other angle.
+    """
 
     threads: int
     frames: int
     grab_ms: float
     both_ms: float
     round_shares: list[float]
+    label: str = "processor"
+    device: int | None = None
+    accelerated: bool = False
+    grab_fps: float = 0.0
+    both_fps: float = 0.0
 
     @property
     def share(self) -> float:
@@ -282,57 +312,117 @@ def _clip(path: str | None = None) -> Path | None:
     return Path(walk[0]) if walk else None
 
 
-def _decode_pass(clip: Path, retrieve: bool,
-                 threads: int | None) -> tuple[int, int, float]:
-    """One pass over the whole clip: (decoder threads, frames, processor s).
+def _hw_params(device: int) -> list[int]:
+    """VideoCapture parameters that hand the decode to graphics chip `device`.
+
+    Naming a chip means naming the interface too: OpenCV refuses
+    `CAP_PROP_HW_DEVICE` alongside `VIDEO_ACCELERATION_ANY` ("Invalid usage
+    of CAP_PROP_HW_DEVICE with 'ANY'"). D3D11VA is the interface Windows
+    offers, and it is the one a Windows deployment would use - on an NVIDIA
+    card it runs on the same NVDEC hardware CUDA would reach.
+
+    Used by the measurement only. Nothing in `vg/` asks for a graphics chip;
+    that is the decision this measurement exists to inform.
+    """
+    api = (cv2.VIDEO_ACCELERATION_D3D11 if sys.platform == "win32"
+           else cv2.VIDEO_ACCELERATION_VAAPI)
+    return [cv2.CAP_PROP_HW_ACCELERATION, api, cv2.CAP_PROP_HW_DEVICE, device]
+
+
+def _capture_params(device: int | None) -> list[int]:
+    """How to open a capture: nothing at all for the processor, else the chip.
+
+    The processor row has to be opened with NOTHING. Asking for
+    `VIDEO_ACCELERATION_ANY` and printing the answer as the processor is how
+    this tool, on its first run, reported the Intel chip's throughput twice -
+    once under the chip's name and once as the processor - and the two
+    agreeing to within 1% read like corroboration.
+    """
+    return [] if device is None else _hw_params(device)
+
+
+@dataclass
+class Pass:
+    """One run over the clip, and what it cost."""
+
+    threads: int
+    accelerated: bool
+    frames: int
+    processor_s: float
+    wall_s: float
+
+
+def _decode_pass(clip: Path, retrieve: bool, threads: int | None,
+                 device: int | None = None) -> Pass:
+    """One pass over the whole clip.
 
     Processor time for the whole process, not wall time: FFmpeg decodes on
     threads of its own, and a wall clock would show the work being shared
-    out rather than the work. It is the unit `--site` adds up.
+    out rather than the work. It is the unit `--site` adds up. Wall time is
+    kept too, because a graphics chip's work is not the processor's and the
+    only way to see it is how fast frames come out.
 
     Not paced. A real camera hands over a frame every 40 ms; this takes them
     as fast as they come. Pacing was tried and is not reliable here: Windows
     charges processor time, at each clock tick, to whichever thread happens
     to be running, so a loop that sleeps between frames is mis-counted. Paced
     runs on this laptop put retrieve() anywhere from 35% to 90% of a frame.
+
+    Opening is outside the clock, and has to be: opening a capture on a
+    graphics chip costs 200-300 ms of processor time and about 0.7 s of
+    waiting - a third of what a hardware frame appeared to cost, when it was
+    counted in. A camera opens once and then runs for weeks.
     """
     params = [] if threads is None else [cv2.CAP_PROP_N_THREADS, threads]
+    params += _capture_params(device)
     cap = cv2.VideoCapture(str(clip), cv2.CAP_FFMPEG, params)
     if not cap.isOpened():
         raise SystemExit(f"FFmpeg could not open {clip}")
     used = int(cap.get(cv2.CAP_PROP_N_THREADS))
+    accelerated = cap.get(cv2.CAP_PROP_HW_ACCELERATION) != cv2.VIDEO_ACCELERATION_NONE
     frames = 0
-    started = time.process_time()
+    started, started_wall = time.process_time(), time.monotonic()
     while cap.grab():
         if retrieve:
             cap.retrieve()
         frames += 1
     spent = time.process_time() - started
+    wall = time.monotonic() - started_wall
     cap.release()
-    return used, frames, spent
+    return Pass(used, accelerated, frames, spent, wall)
 
 
 def _decode_split(clip: Path, threads: int | None = None,
-                  rounds: int = DECODE_ROUNDS) -> DecodeSplit:
+                  rounds: int = DECODE_ROUNDS, device: int | None = None,
+                  label: str = "processor") -> DecodeSplit:
     """Time `grab()` alone against `grab()` + `retrieve()` over the clip.
 
     `threads=None` is FFmpeg's own choice, which is how the engine opens a
     camera. `threads=1` is the work alone, without the cost of sharing it
     out - and the two give very different answers, which is why both are
     reported rather than one.
+
+    `device` hands the decode to that graphics chip. Whether the chip took it
+    is read back, not assumed: OpenCV falls back to the processor without
+    complaining when a chip will not decode the file's format.
     """
-    _decode_pass(clip, False, threads)          # warm-up: disk cache, codec start
+    _decode_pass(clip, False, threads, device)  # warm-up: disk cache, codec start
     used = frames = 0
-    grab_s = both_s = 0.0
+    accelerated = False
+    grab_s = both_s = grab_wall = both_wall = 0.0
     shares: list[float] = []
     for _ in range(rounds):
-        used, grab_n, grab_t = _decode_pass(clip, False, threads)
-        _, both_n, both_t = _decode_pass(clip, True, threads)
-        frames += grab_n
-        grab_s += grab_t
-        both_s += both_t
-        if grab_n and both_n and both_t > 0:
-            per_grab, per_both = grab_t / grab_n, both_t / both_n
+        grab = _decode_pass(clip, False, threads, device)
+        both = _decode_pass(clip, True, threads, device)
+        used, accelerated = grab.threads, grab.accelerated
+        frames += grab.frames
+        grab_s += grab.processor_s
+        both_s += both.processor_s
+        grab_wall += grab.wall_s
+        both_wall += both.wall_s
+        if grab.frames and both.frames and both.processor_s > 0:
+            per_grab = grab.processor_s / grab.frames
+            per_both = both.processor_s / both.frames
             shares.append((per_both - per_grab) / per_both)
     per_pass = frames // rounds if rounds else 0
     return DecodeSplit(
@@ -341,6 +431,11 @@ def _decode_split(clip: Path, threads: int | None = None,
         grab_ms=grab_s * 1000 / frames if frames else 0.0,
         both_ms=both_s * 1000 / frames if frames else 0.0,
         round_shares=shares,
+        label=label,
+        device=device,
+        accelerated=accelerated,
+        grab_fps=frames / grab_wall if grab_wall else 0.0,
+        both_fps=frames / both_wall if both_wall else 0.0,
     )
 
 
@@ -378,6 +473,355 @@ def _measure_capture(clip: Path | None) -> list[DecodeSplit]:
     print("    retrieve() only turns the decoded frame into pixels and copies it.")
     print("    `live_capture: watched` skips retrieve() on frames nobody reads,")
     print("    so it saves the retrieve() share of those frames - never their decode.")
+    return splits
+
+
+# ---------------------------------------------------------------------------
+# Hardware decode - what a graphics chip would take off the processor
+# ---------------------------------------------------------------------------
+#
+# Measurements §1b leaves decoding as the biggest cost a 100-camera site pays:
+# 6 to 13.5 of its 14-20 cores, on every frame of every camera, and
+# `live_capture: watched` cannot touch a single one of them because `grab()`
+# IS the decode. A graphics chip can - it has silicon that does nothing else.
+# Whether that is worth building was measured by hand on 11 Sep and no command
+# repeated it. This is the command.
+#
+# It measures and changes nothing. `CameraSource.open()` still asks for no
+# acceleration, and will until the owner decides otherwise.
+#
+# Two ways this could quietly report a fiction, and what stops each:
+#
+# - **A chip that refuses the file.** The labelled clip is MPEG-4 Part 2, a
+#   format no chip here decodes. OpenCV opens it anyway, decodes on the
+#   processor, and says nothing about it. So every row reads
+#   `CAP_PROP_HW_ACCELERATION` back after opening, and the comparison runs on
+#   an H.264 copy, H.264 being what cameras actually send.
+# - **Timing the wrong clock.** A chip's work is not the processor's, so
+#   processor time alone would make any chip look infinitely fast. Frames a
+#   second, by the wall clock, is printed beside it.
+
+
+def _adapter_names() -> dict[int, str]:
+    """Graphics chips, by the number `CAP_PROP_HW_DEVICE` counts in.
+
+    OpenCV takes an adapter NUMBER and reports nothing about what that number
+    is, so a measurement would read "device 1" - which tells somebody choosing
+    hardware nothing at all. Windows lists adapters in DXGI order, the order
+    D3D11VA counts in, so this asks Windows for their names.
+
+    Best effort, and a nicety rather than the measurement: an empty answer
+    means the names could not be read, and the caller falls back to numbers.
+    """
+    if sys.platform != "win32":
+        return {}
+    try:
+        import ctypes
+        from ctypes import POINTER, byref, c_uint, c_void_p
+
+        class _Desc(ctypes.Structure):
+            _fields_ = [
+                ("Description", ctypes.c_wchar * 128),
+                ("VendorId", c_uint), ("DeviceId", c_uint),
+                ("SubSysId", c_uint), ("Revision", c_uint),
+                ("DedicatedVideoMemory", ctypes.c_size_t),
+                ("DedicatedSystemMemory", ctypes.c_size_t),
+                ("SharedSystemMemory", ctypes.c_size_t),
+                ("AdapterLuid", ctypes.c_longlong),
+                ("Flags", c_uint),
+            ]
+
+        #: DXGI_ADAPTER_FLAG_SOFTWARE. Windows always lists a software
+        #: renderer after the real chips; it decodes nothing and asking it to
+        #: prints a driver error. Left out, so the list is chips.
+        software = 0x2
+
+        class _Guid(ctypes.Structure):
+            _fields_ = [("d1", c_uint), ("d2", ctypes.c_ushort),
+                        ("d3", ctypes.c_ushort), ("d4", ctypes.c_ubyte * 8)]
+
+        # IID_IDXGIFactory1, and the slots its methods sit at: Release is 2 on
+        # every COM object, EnumAdapters1 is 12 on the factory, GetDesc1 is 10
+        # on an adapter.
+        iid = _Guid(0x770AAE78, 0xF26F, 0x4DBA,
+                    (ctypes.c_ubyte * 8)(0xA8, 0x29, 0x25, 0x3C,
+                                         0x83, 0xD1, 0xB3, 0x87))
+        factory = c_void_p()
+        if ctypes.WinDLL("dxgi").CreateDXGIFactory1(byref(iid), byref(factory)):
+            return {}
+
+        def method(obj, slot, restype, argtypes):
+            table = ctypes.cast(obj, POINTER(POINTER(c_void_p))).contents
+            call = ctypes.WINFUNCTYPE(restype, c_void_p, *argtypes)(table[slot])
+            return lambda *args: call(obj, *args)
+
+        names: dict[int, str] = {}
+        enumerate_adapters = method(factory, 12, ctypes.c_long,
+                                    [c_uint, POINTER(c_void_p)])
+        index = 0
+        while True:
+            adapter = c_void_p()
+            if enumerate_adapters(index, byref(adapter)):
+                break
+            desc = _Desc()
+            method(adapter, 10, ctypes.c_long, [POINTER(_Desc)])(byref(desc))
+            method(adapter, 2, ctypes.c_ulong, [])()
+            if not desc.Flags & software:
+                names[index] = desc.Description.strip()
+            index += 1
+        method(factory, 2, ctypes.c_ulong, [])()
+        return names
+    except Exception:  # noqa: BLE001 - a name is not worth failing a measurement
+        return {}
+
+
+def _describe(clip: Path) -> str:
+    """`H264, 640x480, 15 fps, 4.5 Mbit/s` - what is being decoded."""
+    cap = cv2.VideoCapture(str(clip), cv2.CAP_FFMPEG)
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
+    count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    fourcc = int(cap.get(cv2.CAP_PROP_FOURCC))
+    cap.release()
+    codec = "".join(chr((fourcc >> (8 * i)) & 0xFF) for i in range(4)).strip()
+    seconds = count / fps if fps else 0.0
+    rate = clip.stat().st_size * 8 / seconds / 1e6 if seconds else 0.0
+    return f"{codec}, {width}x{height}, {fps:.0f} fps, {rate:.1f} Mbit/s"
+
+
+def _h264_copy(clip: Path, into: Path) -> Path | None:
+    """An H.264 copy of the clip - the format cameras actually send.
+
+    Same pictures, same size, same rate; only the compression differs. The
+    labelled clip is MPEG-4 Part 2, which no graphics chip here decodes, so
+    timing hardware against software on it would be timing the processor
+    against itself.
+
+    Windows' own encoder writes it (`CAP_MSMF`, `avc1`) - this OpenCV wheel
+    has no H.264 encoder of its own. It picks its own bitrate, about a bit a
+    pixel, which is roughly 4.5 Mbit/s for this 640x480 15 fps clip and inside
+    a real camera's range. It cannot be told a different one, so a copy of a
+    1080p recording comes out far above what a camera sends and its decode
+    would read dear. `_describe` prints the rate so a reader can see that.
+
+    None if the copy could not be written or does not open again - never a
+    silent substitute. A hardware figure taken on a file the chip refused
+    would be worse than no figure.
+    """
+    source = cv2.VideoCapture(str(clip), cv2.CAP_FFMPEG)
+    if not source.isOpened():
+        return None
+    fps = source.get(cv2.CAP_PROP_FPS) or CAMERA_FPS
+    size = (int(source.get(cv2.CAP_PROP_FRAME_WIDTH)),
+            int(source.get(cv2.CAP_PROP_FRAME_HEIGHT)))
+    writer = cv2.VideoWriter(str(into), cv2.CAP_MSMF,
+                             cv2.VideoWriter_fourcc(*"avc1"), fps, size)
+    if not writer.isOpened():
+        source.release()
+        writer.release()
+        return None
+    while True:
+        ok, frame = source.read()
+        if not ok:
+            break
+        writer.write(frame)
+    source.release()
+    writer.release()
+
+    if not into.is_file():
+        return None
+    probe = cv2.VideoCapture(str(into), cv2.CAP_FFMPEG)
+    ok = probe.isOpened() and probe.grab()
+    probe.release()
+    return into if ok else None
+
+
+def _decoders(clip: Path, only: int | None = None) -> list[tuple[str, int | None]]:
+    """The processor, then every graphics chip that really decodes this clip.
+
+    A chip is included only if the file opens AND the chip reports that it
+    took the decode. One that refuses is named and left out, because "this
+    machine has an Intel chip" and "the Intel chip decodes this camera's
+    stream" are different facts, and only the second one sizes a site.
+    """
+    found: list[tuple[str, int | None]] = [("processor, no chip asked", None)]
+    names = _adapter_names()
+    indices = [only] if only is not None else sorted(names) or list(range(4))
+    for index in indices:
+        name = names.get(index, f"graphics chip {index}")
+        cap = cv2.VideoCapture(str(clip), cv2.CAP_FFMPEG, _capture_params(index))
+        opened = cap.isOpened()
+        took = opened and (cap.get(cv2.CAP_PROP_HW_ACCELERATION)
+                           != cv2.VIDEO_ACCELERATION_NONE)
+        cap.release()
+        if took:
+            found.append((name, index))
+        else:
+            why = ("decoded on the processor instead" if opened
+                   else "would not open this recording")
+            print(f"    {name}: {why} - not measured")
+    return found
+
+
+def _print_hardware(splits: list[DecodeSplit]) -> None:
+    print()
+    print(f"    {'decoder':<42} {'grab()':>9} {'+ retrieve()':>13} "
+          f"{'retrieve() share':>17} {'one stream':>11}")
+    for split in splits:
+        # A chip that was asked and did not take it. It should not reach here
+        # - `_decoders` checks first - but a row that silently ran on the
+        # processor under a chip's name is the one lie this must never tell.
+        refused = split.device is not None and not split.accelerated
+        label = split.label + (" - REFUSED, this is the processor" if refused else "")
+        print(f"    {label:<42} {split.grab_ms:6.3f} ms {split.both_ms:10.3f} ms "
+              f"{split.share:16.0%} {split.grab_fps:8.0f} fps")
+    print()
+    print("    Processor ms per frame, every thread in the process, not paced.")
+    print("    `one stream` is the wall clock: how fast a single stream grabs")
+    print("    when nothing paces it. A camera sends 25 a second.")
+    print()
+    print("    On a graphics chip, grab() stops being the expensive half and")
+    print("    retrieve() becomes it: the picture has to be copied back off the")
+    print("    chip and converted. retrieve() is exactly what `live_capture:")
+    print("    watched` skips on a camera nobody is looking at.")
+
+
+def _stream_level(clip: Path, device: int | None, streams: int,
+                  seconds: float = STREAM_SECONDS) -> tuple[float, float] | None:
+    """Decode `streams` copies at once: (frames a second, cores kept busy).
+
+    Each stream gets its own capture, opened before the clock starts so that
+    opening is not counted as decoding, and loops the clip when it runs out.
+    `grab()` only - this is the decoder's own capacity, and retrieve() is the
+    part a camera nobody watches does not pay.
+
+    None if that many streams would not open at once. That is an answer in
+    itself, and not the same answer as "too slow".
+    """
+    caps = []
+    for _ in range(streams):
+        cap = cv2.VideoCapture(str(clip), cv2.CAP_FFMPEG, _capture_params(device))
+        if not cap.isOpened():
+            for opened in [*caps, cap]:
+                opened.release()
+            return None
+        caps.append(cap)
+
+    counts = [0] * streams
+    stop = threading.Event()
+
+    def work(slot: int, cap) -> None:
+        while not stop.is_set():
+            if cap.grab():
+                counts[slot] += 1
+                continue
+            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)   # ran out; round again
+            if not cap.grab():
+                return
+            counts[slot] += 1
+
+    workers = [threading.Thread(target=work, args=(slot, cap), daemon=True)
+               for slot, cap in enumerate(caps)]
+    started, started_wall = time.process_time(), time.monotonic()
+    for worker in workers:
+        worker.start()
+    time.sleep(seconds)
+    stop.set()
+    for worker in workers:
+        worker.join(timeout=30)
+    wall = time.monotonic() - started_wall
+    cores = (time.process_time() - started) / wall if wall else 0.0
+    for cap in caps:
+        cap.release()
+    return (sum(counts) / wall if wall else 0.0), cores
+
+
+def _measure_streams(clip: Path, decoders: list[tuple[str, int | None]],
+                     most: int) -> None:
+    """How many streams at once each decoder carries, by trying it.
+
+    Ramps until a stream can no longer keep up with a camera's 25 frames a
+    second, or until the ramp runs out - and says which of the two happened,
+    because "it never struggled" is a different answer from "this is where it
+    stopped coping" and they look identical in a table of numbers.
+
+    The answer is in cameras OF THIS CLIP'S PICTURE SIZE. Turning it into
+    cameras needs a recording from a real camera; `--clip` takes one.
+    """
+    print()
+    print("  How many streams at once - more and more of them, until one falls")
+    print(f"  below the {CAMERA_FPS:.0f} frames a second a camera sends. "
+          f"{STREAM_SECONDS:.0f} seconds at each count, grabbing only.")
+    for label, device in decoders:
+        print()
+        print(f"    {label}")
+        print(f"      {'streams':>7} {'frames/s':>9} {'per stream':>11} "
+              f"{'cores busy':>11}")
+        peak = 0.0
+        struggled = False
+        counts = [n for n in STREAM_RAMP if n <= most]
+        for count in counts:
+            level = _stream_level(clip, device, count)
+            if level is None:
+                print(f"      {count:>7}   would not open {count} at once")
+                break
+            frames_per_second, cores = level
+            each = frames_per_second / count
+            print(f"      {count:>7} {frames_per_second:>9.0f} {each:>11.0f} "
+                  f"{cores:>11.2f}")
+            peak = max(peak, frames_per_second)
+            struggled = each < CAMERA_FPS
+            if struggled:
+                break
+        ending = ("a stream fell behind a camera here"
+                  if struggled else
+                  f"still keeping up at {counts[-1]} - the ramp ran out, "
+                  f"not the decoder")
+        print(f"      {peak:.0f} frames a second at its best = about "
+              f"{peak / CAMERA_FPS:.0f} streams")
+        print(f"      of THIS clip at {CAMERA_FPS:.0f} fps; {ending}")
+    print()
+    print("    Not cameras. This clip is 640x480 and a camera is usually 1080p,")
+    print("    six times the pixels - but a decoder's cost per frame is not all")
+    print("    pixels, so dividing by six is a guess in one direction and the")
+    print("    per-frame overhead is a guess in the other. For a real number,")
+    print("    record a few minutes off a site camera and pass it to --clip.")
+    print()
+    print("    `cores busy` is the processor the decoding still costs. On a")
+    print("    graphics chip that is the driver and the copying, not the decode.")
+
+
+def _measure_hardware(clip: Path | None, only: int | None = None,
+                      streams: int | None = None) -> list[DecodeSplit]:
+    """Time every decoder on this machine against the processor."""
+    print()
+    if clip is None:
+        print("  Hardware decode NOT measured - no clip. Pass --clip, or put the")
+        print("  labelled recording in engine/data/footage/.")
+        return []
+
+    print("  What a graphics chip would take off the processor")
+    print()
+    with tempfile.TemporaryDirectory(prefix="vg-decode-") as scratch:
+        copy = _h264_copy(clip, Path(scratch) / "camera-like.mp4")
+        if copy is None:
+            print("  NOT measured: no H.264 copy could be written on this")
+            print("  machine, and the labelled clip's own format is one no")
+            print("  graphics chip decodes. Pass --clip with an H.264")
+            print("  recording - anything a camera wrote - to measure directly.")
+            return []
+
+        print(f"    from   {clip.name} ({_describe(clip)})")
+        print(f"    timing an H.264 copy ({_describe(copy)}), because that is")
+        print("    the format cameras send and the one chips decode")
+        print()
+        decoders = _decoders(copy, only)
+        splits = [_decode_split(copy, None, DECODE_ROUNDS, device, label)
+                  for label, device in decoders]
+        _print_hardware(splits)
+        if streams:
+            _measure_streams(copy, decoders, streams)
     return splits
 
 
@@ -431,6 +875,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--decode", action="store_true",
                         help="measure only how capture cost splits between "
                              "grab() and retrieve(); loads no model")
+    parser.add_argument("--hw", action="store_true",
+                        help="also time every graphics chip on this machine "
+                             "against the processor, on an H.264 copy of the "
+                             "clip. Measures only - the engine still decodes "
+                             "on the processor")
+    parser.add_argument("--hw-device", type=int, metavar="N", default=None,
+                        help="time only graphics chip N (the numbers are the "
+                             "ones printed by --hw)")
+    parser.add_argument("--streams", type=int, nargs="?", metavar="MOST",
+                        const=max(STREAM_RAMP),
+                        help=f"also measure how many streams at once each "
+                             f"decoder carries, up to MOST (default "
+                             f"{max(STREAM_RAMP)}). Implies --hw, and keeps "
+                             f"the graphics chips busy for a few minutes")
     parser.add_argument("--clip", metavar="PATH",
                         help="recording to time (default: the labelled "
                              "walk-through clip in engine/data/footage)")
@@ -438,12 +896,20 @@ def main(argv: list[str] | None = None) -> int:
 
     clip = _clip(args.clip)
 
+    # Asking about the graphics chips is asking about capture, so it turns the
+    # capture measurement on rather than being ignored without one.
+    hardware = args.hw or args.streams is not None
+    if hardware:
+        args.decode = True
+
     # Measured before any model loads, so no GPU runtime thread is in the
     # process to have its processor time counted as capture.
     splits: list[DecodeSplit] = []
     if args.decode or args.site:
         print("\nVisionGuard benchmark - capture")
         splits = _measure_capture(clip)
+        if hardware:
+            _measure_hardware(clip, args.hw_device, args.streams)
         if args.decode:
             print()
             return 0

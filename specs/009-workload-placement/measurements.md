@@ -157,6 +157,194 @@ would:
 - **Camera sub-streams**, already named in research D1: fewer pixels and frames
   to decode at the source.
 
+## 1c. Hardware decode — measured, not built (12 Sep 2026)
+
+```
+python engine/tools/benchmark.py --decode --hw
+python engine/tools/benchmark.py --streams
+```
+
+§1b ends with decoding as the biggest cost left and `watched` unable to touch a
+frame of it. A graphics chip can. On 11 Sep that was checked by hand and no
+command repeated it; these two now do.
+
+**Nothing here changes capture.** `CameraSource.open()` still asks for no
+acceleration, and a test in `test_benchmark.py` pins that until the owner
+decides otherwise. This section is what he would be deciding with.
+
+### Three things that had to be right first
+
+Each would have produced a confident wrong number. Two of them did, before
+they were caught.
+
+1. **No chip here decodes the labelled clip.** It is MPEG-4 Part 2; chips
+   decode H.264 and H.265. Ask for hardware on it and OpenCV opens it,
+   decodes on the processor and says nothing — `CAP_PROP_HW_ACCELERATION`
+   reads back 0. So the tool writes an H.264 copy (Windows' own encoder,
+   640×480, 15 fps, 4.6 Mbit/s, inside a real camera's range) and reads that
+   property back after every open.
+2. **Opening a capture on a chip is dear, and had to leave the clock.**
+   200–300 ms of processor time and 0.7–0.9 s of waiting, against 24 ms
+   plain. Spread over a pass it was a third of what a hardware frame appeared
+   to cost. A camera opens once and runs for weeks — but a reconnect pays it
+   again, which matters for a camera that flaps.
+3. **"The processor" was the Intel chip.** The first run asked for
+   `VIDEO_ACCELERATION_ANY` on the row it labelled processor, so the Intel
+   chip answered two rows, and the two agreeing to within 1% read like
+   corroboration. `_capture_params` now opens the processor row with nothing
+   at all, and a test says so.
+
+### One stream, three decoders, the same pictures
+
+H.264 copy of the labelled clip: 640×480, 15 fps, 4.6 Mbit/s. Processor ms per
+frame, every thread in the process, unpaced, opening excluded.
+
+| decoder | `grab()` | `grab()` + `retrieve()` | conversion share | one stream |
+|---|---|---|---|---|
+| processor — 12 threads, as the engine opens a camera | 3.80 ms | 4.22 ms | 10% | 1,951 fps |
+| Intel UHD Graphics 630 | 0.35 ms | 2.91 ms | 88% | 3,884 fps |
+| NVIDIA GeForce RTX 2080 Max-Q | 0.62 ms | 3.85 ms | 84% | 1,692 fps |
+
+**A chip decodes a frame for about a tenth of the processor time.** And the
+two halves swap over: on the processor the decode is 90% of capture; on a chip
+the decode is nearly free and the conversion — the picture copied back off the
+chip, then NV12 to BGR — is almost all of what is left. The conversion is
+exactly what `live_capture: watched` already skips on a camera nobody is
+watching. §1b said hardware decode would make `watched` finally pay. It does.
+
+### At a camera's picture size — by hand, 12 Sep
+
+640×480 is not a camera. The same clip upscaled to 1920×1080 at 25 fps through
+the same encoder, which picks its own bitrate: **52 Mbit/s, about ten times a
+real camera's.** Decoding cost rises with bitrate and conversion cost does
+not, so the processor column below is an upper bound and the conversion
+figures are the solid ones. No command reproduces this yet; it was run by
+hand, as §1b's 11 Sep figures were.
+
+| 1080p, 52 Mbit/s | `grab()` | conversion | one stream | most at once | cores for those |
+|---|---|---|---|---|---|
+| processor | 25.92 ms | 4.00 ms | 291 fps | 384 fps = 15 cameras | 9.5 of 12 |
+| Intel UHD Graphics 630 | 0.83 ms | 16.33 ms | 957 fps | 940 fps = 37 cameras | 1.2 |
+| NVIDIA RTX 2080 Max-Q | 0.57 ms | 19.66 ms | 497 fps | 534 fps = 21 cameras | 1.4 |
+
+Two things, plainly:
+
+- **Decoding 1080p in software does not scale.** Fifteen cameras and the whole
+  processor. Even allowing that 52 Mbit/s is far above a real camera, this is
+  the wall §1b pointed at.
+- **On a chip the conversion becomes the bill** — 16–20 ms a frame, four times
+  what the software path pays for the same conversion, because the picture has
+  to come back across from the chip.
+
+So the two changes multiply. Capture only, 100 cameras of 1080p:
+
+| | every frame converted (`always`) | 5 a second (`watched`) |
+|---|---|---|
+| processor | 74.8 cores | 66.7 cores |
+| Intel UHD Graphics 630 | 42.9 cores | **10.2 cores** |
+
+Hardware decode on its own buys under half. Hardware decode with `watched`
+takes capture from 67 cores to 10. Cores are not the only limit, though: one
+Intel chip carried 37 cameras of 1080p, so 100 cameras is three chips
+whatever the core count says.
+
+### How many streams one decoder carries
+
+`--streams`, on the 640×480 copy: 1, 2, 4, 8, 16, 24, 32 at once, grabbing
+only.
+
+| decoder | best throughput | streams of THIS clip at 25 fps | cores busy |
+|---|---|---|---|
+| processor | 2,467 fps | 99 | 9.6 of 12 |
+| Intel UHD Graphics 630 | 5,921 fps | 237 | 2.3 |
+| NVIDIA RTX 2080 Max-Q | 2,842 fps | 114 | 1.3 |
+
+None of them fell below a camera's 25 fps even at 32 streams: **the ramp ran
+out, not the decoder.** Threads against separate processes was checked by hand
+and made no difference beyond noise, so the engine's one-thread-per-camera
+design is not what limits this. At 1080p the same ceilings are 15, 37 and 21
+cameras.
+
+**Graphics memory, NVIDIA, by hand** (`nvidia-smi` while streams ran): nothing
+at idle, 187 MB with one 1080p stream, 802 MB with eight — about 90 MB a
+stream over a ~100 MB base. On the 8 GB card that also holds the models, 40
+cameras is about 3.6 GB. The card's decoder engine reported only about half
+busy while throughput had already flattened, so on this laptop the NVDEC
+silicon is not the limit — clocks, Optimus and the copy back share it, and a
+desktop card would not be held the same way.
+
+**Published, for comparison, not measured here:**
+
+- NVIDIA's support matrix lists **one NVDEC engine** on the RTX 2080 and the
+  2080 Max-Q, and publishes no H.264 decode rate for GeForce cards at all.
+- NVIDIA caps concurrent **encode** sessions on GeForce at eight; **decode**
+  sessions are not capped. The ceiling is throughput and memory, not a licence.
+- NVIDIA has demonstrated about **44 simultaneous 1080p30 HEVC** decodes on a
+  Tesla T4 — a datacentre Turing card, two NVDEC engines, no display to drive.
+  The shape of what a proper card does, not a figure for this laptop.
+- Intel publishes no stream count for the UHD 630. The community figure of
+  "4–6 simultaneous 1080p" is for transcoding — decode plus encode — and
+  decode alone is cheaper, which the 37 measured here is consistent with.
+
+### If it is built: how a camera would ask — three shapes
+
+| | What it is | For | Against |
+|---|---|---|---|
+| **A. One setting for the whole engine** | `hardware_decode: off / any / chip N`, in the database, seeded from `engine.yaml`. Every camera opens the same way | The smallest thing that works: one config field, one change in `open()`, no camera-table migration, nothing new in the console | A box with two chips cannot split its cameras between them; one awkward camera cannot be excepted without turning it off everywhere |
+| **B. Per camera, with an engine-wide default** | The same field on each camera, exactly as `live_capture` works today: config, a `camera` column, a control on Camera Sources | Follows a pattern that already exists; lets half the cameras go to the iGPU and half to the card, which is the only way this laptop's 37 and 21 become 58; a camera a chip refuses stays on the processor by itself | More surface: a column and its migration, an API field, a control, and one more way to configure a camera wrongly |
+| **C. Automatic, no setting at all** | Try a chip on open, keep it if it engages, else plain; spread cameras across the chips in turn | Nothing to configure; a new site gets the saving without anybody deciding anything | No way to turn it off when a driver misbehaves, and "why is this camera on the processor?" has no answer anybody can act on |
+
+**Recommended: A now, B if a site ever needs the split.** Nothing in A has to
+be undone to become B — B is A plus a column.
+
+**The fallback is not optional, and it has two different shapes.** Both
+measured:
+
+- **A chip that is not there:** the open fails outright — `isOpened()` false.
+  Asking for adapter 2 on this laptop failed, it did not fall back. So a
+  second, plain open is required, not a nicety.
+- **A format the chip will not decode:** the open succeeds and the processor
+  quietly does the work. Only `CAP_PROP_HW_ACCELERATION`, read back after
+  opening, tells them apart.
+- Naming a chip means naming D3D11VA with it: `VIDEO_ACCELERATION_ANY`
+  together with `CAP_PROP_HW_DEVICE` is refused at open.
+
+So `open()` becomes: ask the chip → if it did not open, or the property reads
+none, release and open plain → record which decoder this camera got, and why,
+where the UI can see it.
+
+### If it is built: what System Health should say — three shapes
+
+| | What the operator sees | For | Against |
+|---|---|---|---|
+| **1. A line on the Camera ingest stage** | "12 of 12 streams decoding — 2 on the processor, the graphics chip would not take them" | One string, no new wire field, on a stage that already exists | Says how many, never which |
+| **2. That, and the decoder on each camera** | Each camera row says "Decoding on: NVIDIA RTX 2080", or "Decoding on: the processor — the graphics chip would not read this camera's video format" | The constitution asks a subsystem that fails to start to say so in the UI. Only this names the camera and the reason, which is the part an operator can act on | One new field on the camera wire type, and a line in both front ends |
+| **3. Plus a count** | A metric beside "Frames decoded, not used": "Frames decoded by a graphics chip" | Makes the saving checkable rather than believed, the same way the skipped count is | One more number on a page that already carries a lot |
+
+**Recommended: 1 and 2.** Amber, never an error, when a camera asked for a
+chip and did not get one — the camera works, it just costs more than planned,
+and Principle "degradation is payload" says that is a 200 with a reason in it.
+A site that never asked for a chip stays green and says nothing. And nothing
+else may come to require this: a feature must never need another feature
+switched on.
+
+### What is still not known
+
+- **What a real camera costs.** Every figure here is a re-encode of one laptop
+  clip. Two minutes recorded off a site camera, passed to `--clip`, replaces
+  the lot — and it is the one measurement that would make this decision on
+  evidence rather than on a proxy.
+- **H.265.** Not measured at all, and it is the format software decode hurts
+  most.
+- **Whether it holds up for a fortnight.** Six seconds a rung says nothing
+  about driver resets or leaks over days.
+- **What the deployment box has.** A server with no monitor often has no Intel
+  chip, and its card may be another generation entirely.
+- **Whether the picture could stay on the chip** — `CAP_PROP_HW_ACCELERATION_USE_OPENCL`,
+  frames as UMat, handed to the model without coming back. That would remove
+  the 16–20 ms conversion, which after hardware decode is the whole remaining
+  bill. Nobody has measured it.
+
 ## 2. Bag model — change 5, REJECTED
 
 Both paths, back to back, same 40 clip frames:
