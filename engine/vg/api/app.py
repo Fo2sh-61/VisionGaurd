@@ -27,6 +27,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 
 from vg import config as vgconfig
 from vg.auth import deps as auth_deps
+from vg.auth import dev_signin  # DEV-SIGNIN: temporary, development only
 from vg.api import schemas as S
 from vg.clock import clock_for
 from vg.api.store import (
@@ -1482,6 +1483,11 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    # DEV-SIGNIN: temporary, development only - see vg/auth/dev_signin.py.
+    # Read while the app is built, so a setting that is not safe stops the
+    # engine before it has served a single request.
+    app.state.dev_signin = dev_signin.role_from_env()
+
     origins = ["http://localhost:5173", "http://localhost:5174",
                "http://127.0.0.1:5173", "http://127.0.0.1:5174"]
     try:
@@ -1510,6 +1516,7 @@ def create_app() -> FastAPI:
         "allowed to do this" are different questions. This answers the first.
         """
         request.state.user = auth_deps.user_from(request)
+        request.state.user = request.state.user or dev_signin.user_for(request)  # DEV-SIGNIN
 
         # CORS preflight carries no credentials by design; blocking it would
         # break the browser before it ever gets to send the real request.
@@ -1779,7 +1786,8 @@ def _mount(app: FastAPI) -> None:
         """
         return S.Account(id=user.id, name=user.name, email=user.email,
                          role=user.role, initials=user.initials,
-                         language=user.language)
+                         language=user.language,
+                         dev_sign_in=dev_signin.is_dev(user))  # DEV-SIGNIN
 
     @app.post("/auth/language", tags=["auth"], summary="Set your language")
     async def set_language(
@@ -1804,9 +1812,11 @@ def _mount(app: FastAPI) -> None:
                 detail="Sign-in is unavailable. See System Health.",
             )
         store.set_language(user.id, body.language)
+        dev_signin.remember_language(request, user, body.language)  # DEV-SIGNIN
         return S.Account(id=user.id, name=user.name, email=user.email,
                          role=user.role, initials=user.initials,
-                         language=body.language)
+                         language=body.language,
+                         dev_sign_in=dev_signin.is_dev(user))  # DEV-SIGNIN
 
     @app.get("/site", response_model=S.SiteInfo, tags=["meta"])
     async def get_site(store: StoreDep) -> S.SiteInfo:

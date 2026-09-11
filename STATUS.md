@@ -60,6 +60,14 @@ Roles are enforced server-side from the path, so a new endpoint under
 Editing the browser achieves nothing — a test asserts the console stores no
 role, account or token.
 
+**Temporary exception, development only (11 Sep 2026).** `.\dev.ps1 up -DevSignIn admin`
+(or `it`) lets requests from this computer in with no password, as a built-in
+"Developer (dev sign-in)" account, so agents can check pages by eye. Off unless
+asked for, refuses to start under `VG_STRICT=1`, this computer only, and every
+page shows a red strip while it is in use. Mohamed removes it before
+deployment: `git grep -niE "dev.?sign.?in"` lists every line. Details in
+`engine/vg/auth/dev_signin.py`.
+
 **Create the first account before starting the engine, or nobody can sign in:**
 
 ```powershell

@@ -6,6 +6,7 @@
     .\dev.ps1 up            engine + web together, colour-tagged, Ctrl-C stops both
     .\dev.ps1 up -Mock      VG_MOCK=1 - instant start, no models, no camera. UI work
     .\dev.ps1 up -Clip      the recorded clip instead of the webcam. Pipeline work
+    .\dev.ps1 up -DevSignIn admin   TEMPORARY: opens signed in, no password (or: it)
     .\dev.ps1 engine        engine only
     .\dev.ps1 web           front end only
     .\dev.ps1 down          free ports 8000/5173 and release the webcam. Panic button
@@ -29,7 +30,12 @@ param(
     [switch]$Clip,
 
     # Run even without a project venv, on whatever `python` resolves to.
-    [switch]$AllowSystemPython
+    [switch]$AllowSystemPython,
+
+    # DEV-SIGNIN: TEMPORARY, development only. The console opens signed in as
+    # a built-in account, with no password. See engine/vg/auth/dev_signin.py.
+    [ValidateSet('admin', 'it')]
+    [string]$DevSignIn
 )
 
 $ErrorActionPreference = 'Stop'
@@ -307,6 +313,15 @@ function Invoke-Up([bool]$WithEngine, [bool]$WithWeb) {
         Remove-Item Env:\VG_MOCK -ErrorAction SilentlyContinue
     }
 
+    # DEV-SIGNIN: temporary. Set only when asked for, and cleared again in
+    # `finally`, so a later run in this terminal cannot inherit it unasked.
+    if ($DevSignIn) {
+        $env:VG_DEV_SIGNIN = $DevSignIn
+        Write-Warn "VG_DEV_SIGNIN=$DevSignIn - the console opens signed in, no password. Development only."
+    } else {
+        Remove-Item Env:\VG_DEV_SIGNIN -ErrorAction SilentlyContinue
+    }
+
     if ($Clip) {
         $env:VG_CAMERAS = 'cam-clip'
         Write-Ok 'cameras       cam-clip only (the labelled walk-through recording)'
@@ -372,6 +387,7 @@ function Invoke-Up([bool]$WithEngine, [bool]$WithWeb) {
             Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
         }
         Clear-Ports
+        Remove-Item Env:\VG_DEV_SIGNIN -ErrorAction SilentlyContinue  # DEV-SIGNIN
         Write-Ok 'stopped'
     }
     return 0
@@ -457,6 +473,7 @@ function Show-Help {
   .\dev.ps1 test          pyflakes + pytest + smoke + tsc (the four CI gates)
 
   -AllowSystemPython      run without the project venv (not yet built)
+  -DevSignIn admin|it     TEMPORARY: opens signed in, no password. Dev only
 '@
 }
 

@@ -1526,6 +1526,9 @@ class Account(Wire):
     #: Which language this person reads the console in. A preference, not a
     #: permission - `auth/deps.py` decides access by path and never reads this.
     language: Literal["en", "ar"] = "en"
+    #: DEV-SIGNIN: temporary. True only for the built-in account that
+    #: `VG_DEV_SIGNIN` signs in, so the console can say so on every page.
+    dev_sign_in: bool = False
 
 
 class LoginResult(Wire):
