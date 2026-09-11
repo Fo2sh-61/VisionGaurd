@@ -230,7 +230,7 @@ class TestRealWebcam:
 
 
 class TestABareAddressIsNotAFilename:
-    """A camera address with no scheme must not be opened as a file.
+    r"""A camera address with no scheme must not be opened as a file.
 
     Real report, 1 Sep 2026: an operator typed `192.168.144.108` into the IP
     camera form and VisionGuard answered `no such file:
