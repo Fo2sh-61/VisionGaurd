@@ -135,6 +135,10 @@ TILE_VIEW_SECONDS = 2.0
 #: the camera is for.
 MAX_TILE_FPS = 15
 
+#: The rate a recorded file plays at when its header gives no rate, or one no
+#: camera produces. See `CameraSource._pace_file`.
+_FILE_FPS_FALLBACK = 25.0
+
 
 def parse_source(spec: str) -> tuple[SourceKind, str | int]:
     """Turn an engine.yaml `source` string into something cv2.VideoCapture takes.
@@ -285,6 +289,11 @@ class CameraSource:
         # keeps asking cannot hold the camera at a closed page's 15.
         self._tile_views: dict[int, float] = {}
 
+        # A recorded file's frame interval and when its next frame is due.
+        # Zero for a live camera, which paces itself. See _pace_file().
+        self._file_interval = 0.0
+        self._file_due = 0.0
+
         self._has_credentials = bool(
             isinstance(self.handle, str) and _CREDENTIALS.search(self.handle)
         )
@@ -349,6 +358,11 @@ class CameraSource:
         self.health.last_error = None
         self.health.consecutive_failures = 0
         self._backoff_index = 0
+        if self.kind is SourceKind.FILE:
+            recorded = cap.get(cv2.CAP_PROP_FPS)
+            fps = recorded if 1.0 <= recorded <= 240.0 else _FILE_FPS_FALLBACK
+            self._file_interval = 1.0 / fps
+            self._file_due = time.monotonic()
         log.info("camera %s opened (%s)", self.camera_id, self.redacted)
         return True
 
@@ -479,6 +493,8 @@ class CameraSource:
             # avoids it entirely.
             ok, image = False, None
             while not self._stop.is_set():
+                if self._file_interval and not self._pace_file():
+                    break
                 started = time.monotonic()
                 ok = self._cap.grab()
                 if not ok:
@@ -510,6 +526,11 @@ class CameraSource:
             self.health.last_error = f"{type(exc).__name__}: {exc}"
 
         if not ok or image is None or image.size == 0:
+            # Asked to stop mid-read. Not a failure, and a file must not
+            # rewind on it: with the stop flag set, the next read() would come
+            # straight back here and rewind again, for ever.
+            if self._stop.is_set():
+                return self._stale()
             # A file that ran out is not a failure — loop it and carry on.
             if self.kind is SourceKind.FILE and self.loop_files and self._rewind():
                 return self.read()
@@ -601,8 +622,9 @@ class CameraSource:
                 time.sleep(self._backoff())
                 continue
 
-            # A file has no natural pace — it returns frames as fast as they
-            # decode — so it is the one source that must be slowed down here.
+            # read() already holds a file to its recorded rate. The tools that
+            # iterate this have always had a file slowed further, to one
+            # frame per analytics interval, and still do.
             if self.kind is SourceKind.FILE and interval:
                 sleep_for = next_due - time.monotonic()
                 if sleep_for > 0:
@@ -676,6 +698,28 @@ class CameraSource:
         self.health.status = "auth" if self._has_credentials else "down"
         log.warning("camera %s: %s (%s)", self.camera_id, reason, self.redacted)
 
+    def _pace_file(self) -> bool:
+        """Hold a recorded file to the rate it was recorded at.
+
+        A live camera paces itself: `grab()` waits for the device's next
+        frame. A file has nothing to wait for, so a file camera ran as fast
+        as this loop could turn - 495 frames a second from the 15 fps
+        walk-through clip with nobody watching it, and 800 to 1,700 with its
+        view open, every one of those converted too. The clip played about
+        thirty times too fast, so anything timed on it (how long somebody
+        stood in a zone, three knife sightings inside a second) was timed on
+        a scene no camera could produce.
+
+        Waits on the stop flag rather than sleeping, so stopping stays
+        immediate. Returns False if it was stopped while waiting.
+        """
+        now = time.monotonic()
+        if now < self._file_due and self._stop.wait(self._file_due - now):
+            return False
+        # Anchored to now when late, so a stall is not paid back as a burst.
+        self._file_due = max(self._file_due, time.monotonic()) + self._file_interval
+        return True
+
     def _reconnect(self) -> bool:
         self.health.reconnects += 1
         return self.open()
@@ -684,6 +728,10 @@ class CameraSource:
         if self._cap is None:
             return False
         self._cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+        # The grab that found the end of the file spent a frame's slot of its
+        # own, so without this the first frame of the next loop waits two
+        # intervals instead of one - a hitch every time a clip comes round.
+        self._file_due = time.monotonic()
         return True
 
     def _backoff(self) -> float:

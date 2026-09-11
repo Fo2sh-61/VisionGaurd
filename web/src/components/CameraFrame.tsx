@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { ImgHTMLAttributes } from 'react';
 import { useT } from '@/app/LanguageContext';
 import { useSite } from '@/app/SiteContext';
 import type { CameraFeature } from '@/services/api';
@@ -66,6 +67,47 @@ const CLOCK_TICK_MS = 1_000;
  *  watching is what pays for the higher rate. The payload is a few hundred
  *  bytes and the response is ~4 ms. */
 const DETECTION_REFRESH_MS = 100;
+
+/** The live stream's picture, which lets go of the stream when it stops
+ *  showing it.
+ *
+ *  A browser does not stop loading an image because its element left the
+ *  page: the HTML spec keeps an image fetch alive even when the element is no
+ *  longer in the document. A still picture finishes anyway; an MJPEG response
+ *  never does. So closing the enlarged view left its stream running until the
+ *  whole page was left, and the engine, which counts an open stream as
+ *  somebody watching, kept that camera reading and converting every frame for
+ *  nobody — 822 a second on the recorded clip, measured 12 Sep 2026 with the
+ *  view closed. The Track page's big view and enrolment's live view are this
+ *  same element, so they left a stream behind too.
+ *
+ *  So this element owns its `src` and removes it when it stops showing the
+ *  stream. `removeAttribute('src')` aborts the request and fires no event.
+ *  `src = ''` aborts it too but fires `error`, which `CameraFrame` would read
+ *  as a failed camera. Both were measured in Chromium, which is what this
+ *  console runs on (Chrome/Edge); the spec requires the abort, but how a
+ *  multipart response is torn down is each engine's own code, and Safari has
+ *  an old open bug about not closing one at all.
+ *
+ *  React never sets `src` here, so development's StrictMode rehearsal
+ *  (unmount, then mount again) puts it back instead of leaving a blank
+ *  picture. A layout effect, so the address is in place before the first
+ *  paint. */
+function StreamImage({
+  src,
+  ...rest
+}: { src: string } & Omit<ImgHTMLAttributes<HTMLImageElement>, 'src'>) {
+  const ref = useRef<HTMLImageElement | null>(null);
+
+  useLayoutEffect(() => {
+    const img = ref.current;
+    if (!img) return;
+    img.src = src;
+    return () => img.removeAttribute('src');
+  }, [src]);
+
+  return <img ref={ref} {...rest} />;
+}
 
 /** A camera tile: the real frame, with whatever the engine detected drawn over it.
  *
@@ -328,6 +370,34 @@ export function CameraFrame({
       ? `${camera.snapshotUrl}?${snapshotQuery}`
       : undefined;
 
+  // Shared by both pictures. The stream is a separate element (`StreamImage`)
+  // so it can let go of its connection, which makes a switch between stream
+  // and snapshots a new element rather than a new address on the old one.
+  const pictureProps: Omit<ImgHTMLAttributes<HTMLImageElement>, 'src'> = {
+    alt: camera.name,
+    onError: () => setImageFailed(true),
+    onLoad: (e) => {
+      loadedTick.current = tick;
+      const { naturalWidth, naturalHeight } = e.currentTarget;
+      if (naturalWidth > 0 && naturalHeight > 0) {
+        setAspect(naturalWidth / naturalHeight);
+      }
+    },
+    style: {
+      position: 'absolute',
+      inset: 0,
+      width: '100%',
+      height: '100%',
+      // Fitted, never cropped. `cover` filled the tile by throwing the
+      // edges of the frame away, which on a counting page means people
+      // who are in the number but not on the screen.
+      objectFit: 'contain',
+      // Dim a frame that is no longer current, so a still corridor does
+      // not read as a live one.
+      filter: camera.offline ? 'grayscale(1) brightness(.45)' : undefined,
+    },
+  };
+
   return (
     // dir="ltr" is pinned here and must stay pinned, in every language.
     //
@@ -343,31 +413,11 @@ export function CameraFrame({
     // it without any help from the container. P11-FR-009.
     <div className="camframe" dir="ltr" ref={frameRef} style={{ height: s.height }}>
       {frameSrc ? (
-        <img
-          src={frameSrc}
-          alt={camera.name}
-          onError={() => setImageFailed(true)}
-          onLoad={(e) => {
-            loadedTick.current = tick;
-            const { naturalWidth, naturalHeight } = e.currentTarget;
-            if (naturalWidth > 0 && naturalHeight > 0) {
-              setAspect(naturalWidth / naturalHeight);
-            }
-          }}
-          style={{
-            position: 'absolute',
-            inset: 0,
-            width: '100%',
-            height: '100%',
-            // Fitted, never cropped. `cover` filled the tile by throwing the
-            // edges of the frame away, which on a counting page means people
-            // who are in the number but not on the screen.
-            objectFit: 'contain',
-            // Dim a frame that is no longer current, so a still corridor does
-            // not read as a live one.
-            filter: camera.offline ? 'grayscale(1) brightness(.45)' : undefined,
-          }}
-        />
+        useStream ? (
+          <StreamImage src={frameSrc} {...pictureProps} />
+        ) : (
+          <img src={frameSrc} {...pictureProps} />
+        )
       ) : (
         <>
           <div
