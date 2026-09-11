@@ -161,7 +161,13 @@ export function Home() {
               {item.sub}
             </div>
             <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-              <button type="button" className="linkbtn" onClick={() => open(item.to)}>
+              {/* The item itself, not just its page: the same link the alert
+                  bell opens. */}
+              <button
+                type="button"
+                className="linkbtn"
+                onClick={() => navigate(item.link, { state: { autoRun: true } })}
+              >
                 {item.action}{' '}
                 <span className="mirror-rtl" aria-hidden="true">→</span>
               </button>

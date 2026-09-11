@@ -7,6 +7,7 @@ import type { Camera, WeaponDetection, WeaponWindow } from '@/types';
 import { useCapability } from '@/app/CapabilityContext';
 import { useSite } from '@/app/SiteContext';
 import { useAsync } from '@/app/useAsync';
+import { LINKED_STYLE, useLinkedItem } from '@/app/useLinkedItem';
 import { useLanguage, useT } from '@/app/LanguageContext';
 import type { MessageKey } from '@/i18n';
 
@@ -46,6 +47,8 @@ export function Weapons() {
   const asked = params.get('window') as WeaponWindow | null;
   const [when, setWhen] = useState<WeaponWindow>(
     asked && WINDOWS.includes(asked) ? asked : 'last30');
+  // An alert lands here on one entry: `?entry=` is the scene the engine named.
+  const linked = useLinkedItem('entry');
 
   const { data: cameras } = useAsync(
     () => getWeaponCameras(language), [language], NO_CAMERAS, CAMERA_REFRESH_MS);
@@ -71,6 +74,8 @@ export function Weapons() {
   const counted = !loading && !error;
   const stillListed = playing !== null && detections.some((d) => d.id === playing.id);
   const inView = detections.filter((d) => d.running).length;
+  const linkedMissing = linked.id !== null && counted
+    && !detections.some((d) => d.id === linked.id);
 
   async function decide(entry: WeaponDetection, verdict: 'confirmed' | 'dismissed') {
     setReviewError(null);
@@ -156,6 +161,11 @@ export function Weapons() {
         <LoadError error={error} onRetry={reload} what="load.detectionLog" />
         <LoadError error={reviewError} what="load.verdict" />
         {loading && <Empty>{t('weapons.loading')}</Empty>}
+        {linkedMissing && (
+          <div className="linked-missing" role="status">
+            {t('weapons.linkedNotListed', { window: t(`window.${when}` as MessageKey) })}
+          </div>
+        )}
 
         {/* Two different empty states, because they are two different claims.
             An empty list from a running detector means nothing was seen; an
@@ -170,8 +180,13 @@ export function Weapons() {
         {detections.map((entry) => (
           <div
             key={entry.id}
+            ref={entry.id === linked.id ? linked.ref : undefined}
+            aria-current={entry.id === linked.id || undefined}
             className="row"
-            style={{ gridTemplateColumns: '1.1fr .9fr .9fr .8fr .6fr 1.2fr 1.4fr' }}
+            style={{
+              gridTemplateColumns: '1.1fr .9fr .9fr .8fr .6fr 1.2fr 1.4fr',
+              ...(entry.id === linked.id ? LINKED_STYLE : null),
+            }}
           >
             <span className="row__name">{entry.camera}</span>
             <span className="row__muted">{entry.area}</span>

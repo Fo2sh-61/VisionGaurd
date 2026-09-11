@@ -61,13 +61,17 @@ export type UiKey =
      tab's worth of links to pages both apps share. */
   | 'mobile.tools.lead'
   | 'mobile.account.lead'
-  | 'sidebar.checking'
-  | 'sidebar.calm'
-  | 'sidebar.waiting'
-  | 'sidebar.waitingOne'
-  | 'sidebar.off'
-  | 'sidebar.offLead'
-  | 'sidebar.failed'
+  | 'bell.title'
+  | 'bell.titleNew'
+  | 'bell.groupNew'
+  | 'bell.groupSeen'
+  | 'bell.checking'
+  | 'bell.calm'
+  | 'bell.waiting'
+  | 'bell.waitingOne'
+  | 'bell.off'
+  | 'bell.offLead'
+  | 'bell.failed'
   | 'topbar.engineUnreachable'
   | 'topbar.checkingCameras'
   | 'topbar.allCamerasUp'
@@ -403,6 +407,7 @@ export type UiKey =
   | 'intrusion.counting'
   | 'intrusion.detectionsToday'
   | 'intrusion.keepsThreeClips'
+  | 'intrusion.linkedNotListed'
   | 'intrusion.noneRestricted'
   | 'intrusion.nothingSince'
   | 'intrusion.watchClip'
@@ -489,6 +494,7 @@ export type UiKey =
   | 'health.needsAttention'
   | 'health.camerasNeedingAttention'
   | 'health.camerasNeedingAttentionNote'
+  | 'health.linkedCameraMissing'
 
   // -- track a person --------------------------------------------------------
   | 'track.title'
@@ -584,6 +590,7 @@ export type UiKey =
   | 'gate.needsExitCamera'
   | 'gate.loggedNeverBlocked'
   | 'gate.raisedOnHome'
+  | 'gate.linkedNotWaiting'
   | 'gate.ofGateCameras'
   | 'gate.ofOneGateCamera'
   | 'gate.noGateCameraConfigured'
@@ -764,6 +771,7 @@ export type UiKey =
   // -- knife detection ------------------------------------------------------
   | 'weapons.nothingSeen'
   | 'weapons.entryNoLongerListed'
+  | 'weapons.linkedNotListed'
 
   // -- settings -------------------------------------------------------------
   | 'settings.termRange'

@@ -6,6 +6,7 @@ import { getBreaches, getIntrusionCameras, getZones, setZoneEnabled } from '@/se
 import type { Breach, Camera, IntrusionWindow, Zone } from '@/types';
 import { useCapability } from '@/app/CapabilityContext';
 import { useAsync } from '@/app/useAsync';
+import { LINKED_STYLE, useLinkedItem } from '@/app/useLinkedItem';
 import { useLanguage, useT } from '@/app/LanguageContext';
 import { formatCount } from '@/services/format';
 import type { MessageKey } from '@/i18n';
@@ -37,6 +38,8 @@ export function Intrusion() {
   const [when, setWhen] = useState<IntrusionWindow>(
     asked === 'today' || asked === 'last7' || asked === 'last30'
       ? asked : 'today');
+  // An alert lands here on one scene: `?scene=` is the one the engine named.
+  const linked = useLinkedItem('scene');
 
   const {
     data: loadedZones, error: zonesError, loading: zonesLoading, reload: reloadZones,
@@ -93,6 +96,8 @@ export function Intrusion() {
   // not the number of things that happened. This is, for today.
   const detectionsToday = zones.reduce((n, z) => n + z.detectionsToday, 0);
   const stillListed = playing !== null && breaches.some((b) => b.id === playing.id);
+  const linkedMissing = linked.id !== null && counted
+    && !breaches.some((b) => b.id === linked.id);
 
   return (
     <>
@@ -207,6 +212,11 @@ export function Intrusion() {
 
         <LoadError error={breachError} onRetry={reloadBreaches} what="load.detectionLog" />
         {breachLoading && <Empty>{t('intrusion.loadingDetections')}</Empty>}
+        {linkedMissing && (
+          <div className="linked-missing" role="status">
+            {t('intrusion.linkedNotListed', { window: t(`window.${when}` as MessageKey) })}
+          </div>
+        )}
         {/* Two different empty states, because they mean different things. An
             empty log with nothing switched on is not the same claim as an
             empty log on a camera that has been watching all day. */}
@@ -220,8 +230,13 @@ export function Intrusion() {
         {breaches.map((breach) => (
           <div
             key={breach.id}
+            ref={breach.id === linked.id ? linked.ref : undefined}
+            aria-current={breach.id === linked.id || undefined}
             className="row"
-            style={{ gridTemplateColumns: '1.2fr 1fr .8fr .9fr .8fr 1.1fr' }}
+            style={{
+              gridTemplateColumns: '1.2fr 1fr .8fr .9fr .8fr 1.1fr',
+              ...(breach.id === linked.id ? LINKED_STYLE : null),
+            }}
           >
             <span className="row__name">{breach.zone}</span>
             <span className="row__muted">{breach.time}</span>

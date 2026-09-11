@@ -1,6 +1,7 @@
 import { useAccount } from '@/app/AuthContext';
 import { useT } from '@/app/LanguageContext';
 import { useSite } from '@/app/SiteContext';
+import { AlertBell } from './AlertBell';
 
 export function TopBar() {
   const account = useAccount();
@@ -44,6 +45,8 @@ export function TopBar() {
           </span>
           {cameraLabel}
         </span>
+
+        <AlertBell />
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
           <div style={{ textAlign: 'end' }}>

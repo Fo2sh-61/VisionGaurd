@@ -9,6 +9,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useLanguage, type Translate } from '@/app/LanguageContext';
+import { pathFor } from '@/app/navigation';
 import type { Language, MessageKey } from '@/i18n';
 import { acknowledgeAttention, getAttention } from '@/services/api';
 import { formatEventTime, severityToTone } from '@/services/format';
@@ -37,11 +38,32 @@ const ACTION: Record<WireAttentionItem['kind'], MessageKey> = {
   system: 'attention.action.system',
 };
 
+/** Which query parameter names the one thing on that page, and each page
+ *  reads its own - a link nothing reads is decoration. The engine's
+ *  `targetId` is the id that page lists the item under (held by
+ *  test_alerts_feed.py). Attendance and system items name no single thing,
+ *  so they open the page. */
+const LINK_PARAM: Partial<Record<WireAttentionItem['kind'], string>> = {
+  weapon: 'entry',
+  intrusion: 'scene',
+  vehicles: 'pass',
+  camera: 'camera',
+};
+
+/** Where an item opens: its page, at the item itself when the engine named it. */
+export function attentionLink(item: WireAttentionItem): string {
+  const page = pathFor(TARGET[item.kind] ?? 'system');
+  const param = LINK_PARAM[item.kind];
+  return param && item.targetId
+    ? `${page}?${param}=${encodeURIComponent(item.targetId)}`
+    : page;
+}
+
 /** A plain function, called from a promise callback - so it takes the
  *  language as an argument. It used to call `useLanguage()` itself, which is
  *  a hook outside render; that only went unnoticed because the live feed was
- *  always empty. */
-function toAttentionItem(item: WireAttentionItem, t: Translate, language: Language): AttentionItem {
+ *  always empty. The console's alert bell words its list with it too. */
+export function toAttentionItem(item: WireAttentionItem, t: Translate, language: Language): AttentionItem {
   // What happened: the engine's note, worded here in the reader's language,
   // or the demo store's own detail line.
   const said = noteText(t, item.note) || item.detail;
@@ -56,6 +78,7 @@ function toAttentionItem(item: WireAttentionItem, t: Translate, language: Langua
     sub: said ? `${when} · ${said}` : when,
     action: t(ACTION[item.kind] ?? 'attention.action.open'),
     to: TARGET[item.kind] ?? 'system',
+    link: attentionLink(item),
   };
 }
 

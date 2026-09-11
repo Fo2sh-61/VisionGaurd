@@ -51,13 +51,17 @@ export const arDraft: Partial<Record<MessageKey, string>> = {
   'nav.users.label': 'الحسابات',
   'nav.users.blurb': 'من يستطيع تسجيل الدخول',
 
-  'sidebar.checking': 'جارٍ فحص التنبيهات…',
-  'sidebar.calm': 'لا شيء يحتاج انتباهك',
-  'sidebar.waiting': '{count} أمور تحتاج انتباهك',
-  'sidebar.waitingOne': 'أمر واحد يحتاج انتباهك',
-  'sidebar.off': 'التنبيهات لا تعمل',
-  'sidebar.offLead': 'افحص كل صفحة بنفسك',
-  'sidebar.failed': 'تعذّر فحص التنبيهات',
+  'bell.title': 'التنبيهات',
+  'bell.titleNew': 'التنبيهات، {count} جديدة',
+  'bell.groupNew': 'جديدة منذ آخر اطلاع',
+  'bell.groupSeen': 'لا تزال مفتوحة',
+  'bell.checking': 'جارٍ فحص التنبيهات…',
+  'bell.calm': 'لا شيء يحتاج انتباهك',
+  'bell.waiting': '{count} أمور تحتاج انتباهك',
+  'bell.waitingOne': 'أمر واحد يحتاج انتباهك',
+  'bell.off': 'التنبيهات لا تعمل',
+  'bell.offLead': 'افحص كل صفحة بنفسك',
+  'bell.failed': 'تعذّر فحص التنبيهات',
   'topbar.engineUnreachable': 'تعذّر الوصول إلى المحرك',
   'topbar.checkingCameras': 'جارٍ فحص الكاميرات…',
   'topbar.allCamerasUp': 'جميع الكاميرات تعمل ({total})',
@@ -407,6 +411,7 @@ export const arDraft: Partial<Record<MessageKey, string>> = {
   'intrusion.counting': 'جارٍ العد…',
   'intrusion.detectionsToday': '{count} اكتشافًا اليوم. ',
   'intrusion.keepsThreeClips': 'تحتفظ كل كاميرا بآخر ٣ مقاطع — وتخرج السجلات الأقدم من هذه القائمة فور استبدال مقطعها.',
+  'intrusion.linkedNotListed': 'المشهد الذي يخصه هذا التنبيه ليس ضمن قائمة {window}. تحتفظ كل كاميرا بآخر ٣ مقاطع، فتخرج السجلات الأقدم فور استبدال مقطعها.',
   'intrusion.noneRestricted': 'لا توجد كاميرات محدّدة كمناطق محظورة. فعّل واحدة بالأعلى.',
   'intrusion.nothingSince': 'لم يُكتشف شيء منذ بدء تشغيل المحرك.',
   'intrusion.watchClip': 'شاهد المقطع',
@@ -467,6 +472,7 @@ export const arDraft: Partial<Record<MessageKey, string>> = {
   'health.needsAttention': 'يحتاج انتباهًا',
   'health.camerasNeedingAttention': 'كاميرات تحتاج انتباهًا',
   'health.camerasNeedingAttentionNote': 'الكاميرات غير المتصلة تعرض آخر إطار وصلها، مع إشارة واضحة — وليس صورة جامدة تدّعي أنها مباشرة.',
+  'health.linkedCameraMissing': 'الكاميرا التي يخصها هذا التنبيه ليست في قائمة الكاميرات.',
 
   // -- track a person --------------------------------------------------------
   'track.title': 'تتبّع شخصًا',
@@ -562,6 +568,7 @@ export const arDraft: Partial<Record<MessageKey, string>> = {
   'gate.needsExitCamera': 'يحتاج كاميرا خروج للحساب',
   'gate.loggedNeverBlocked': 'تُسجّل ولا تُمنع أبدًا',
   'gate.raisedOnHome': 'تُرفع في الصفحة الرئيسية',
+  'gate.linkedNotWaiting': 'تنبيه البوابة الذي فتحته لم يعد ينتظر أحدًا.',
   'gate.ofGateCameras': 'من أصل {count} كاميرا بوابة',
   'gate.ofOneGateCamera': 'من أصل كاميرا بوابة واحدة',
   'gate.noGateCameraConfigured': 'لا توجد كاميرا بوابة مُعدّة',
@@ -738,6 +745,7 @@ export const arDraft: Partial<Record<MessageKey, string>> = {
   // -- knife detection ------------------------------------------------------
   'weapons.nothingSeen': 'لم يُرصد شيء · {window}',
   'weapons.entryNoLongerListed': 'لم يعد هذا السجل ضمن قائمة {window}.',
+  'weapons.linkedNotListed': 'السجل الذي يخصه هذا التنبيه ليس ضمن قائمة {window}. اختر فترة أطول.',
 
   // -- settings -------------------------------------------------------------
   'settings.termRange': 'من {from} إلى {to}',

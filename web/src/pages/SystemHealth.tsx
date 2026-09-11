@@ -8,12 +8,20 @@ import {
 } from '@/services/format';
 import type { MessageKey } from '@/i18n/keys';
 import type { SystemHealth as SystemHealthData } from '@/types';
+import { useCameras } from '@/app/CameraContext';
 import { useAsync } from '@/app/useAsync';
+import { useLinkedItem } from '@/app/useLinkedItem';
 import { useLanguage, useT } from '@/app/LanguageContext';
 
 export function SystemHealth() {
   const { language } = useLanguage();
   const t = useT();
+  // A dark-camera alert lands here on that camera: `?camera=` is its id, and
+  // its tile in the grid below is outlined and brought into view.
+  const linked = useLinkedItem('camera');
+  const { cameras: roster, loading: rosterLoading } = useCameras();
+  const linkedMissing = linked.id !== null && !rosterLoading
+    && !roster.some((c) => c.id === linked.id);
   // Every three seconds. This is the page that says how full the machine
   // is RIGHT NOW, and until 3 Sep 2026 it loaded once and sat there - a
   // reading with no refresh is a snapshot pretending to be a gauge.
@@ -51,6 +59,9 @@ export function SystemHealth() {
     <>
       <PageHeader title={t('health.title')} lead={t('health.lead')} />
       <LoadError error={error} onRetry={reload} what="load.latestSystemHealth" />
+      {linkedMissing && (
+        <div className="linked-missing" role="status">{t('health.linkedCameraMissing')}</div>
+      )}
 
       <Card>
         <CardHeader
@@ -264,6 +275,8 @@ export function SystemHealth() {
         title={t('health.camerasNeedingAttention')}
         note={t('health.camerasNeedingAttentionNote')}
         cameras={health.cameras}
+        activeId={linked.id ?? undefined}
+        activeRef={linked.ref}
       />
     </>
   );

@@ -418,6 +418,10 @@ export interface AttentionItem {
   sub: string;
   action: string;
   to: ToolId;
+  /** Where opening it goes: the page, and the one thing on it when the engine
+   *  named one - `/weapons?entry=…`. `to` alone opens the page and leaves the
+   *  reader to find the item. */
+  link: string;
 }
 
 /* ---------- people directory ---------- */

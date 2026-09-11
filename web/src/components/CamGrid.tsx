@@ -50,6 +50,7 @@ export function CamGrid({
   pageSize,
   onPick,
   activeId,
+  activeRef,
   feature,
   colour,
   tileOverlay = false,
@@ -78,6 +79,9 @@ export function CamGrid({
   onPick?: (camera: Camera) => void;
   /** Draw this camera as the chosen one. */
   activeId?: string;
+  /** Handed the chosen camera's tile, so a page can bring it into view - the
+   *  camera an alert linked to. */
+  activeRef?: (element: HTMLElement | null) => void;
   /** Which overlay the enlarged view should draw. The tiles never draw one,
    *  so this only reaches the opened camera — which is exactly where it
    *  matters: the counting page must not open a face review. */
@@ -184,6 +188,7 @@ export function CamGrid({
     <button
       type="button"
       key={cam.id}
+      ref={cam.id === activeId ? activeRef : undefined}
       className="camcard"
       onClick={() => pick(cam)}
       style={

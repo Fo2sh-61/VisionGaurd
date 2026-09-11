@@ -6,7 +6,8 @@ import {
 } from '@/services/format';
 import type * as W from '@/services/wire';
 import { useAsync } from '@/app/useAsync';
-import { useLanguage } from '@/app/LanguageContext';
+import { LINKED_STYLE, useLinkedItem } from '@/app/useLinkedItem';
+import { useLanguage, useT } from '@/app/LanguageContext';
 
 /** Alerts change when a car passes, not frame by frame. */
 const REFRESH_MS = 4_000;
@@ -19,11 +20,13 @@ const TONE: Record<W.GateAlert['kind'], { bg: string; fg: string }> = {
   expired: { bg: 'var(--am-bg)', fg: 'var(--am)' },
 };
 
-function AlertRow({ alert, isAdmin, onResolve, onDismiss }: {
+function AlertRow({ alert, isAdmin, onResolve, onDismiss, linkedRef }: {
   alert: W.GateAlert;
   isAdmin: boolean;
   onResolve: (alert: W.GateAlert) => void;
   onDismiss: (alert: W.GateAlert) => void;
+  /** Set on the one row an alert elsewhere linked to. */
+  linkedRef?: (element: HTMLElement | null) => void;
 }) {
   const { language } = useLanguage();
   const [busy, setBusy] = useState(false);
@@ -32,7 +35,10 @@ function AlertRow({ alert, isAdmin, onResolve, onDismiss }: {
 
   return (
     <div
+      ref={linkedRef}
+      aria-current={linkedRef ? true : undefined}
       style={{
+        ...(linkedRef ? LINKED_STYLE : null),
         display: 'flex', alignItems: 'center', gap: 14, padding: '13px 16px',
         borderRadius: 10, background: tone.bg,
         borderInlineStart: `4px solid ${tone.fg}`, flexWrap: 'wrap',
@@ -110,8 +116,18 @@ export function VehicleAlerts({ isAdmin, onRegister }: {
   isAdmin: boolean;
   onRegister: (alert: W.GateAlert) => void;
 }) {
-  const { data: alerts, reload } = useAsync(
+  const t = useT();
+  const { data: alerts, error, loading, reload } = useAsync(
     () => getVehicleAlerts(), [], NONE, REFRESH_MS);
+  // The alert bell and Home land here on one pass: `?pass=` is its id.
+  const linked = useLinkedItem('pass');
+  // This list is what is waiting, so a pass missing from a list that loaded
+  // is a pass nobody is waiting on any more. A list that failed says nothing.
+  const linkedMissing = linked.id !== null && !loading && !error
+    && !alerts.some((a) => a.passId === linked.id);
+  const missingNote = linkedMissing && (
+    <div className="linked-missing" role="status">{t('gate.linkedNotWaiting')}</div>
+  );
 
   async function clear(alert: W.GateAlert, actionTaken: boolean) {
     try {
@@ -124,10 +140,11 @@ export function VehicleAlerts({ isAdmin, onRegister }: {
     }
   }
 
-  if (alerts.length === 0) return null;
+  if (alerts.length === 0) return missingNote || null;
 
   return (
     <Card>
+      {missingNote}
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         gap: 12, flexWrap: 'wrap', marginBottom: 12,
@@ -151,6 +168,7 @@ export function VehicleAlerts({ isAdmin, onRegister }: {
             isAdmin={isAdmin}
             onResolve={(a) => { onRegister(a); void clear(a, true); }}
             onDismiss={(a) => { void clear(a, false); }}
+            linkedRef={alert.passId === linked.id ? linked.ref : undefined}
           />
         ))}
       </div>

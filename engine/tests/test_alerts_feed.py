@@ -222,6 +222,44 @@ class TestAcknowledge:
             app_module.set_store(MockStore())
 
 
+class TestEachItemOpensTheThingItself:
+    """The console's alert bell and Home open an item AT the item: the link is
+    `/weapons?entry=<target_id>` and the page looks for that id among the rows
+    it lists (useAttention.ts `attentionLink`). So `target_id` must be the id
+    the page's own list uses. If the two drift apart, every link lands on a
+    "no longer in the list" note instead of on the thing."""
+
+    @staticmethod
+    def _items(store):
+        return {item.id: item for item in store.attention()}
+
+    def test_the_knife_entry_is_a_row_on_the_weapons_page(self, feed):
+        store, _, ids = feed
+        knife = self._items(store)[ids["weapon"]]
+        assert knife.target == "weapons"
+        assert knife.target_id in {d.id for d in store.weapons(None)}
+
+    def test_the_zone_scene_is_a_row_on_the_zones_page(self, feed):
+        store, _, ids = feed
+        scene = self._items(store)[ids["intrusion"]]
+        assert scene.target == "intrusion"
+        assert scene.target_id in {b.id for b in store.breaches(since_days=1)}
+
+    def test_the_gate_alert_is_one_the_gate_page_is_waiting_on(self, feed):
+        store, _, ids = feed
+        waiting = {a.pass_id for a in store.vehicle_alerts()}
+        for key in ("blacklist", "unknown"):
+            gate = self._items(store)[ids[key]]
+            assert gate.target == "vehicles"
+            assert gate.target_id in waiting
+
+    def test_the_dark_camera_is_a_camera_in_the_roster(self, feed):
+        store, _, _ = feed
+        (camera,) = [i for i in store.attention() if i.kind == "camera"]
+        assert camera.target == "system"
+        assert camera.target_id in {c.id for c in store.registry.configs()}
+
+
 class TestHonestState:
     def test_the_capability_is_live_and_explains_nothing(self, feed):
         store, _, _ = feed

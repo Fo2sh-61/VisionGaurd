@@ -43,13 +43,17 @@ export const en: Record<MessageKey, string> = {
   'nav.users.label': 'Accounts',
   'nav.users.blurb': 'Who can sign in',
 
-  'sidebar.checking': 'Checking alerts…',
-  'sidebar.calm': 'Nothing needs attention',
-  'sidebar.waiting': '{count} things need attention',
-  'sidebar.waitingOne': '1 thing needs attention',
-  'sidebar.off': 'Alerts not running',
-  'sidebar.offLead': 'Check each page yourself',
-  'sidebar.failed': 'Could not check alerts',
+  'bell.title': 'Alerts',
+  'bell.titleNew': 'Alerts, {count} new',
+  'bell.groupNew': 'New since you last looked',
+  'bell.groupSeen': 'Still open',
+  'bell.checking': 'Checking alerts…',
+  'bell.calm': 'Nothing needs attention',
+  'bell.waiting': '{count} things need attention',
+  'bell.waitingOne': '1 thing needs attention',
+  'bell.off': 'Alerts not running',
+  'bell.offLead': 'Check each page yourself',
+  'bell.failed': 'Could not check alerts',
   'topbar.engineUnreachable': 'Engine unreachable',
   'topbar.checkingCameras': 'Checking cameras…',
   'topbar.allCamerasUp': 'All {total} cameras up',
@@ -399,6 +403,7 @@ export const en: Record<MessageKey, string> = {
   'intrusion.counting': 'Counting…',
   'intrusion.detectionsToday': '{count} detections today. ',
   'intrusion.keepsThreeClips': 'Each camera keeps its last 3 clips — older entries drop off this list once their clip is replaced.',
+  'intrusion.linkedNotListed': 'The scene this alert is about is not in the list for {window}. Each camera keeps its last 3 clips, so older entries drop off once their clip is replaced.',
   'intrusion.noneRestricted': 'No cameras are set as restricted areas. Switch one on above.',
   'intrusion.nothingSince': 'Nothing has been detected since the engine started.',
   'intrusion.watchClip': 'Watch clip',
@@ -491,6 +496,7 @@ export const en: Record<MessageKey, string> = {
   'health.capacityUnplaced': '{ms} ms a second belongs to workers that did not say which processor they run on. It is in neither total rather than guessed into one.',
   'health.camerasNeedingAttention': 'Cameras needing attention',
   'health.camerasNeedingAttentionNote': 'Offline cameras show their last received frame, clearly marked — never a frozen image pretending to be live.',
+  'health.linkedCameraMissing': 'The camera this alert is about is not in the camera list.',
 
   // -- track a person --------------------------------------------------------
   'track.title': 'Track a person',
@@ -586,6 +592,7 @@ export const en: Record<MessageKey, string> = {
   'gate.needsExitCamera': 'needs an exit camera to compute',
   'gate.loggedNeverBlocked': 'logged, never blocked',
   'gate.raisedOnHome': 'raised on the Home page',
+  'gate.linkedNotWaiting': 'The gate alert you opened is no longer waiting.',
   'gate.ofGateCameras': 'of {count} gate cameras',
   'gate.ofOneGateCamera': 'of 1 gate camera',
   'gate.noGateCameraConfigured': 'no gate camera is configured',
@@ -766,6 +773,7 @@ export const en: Record<MessageKey, string> = {
   // English does, and a sentence glued together cannot be reordered.
   'weapons.nothingSeen': 'Nothing seen · {window}',
   'weapons.entryNoLongerListed': 'This entry is no longer in the list for {window}.',
+  'weapons.linkedNotListed': 'The entry this alert is about is not in the list for {window}. Choose a longer period.',
 
   // -- settings -------------------------------------------------------------
   'settings.termRange': '{from} to {to}',
