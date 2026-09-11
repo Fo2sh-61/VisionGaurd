@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { DevSignInBanner } from '@/components/DevSignInBanner'; // DEV-SIGNIN
 import { TABS, tabFor } from './tabs';
 import { useAuth } from './AuthContext';
 import { useT } from './LanguageContext';
@@ -35,6 +36,7 @@ export function AppShell() {
 
   return (
     <div className="app">
+      <DevSignInBanner /> {/* DEV-SIGNIN */}
       <div className="app__content">
         <Outlet />
       </div>
