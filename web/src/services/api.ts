@@ -1469,6 +1469,7 @@ function toAccount(wire: W.Account): Account {
     role: wire.role as Role,
     initials: wire.initials,
     language: wire.language,
+    devSignIn: wire.devSignIn === true, // DEV-SIGNIN
   };
 }
 

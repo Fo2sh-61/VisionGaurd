@@ -1118,6 +1118,8 @@ export interface Account {
   role: string;
   initials: string;
   language: 'en' | 'ar';
+  /** DEV-SIGNIN: temporary. True only for the built-in developer account. */
+  devSignIn?: boolean;
 }
 
 export interface LoginResult {

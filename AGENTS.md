@@ -162,6 +162,8 @@ If a test fails and you did not cause it, say so plainly rather than fixing it q
 
 Ask Mohamed for a manual check when something can only be confirmed by eye: camera latency, overlay correctness, a real face being recognised, or anything needing a live webcam.
 
+**Temporary — seeing a page yourself:** add `-DevSignIn admin` (or `it`) to any `.\dev.ps1 up` and the console opens signed in, no password. Development only; Mohamed removes it before deployment. Fences: `engine/vg/auth/dev_signin.py`.
+
 ## Working with Mohamed
 
 - Ask about four short questions before acting on a non-trivial request. Surface the choices; don't decide for him.
