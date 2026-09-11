@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import difflib
+import io
 import sys
 from pathlib import Path
 
@@ -218,6 +219,14 @@ def check_no_fixtures() -> int:
 
 
 def main() -> int:
+    # Git Bash, and any piped output on Windows, hands Python a cp1252 stdout,
+    # and this report is full of what cp1252 cannot spell: every `→` in a diff,
+    # all of `ar.draft.ts`. On 11 Sep 2026 the first arrow raised
+    # UnicodeEncodeError halfway through the report, so the gate said neither
+    # pass nor fail. Whatever it prints, it must reach its verdict.
+    if isinstance(sys.stdout, io.TextIOWrapper):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
     parser = argparse.ArgumentParser(
         description="Hold web/ and mobile/ to one copy of the truth.",
     )

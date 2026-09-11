@@ -4,7 +4,7 @@ import { Badge, Card, CardHeader, Empty, LoadError, PageHeader, Stats, toneGlyph
 import { getSystemHealth } from '@/services/api';
 import {
   capacityShare, capacityTone, formatCapacityAsks, formatCapacityRow,
-  formatWorkerQueue, formatWorkerThroughput,
+  formatEngineBusy, formatWorkerQueue, formatWorkerThroughput,
 } from '@/services/format';
 import type { MessageKey } from '@/i18n/keys';
 import type { SystemHealth as SystemHealthData } from '@/types';
@@ -138,6 +138,14 @@ export function SystemHealth() {
           100% over a card the driver had at 18%. A bar is a claim about
           now; only a measurement gets to make it.
 
+          The second version stopped drawing it as the bar but kept a
+          percentage under it, worked out from the workers' own wall clock
+          as though 1,000 ms a second were the whole card. Wall clock
+          inside analyse() counts preparing the frame and reading the
+          result back too, so that share ran ahead of the driver's figure
+          directly above it. The graphics row now states milliseconds and
+          leaves the share to the driver; see formatEngineBusy.
+
           Two bars, never one number. Face recognition is OpenCV with no
           CUDA path, so its milliseconds and the person detector's are not
           the same milliseconds. The whole card is absent when no worker is
@@ -158,10 +166,8 @@ export function SystemHealth() {
             t={t}
           />
           <div className="row__muted" style={{ marginTop: 4, fontSize: 12.5, lineHeight: 1.5 }}>
-            {t('health.capacityEngineShare', {
-              ms: Math.round(health.capacity.gpuBusyMsPerSecond),
-              percent: Math.round(health.capacity.gpuBusyMsPerSecond / 10),
-            })}
+            {formatEngineBusy('gpu', health.capacity.gpuBusyMsPerSecond,
+                              health.capacity.gpuBudgetMs, language)}
             {' · '}
             {t('health.capacityAsksTotal', {
               ms: Math.round(health.capacity.gpuMsPerSecond),
@@ -183,12 +189,8 @@ export function SystemHealth() {
             t={t}
           />
           <div className="row__muted" style={{ marginTop: 4, fontSize: 12.5, lineHeight: 1.5 }}>
-            {t('health.capacityEngineShare', {
-              ms: Math.round(health.capacity.cpuBusyMsPerSecond),
-              percent: Math.round(
-                (health.capacity.cpuBusyMsPerSecond / health.capacity.cpuBudgetMs) * 100,
-              ),
-            })}
+            {formatEngineBusy('cpu', health.capacity.cpuBusyMsPerSecond,
+                              health.capacity.cpuBudgetMs, language)}
             {health.capacity.cpuEnginePercent != null && (
               <>
                 {' · '}

@@ -580,12 +580,44 @@ export function capacityTone(usedMs: number, budgetMs: number): 'good' | 'warn' 
   return share >= 0.75 ? 'warn' : 'good';
 }
 
+/** What this engine's own workers spent on one pool, per second, as a sentence.
+ *
+ *  The processor row carries a percentage and the graphics row does not, and
+ *  that asymmetry is the whole point of this function. `busyMsPerSecond` is
+ *  wall clock inside `analyse()` — letterboxing, NMS and whatever Python did
+ *  around them, all included. On the processor that IS processor time and
+ *  `cores x 1000` is the budget it comes out of, so a share is a fair claim.
+ *
+ *  On the graphics card it is not card time: it counts preparing the frame and
+ *  reading the result back as well. Dividing it by the card's 1,000 ms and
+ *  printing the result said "measured" over a number nothing had measured, and
+ *  it ran ahead of the driver's own figure on the bar directly above it. The
+ *  card's share is the bar; this line is only ever milliseconds. */
+export function formatEngineBusy(
+  pool: 'gpu' | 'cpu',
+  busyMsPerSecond: number,
+  budgetMs: number,
+  lang: Language,
+): string {
+  const ms = formatCount(Math.round(busyMsPerSecond), lang);
+  if (pool === 'gpu') return translate(lang, 'health.capacityEngineBusy', { ms });
+  return translate(lang, 'health.capacityEngineShare', {
+    ms,
+    percent: formatCount(capacityShare(busyMsPerSecond, budgetMs), lang),
+  });
+}
+
 /** One capacity row's MEASURED figures, as a sentence.
  *
  *  Frames actually analysed per second over the window, and what one of
- *  them last cost — the reading, not the configured rate. */
+ *  them last cost — the reading, not the configured rate.
+ *
+ *  The plural is the catalogue's problem, not a trailing `s`. With one
+ *  camera every row of the card read "1 cameras" — and on a single-camera
+ *  site every row is every row there is. */
 export function formatCapacityRow(row: CapacityRowItem, lang: Language): string {
-  return translate(lang, 'health.capacityRow', {
+  const key = row.cameras === 1 ? 'health.capacityRowOne' : 'health.capacityRow';
+  return translate(lang, key, {
     cameras: formatCount(row.cameras, lang),
     hz: row.analysedPerSecond.toFixed(1),
     ms: formatCount(Math.round(row.msPerFrame), lang),
