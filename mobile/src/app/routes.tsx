@@ -21,7 +21,7 @@ import { PeopleGroup } from '@/pages/PeopleGroup';
 import { PersonHistory } from '@/pages/PersonHistory';
 import { Settings } from '@/pages/Settings';
 import { Tools } from '@/pages/Tools';
-import { Account } from '@/pages/Account';
+import { More } from '@/pages/More';
 import type { Role } from '@/types';
 import type { ReactElement } from 'react';
 
@@ -114,13 +114,13 @@ export function AppRoutes() {
         <Route path="people" element={<People />} />
         <Route
           path="people/enrol"
-          element={<RequireRole role="admin"><Enrol /></RequireRole>}
+          element={<RequireRole role="admin"><div className="legacy"><Enrol /></div></RequireRole>}
         />
         <Route path="people/groups/:name" element={<PeopleGroup />} />
         <Route path="people/history/:name" element={<PersonHistory />} />
 
         {/* The More tab. Camera setup is inside System health, not beside it. */}
-        <Route path="more" element={<Account />} />
+        <Route path="more" element={<More />} />
         <Route path="account" element={<Navigate to="/more" replace />} />
         <Route path="system" element={<SystemHealth />} />
         <Route path="settings" element={<Settings />} />

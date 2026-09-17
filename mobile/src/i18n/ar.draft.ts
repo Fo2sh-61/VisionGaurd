@@ -82,6 +82,9 @@ export const arDraft: Partial<Record<MessageKey, string>> = {
   'phone.workers.show': 'عرض كل العمّال ({count})',
   'phone.workers.hide': 'إخفاء العمّال',
   'phone.settings.readOnly': 'معروضة كما يحفظها النظام. تغييرها من التطبيق غير متاح بعد.',
+  'phone.lost.showCameras': 'إظهار كاميرات {area}',
+  'phone.lost.hideCameras': 'إخفاء كاميرات {area}',
+  'phone.settings.lead': 'مدرستك وتنبيهاتك ومناطق الرصد.',
 
   'nav.attendance.label': 'الحضور',
   'nav.attendance.blurb': 'من حضر ومن تغيّب',

@@ -9,6 +9,25 @@ import { useAsync } from '@/app/useAsync';
 
 const NO_USERS: User[] = [];
 
+/** Accounts — who can sign in (spec 015, contracts/phone-screens.md
+ *  "Accounts").
+ *
+ *  Built from `web/src/pages/Users.tsx`: the same call, the same "0 people
+ *  can sign in" rule (a claim only made once the engine has actually
+ *  answered), and the same role/capability matrix. Rearranged as a card of
+ *  list rows instead of a five-column table row, because a table row is
+ *  exactly the shape the inventory found broken here: the console's per-row
+ *  "Edit" button has no click handler at all (research R10). That is left
+ *  out rather than copied — a button that does nothing is a fact this app
+ *  does not get to invent. */
+function initialsOf(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  const first = parts[0]!.charAt(0);
+  const last = parts.length > 1 ? parts[parts.length - 1]!.charAt(0) : '';
+  return (first + last).toUpperCase();
+}
+
 export function Users() {
   const t = useT();
   const { language } = useLanguage();
@@ -39,39 +58,28 @@ export function Users() {
           <Empty>{t('users.none')}</Empty>
         )}
 
-        {users.map((user) => (
-          <div
-            key={user.id}
-            className="row"
-            style={{ gridTemplateColumns: '1.2fr .7fr 1.6fr .9fr .5fr' }}
-          >
-            <span className="row__name">{user.name}</span>
-            <span>
-              <Badge tone={user.role === 'admin' ? 'good' : 'neutral'}>
-                {t(user.role === 'admin' ? 'role.admin' : 'role.it')}
-              </Badge>
-            </span>
-            <span
-              className="row__muted"
-              style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}
-            >
-              {user.email}
-            </span>
-            <span className="row__muted">{user.lastActive}</span>
-            <button type="button" className="linkbtn">
-              Edit
-            </button>
+        {users.length > 0 && (
+          <div className="list" style={{ marginTop: 10 }}>
+            {users.map((user) => (
+              <div key={user.id} className="li">
+                <span className="avatar" aria-hidden="true">{initialsOf(user.name)}</span>
+                <span className="li__main">
+                  <span className="li__title">{user.name}</span>
+                  <span className="li__sub">{user.email}</span>
+                  <span className="li__sub">{user.lastActive}</span>
+                </span>
+                <Badge tone={user.role === 'admin' ? 'good' : 'neutral'}>
+                  {t(user.role === 'admin' ? 'role.admin' : 'role.it')}
+                </Badge>
+              </div>
+            ))}
           </div>
-        ))}
+        )}
+      </Card>
 
-        <div className="section-title" style={{ marginTop: 22, marginBottom: 10 }}>
-          {t('users.roleWhatEachCanDo')}
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr .6fr .6fr', fontSize: 13.5 }}>
-          <span className="row--head">{t('users.capabilityHead')}</span>
-          <span className="row--head">{t('users.adminHead')}</span>
-          <span className="row--head">{t('users.itHead')}</span>
-
+      <Card>
+        <CardHeader title={t('users.roleWhatEachCanDo')} />
+        <div style={{ marginTop: 4 }}>
           {CAPABILITIES.map((row) => (
             <Capability key={row.capability} {...row} />
           ))}
@@ -81,6 +89,10 @@ export function Users() {
   );
 }
 
+/* One capability per block rather than one cell per role: a bare "Yes" next
+ * to a bare "No" only means something under a column header, and a phone
+ * card has nowhere honest to keep that header attached once the row wraps.
+ * Naming the role next to its answer keeps the fact readable on its own. */
 function Capability({
   capability,
   admin,
@@ -91,15 +103,20 @@ function Capability({
   it: boolean;
 }) {
   const t = useT();
-  const cell = { padding: '9px 0', borderTop: '1px solid var(--line)' } as const;
-  const yes = { ...cell, color: 'var(--ac2)', fontWeight: 600 } as const;
-  const no = { ...cell, color: 'var(--tx3)' } as const;
+  const yes = { fontSize: 13, fontWeight: 600, color: 'var(--ac2)' } as const;
+  const no = { fontSize: 13, fontWeight: 600, color: 'var(--tx3)' } as const;
 
   return (
-    <>
-      <span style={cell}>{t(capability)}</span>
-      <span style={admin ? yes : no}>{t(admin ? 'common.yes' : 'common.no')}</span>
-      <span style={it ? yes : no}>{t(it ? 'common.yes' : 'common.no')}</span>
-    </>
+    <div style={{ padding: '12px 0', borderTop: '1px solid var(--line)' }}>
+      <div style={{ fontSize: 14, marginBottom: 6 }}>{t(capability)}</div>
+      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+        <span style={admin ? yes : no}>
+          {t('role.admin')}: {t(admin ? 'common.yes' : 'common.no')}
+        </span>
+        <span style={it ? yes : no}>
+          {t('role.it')}: {t(it ? 'common.yes' : 'common.no')}
+        </span>
+      </div>
+    </div>
   );
 }

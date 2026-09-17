@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Badge, Card, DataNotice, Empty, LoadError, PageHeader } from '@/components/ui';
+import { Badge, DataNotice, Empty, LoadError } from '@/components/ui';
+import { Icon } from '@/components/Icon';
 import { getGroups, getPeople, removePerson } from '@/services/api';
 import type { DirectoryPerson, GroupSummary, PersonType } from '@/types';
 import { useAccount } from '@/app/AuthContext';
@@ -9,16 +10,27 @@ import { useAsync } from '@/app/useAsync';
 import { useLanguage, useT } from '@/app/LanguageContext';
 import type { MessageKey } from '@/i18n';
 
-const TABS: (PersonType | 'All')[] = ['All', 'Student', 'Staff', 'Visitor'];
+/** People, laid out for a phone (spec 015, P13-FR-053).
+ *
+ *  Built from `web/src/pages/People.tsx`: the same directory, the same
+ *  filters, the same two navigations off a row (history, Track today) and the
+ *  same admin-only two-step Remove. What changed is the arrangement — a table
+ *  row becomes a card, and the type tabs become a horizontal chip row so the
+ *  count on each is visible without opening anything.
+ *
+ *  People is a tab root, so it draws its own `h1`/lead rather than a back
+ *  header (`tabs.ts`), and Enrol sits beside the title the way the design
+ *  shows it — a courtesy gate on top of the server's own admin check, not a
+ *  replacement for it. */
 
-/* What one tab calls the thing it is counting used to be a table of English
-   nouns here, with singular and plural picked against the real number so
-   "1 students" could not happen. Both forms now live in the catalogue as
-   `people.count.*` and `people.countOne.*` — Arabic does not split the same
-   way English does, and the noun cannot be glued on afterwards. */
+const TABS: (PersonType | 'All')[] = ['All', 'Student', 'Staff', 'Visitor'];
 
 const NO_PEOPLE: DirectoryPerson[] = [];
 const NO_GROUPS: GroupSummary[] = [];
+
+function initials(name: string): string {
+  return name.split(' ').map((w) => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
+}
 
 export function People() {
   const { language } = useLanguage();
@@ -26,11 +38,11 @@ export function People() {
   const capability = useCapability('people');
   const navigate = useNavigate();
   // A hint for the interface, never a permission: the engine refuses a
-  // non-administrator whatever this console decides to draw.
+  // non-administrator whatever this app decides to draw.
   const isAdmin = useAccount().role === 'admin';
   const [tab, setTab] = useState<PersonType | 'All'>('All');
-  // Ask lands here with the question resolved. See Attendance for why
-  // reading these matters: a link nothing reads is decoration.
+  // Ask and the bell land here with the question resolved — a link nothing
+  // reads is decoration.
   const [params] = useSearchParams();
   const [query, setQuery] = useState(params.get('query') ?? '');
   // Which row is mid-confirmation, and what the last removal said if it failed.
@@ -45,7 +57,7 @@ export function People() {
     data: groups, error: groupsError, loading: groupsLoading, reload: reloadGroups,
   } = useAsync(() => getGroups(language), [language], NO_GROUPS);
 
-  /** The row is the link. History works for staff and visitors exactly as it
+  /** The card is the link. History works for staff and visitors exactly as it
    *  does for students — the page was the only thing gating it. */
   function openHistory(p: DirectoryPerson) {
     navigate(`/people/history/${encodeURIComponent(p.name)}`, {
@@ -82,12 +94,18 @@ export function People() {
     );
   }, [people, tab, query]);
 
+  const counts = useMemo(() => {
+    const byType: Record<PersonType | 'All', number> = {
+      All: people.length, Student: 0, Staff: 0, Visitor: 0,
+    };
+    for (const p of people) byType[p.type] += 1;
+    return byType;
+  }, [people]);
+
   // The heading used to come from a hard-coded table - "2,118 people",
-  // "1,742 students" - which the page printed whatever the engine returned,
-  // including when it returned nothing or failed outright. It is now counted
-  // from the rows actually on screen, and says nothing at all until they are
-  // there. A directory that invents its own size is exactly the fixture the
-  // constitution forbids.
+  // "1,742 students" - which printed whatever the engine returned, including
+  // when it returned nothing or failed outright. It is counted from the rows
+  // actually on screen instead, and says nothing at all until they are there.
   const known = !peopleLoading && !peopleError;
   const counted = filtered.length === 1
     ? t(`people.countOne.${tab}` as MessageKey)
@@ -103,177 +121,60 @@ export function People() {
       <DataNotice capability={capability} />
       <LoadError error={peopleError} onRetry={reloadPeople} what="load.peopleDirectory" />
       <LoadError error={removeError} what="load.removal" />
-      <PageHeader
-        title={t('people.title')}
-        lead={t('people.lead')}
-      />
 
-      <Card tight>
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-          <input
-            className="input"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={t('people.searchByName')}
-            style={{ flex: 1, minWidth: 200, height: 44, borderRadius: 11, fontSize: 14.5 }}
-          />
-          <div style={{ display: 'flex', gap: 6 }}>
-            {TABS.map((key) => (
-              <button
-                key={key}
-                type="button"
-                className={`chip-btn ${tab === key ? 'chip-btn--on' : 'chip-btn--off'}`}
-                onClick={() => setTab(key)}
-              >
-                {t(`people.tab.${key}` as MessageKey)}
-              </button>
-            ))}
-          </div>
-          <button
-            type="button"
-            className="chip-btn chip-btn--on"
-            onClick={() => navigate('/people/enrol')}
-          >
+      <div className="spread" style={{ alignItems: 'flex-end' }}>
+        <div>
+          <h1 className="h1">{t('people.title')}</h1>
+          <p className="lead">{t('people.lead')}</p>
+        </div>
+        {isAdmin && (
+          <button type="button" className="btn btn--sm" onClick={() => navigate('/people/enrol')}>
+            <Icon name="plus" size={18} />
             Enrol a face
           </button>
-        </div>
-      </Card>
-
-      <Card>
-        <div style={{ fontWeight: 700, fontSize: 21, letterSpacing: '-.01em' }}>{heading}</div>
-        <div style={{ fontSize: 13.5, color: 'var(--tx2)', margin: '2px 0 10px' }}>
-          Click anyone to see their history. A face on file is what lets the
-          cameras recognise someone at the gates.
-        </div>
-
-        {filtered.map((p) => (
-          <div
-            key={p.id || p.name}
-            className="row row--click"
-            role="button"
-            tabIndex={0}
-            aria-label={t('people.open', { name: p.name })}
-            onClick={() => openHistory(p)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                openHistory(p);
-              }
-            }}
-            style={{ gridTemplateColumns: '1.5fr .7fr 1.4fr 1.5fr .9fr .9fr' }}
-          >
-            <span>
-              <span className="row__name">{p.name}</span>
-              <br />
-              <span style={{ fontSize: 12.5, color: 'var(--tx3)' }}>
-                {p.sub || p.enrolled}
-              </span>
-            </span>
-            <span>
-              <Badge tone={p.type === 'Student' ? 'good' : p.type === 'Staff' ? 'neutral' : 'warn'}>
-                {t(`person.type.${p.type}` as MessageKey)}
-              </Badge>
-            </span>
-            {/* What the cameras can actually do with this person, in a
-                sentence. "Photo on file" said the same thing in words nobody
-                could act on. */}
-            <span style={{ fontSize: 13, lineHeight: 1.35, color: p.photoOnFile ? 'var(--tx2)' : 'var(--am)' }}>
-              {p.recognition}
-              {p.sub && p.enrolled && (
-                <>
-                  <br />
-                  <span style={{ color: 'var(--tx3)', fontSize: 12.5 }}>{p.enrolled}</span>
-                </>
-              )}
-            </span>
-            {/* "Not seen yet" is a fact, and it is written as one. */}
-            <span style={{ color: 'var(--tx2)', fontSize: 13, lineHeight: 1.35 }}>
-              {p.lastSeen}
-            </span>
-            {/* Blank when nothing is recording attendance — an empty register
-                is not the same claim as everybody being absent. */}
-            <span>
-              {p.today ? <Badge tone={p.todayTone}>{p.today}</Badge> : null}
-            </span>
-            <span style={{ display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-              <button
-                type="button"
-                className="linkbtn"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  navigate('/track', { state: { autoRun: true, presetPerson: p.name } });
-                }}
-              >
-                Track today
-              </button>
-              {/* Administrators only. Two steps, with the consequence written
-                  out — removal is rare and deliberate, and there is no undo. */}
-              {isAdmin && confirming !== p.id && (
-                <button
-                  type="button"
-                  className="linkbtn"
-                  style={{ color: 'var(--rd)' }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setRemoveError(null);
-                    setConfirming(p.id);
-                  }}
-                >
-                  Remove
-                </button>
-              )}
-            </span>
-            {isAdmin && confirming === p.id && (
-              <span
-                style={{
-                  gridColumn: '1 / -1',
-                  display: 'flex',
-                  gap: 10,
-                  alignItems: 'center',
-                  flexWrap: 'wrap',
-                  fontSize: 13,
-                  color: 'var(--rd)',
-                  marginTop: 6,
-                }}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <span>
-                  Remove <strong>{p.name}</strong>? This deletes their face data.
-                  The cameras will no longer recognise them, and this cannot be
-                  undone.
-                </span>
-                <button
-                  type="button"
-                  className="chip-btn chip-btn--on"
-                  disabled={removing}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void remove(p);
-                  }}
-                >
-                  {t(removing ? 'people.removing' : 'action.remove')}
-                </button>
-                <button
-                  type="button"
-                  className="chip-btn chip-btn--off"
-                  disabled={removing}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setConfirming(null);
-                  }}
-                >
-                  {t('action.cancel')}
-                </button>
-              </span>
-            )}
-          </div>
-        ))}
-
-        {peopleLoading && <Empty>{t('people.loadingDirectory')}</Empty>}
-        {peopleError && !peopleLoading && (
-          <Empty>{t('people.notListed')}</Empty>
         )}
-        {known && filtered.length === 0 && (
+      </div>
+
+      <input
+        className="input"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder={t('people.searchByName')}
+        aria-label={t('people.searchByName')}
+        enterKeyHint="search"
+      />
+
+      <div className="chips">
+        {TABS.map((key) => (
+          <button
+            key={key}
+            type="button"
+            className={tab === key ? 'chip chip--on' : 'chip'}
+            aria-pressed={tab === key}
+            onClick={() => setTab(key)}
+          >
+            <span>{t(`people.tab.${key}` as MessageKey)}</span>
+            <span className="chip__n">{counts[key]}</span>
+          </button>
+        ))}
+      </div>
+
+      <div className="sechead">
+        <span className="sechead__title">{heading}</span>
+      </div>
+      {/* "Click" on the console became "Tap" here — the same fact, said for a
+          finger instead of a mouse. */}
+      <p className="note" style={{ margin: '0 2px' }}>
+        Tap anyone to see their history. A face on file is what lets the
+        cameras recognise someone at the gates.
+      </p>
+
+      {peopleLoading && <div className="card"><Empty>{t('people.loadingDirectory')}</Empty></div>}
+      {peopleError && !peopleLoading && (
+        <div className="card"><Empty>{t('people.notListed')}</Empty></div>
+      )}
+      {known && filtered.length === 0 && (
+        <div className="card">
           <Empty>
             {query.trim()
               ? t('people.noMatch')
@@ -283,37 +184,136 @@ export function People() {
                   noun: t(`people.noun.${tab}` as MessageKey),
                 })}
           </Empty>
-        )}
-      </Card>
-
-      <Card>
-        <div style={{ fontWeight: 700, fontSize: 15 }}>{t('people.groupsTitle')}</div>
-        <div style={{ fontSize: 13, color: 'var(--tx2)', margin: '2px 0 6px' }}>
-          {t('people.groupsLead')}
         </div>
-        <LoadError error={groupsError} onRetry={reloadGroups} what="load.groupList" />
-        {groupsLoading && <Empty>{t('people.loadingGroups')}</Empty>}
-        {!groupsLoading && !groupsError && groups.length === 0 && (
-          <Empty>{t('people.noGroups')}</Empty>
-        )}
-        {groups.map((g) => (
+      )}
+
+      {filtered.map((p) => (
+        <div key={p.id || p.name} className="card stack" style={{ gap: 10 }}>
           <button
-            key={g.name}
             type="button"
-            className="list-row"
-            onClick={() => navigate(`/people/groups/${encodeURIComponent(g.name)}`)}
+            className="hstack"
+            style={{
+              background: 'none', border: 0, padding: 0, textAlign: 'start',
+              width: '100%', minHeight: 44, cursor: 'pointer', color: 'inherit', font: 'inherit',
+            }}
+            aria-label={t('people.open', { name: p.name })}
+            onClick={() => openHistory(p)}
           >
-            <span className="row__name">{g.name}</span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-              <span style={{ color: 'var(--tx2)', fontSize: 13 }}>{g.count}</span>
-              <span style={{ color: 'var(--ac)', fontWeight: 600, fontSize: 13 }}>
-                {t('people.seeWhoIsInIt')}{' '}
-                <span className="mirror-rtl" aria-hidden="true">→</span>
+            <span className="avatar" aria-hidden="true">{initials(p.name)}</span>
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <span className="hstack" style={{ gap: 8 }}>
+                <span className="li__title">{p.name}</span>
+                <Badge tone={p.type === 'Student' ? 'good' : p.type === 'Staff' ? 'neutral' : 'warn'}>
+                  {t(`person.type.${p.type}` as MessageKey)}
+                </Badge>
               </span>
+              {/* The subtitle is whichever the engine sent: a group/detail
+                  string, or - when there is neither - the enrolment date.
+                  Folding this into one fallback (rather than always reading
+                  `p.sub`) is what keeps an enrolled-but-ungrouped person's
+                  date from silently vanishing. */}
+              <span className="li__sub" style={{ display: 'block' }}>{p.sub || p.enrolled}</span>
             </span>
+            <span className="li__chev"><Icon name="chevron" size={18} mirror /></span>
           </button>
-        ))}
-      </Card>
+
+          {/* What the cameras can actually do with this person, in a
+              sentence. "Photo on file" said the same thing in words nobody
+              could act on. */}
+          <p className="li__sub" style={{ margin: 0, color: p.photoOnFile ? undefined : 'var(--am)' }}>
+            {p.recognition}
+            {p.sub && p.enrolled && ` · ${p.enrolled}`}
+          </p>
+          {/* "Not seen yet" is a fact, and it is written as one. */}
+          <p className="li__sub" style={{ margin: 0 }}>{p.lastSeen}</p>
+          {/* Blank when nothing is recording attendance — an empty register
+              is not the same claim as everybody being absent. */}
+          {p.today && <div><Badge tone={p.todayTone}>{p.today}</Badge></div>}
+
+          <div className="btnrow">
+            <button
+              type="button"
+              className="btn btn--soft btn--sm"
+              onClick={() => navigate('/track', { state: { autoRun: true, presetPerson: p.name } })}
+            >
+              Track today
+            </button>
+            {/* Administrators only. Two steps, with the consequence written
+                out — removal is rare and deliberate, and there is no undo.
+                Hidden once confirming for this row, so exactly one
+                Remove-related control shows at a time (web/src/pages/People.tsx:211). */}
+            {isAdmin && confirming !== p.id && (
+              <button
+                type="button"
+                className="btn btn--danger-outline btn--sm"
+                onClick={() => {
+                  setRemoveError(null);
+                  setConfirming(p.id);
+                }}
+              >
+                Remove
+              </button>
+            )}
+          </div>
+
+          {isAdmin && confirming === p.id && (
+            <div className="notice notice--bad" style={{ flexDirection: 'column', gap: 10 }}>
+              <span>
+                Remove <strong>{p.name}</strong>? This deletes their face data.
+                The cameras will no longer recognise them, and this cannot be
+                undone.
+              </span>
+              <div className="btnrow">
+                <button
+                  type="button"
+                  className="btn btn--danger btn--sm"
+                  disabled={removing}
+                  onClick={() => void remove(p)}
+                >
+                  {t(removing ? 'people.removing' : 'action.remove')}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--ghost btn--sm"
+                  disabled={removing}
+                  onClick={() => setConfirming(null)}
+                >
+                  {t('action.cancel')}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
+
+      <div className="sechead">
+        <span className="sechead__title">{t('people.groupsTitle')}</span>
+      </div>
+      <p className="note" style={{ margin: '0 2px' }}>{t('people.groupsLead')}</p>
+      <LoadError error={groupsError} onRetry={reloadGroups} what="load.groupList" />
+      {groupsLoading && <div className="card"><Empty>{t('people.loadingGroups')}</Empty></div>}
+      {!groupsLoading && !groupsError && groups.length === 0 && (
+        <div className="card"><Empty>{t('people.noGroups')}</Empty></div>
+      )}
+      {groups.length > 0 && (
+        <div className="list">
+          {groups.map((g) => (
+            <button
+              key={g.name}
+              type="button"
+              className="li"
+              onClick={() => navigate(`/people/groups/${encodeURIComponent(g.name)}`)}
+            >
+              <span className="icontile" aria-hidden="true"><Icon name="people" /></span>
+              <span className="li__main">
+                <span className="li__title">{g.name}</span>
+                <span className="li__sub">{g.count}</span>
+              </span>
+              <span className="li__chev"><Icon name="chevron" size={18} mirror /></span>
+            </button>
+          ))}
+        </div>
+      )}
     </>
   );
 }

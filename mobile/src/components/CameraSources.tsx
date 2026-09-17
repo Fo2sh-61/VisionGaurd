@@ -547,15 +547,18 @@ export function CameraSources() {
             <div
               style={{
                 display: 'flex',
+                // Phone (spec 015): the name takes its own line, and the
+                // status and actions wrap under it instead of off the screen.
+                flexWrap: 'wrap',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                gap: 12,
+                gap: 8,
                 padding: '12px 0',
                 borderBottom: '1px solid var(--line)',
               }}
             >
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 600, fontSize: 14 }}>{src.name}</div>
+              <div style={{ flex: '1 1 100%', minWidth: 0, overflowWrap: 'anywhere' }}>
+                <div style={{ fontWeight: 600, fontSize: 15 }}>{src.name}</div>
                 <div style={{ fontSize: 12.5, color: 'var(--tx3)' }}>
                   {src.type} · {src.ip}
                   {src.features.length > 0 && ` · ${src.features.join(', ')}`}
@@ -568,7 +571,7 @@ export function CameraSources() {
                 // its own. A "Retry" button that only flipped a local flag to
                 // green was worse than no button: it made a broken camera look
                 // fixed. Show the reason instead.
-                <span style={{ fontSize: 12.5, color: 'var(--tx3)', whiteSpace: 'nowrap' }}>
+                <span style={{ fontSize: 12.5, color: 'var(--tx3)', flex: 1 }}>
                   {t(src.status === 'down' ? 'source.status.retrying' : 'source.status.checkPassword')}
                 </span>
               )}
@@ -924,10 +927,12 @@ export function CameraSources() {
                       className="toggle"
                       role="switch"
                       aria-checked={ch.enabled}
-                      style={{ background: ch.enabled ? 'var(--ac)' : 'var(--toggle-off)' }}
                       onClick={() => toggleDvrChannel(i)}
                     >
-                      <span className="toggle__knob" style={{ left: ch.enabled ? 18 : 2 }} />
+                      {/* Phone (spec 015): 44 px target around the visible track. */}
+                      <span className="toggle__track" style={{ background: ch.enabled ? 'var(--ac)' : 'var(--toggle-off)' }}>
+                        <span className="toggle__knob" style={{ insetInlineStart: ch.enabled ? 24 : 4 }} />
+                      </span>
                     </button>
                   ) : (
                     <span />

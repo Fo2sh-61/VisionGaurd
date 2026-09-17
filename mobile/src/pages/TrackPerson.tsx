@@ -117,7 +117,7 @@ export function TrackPerson() {
   const [mode, setMode] = useState<Mode>(askedPerson ? 'past' : 'live');
 
   return (
-    <>
+    <div className="legacy">
       <PageHeader
         title={t('track.title')}
         lead={t('track.lead')}
@@ -149,7 +149,7 @@ export function TrackPerson() {
       {mode === 'find' && <BrowseFootage cameras={cameras} today={today} />}
 
       <Legend />
-    </>
+    </div>
   );
 }
 

@@ -74,6 +74,7 @@ export function CamGrid({
   onPick,
   activeId,
   activeRef,
+  detections = true,
   feature,
   colour,
   tileOverlay = false,
@@ -105,6 +106,11 @@ export function CamGrid({
   /** Handed the chosen camera's tile, so a page can bring it into view - the
    *  camera an alert linked to. */
   activeRef?: (element: HTMLElement | null) => void;
+  /** Phone (spec 015): false on a screen that must not name anybody - no
+   *  boxes on the tiles and none in the enlarged view. The console's System
+   *  health grid passed no feature, so its enlarged view drew face boxes
+   *  with names; the phone's does not. */
+  detections?: boolean;
   /** Which overlay the enlarged view should draw. The tiles never draw one,
    *  so this only reaches the opened camera — which is exactly where it
    *  matters: the counting page must not open a face review. */
@@ -228,6 +234,7 @@ export function CamGrid({
         feature={tileOverlay ? feature : undefined}
         colour={colour}
         tileOverlay={tileOverlay}
+        detections={detections}
       />
       <div className="camcard__meta">
         <div
@@ -376,7 +383,13 @@ export function CamGrid({
       )}
 
       {open && (
-        <CameraModal camera={open} onClose={() => setOpen(null)} feature={feature} colour={colour} />
+        <CameraModal
+          camera={open}
+          onClose={() => setOpen(null)}
+          feature={feature}
+          colour={colour}
+          detections={detections}
+        />
       )}
     </div>
   );

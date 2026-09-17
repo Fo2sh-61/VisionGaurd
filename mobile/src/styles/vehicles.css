@@ -1,0 +1,20 @@
+/* Vehicle gate — fixes for the console's own components (VehicleReader,
+ * VehicleMovementsTab, VehicleRegisterTab, VehiclePassesCard, PlateEditor)
+ * rendered unmodified inside `.legacy` on the Live, Movements and Registered
+ * tabs (spec 015, mobile/src/pages/VehicleGate.tsx). Those files are shared
+ * with the console and are not edited here — only their layout, and only
+ * inside `.vg-vehicles-legacy`, so nothing here reaches another screen's own
+ * `.legacy` content.
+ *
+ * `app.css`'s own `.legacy [style*='grid-template-columns']` rule already
+ * turns an inline column grid into a wrapping flex row; most rows across
+ * these files use the shared `.row` class, which `app.css` already folds for
+ * every screen. What is left is the auto-fit grids that hold whole FIELDS or
+ * CARDS rather than table cells — the register's add/edit form and the
+ * gate-by-gate summary — where the folded children have nothing forcing them
+ * wide, so they shrink to their content and the form reads as a cramped
+ * cluster instead of a stack. */
+
+.vg-vehicles-legacy [style*='grid-template-columns'] > * {
+  flex: 1 1 240px;
+}

@@ -2,8 +2,12 @@ import { useCallback, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAccount } from '@/app/AuthContext';
 import { useAutoRun } from '@/app/useAutoRun';
+import { usePageAction } from '@/app/PageChrome';
 import { CamGrid } from '@/components/CamGrid';
-import { Badge, Card, CardHeader, DataNotice, Empty, Field, PageHeader, Select, Stats, toneGlyph } from '@/components/ui';
+import { Icon } from '@/components/Icon';
+import {
+  Badge, Card, DataNotice, Empty, Field, PageHeader, Select, Stats, toneGlyph,
+} from '@/components/ui';
 import { exportAttendance, getAttendance } from '@/services/api';
 import { useChoice, useGroupNames, usePersonNames } from '@/app/useOptions';
 import { useToday } from '@/app/SiteContext';
@@ -12,9 +16,27 @@ import { useCapability } from '@/app/CapabilityContext';
 import { useLanguage, useT } from '@/app/LanguageContext';
 import type { MessageKey } from '@/i18n';
 
-/* The picker's values are the modes themselves; the wording comes from the
-   catalogue, so a rewording cannot silently change which query runs. */
+/*  Attendance, laid out for a phone (spec 015, P13-FR-052).
+ *
+ *  Built from `web/src/pages/Attendance.tsx`: the same query, the same
+ *  export call, the same wording. What changed is the arrangement: the mode
+ *  picker is a seg, the group/person picker opens a bottom sheet instead of a
+ *  dropdown, the result leads with a headline figure instead of a table, and
+ *  Export sheet moved into the back header (P13-FR-050) - it stays disabled
+ *  until there is a result on screen, exactly as the console disables its own
+ *  button, and a failure is shown on the page since there is no room in the
+ *  header for it.
+ *
+ *  Unchanged on purpose: Notify parent is a dead button everywhere, because
+ *  nothing on this build holds a parent's phone number - the console shows
+ *  that on hover, the phone shows it as a line of text instead. */
+
 const MODES: AttendanceMode[] = ['group', 'person'];
+
+/** The label's own initial letters — the label may already be "Unknown". */
+function initials(name: string): string {
+  return name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]!.toUpperCase()).join('');
+}
 
 export function Attendance() {
   const t = useT();
@@ -26,10 +48,8 @@ export function Attendance() {
   const people = usePersonNames();
   const today = useToday();
 
-  // Ask arrives here with the question already resolved: `?mode=person
-  // &subject=Sara Ahmed&date=2026-08-30`. Reading them is what turns "was
-  // Sara late today" into an answer instead of an empty form and a name the
-  // operator has to type a second time.
+  // Ask arrives here with the question already resolved:
+  // `?mode=person&subject=Sara Ahmed&date=2026-08-30`.
   const [params] = useSearchParams();
   const asked = params.get('subject') ?? '';
   const askedMode = params.get('mode');
@@ -45,7 +65,6 @@ export function Attendance() {
   const selectedDate = date || today;
   const [result, setResult] = useState<AttendanceResult | null>(null);
   const [loading, setLoading] = useState(false);
-
 
   const run = useCallback(async () => {
     setLoading(true);
@@ -87,74 +106,84 @@ export function Attendance() {
 
   useAutoRun(run);
 
+  const exportDisabled = !result || exporting;
+  usePageAction(
+    <button
+      type="button"
+      className="iconbtn"
+      aria-label={t(exporting ? 'attendance.preparing' : 'attendance.exportSheet')}
+      disabled={exportDisabled}
+      onClick={() => void exportSheet()}
+    >
+      <Icon name="export" size={22} />
+    </button>,
+    [exportDisabled, exporting, t],
+  );
+
   return (
     <>
       <DataNotice capability={capability} />
+      {/* Same fact as the console's PageHeader lead (web/src/pages/Attendance.tsx:93-96) -
+          the register is filled in automatically by face recognition, not by a person
+          taking roll. The console literal stays the same literal, untranslated. */}
       <PageHeader
-        title="Attendance"
+        title={t('nav.attendance.label')}
         lead="Recorded automatically by face recognition at the four entrance cameras."
       />
 
-      <Card tight>
-        <div className="filters">
-          <Field label={t('attendance.showMe')}>
-            <Select
-              value={mode}
-              onChange={(v) => setMode(v as AttendanceMode)}
-              options={MODES}
-              label={(o) => t(`attendance.mode.${o}` as MessageKey)}
-            />
-          </Field>
-
-          {mode === 'group' ? (
-            <Field label={t('attendance.group')}>
-              <Select value={selectedGroup} onChange={setGroup} options={groups} />
-            </Field>
-          ) : (
-            <Field label={t('attendance.person')}>
-              <Select value={selectedPerson} onChange={setPerson} options={people} />
-            </Field>
-          )}
-
-          <Field label={t('attendance.date')}>
-            <input
-              className="input"
-              type="date"
-              value={selectedDate}
-              onChange={(e) => setDate(e.target.value)}
-            />
-          </Field>
-
-          <button type="button" className="btn" onClick={() => void run()} disabled={loading}>
-            {t(loading ? 'attendance.checking' : 'attendance.show')}
-          </button>
-
-          <button
-            type="button"
-            className="btn btn--ghost"
-            onClick={() => void exportSheet()}
-            // Only offer the download once there is a result on screen, so the
-            // file always matches what was just looked at.
-            disabled={!result || exporting}
-            title={result
-              ? t('attendance.downloadCsv', { date: selectedDate })
-              : t('attendance.showRegisterFirst')}
-          >
-            {t(exporting ? 'attendance.preparing' : 'attendance.exportSheet')}
-          </button>
+      <Card className="stack">
+        <div className="field">
+          <span className="field__label" id="attendance-showme">{t('attendance.showMe')}</span>
+          <div className="seg" role="group" aria-labelledby="attendance-showme">
+            {MODES.map((m) => (
+              <button
+                key={m}
+                type="button"
+                className={mode === m ? 'seg__btn seg__btn--on' : 'seg__btn'}
+                aria-pressed={mode === m}
+                onClick={() => setMode(m)}
+              >
+                {t(`attendance.mode.${m}` as MessageKey)}
+              </button>
+            ))}
+          </div>
         </div>
 
+        {mode === 'group' ? (
+          <Field label={t('attendance.group')}>
+            <Select value={selectedGroup} onChange={setGroup} options={groups} />
+          </Field>
+        ) : (
+          <Field label={t('attendance.person')}>
+            <Select value={selectedPerson} onChange={setPerson} options={people} />
+          </Field>
+        )}
+
+        <Field label={t('attendance.date')}>
+          <input
+            className="input"
+            type="date"
+            value={selectedDate}
+            onChange={(e) => setDate(e.target.value)}
+          />
+        </Field>
+
+        <button type="button" className="btn btn--block" onClick={() => void run()} disabled={loading}>
+          {t(loading ? 'attendance.checking' : 'attendance.show')}
+        </button>
+
+        {/* The console only says this on hover (title= on the Export sheet button,
+            web/src/pages/Attendance.tsx:139-141) - here it is always-visible text,
+            same wording, same keys, telling you what Export sheet in the header
+            will do or why it is greyed out. */}
+        <p className="note">
+          {result
+            ? t('attendance.downloadCsv', { date: selectedDate })
+            : t('attendance.showRegisterFirst')}
+        </p>
+
         {exportError && (
-          <div
-            role="alert"
-            style={{
-              marginTop: 10,
-              fontSize: 13,
-              color: 'var(--bad)',
-            }}
-          >
-            {exportError}
-          </div>
+          <div role="alert" className="notice notice--bad">{exportError}</div>
         )}
       </Card>
 
@@ -163,69 +192,66 @@ export function Attendance() {
       {result && (
         <>
           <Card>
-            <CardHeader title={result.heading} sub={result.sub} />
-            <Stats items={result.stats} />
+            <div className="hero__value">{result.heading}</div>
+            <p className="li__sub" style={{ marginTop: 4 }}>{result.sub}</p>
+            <div style={{ marginTop: 14 }}>
+              <Stats items={result.stats} />
+            </div>
+          </Card>
 
-            {result.rows && (
-              <>
-                <div className="section-title">{t('attendance.needsFollowUp')}</div>
-                {result.rows.map((row) => (
-                  <div
-                    key={row.name}
-                    className="row"
-                    style={{ gridTemplateColumns: '1.4fr 1fr 1fr 1fr' }}
-                  >
-                    <span className="row__name">{row.name}</span>
-                    <span>
-                      <Badge tone={row.tone} glyph={toneGlyph[row.tone]}>
-                        {row.status}
-                      </Badge>
+          {result.rows && (
+            <>
+              <div className="sechead">
+                <span className="sechead__title">
+                  {t('attendance.needsFollowUp')} · {result.rows.length}
+                </span>
+              </div>
+              {result.rows.map((row) => (
+                <Card key={row.name} className="stack">
+                  <div className="hstack">
+                    <span className="avatar" aria-hidden="true">{initials(row.name)}</span>
+                    <span className="li__main">
+                      <span className="li__title">{row.name}</span>
+                      <span className="li__sub">{row.time}</span>
                     </span>
-                    <span className="row__muted">{row.time}</span>
-                    {/* Disabled on purpose, and it says why. Nothing holds a
-                        parent's phone number and there is no way to send a
-                        message, so this button did nothing when pressed -
-                        which on an absence row reads as a message that went
-                        out and did not. */}
-                    {account.role === 'admin' ? (
-                      <button
-                        type="button"
-                        className="linkbtn"
-                        disabled
-                        title={t('attendance.notifyParentWhy')}
-                      >
+                    <Badge tone={row.tone} glyph={toneGlyph[row.tone]}>{row.status}</Badge>
+                  </div>
+                  {/* Disabled on purpose, and it says why. Nothing holds a
+                      parent's phone number and there is no way to send a
+                      message, so this button did nothing when pressed - which
+                      on an absence row reads as a message that went out and
+                      did not. */}
+                  {account.role === 'admin' ? (
+                    <div>
+                      <button type="button" className="btn btn--soft btn--block" disabled>
                         {t('attendance.notifyParent')}
                       </button>
-                    ) : (
-                      <span style={{ color: 'var(--tx3)', fontSize: 13 }}>{t('attendance.adminOnly')}</span>
-                    )}
-                  </div>
-                ))}
-              </>
-            )}
+                      <p className="note" style={{ marginTop: 6 }}>{t('attendance.notifyParentWhy')}</p>
+                    </div>
+                  ) : (
+                    <p className="note">{t('attendance.adminOnly')}</p>
+                  )}
+                </Card>
+              ))}
+            </>
+          )}
 
-            {result.days && (
-              <>
-                <div className="section-title">{t('attendance.recentDays')}</div>
-                {result.days.map((day) => (
-                  <div
-                    key={day.date}
-                    className="row"
-                    style={{ gridTemplateColumns: '1.2fr 1.2fr .8fr 1fr' }}
-                  >
-                    <span>{day.date}</span>
-                    <span className="row__muted">{day.where}</span>
-                    <span>{day.time}</span>
-                    <span>
-                      <Badge tone={day.tone} glyph={toneGlyph[day.tone]}>
-                        {day.status}
-                      </Badge>
-                    </span>
+          {result.days && (
+            <>
+              <div className="sechead">
+                <span className="sechead__title">{t('attendance.recentDays')}</span>
+              </div>
+              {result.days.map((day) => (
+                <Card key={day.date} className="stack">
+                  <div className="spread">
+                    <span className="li__title">{day.date}</span>
+                    <Badge tone={day.tone} glyph={toneGlyph[day.tone]}>{day.status}</Badge>
                   </div>
-                ))}
-              </>
-            )}
-          </Card>
+                  <span className="li__sub">{day.where} · {day.time}</span>
+                </Card>
+              ))}
+            </>
+          )}
 
           <CamGrid
             title={t('attendance.entranceCameras')}

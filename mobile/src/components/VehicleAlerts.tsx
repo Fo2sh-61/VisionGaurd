@@ -6,7 +6,19 @@ import {
 } from '@/services/format';
 import type * as W from '@/services/wire';
 import { useAsync } from '@/app/useAsync';
-import { useLanguage } from '@/app/LanguageContext';
+import { LINKED_STYLE, useLinkedItem } from '@/app/useLinkedItem';
+import { useLanguage, useT } from '@/app/LanguageContext';
+
+/* The alerts strip at the top of the Live tab, laid out for a phone
+ * (spec 015, contracts/phone-screens.md: "VehicleAlerts (resolve admin,
+ * dismiss, linked `?pass=`)").
+ *
+ * Copied from web/src/components/VehicleAlerts.tsx and adjusted for layout
+ * only: every call, the four-second poll, the wording and the linked-item
+ * wiring (the alert bell and Home land here on one pass, `?pass=`, exactly
+ * as the console highlights it) are unchanged. What changed is that a row
+ * that used to pack a message, a clock and two buttons onto one line now
+ * stacks them, because that line does not fit a 360px screen. */
 
 /** Alerts change when a car passes, not frame by frame. */
 const REFRESH_MS = 4_000;
@@ -19,11 +31,13 @@ const TONE: Record<W.GateAlert['kind'], { bg: string; fg: string }> = {
   expired: { bg: 'var(--am-bg)', fg: 'var(--am)' },
 };
 
-function AlertRow({ alert, isAdmin, onResolve, onDismiss }: {
+function AlertRow({ alert, isAdmin, onResolve, onDismiss, linkedRef }: {
   alert: W.GateAlert;
   isAdmin: boolean;
   onResolve: (alert: W.GateAlert) => void;
   onDismiss: (alert: W.GateAlert) => void;
+  /** Set on the one row an alert elsewhere linked to. */
+  linkedRef?: (element: HTMLElement | null) => void;
 }) {
   const { language } = useLanguage();
   const [busy, setBusy] = useState(false);
@@ -32,64 +46,60 @@ function AlertRow({ alert, isAdmin, onResolve, onDismiss }: {
 
   return (
     <div
+      ref={linkedRef}
+      aria-current={linkedRef ? true : undefined}
+      className="stack"
       style={{
-        display: 'flex', alignItems: 'center', gap: 14, padding: '13px 16px',
-        borderRadius: 10, background: tone.bg,
-        borderInlineStart: `4px solid ${tone.fg}`, flexWrap: 'wrap',
+        ...(linkedRef ? LINKED_STYLE : null),
+        gap: 10, padding: '13px 14px', borderRadius: 12, background: tone.bg,
+        borderInlineStart: `4px solid ${tone.fg}`,
       }}
     >
-      <span style={{
-        flex: 1, minWidth: 220, fontSize: 13.5, fontWeight: 600,
-        color: tone.fg, lineHeight: 1.4,
-      }}>
-        {alertMessage(alert, language)}
-      </span>
+      <div className="spread" style={{ alignItems: 'flex-start' }}>
+        <span style={{
+          flex: 1, minWidth: 0, fontSize: 14, fontWeight: 600,
+          color: tone.fg, lineHeight: 1.4,
+        }}>
+          {alertMessage(alert, language)}
+        </span>
 
-      <span style={{
-        fontSize: 12.5, color: 'var(--tx2)',
-        fontFamily: 'ui-monospace, Menlo, monospace', whiteSpace: 'nowrap',
-      }}>
-        {formatClock(alert.at)}
-      </span>
+        <span className="mono" style={{
+          fontSize: 12.5, color: 'var(--tx2)', whiteSpace: 'nowrap',
+        }}>
+          {formatClock(alert.at)}
+        </span>
+      </div>
 
       {/* No action button on a blacklisted car: there is nothing the console
           can do about a car that has already driven in, and a button that
           implied otherwise would be a dead control. Acting on the other two
           means writing the register, which stays admin-only — the server
           refuses it regardless of what this draws. */}
-      {action && isAdmin && (
+      <div className="btnrow">
+        {action && isAdmin && (
+          <button
+            type="button"
+            className="btn btn--sm"
+            disabled={busy}
+            onClick={() => { setBusy(true); onResolve(alert); }}
+            style={{ background: tone.fg, color: 'var(--on-ac)' }}
+          >
+            {action}
+          </button>
+        )}
+
+        {/* Dismissing is the one write under /vehicles a guard may make — the
+            person standing at the gate is a guard, and an alert only an admin
+            can clear piles up all shift until nobody reads it. */}
         <button
           type="button"
-          className="chip-btn"
+          className="btn btn--ghost btn--sm"
           disabled={busy}
-          onClick={() => { setBusy(true); onResolve(alert); }}
-          style={{
-            fontSize: 12.5, fontWeight: 600, color: 'var(--on-ac)',
-            cursor: 'pointer', padding: '8px 14px', borderRadius: 9,
-            background: tone.fg, border: 'none', whiteSpace: 'nowrap',
-          }}
+          onClick={() => { setBusy(true); onDismiss(alert); }}
         >
-          {action}
+          {busy ? 'Clearing…' : alertDismissLabel(alert.kind)}
         </button>
-      )}
-
-      {/* Dismissing is the one write under /vehicles a guard may make — the
-          person standing at the gate is a guard, and an alert only an admin
-          can clear piles up all shift until nobody reads it. */}
-      <button
-        type="button"
-        className="chip-btn"
-        disabled={busy}
-        onClick={() => { setBusy(true); onDismiss(alert); }}
-        style={{
-          fontSize: 12.5, fontWeight: 600, color: 'var(--tx2)',
-          cursor: busy ? 'default' : 'pointer', padding: '8px 12px',
-          borderRadius: 9, background: 'var(--card)', border: 'none',
-          whiteSpace: 'nowrap', opacity: busy ? 0.6 : 1,
-        }}
-      >
-        {busy ? 'Clearing…' : alertDismissLabel(alert.kind)}
-      </button>
+      </div>
     </div>
   );
 }
@@ -110,8 +120,18 @@ export function VehicleAlerts({ isAdmin, onRegister }: {
   isAdmin: boolean;
   onRegister: (alert: W.GateAlert) => void;
 }) {
-  const { data: alerts, reload } = useAsync(
+  const t = useT();
+  const { data: alerts, error, loading, reload } = useAsync(
     () => getVehicleAlerts(), [], NONE, REFRESH_MS);
+  // The alert bell and Home land here on one pass: `?pass=` is its id.
+  const linked = useLinkedItem('pass');
+  // This list is what is waiting, so a pass missing from a list that loaded
+  // is a pass nobody is waiting on any more. A list that failed says nothing.
+  const linkedMissing = linked.id !== null && !loading && !error
+    && !alerts.some((a) => a.passId === linked.id);
+  const missingNote = linkedMissing && (
+    <div className="linked-missing" role="status">{t('gate.linkedNotWaiting')}</div>
+  );
 
   async function clear(alert: W.GateAlert, actionTaken: boolean) {
     try {
@@ -124,26 +144,22 @@ export function VehicleAlerts({ isAdmin, onRegister }: {
     }
   }
 
-  if (alerts.length === 0) return null;
+  if (alerts.length === 0) return missingNote || null;
 
   return (
     <Card>
-      <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        gap: 12, flexWrap: 'wrap', marginBottom: 12,
-      }}>
-        <div>
-          <div style={{ fontWeight: 700, fontSize: 15.5 }}>
-            {alerts.length} {alerts.length === 1 ? 'alert' : 'alerts'} waiting
-          </div>
-          <div style={{ fontSize: 12.5, color: 'var(--tx2)', marginTop: 2 }}>
-            Each one names the thing that clears it. Dismissing without doing
-            it is recorded too, under your name.
-          </div>
+      {missingNote}
+      <div className="stack" style={{ gap: 2, marginBottom: 12 }}>
+        <div style={{ fontWeight: 700, fontSize: 16 }}>
+          {alerts.length} {alerts.length === 1 ? 'alert' : 'alerts'} waiting
+        </div>
+        <div style={{ fontSize: 13, color: 'var(--tx2)', lineHeight: 1.4 }}>
+          Each one names the thing that clears it. Dismissing without doing
+          it is recorded too, under your name.
         </div>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div className="stack" style={{ gap: 10 }}>
         {alerts.map((alert) => (
           <AlertRow
             key={alert.passId}
@@ -151,6 +167,7 @@ export function VehicleAlerts({ isAdmin, onRegister }: {
             isAdmin={isAdmin}
             onResolve={(a) => { onRegister(a); void clear(a, true); }}
             onDismiss={(a) => { void clear(a, false); }}
+            linkedRef={alert.passId === linked.id ? linked.ref : undefined}
           />
         ))}
       </div>

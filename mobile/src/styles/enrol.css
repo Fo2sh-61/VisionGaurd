@@ -1,0 +1,48 @@
+/** Enrol — CSS-only phone fit for the console's copy (spec 015, research R1).
+ *
+ *  `pages/Enrol.tsx` is untouched: same session model, same staged-photo
+ *  rules, same `detections={false}` on the live preview, same disabled-Save
+ *  reason. This file only rearranges how that markup looks at 360px, scoped
+ *  to `.legacy` (the wrapper the route puts around a console copy). The
+ *  generic `.legacy` rules in `app.css` already turn any inline
+ *  `grid-template-columns` row into a wrapping flex row and raise every
+ *  `input`/`select` to a 44px, 16px-font control — this file only covers what
+ *  Enrol still needs on top of that.
+ */
+
+/* The live camera preview: the console caps its column at 520px because it
+ * sits beside a sidebar there. On the phone it is the only thing on the
+ * screen, so it should fill whatever width the screen actually has. */
+.legacy [style*='max-width: 520px'] {
+  max-width: 100% !important;
+  width: 100%;
+}
+
+/* The photo strip: five console columns (thumbnail, label, score, note,
+ * remove) already wrap via the generic rule. Two of the five still need
+ * sizing help: the note should read on its own full-width line rather than
+ * fight the score bar for space, and the remove button — a single "×" — is
+ * narrower than a finger without an explicit floor. */
+.legacy .row[style*='56px 1fr 110px'] > div:nth-of-type(4) {
+  flex-basis: 100%;
+}
+
+.legacy button[aria-label^='Remove photo'] {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+/* The pre-session field grid ("Full name", "Type", "Group", "Detail") is a
+ * CSS grid with `repeat(auto-fit, minmax(200px, 1fr))` — the generic rule
+ * matches a literal `grid-template-columns` string, and this value is built
+ * from `repeat(...)`, so it needs its own rule. `minmax(200px` is unique to
+ * this field grid (the console's other auto-fit grids use other widths), so
+ * this cannot catch a form on a page this file does not own. At 360px a
+ * 200px minimum still forces two uneven columns; one column reads better. */
+.legacy [style*='minmax(200px'] {
+  display: flex !important;
+  flex-direction: column;
+  gap: 12px;
+}

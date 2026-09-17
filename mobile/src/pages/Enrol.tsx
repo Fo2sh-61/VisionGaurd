@@ -675,7 +675,14 @@ export function Enrol() {
               >
                 Discard
               </button>
-              <div style={{ fontSize: 12.5, color: 'var(--tx2)' }}>
+              {/* Phone (spec 015): a touch screen has no hover, so the reason
+                  Save is disabled is written out, not left in `title`. */}
+              {!session.ready && (
+                <div style={{ fontSize: 13, color: 'var(--am)', flexBasis: '100%' }}>
+                  Needs {session.requiredCount} usable photos from different angles
+                </div>
+              )}
+              <div style={{ fontSize: 13, color: 'var(--tx2)' }}>
                 Nothing is stored until you press Save. Only the face measurements are
                 kept — never the photographs.
               </div>

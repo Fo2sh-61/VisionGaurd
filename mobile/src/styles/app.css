@@ -1,4 +1,7 @@
 @import './tokens.css';
+@import './track.css';
+@import './enrol.css';
+@import './vehicles.css';
 
 /* The phone's design system (spec 015, the phone-first redesign).
  *
@@ -1144,20 +1147,22 @@ select.input {
 .toggle {
   position: relative;
   width: 52px;
-  height: 32px;
-  border-radius: 16px;
+  height: var(--tap);
   border: 0;
   padding: 0;
   cursor: pointer;
   flex-shrink: 0;
-  background: var(--toggle-off);
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
 }
 
-/* 52 x 32 visible, 52 x 44 to a finger. */
-.toggle::before {
-  content: '';
-  position: absolute;
-  inset: -6px 0;
+.toggle__track {
+  position: relative;
+  display: block;
+  width: 52px;
+  height: 32px;
+  border-radius: 16px;
 }
 
 .toggle__knob {
@@ -1168,7 +1173,7 @@ select.input {
   border-radius: 50%;
   background: #fff;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
-  transition: left 0.15s;
+  transition: inset-inline-start 0.15s;
 }
 
 .toggle:disabled {
@@ -1760,6 +1765,34 @@ body:not(.dark) .sheet__tick {
 .legacy select {
   min-height: 44px;
   font-size: 16px;
+}
+
+/* Copied parts style some buttons and button-like links inline at 33-40 px
+   tall. On a phone every one of them is a finger's target. */
+.legacy button:not(.camcard):not(.toggle):not(.sheet-scrim),
+.legacy a[href][style*='padding'] {
+  min-height: var(--tap);
+  min-width: var(--tap);
+}
+
+.legacy a[href][style*='padding'] {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* A text action in a copied part is still a finger's target. */
+.legacy .linkbtn {
+  min-width: var(--tap);
+  justify-content: center;
+}
+
+/* The copied parts set a few labels at 10-11.5 px inline. The phone's floor
+   is 12 px for anything a person reads. */
+.legacy [style*='font-size: 10px'],
+.legacy [style*='font-size: 10.5px'],
+.legacy [style*='font-size: 11px'],
+.legacy [style*='font-size: 11.5px'] {
+  font-size: 12px !important;
 }
 
 .legacy video {

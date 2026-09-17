@@ -1,13 +1,30 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useLanguage } from '@/app/LanguageContext';
-import { useTheme } from '@/app/ThemeContext';
 import { AlertSettingsCards } from '@/components/AlertSettings';
-import { Card, LoadError, PageHeader, Toggle } from '@/components/ui';
-import { LANGUAGES } from '@/i18n';
+import { Card, LoadError, PageHeader } from '@/components/ui';
+import { useLanguage } from '@/app/LanguageContext';
 import { getSchoolProfile, getZones } from '@/services/api';
 import { formatDayMonthYear } from '@/services/format';
 import type { SchoolProfile, Zone } from '@/types';
+
+/*  Settings, laid out for a phone (spec 015, P13-FR-049).
+ *
+ *  Built from `web/src/pages/Settings.tsx`: the same reads (school profile,
+ *  zone summary), the same independent-failure handling, and the same
+ *  wording. Two things differ on purpose:
+ *
+ *  - The console's "click a value to edit" school profile saves nothing -
+ *    `setProfile` only ever changes local state, and no call writes it back
+ *    (research R10, R15/G15). Copying that editor onto the phone would be a
+ *    second dead control instead of one, so the phone shows the same values
+ *    read-only with `phone.settings.readOnly` in view instead.
+ *  - Appearance and language moved to More (contract: phone-screens.md).
+ *    They are not repeated here, so the lead ("Your school, your alerts...")
+ *    drops the console's "how the console looks" clause — this screen no
+ *    longer delivers that.
+ *
+ *  AlertSettings - rules, recipients, the delivery log - stays the console's
+ *  own component, unchanged, inside `.legacy`. */
 
 const EMPTY_PROFILE: SchoolProfile = {
   name: '',
@@ -27,19 +44,11 @@ function fmtTime(t: string) {
   return `${h12}:${m}${ap}`;
 }
 
-// Dates go through `format.ts` like every other rendered value. This was
-// `toLocaleDateString('en-US', …)`, which showed an Arabic reader an American
-// date - and an English one a format the rest of the console does not use.
-
-type ProfileKey = 'name' | 'hours' | 'term' | 'cutoff';
-
 export function Settings() {
   const navigate = useNavigate();
-  const { dark, toggle } = useTheme();
+  const { language, t } = useLanguage();
 
   const [profile, setProfile] = useState<SchoolProfile>(EMPTY_PROFILE);
-  const [editKey, setEditKey] = useState<ProfileKey | null>(null);
-
   const [zones, setZones] = useState<Zone[]>([]);
 
   // Independent reads. One failing must not blank the other, so each keeps
@@ -70,8 +79,6 @@ export function Settings() {
     void getZones().then(setZones).catch(note('The zone summary'));
   }, [tick]);
 
-  const { language, setLanguage, t } = useLanguage();
-
   const zonesPaused = zones.filter((z) => !z.enabled).length;
   // "0 protected areas · all active" is a reassuring sentence to print when
   // the request simply failed, so it is only printed when zones arrived.
@@ -81,7 +88,7 @@ export function Settings() {
         zonesPaused ? `${zonesPaused} paused` : 'all active'
       } — managed on the Intrusion page, so there is one source of truth`;
 
-  const profileRows: { key: ProfileKey; label: string; display: string }[] = [
+  const profileRows: { key: string; label: string; display: string }[] = [
     { key: 'name', label: 'School name', display: profile.name },
     {
       key: 'hours',
@@ -110,154 +117,38 @@ export function Settings() {
   return (
     <>
       <LoadError error={loadError} onRetry={() => setTick((n) => n + 1)} />
-      <PageHeader title="Settings" lead="Your school, your alerts, and how the console looks." />
+      <PageHeader title="Settings" lead={t('phone.settings.lead')} />
 
       <Card>
         <div style={{ fontWeight: 700, fontSize: 15 }}>School profile</div>
-        <div style={{ fontSize: 13, color: 'var(--tx2)', margin: '2px 0 4px' }}>
-          Click a value to change it — edits save on their own.
+        <div className="li__sub" style={{ margin: '2px 0 10px' }}>
+          {t('phone.settings.readOnly')}
         </div>
 
-        {profileRows.map((row) => (
-          <div key={row.key} className="edit-row">
-            <span style={{ color: 'var(--tx2)' }}>{row.label}</span>
-
-            {editKey === row.key ? (
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                {row.key === 'name' && (
-                  <input
-                    className="edit-input"
-                    autoFocus
-                    defaultValue={profile.name}
-                    onChange={(e) => setProfile((p) => ({ ...p, name: e.target.value }))}
-                    onKeyDown={(e) => (e.key === 'Enter' || e.key === 'Escape') && setEditKey(null)}
-                  />
-                )}
-                {row.key === 'hours' && (
-                  <>
-                    <input
-                      className="edit-input"
-                      type="time"
-                      autoFocus
-                      defaultValue={profile.hoursFrom}
-                      onChange={(e) => e.target.value && setProfile((p) => ({ ...p, hoursFrom: e.target.value }))}
-                    />
-                    <span style={{ color: 'var(--tx3)', fontSize: 13 }}>to</span>
-                    <input
-                      className="edit-input"
-                      type="time"
-                      defaultValue={profile.hoursTo}
-                      onChange={(e) => e.target.value && setProfile((p) => ({ ...p, hoursTo: e.target.value }))}
-                    />
-                  </>
-                )}
-                {row.key === 'term' && (
-                  <>
-                    <input
-                      className="edit-input"
-                      type="date"
-                      autoFocus
-                      defaultValue={profile.termFrom}
-                      onChange={(e) => e.target.value && setProfile((p) => ({ ...p, termFrom: e.target.value }))}
-                    />
-                    <span style={{ color: 'var(--tx3)', fontSize: 13 }}>to</span>
-                    <input
-                      className="edit-input"
-                      type="date"
-                      defaultValue={profile.termTo}
-                      onChange={(e) => e.target.value && setProfile((p) => ({ ...p, termTo: e.target.value }))}
-                    />
-                  </>
-                )}
-                {row.key === 'cutoff' && (
-                  <input
-                    className="edit-input"
-                    type="time"
-                    autoFocus
-                    defaultValue={profile.cutoff}
-                    onChange={(e) => e.target.value && setProfile((p) => ({ ...p, cutoff: e.target.value }))}
-                  />
-                )}
-              </div>
-            ) : (
-              <span style={{ fontWeight: 600, cursor: 'pointer' }} onClick={() => setEditKey(row.key)}>
-                {row.display}
-              </span>
-            )}
-
-            <span
-              style={{ color: 'var(--ac)', fontWeight: 600, fontSize: 13, cursor: 'pointer', textAlign: 'end' }}
-              onClick={() => setEditKey(editKey === row.key ? null : row.key)}
-            >
-              {editKey === row.key ? 'Done' : 'Edit'}
-            </span>
-          </div>
-        ))}
+        <div className="list">
+          {profileRows.map((row) => (
+            <div key={row.key} className="li" style={{ minHeight: 56, alignItems: 'flex-start', flexDirection: 'column', justifyContent: 'center', gap: 2 }}>
+              <span className="li__sub">{row.label}</span>
+              <span className="li__title" style={{ fontSize: 14.5 }}>{row.display || '—'}</span>
+            </div>
+          ))}
+        </div>
       </Card>
 
-      <AlertSettingsCards />
+      <div className="legacy">
+        <AlertSettingsCards />
+      </div>
 
       <Card tight>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14 }}>
-          <div>
+        <div className="spread" style={{ alignItems: 'flex-start' }}>
+          <div style={{ minWidth: 0 }}>
             <div style={{ fontWeight: 700, fontSize: 15 }}>Detection zones</div>
-            <div style={{ fontSize: 13, color: 'var(--tx2)', marginTop: 2 }}>{zoneSummary}</div>
+            <div className="li__sub" style={{ marginTop: 2 }}>{zoneSummary}</div>
           </div>
           <button type="button" className="linkbtn" style={{ whiteSpace: 'nowrap' }} onClick={() => navigate('/intrusion')}>
             {t('settings.manageOnRestricted')}{' '}
             <span className="mirror-rtl" aria-hidden="true">→</span>
           </button>
-        </div>
-      </Card>
-
-      <Card>
-        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>Appearance &amp; language</div>
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 12,
-            padding: '13px 0',
-            borderBottom: '1px solid var(--line)',
-          }}
-        >
-          <div>
-            <div style={{ fontWeight: 600, fontSize: 14 }}>Dark mode</div>
-            <div style={{ fontSize: 12.5, color: 'var(--tx2)' }}>
-              Easier on the eyes when the console is open all day.
-            </div>
-          </div>
-          <Toggle on={dark} onToggle={toggle} label="Dark mode" />
-        </div>
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 14,
-            padding: '13px 0',
-            flexWrap: 'wrap',
-          }}
-        >
-          <div style={{ flex: 1, minWidth: 220 }}>
-            <div style={{ fontWeight: 600, fontSize: 14 }}>{t('settings.language')}</div>
-            <div style={{ fontSize: 12.5, color: 'var(--tx2)' }}>
-              {t('settings.language.lead')}
-            </div>
-          </div>
-          <div style={{ display: 'flex', gap: 6 }}>
-            {LANGUAGES.map((k) => (
-              <button
-                key={k}
-                type="button"
-                className={`chip-btn ${language === k ? 'chip-btn--on' : 'chip-btn--off'}`}
-                onClick={() => setLanguage(k)}
-              >
-                {t(`settings.language.${k}`)}
-              </button>
-            ))}
-          </div>
         </div>
       </Card>
     </>

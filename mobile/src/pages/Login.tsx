@@ -4,6 +4,7 @@ import { useAuth } from '@/app/AuthContext';
 import { useLanguage } from '@/app/LanguageContext';
 import { Logo } from '@/components/Logo';
 import { useSiteName } from '@/app/SiteContext';
+import { Field } from '@/components/ui';
 import { LANGUAGES } from '@/i18n';
 
 /** Shortest password the engine will hash — `auth/passwords.MIN_LENGTH`.
@@ -15,34 +16,15 @@ const MIN_PASSWORD = 12;
 
 type Mode = 'in' | 'up';
 
-const labelStyle = {
-  display: 'block',
-  fontSize: 12.5,
-  fontWeight: 600,
-  color: 'var(--tx2)',
-  marginBottom: 6,
-} as const;
-
-const inputStyle = {
-  width: '100%',
-  height: 46,
-  border: '1px solid var(--line)',
-  borderRadius: 11,
-  padding: '0 14px',
-  fontSize: 14.5,
-  background: 'var(--card)',
-  color: 'var(--tx)',
-  outline: 'none',
-  boxSizing: 'border-box',
-} as const;
-
-const hintStyle = {
-  fontSize: 12,
-  color: 'var(--tx3)',
-  marginTop: 6,
-  lineHeight: 1.4,
-} as const;
-
+/** Sign-in — a phone form, the console's behaviour (spec 015, contracts/
+ *  phone-screens.md "Sign-in").
+ *
+ *  Built from `web/src/pages/Login.tsx`: the same two calls, the same typo
+ *  guard on the confirm box, the same engine-owned error message, and the
+ *  same pre-account language picker read before any account exists to hold
+ *  one (P11-FR-016). Renders outside `AppShell` — there is no session yet
+ *  for a tab bar to belong to — so it keeps its own full-height frame and
+ *  16px gutter instead of the shell's `.screen`. */
 export function Login() {
   const siteName = useSiteName();
   const { signIn, register } = useAuth();
@@ -123,15 +105,15 @@ export function Login() {
   return (
     <div
       style={{
-        minHeight: '100vh',
+        minHeight: '100dvh',
         display: 'flex',
-        alignItems: 'center',
+        flexDirection: 'column',
         justifyContent: 'center',
-        padding: 24,
+        padding: 16,
         background: 'var(--bg)',
       }}
     >
-      <div style={{ width: '100%', maxWidth: 410 }}>
+      <div style={{ width: '100%', maxWidth: 400, margin: '0 auto' }}>
         {/* Before anybody signs in there is no account to hold a language, so
             this reads the browser copy instead. Without it an Arabic-reading
             guard would have to get through an English sign-in form to reach
@@ -140,7 +122,7 @@ export function Login() {
           style={{
             display: 'flex',
             justifyContent: 'center',
-            gap: 6,
+            gap: 8,
             marginBottom: 18,
           }}
         >
@@ -160,125 +142,91 @@ export function Login() {
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: 11,
+            gap: 10,
             justifyContent: 'center',
-            marginBottom: 26,
+            marginBottom: 24,
           }}
         >
-          <Logo size={38} />
-          <div
-            style={{
-              fontWeight: 800,
-              fontSize: 22,
-              letterSpacing: '-.02em',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            VisionGuard <span style={{ fontWeight: 500, color: 'var(--tx3)' }}>AI</span>
+          <Logo size={36} />
+          <div style={{ fontWeight: 800, fontSize: 20, letterSpacing: '-.02em' }}>
+            VisionGuard
           </div>
         </div>
 
-        <form
-          onSubmit={submit}
-          style={{
-            background: 'var(--card)',
-            borderRadius: 18,
-            padding: '34px 32px',
-            boxShadow: 'var(--sh)',
-          }}
-        >
-          <div style={{ fontWeight: 700, fontSize: 17, marginBottom: siteName ? 0 : 22 }}>
+        <form onSubmit={submit} className="card" style={{ padding: '26px 20px' }}>
+          <div style={{ fontWeight: 700, fontSize: 17, marginBottom: siteName ? 0 : 18 }}>
             {t(signingUp ? 'login.createAccountTitle' : 'login.signIn')}
           </div>
           {/* No site name until a deployment sets one. The product name is
               already above the card, so repeating it here says nothing. */}
           {siteName && (
-            <div style={{ fontSize: 13.5, color: 'var(--tx2)', margin: '2px 0 22px' }}>
+            <div style={{ fontSize: 13.5, color: 'var(--tx2)', margin: '2px 0 18px' }}>
               {siteName}
             </div>
           )}
 
-          {signingUp && (
-            <label style={{ display: 'block', marginBottom: 14 }}>
-              <span style={labelStyle}>{t('login.fullName')}</span>
-              <input
-                type="text"
-                autoComplete="name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                style={inputStyle}
-              />
-            </label>
-          )}
-
-          <label style={{ display: 'block', marginBottom: 14 }}>
-            <span style={labelStyle}>{t('login.email')}</span>
-            <input
-              type="email"
-              autoComplete={signingUp ? 'email' : 'username'}
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              style={inputStyle}
-            />
-          </label>
-
-          <label style={{ display: 'block', marginBottom: signingUp ? 14 : 18 }}>
-            <span style={labelStyle}>{t('login.password')}</span>
-            <input
-              type="password"
-              autoComplete={signingUp ? 'new-password' : 'current-password'}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              style={inputStyle}
-            />
+          <div className="stack">
             {signingUp && (
-              <div style={hintStyle}>At least {MIN_PASSWORD} characters.</div>
+              <Field label={t('login.fullName')}>
+                <input
+                  className="input"
+                  type="text"
+                  autoComplete="name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                />
+              </Field>
             )}
-          </label>
 
-          {signingUp && (
-            <label style={{ display: 'block', marginBottom: 18 }}>
-              <span style={labelStyle}>{t('login.confirmPassword')}</span>
+            <Field label={t('login.email')}>
               <input
-                type="password"
-                autoComplete="new-password"
-                value={confirm}
-                onChange={(e) => setConfirm(e.target.value)}
-                style={inputStyle}
+                className="input"
+                type="email"
+                autoComplete={signingUp ? 'email' : 'username'}
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
               />
-            </label>
-          )}
+            </Field>
+
+            <Field label={t('login.password')}>
+              <input
+                className="input"
+                type="password"
+                autoComplete={signingUp ? 'new-password' : 'current-password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+              {signingUp && (
+                <div className="note" style={{ marginTop: 2 }}>
+                  At least {MIN_PASSWORD} characters.
+                </div>
+              )}
+            </Field>
+
+            {signingUp && (
+              <Field label={t('login.confirmPassword')}>
+                <input
+                  className="input"
+                  type="password"
+                  autoComplete="new-password"
+                  value={confirm}
+                  onChange={(e) => setConfirm(e.target.value)}
+                />
+              </Field>
+            )}
+          </div>
 
           {error && (
-            <div
-              role="alert"
-              style={{
-                padding: '10px 13px', borderRadius: 10, marginBottom: 14,
-                background: 'var(--rd-bg)', color: 'var(--rd)',
-                fontSize: 13.5, lineHeight: 1.45,
-              }}
-            >
+            <div role="alert" className="notice notice--bad" style={{ marginTop: 14 }}>
               {error}
             </div>
           )}
 
-          <div style={{ height: 4 }} />
-
           <button
             type="submit"
+            className="btn btn--block"
             disabled={busy || !ready}
-            style={{
-              width: '100%',
-              height: 48,
-              border: 'none',
-              borderRadius: 12,
-              background: 'var(--ac)',
-              color: 'var(--on-ac)',
-              fontSize: 15,
-              fontWeight: 600,
-              cursor: busy || !ready ? 'not-allowed' : 'pointer',
-              opacity: busy || !ready ? 0.6 : 1,
-            }}
+            style={{ marginTop: 18 }}
           >
             {signingUp
               ? t(busy ? 'login.creating' : 'login.createAccount')

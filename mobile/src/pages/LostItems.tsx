@@ -1,24 +1,3 @@
-/** Lost bag — tick the cameras, pick a colour, watch.
- *
- *  There is no Search button and no result, because there is no search. The
- *  cameras you tick appear below, live, and a box is drawn round any bag of the
- *  colour you picked for as long as you are looking at them. Leaving the page
- *  stops the work; nothing has to be switched off.
- *
- *  It answers one question — *is my bag on any of these cameras right now* —
- *  and the answer is the picture, not a list beside it.
- *
- *  **Nothing is recorded.** No clip, no still, no history. A bag that was taken
- *  before you opened this page cannot be found here, and the page must never
- *  imply otherwise.
- *
- *  **A box is a possible bag, never a found one.** Measured on footage with no
- *  bag in it (research D10), this model draws a `suitcase` box on a black
- *  office chair at up to 0.88 and holds it there. That is why the box is amber,
- *  labelled with what the model thinks it is, and drawn over a live picture the
- *  operator can judge for themselves.
- */
-
 import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useCameras } from '@/app/CameraContext';
@@ -26,7 +5,27 @@ import { useCapability } from '@/app/CapabilityContext';
 import { useT } from '@/app/LanguageContext';
 import type { MessageKey } from '@/i18n';
 import { CamGrid } from '@/components/CamGrid';
-import { Card, DataNotice, Empty, PageHeader } from '@/components/ui';
+import { Icon } from '@/components/Icon';
+import { Badge, DataNotice, Empty, PageHeader } from '@/components/ui';
+
+/*  Lost bag, laid out for a phone (spec 015, P13-FR-lostbag).
+ *
+ *  Built from `web/src/pages/LostItems.tsx`: the same roster, the same
+ *  colour palette, the same watching grid — nothing here searches, nothing
+ *  here records. What changed is the shape: the console's table-like tick
+ *  list becomes a real list of 44px rows, each area's checkbox now has the
+ *  whole row as its target, and an area's cameras are revealed by their own
+ *  44px button rather than a text arrow.
+ *
+ *  **Nothing is recorded.** No clip, no still, no history. A bag that was
+ *  taken before this screen was opened cannot be found here.
+ *
+ *  **A box is a possible bag, never a found one.** That is why the box is
+ *  amber and drawn over a live picture the guard can judge for themselves.
+ *
+ *  Fixed here: the empty-ticked sentence used to lower-case the colour's raw
+ *  key (`lost.colour.blue`) instead of its wording. It now reads the same
+ *  translated word the watching grid already uses. */
 
 /** Sentinel for cameras with no area. The heading is wording and comes
  *  from the catalogue; the camera's own `area` is data. */
@@ -34,13 +33,9 @@ const UNASSIGNED = 'camera.unassignedArea';
 
 /** The colour palette, and the only names the engine accepts.
  *
- *  Grey and white are one chip on purpose. They differ only in lightness, and
- *  lightness is exactly what lighting changes — a white bag in shadow is grey
- *  to the camera, and no measurement fixes that without knowing the light
- *  (research D3). A distinction the camera cannot make must not be offered as
- *  a choice. `Any` is a gradient because it is not a colour: it is the absence
- *  of a filter, and a flat grey chip would read as "grey".
- */
+ *  Grey and white are one chip on purpose — they differ only in lightness,
+ *  and lightness is exactly what lighting changes (research D3). `Any` is a
+ *  gradient because it is not a colour: it is the absence of a filter. */
 const COLOURS: { name: MessageKey; value?: string; dot: string }[] = [
   { name: 'lost.colour.any', dot: 'linear-gradient(135deg,#d7ded9,#8d9a95)' },
   { name: 'lost.colour.black', value: 'black', dot: '#2b2f2c' },
@@ -51,26 +46,6 @@ const COLOURS: { name: MessageKey; value?: string; dot: string }[] = [
   { name: 'lost.colour.yellow', value: 'yellow', dot: '#d8b038' },
 ];
 
-function chipStyle(on: boolean) {
-  return {
-    padding: '9px 16px',
-    borderRadius: 10,
-    fontSize: 13.5,
-    fontWeight: 600,
-    cursor: 'pointer',
-    background: on ? 'var(--ac)' : 'var(--bg)',
-    color: on ? '#fff' : 'var(--tx2)',
-    border: `1px solid ${on ? 'var(--ac)' : 'var(--line)'}`,
-  } as const;
-}
-
-const labelStyle = {
-  fontSize: 12.5,
-  fontWeight: 600,
-  color: 'var(--tx2)',
-  marginBottom: 9,
-} as const;
-
 export function LostItems() {
   const t = useT();
   const capability = useCapability('search_lost');
@@ -80,8 +55,7 @@ export function LostItems() {
 
   const [ticked, setTicked] = useState<Set<string>>(new Set());
   const [openAreas, setOpenAreas] = useState<Set<string>>(new Set());
-  // Ask lands here with the question resolved. See Attendance for why
-  // reading these matters: a link nothing reads is decoration.
+  // Ask lands here with the question resolved.
   const [params] = useSearchParams();
   const [colour, setColour] = useState<string | undefined>(
     params.get('colour') ?? undefined);
@@ -126,150 +100,146 @@ export function LostItems() {
     });
   };
 
+  const toggleOpen = (name: string) =>
+    setOpenAreas((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+
   const chosen = COLOURS.find((c) => c.value === colour) ?? COLOURS[0];
   const offline = watching.filter((c) => c.offline);
 
   return (
     <>
       <DataNotice capability={capability} />
-      <PageHeader
-        title={t('lost.title')}
-        lead={t('lost.lead')}
-      />
+      <PageHeader title={t('lost.title')} lead={t('lost.lead')} />
 
-      <Card>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-          <div>
-            <div style={labelStyle}>{t('lost.whereToWatch')}</div>
-            {areas.length === 0 ? (
-              <div style={{ fontSize: 13.5, color: 'var(--tx2)' }}>
-                {t('lost.noCameras')}
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                {areas.map((area) => {
-                  const ids = area.cameras.map((c) => c.id);
-                  const on = ids.filter((id) => ticked.has(id)).length;
-                  const open = openAreas.has(area.name);
-                  return (
-                    <div key={area.name}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0' }}>
-                        <input
-                          type="checkbox"
-                          checked={on > 0 && on === ids.length}
-                          // Some but not all: the box says "partly", which is
-                          // the truth and is not a state a checkbox has
-                          // without being told.
-                          ref={(el) => {
-                            if (el) el.indeterminate = on > 0 && on < ids.length;
-                          }}
-                          onChange={() => toggleArea(area.name)}
-                          aria-label={t('lost.watchEveryCameraIn', {
-                            area: area.name === UNASSIGNED ? t(UNASSIGNED) : area.name,
-                          })}
-                        />
-                        <button
-                          type="button"
-                          className="linkbtn"
-                          onClick={() =>
-                            setOpenAreas((prev) => {
-                              const next = new Set(prev);
-                              if (next.has(area.name)) next.delete(area.name);
-                              else next.add(area.name);
-                              return next;
-                            })
-                          }
-                          style={{ fontWeight: 600, fontSize: 13.5 }}
-                        >
-                          {open ? '▾' : <span className="mirror-rtl">▸</span>}{' '}
-                          {area.name === UNASSIGNED ? t(UNASSIGNED) : area.name}
-                        </button>
-                        <span style={{ fontSize: 12.5, color: 'var(--tx3)' }}>
+      <section className="stack">
+        <div className="sechead">
+          <span className="sechead__title">{t('lost.whereToWatch')}</span>
+        </div>
+        {areas.length === 0 ? (
+          <div className="card"><Empty>{t('lost.noCameras')}</Empty></div>
+        ) : (
+          <div className="list">
+            {areas.map((area) => {
+              const ids = area.cameras.map((c) => c.id);
+              const on = ids.filter((id) => ticked.has(id)).length;
+              const open = openAreas.has(area.name);
+              const areaLabel = area.name === UNASSIGNED ? t(UNASSIGNED) : area.name;
+              return (
+                <div key={area.name}>
+                  <div className="li">
+                    {/* The label wraps the checkbox and the area's name and
+                        count, so the whole row — not just the 22px box — is
+                        the tap target. */}
+                    <label className="hstack" style={{ flex: 1, minWidth: 0, minHeight: 44, cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={on > 0 && on === ids.length}
+                        // Some but not all: the box says "partly", which is
+                        // the truth and is not a state a checkbox has
+                        // without being told.
+                        ref={(el) => {
+                          if (el) el.indeterminate = on > 0 && on < ids.length;
+                        }}
+                        onChange={() => toggleArea(area.name)}
+                        aria-label={t('lost.watchEveryCameraIn', { area: areaLabel })}
+                        style={{ width: 24, height: 24, flexShrink: 0, accentColor: 'var(--ac)' }}
+                      />
+                      <span className="li__main">
+                        <span className="li__title">{areaLabel}</span>
+                        <span className="li__sub">
                           {on > 0
                             ? `${on} of ${ids.length}`
                             : `${ids.length} camera${ids.length === 1 ? '' : 's'}`}
                         </span>
-                      </div>
-                      {open && (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, paddingInlineStart: 26 }}>
-                          {area.cameras.map((cam) => (
-                            <label
-                              key={cam.id}
-                              style={{
-                                display: 'flex', alignItems: 'center', gap: 10,
-                                padding: '4px 0', fontSize: 13, cursor: 'pointer',
-                              }}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={ticked.has(cam.id)}
-                                onChange={() => toggleCamera(cam.id)}
-                              />
-                              <span style={{ color: 'var(--tx2)' }}>{cam.name}</span>
-                              {cam.offline && (
-                                <span style={{ fontSize: 11.5, color: 'var(--tx3)' }}>offline</span>
-                              )}
-                            </label>
-                          ))}
-                        </div>
+                      </span>
+                    </label>
+                    <button
+                      type="button"
+                      className="iconbtn"
+                      aria-expanded={open}
+                      aria-label={t(
+                        open ? 'phone.lost.hideCameras' : 'phone.lost.showCameras',
+                        { area: areaLabel },
                       )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+                      onClick={() => toggleOpen(area.name)}
+                    >
+                      <span style={{ display: 'inline-flex', transform: open ? 'rotate(90deg)' : undefined }}>
+                        <Icon name="chevron" mirror />
+                      </span>
+                    </button>
+                  </div>
+                  {open && area.cameras.map((cam) => (
+                    <label key={cam.id} className="li" style={{ paddingInlineStart: 40 }}>
+                      <input
+                        type="checkbox"
+                        checked={ticked.has(cam.id)}
+                        onChange={() => toggleCamera(cam.id)}
+                        style={{ width: 22, height: 22, flexShrink: 0, accentColor: 'var(--ac)' }}
+                      />
+                      <span className="li__main">
+                        <span className="li__title" style={{ fontWeight: 500 }}>{cam.name}</span>
+                      </span>
+                      {cam.offline && <Badge tone="neutral">offline</Badge>}
+                    </label>
+                  ))}
+                </div>
+              );
+            })}
           </div>
+        )}
+      </section>
 
-          <div>
-            <div style={labelStyle}>{t('lost.colour')}</div>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              {COLOURS.map((c) => (
-                <button
-                  key={c.name}
-                  type="button"
-                  style={{
-                    ...chipStyle(colour === c.value),
-                    display: 'flex', alignItems: 'center', gap: 8, padding: '8px 15px',
-                  }}
-                  onClick={() => setColour(c.value)}
-                >
-                  <span
-                    aria-hidden="true"
-                    style={{
-                      width: 13, height: 13, borderRadius: '50%', flexShrink: 0,
-                      background: c.dot, boxShadow: 'inset 0 0 0 1px rgba(0,0,0,.18)',
-                    }}
-                  />
-                  {t(c.name)}
-                </button>
-              ))}
-            </div>
-            <div style={{ fontSize: 12.5, color: 'var(--tx3)', marginTop: 8 }}>
-              Colour is judged from the camera picture and can be wrong in poor light.
-              Pick Any if the bag is not outlined.
-            </div>
-          </div>
+      <section className="card stack">
+        <div>
+          <div className="card__title" style={{ fontSize: 15 }}>{t('lost.colour')}</div>
         </div>
-      </Card>
+        <div className="chips chips--wrap">
+          {COLOURS.map((c) => (
+            <button
+              key={c.name}
+              type="button"
+              className={colour === c.value ? 'chip chip--on' : 'chip'}
+              aria-pressed={colour === c.value}
+              onClick={() => setColour(c.value)}
+            >
+              <span
+                aria-hidden="true"
+                style={{
+                  width: 13, height: 13, borderRadius: '50%', flexShrink: 0,
+                  background: c.dot, boxShadow: 'inset 0 0 0 1px rgba(0,0,0,.18)',
+                }}
+              />
+              <span>{t(c.name)}</span>
+            </button>
+          ))}
+        </div>
+        <p className="note">
+          Colour is judged from the camera picture and can be wrong in poor light.
+          Pick Any if the bag is not outlined.
+        </p>
+      </section>
 
       {watching.length === 0 ? (
-        <Card>
+        <div className="card">
           <Empty>
             Nothing ticked yet. Tick an area or a camera above and it appears
-            below, live, with any {colour ? chosen.name.toLowerCase() : ''} bag
+            below, live, with any {colour ? t(chosen.name).toLowerCase() : ''} bag
             outlined in amber.
           </Empty>
-        </Card>
+        </div>
       ) : (
         <>
           {offline.length > 0 && (
-            <Card>
-              <div style={{ fontSize: 13, color: 'var(--tx3)' }}>
-                {t(offline.length === 1 ? 'lost.offlineOne' : 'lost.offlineMany', {
-                  cameras: offline.map((c) => c.name).join(', '),
-                })}
-              </div>
-            </Card>
+            <div className="notice notice--amber" role="status">
+              {t(offline.length === 1 ? 'lost.offlineOne' : 'lost.offlineMany', {
+                cameras: offline.map((c) => c.name).join(', '),
+              })}
+            </div>
           )}
           <CamGrid
             title={t('lost.watchingNow')}

@@ -1,10 +1,25 @@
 import { useNavigate, useParams } from 'react-router-dom';
-import { Badge, Card, DataNotice, Empty, LoadError, PageHeader, toneGlyph } from '@/components/ui';
+import { Badge, DataNotice, Empty, LoadError, toneGlyph } from '@/components/ui';
+import { Icon } from '@/components/Icon';
+import { usePageTitle } from '@/app/PageChrome';
 import { getGroup } from '@/services/api';
 import type { GroupMember, GroupSummary } from '@/types';
 import { useCapability } from '@/app/CapabilityContext';
 import { useAsync } from '@/app/useAsync';
 import { useLanguage, useT } from '@/app/LanguageContext';
+
+/** One group, laid out for a phone (spec 015, P13-FR-053).
+ *
+ *  Built from `web/src/pages/PeopleGroup.tsx`: the same call, the same
+ *  summary line (never inventing an "X here of Y" figure when the engine has
+ *  no `here` count for this group), the same roster, the same three states.
+ *
+ *  The console's own back link is not rebuilt here — `ScreenHeader` already
+ *  returns to People, the same place the console's link pointed, through the
+ *  router's history (see `PersonHistory.tsx`'s comment for why that is
+ *  enough). The group's own name replaces the header's title once it is
+ *  known; before that, the URL's own (decoded) name holds the place, exactly
+ *  as the console's `PageHeader` did. */
 
 interface Group {
   summary: GroupSummary | null;
@@ -12,6 +27,10 @@ interface Group {
 }
 
 const NO_GROUP: Group = { summary: null, roster: [] };
+
+function initials(name: string): string {
+  return name.split(' ').map((w) => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
+}
 
 export function PeopleGroup() {
   const { language } = useLanguage();
@@ -28,87 +47,53 @@ export function PeopleGroup() {
   );
   const { summary, roster } = data;
 
-  // This page used to `return null` until the summary arrived, so a failed
-  // request rendered a blank page — no title, no error, no way back. The
-  // operator's own name for the group is in the URL, so there is always
-  // enough to draw a page around, even when nothing loaded.
+  usePageTitle(summary?.name ?? group);
+
+  const lead = !summary
+    ? loading
+      ? t('people.loading')
+      : t('people.rosterUnavailable')
+    : summary.here === null
+      ? summary.count
+      : t('people.onCampusToday', { count: summary.count, here: summary.here });
+
   return (
     <>
-      <div style={{ marginBottom: 4 }}>
-        <button type="button" className="linkbtn" onClick={() => navigate('/people')}>
-          ‹ People
-        </button>
-      </div>
       <DataNotice capability={capability} />
       <LoadError error={error} onRetry={reload} what="load.groupRoster" whatArgs={{ group }} />
-      <PageHeader
-        title={summary?.name ?? group}
-        lead={
-          !summary
-            ? loading
-              ? t('people.loading')
-              : t('people.rosterUnavailable')
-            : summary.here === null
-              ? summary.count
-              : t('people.onCampusToday', {
-                count: summary.count, here: summary.here,
-              })
-        }
-      />
 
-      <Card>
-        {loading && <Empty>{t('people.loadingRoster')}</Empty>}
-        {!loading && !error && roster.length === 0 && (
-          <Empty>{t('people.groupEmpty')}</Empty>
-        )}
+      <div className="card">
+        <div className="card__title">{summary?.name ?? group}</div>
+        <p className="card__sub" style={{ margin: '3px 0 0' }}>{lead}</p>
+      </div>
 
-        {roster.map((member) => (
-          <div key={member.name} className="row" style={{ gridTemplateColumns: '1.4fr 1fr 1fr 1.2fr' }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
-              <span
-                style={{
-                  width: 34,
-                  height: 34,
-                  borderRadius: '50%',
-                  background: 'var(--chip)',
-                  color: 'var(--ac2)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontWeight: 700,
-                  fontSize: 12,
-                  flexShrink: 0,
-                }}
-              >
-                {member.name
-                  .split(' ')
-                  .map((w) => w[0])
-                  .slice(0, 2)
-                  .join('')}
-              </span>
-              <span className="row__name">{member.name}</span>
-            </span>
-            <span className="row__muted">{member.sub}</span>
-            <span>
-              <Badge tone={member.tone} glyph={toneGlyph[member.tone]}>
-                {member.status}
-              </Badge>
-            </span>
+      {loading && <div className="card"><Empty>{t('people.loadingRoster')}</Empty></div>}
+      {!loading && !error && roster.length === 0 && (
+        <div className="card"><Empty>{t('people.groupEmpty')}</Empty></div>
+      )}
+
+      {roster.length > 0 && (
+        <div className="list">
+          {roster.map((member) => (
             <button
+              key={member.name}
               type="button"
-              className="linkbtn"
-              onClick={() =>
-                navigate(`/people/history/${encodeURIComponent(member.name)}`, {
-                  state: { from: 'group', groupName: summary?.name ?? group },
-                })
-              }
+              className="li"
+              onClick={() => navigate(`/people/history/${encodeURIComponent(member.name)}`, {
+                state: { from: 'group', groupName: summary?.name ?? group },
+              })}
             >
-              {t('people.attendanceHistory')}{' '}
-              <span className="mirror-rtl" aria-hidden="true">→</span>
+              <span className="avatar" aria-hidden="true">{initials(member.name)}</span>
+              <span className="li__main">
+                <span className="li__title">{member.name}</span>
+                <span className="li__sub">{member.sub}</span>
+              </span>
+              <Badge tone={member.tone} glyph={toneGlyph[member.tone]}>{member.status}</Badge>
+              <span className="li__chev"><Icon name="chevron" size={18} mirror /></span>
             </button>
-          </div>
-        ))}
-      </Card>
+          ))}
+        </div>
+      )}
     </>
   );
 }

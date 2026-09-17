@@ -232,9 +232,11 @@ export function Toggle({
       aria-label={label}
       className="toggle"
       onClick={onToggle}
-      style={{ background: on ? 'var(--ac)' : 'var(--toggle-off)' }}
     >
-      <span className="toggle__knob" style={{ insetInlineStart: on ? 24 : 4 }} />
+      {/* The button is the 44 px target; the track inside it is what shows. */}
+      <span className="toggle__track" style={{ background: on ? 'var(--ac)' : 'var(--toggle-off)' }}>
+        <span className="toggle__knob" style={{ insetInlineStart: on ? 24 : 4 }} />
+      </span>
     </button>
   );
 }

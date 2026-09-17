@@ -22,6 +22,7 @@ export function CameraModal({
   onClose,
   feature,
   colour,
+  detections = true,
 }: {
   camera: Camera;
   onClose: () => void;
@@ -30,6 +31,8 @@ export function CameraModal({
    *  question from the page behind it would put names on a headcount. */
   feature?: CameraFeature;
   colour?: string;
+  /** False on a screen that must not name anybody (System health). */
+  detections?: boolean;
 }) {
   const { language, t } = useLanguage();
   const [count, setCount] = useState<number | null>(null);
@@ -79,6 +82,7 @@ export function CameraModal({
             onCount={onCount}
             feature={feature}
             colour={colour}
+            detections={detections}
           />
 
           <div className="screen" style={{ paddingTop: 14 }}>
