@@ -16,7 +16,7 @@ failed.
 
 Run it:
 
-    python tools/check_parity.py                # the 25 files must match
+    python tools/check_parity.py                # the shared files must match
     python tools/check_parity.py --no-fixtures  # the phone must invent nothing
 
 Both are gates in `.\\dev.ps1 test` and in CI.
@@ -94,6 +94,13 @@ PARITY_FILES = [
     "app/useAttention.ts",
     "app/useAutoRun.ts",
     "app/useOptions.ts",
+    # The alert bell's count - what is new since this person last looked.
+    # The console draws it as a dropdown and the phone as a screen of its
+    # own; the number must be the same one (spec 015).
+    "app/useAlertFeed.ts",
+    # Which item a link from the bell or Ask asked a page to show, and
+    # bringing it into view.
+    "app/useLinkedItem.ts",
 
     # The palette. Where the drift already happened once.
     "styles/tokens.css",

@@ -22,7 +22,7 @@ export function Account() {
 
   return (
     <div className="screen">
-      <PageHeader title={t('nav.tab.account')} lead={t('mobile.account.lead')} />
+      <PageHeader title={t('nav.tab.more')} lead={t('mobile.account.lead')} />
 
       <Card>
         <button type="button" className="list-row" onClick={() => navigate('/settings')}>
