@@ -1,28 +1,54 @@
-import { useState, type KeyboardEvent } from 'react';
+import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAccount } from '@/app/AuthContext';
+import { useCameras } from '@/app/CameraContext';
 import { useT } from '@/app/LanguageContext';
-import { homeTools, pathFor } from '@/app/navigation';
+import { useSite } from '@/app/SiteContext';
+import { useAlertFeed } from '@/app/useAlertFeed';
+import { useAttention } from '@/app/useAttention';
+import { useTodayFigures } from '@/app/useTodayFigures';
+import { CameraFrame } from '@/components/CameraFrame';
 import { Badge } from '@/components/ui';
 import { ask } from '@/services/ask';
 import { SUGGESTED_QUESTIONS } from '@/services/content';
-import { useAttention } from '@/app/useAttention';
-import type { ToolId } from '@/types';
+import type { MessageKey } from '@/i18n';
+
+/** Home: what needs you now, how today is going, and one live camera.
+ *
+ *  Spec 015 (P13-FR-046). The console's Home is the starting point - its
+ *  greeting, Ask, suggested questions and attention list, with the same
+ *  wording and the same links - rearranged so the thing a guard has to act on
+ *  is at the top of the first screen.
+ *
+ *  Honesty rules this screen keeps:
+ *  - "Nothing needs attention" appears only when the attention feed actually
+ *    answered and is empty. Checking, off, failed and engine-down each say so.
+ *  - Every figure is its tool's own figure (`useTodayFigures`), never a zero
+ *    standing in for "not running".
+ *  - An attention item opens the exact item (`item.link`), as the console's
+ *    bell does - the old phone Home opened only the tool. */
+
+const FIGURE_LABEL: Record<string, MessageKey> = {
+  arrived: 'phone.home.arrived',
+  inView: 'phone.home.inView',
+  carsIn: 'phone.home.carsIn',
+  restricted: 'phone.home.restricted',
+};
 
 export function Home() {
   const t = useT();
   const account = useAccount();
   const navigate = useNavigate();
+  const { todayLabel } = useSite();
   const [question, setQuestion] = useState('');
   const [note, setNote] = useState('');
 
   const firstName = account.name.split(' ')[0];
   const { items: attention, acknowledge } = useAttention();
-  const tools = homeTools();
-
-  function open(tool: ToolId, autoRun = true) {
-    navigate(pathFor(tool), { state: { autoRun } });
-  }
+  const { feed, line } = useAlertFeed(false);
+  const figures = useTodayFigures();
+  const { cameras } = useCameras();
+  const live = cameras.find((c) => !c.offline);
 
   async function submit(text: string) {
     // An empty box is the commonest way to press this button by accident.
@@ -35,10 +61,7 @@ export function Home() {
     const outcome = await ask(text, account.role);
     if (outcome.kind === 'route') {
       setNote('');
-      // The whole path, parameters included — not just the tool. Opening
-      // Track a Person empty and leaving you to retype the name you had just
-      // typed is what this bar used to do, and it is why it felt like it had
-      // not understood.
+      // The whole path, parameters included — not just the tool.
       navigate(outcome.to, { state: { autoRun: true } });
     } else if (outcome.kind === 'note') {
       setNote(t(outcome.message, outcome.args));
@@ -47,157 +70,158 @@ export function Home() {
     }
   }
 
-  function onKeyDown(e: KeyboardEvent<HTMLInputElement>) {
-    if (e.key === 'Enter') void submit(question);
+  function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    void submit(question);
   }
+
+  const quiet = feed === 'ready' && attention.length === 0;
 
   return (
     <>
-      <h1 style={{ fontWeight: 700, fontSize: 29, letterSpacing: '-.02em', margin: 0 }}>
-        {t('home.greeting', { name: firstName })}
-      </h1>
-      <p style={{ fontSize: 15, color: 'var(--tx2)', marginTop: 5 }}>
-        {t('home.lead')}
-      </p>
-
-      <div style={{ display: 'flex', gap: 10, margin: '24px 0 12px', maxWidth: 700 }}>
-        <input
-          value={question}
-          onChange={(e) => setQuestion(e.target.value)}
-          onKeyDown={onKeyDown}
-          placeholder={t('home.askPlaceholder')}
-          aria-label={t('home.askLabel')}
-          style={{
-            flex: 1,
-            height: 56,
-            border: 'none',
-            borderRadius: 14,
-            padding: '0 20px',
-            fontSize: 15.5,
-            background: 'var(--card)',
-            color: 'var(--tx)',
-            outline: 'none',
-            boxShadow: 'var(--sh)',
-          }}
-        />
-        <button
-          type="button"
-          className="btn"
-          style={{ height: 56, borderRadius: 14, padding: '0 26px', fontSize: 15 }}
-          onClick={() => void submit(question)}
-        >
-          {t('home.ask')}
-        </button>
+      <div>
+        <h1 className="h1">{t('home.greeting', { name: firstName })}</h1>
+        {todayLabel && <p className="lead">{todayLabel}</p>}
       </div>
 
-      {note && (
-        <div
-          style={{
-            fontSize: 13.5,
-            color: 'var(--am)',
-            background: 'var(--am-bg)',
-            display: 'inline-block',
-            padding: '8px 14px',
-            borderRadius: 10,
-            marginBottom: 12,
-          }}
-        >
-          {note}
+      {/* ---- Ask ---- */}
+      <form className="card stack" style={{ padding: 12, gap: 10 }} onSubmit={onSubmit}>
+        <div className="hstack" style={{ gap: 8 }}>
+          <input
+            className="input"
+            style={{ flex: 1 }}
+            value={question}
+            onChange={(e) => setQuestion(e.target.value)}
+            placeholder={t('home.askPlaceholder')}
+            aria-label={t('home.askLabel')}
+            enterKeyHint="search"
+          />
+          <button type="submit" className="btn" style={{ flexShrink: 0 }}>
+            {t('home.ask')}
+          </button>
         </div>
-      )}
-
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 42 }}>
-        {SUGGESTED_QUESTIONS.map((q) => (
-          <button
-            type="button"
-            key={q}
-            onClick={() => {
-              // The list holds keys; the ask bar takes words.
-              setQuestion(t(q));
-              void submit(t(q));
-            }}
-            style={{
-              padding: '7px 14px',
-              borderRadius: 10,
-              fontSize: 13,
-              color: 'var(--ac2)',
-              background: 'var(--chip)',
-              fontWeight: 500,
-              border: 'none',
-              cursor: 'pointer',
-            }}
-          >
-            {t(q)}
-          </button>
-        ))}
-      </div>
-
-      <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 12 }}>
-        {t('home.needsAttention')}{' '}
-        <span style={{ fontWeight: 500, color: 'var(--tx3)', fontSize: 13.5 }}>
-          {attention.length === 1
-            ? t('home.attentionCountOne')
-            : t('home.attentionCount', { count: attention.length })}
-        </span>
-      </div>
-      <div className="grid-2" style={{ marginBottom: 42 }}>
-        {attention.map((item) => (
-          <div
-            key={item.id}
-            style={{
-              background: 'var(--card)',
-              borderRadius: 14,
-              padding: 18,
-              boxShadow: 'var(--sh)',
-            }}
-          >
-            <div style={{ marginBottom: 10 }}>
-              <Badge tone={item.tone} icon={item.icon}>
-                {item.kind}
-              </Badge>
-            </div>
-            <div style={{ fontWeight: 600, fontSize: 14.5 }}>{item.title}</div>
-            <div style={{ fontSize: 13, color: 'var(--tx3)', margin: '3px 0 12px' }}>
-              {item.sub}
-            </div>
-            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-              <button type="button" className="linkbtn" onClick={() => open(item.to)}>
-                {item.action}{' '}
-                <span className="mirror-rtl" aria-hidden="true">→</span>
-              </button>
-              {/* Takes the item off Home under the signed-in name. It changes
-                  nothing else: a knife still waits for its verdict. */}
-              <button type="button" className="linkbtn" onClick={() => void acknowledge(item.id)}>
-                {t('attention.acknowledge')}
-              </button>
-            </div>
+        {note && (
+          <div className="notice notice--amber" role="status" style={{ padding: '9px 12px' }}>
+            {note}
           </div>
-        ))}
-      </div>
+        )}
+        <div className="chips" style={{ margin: '0 -12px', padding: '2px 12px' }}>
+          {SUGGESTED_QUESTIONS.map((q) => (
+            <button
+              type="button"
+              key={q}
+              className="chip chip--on"
+              onClick={() => {
+                // The list holds keys; the ask bar takes words.
+                setQuestion(t(q));
+                void submit(t(q));
+              }}
+            >
+              <span>{t(q)}</span>
+            </button>
+          ))}
+        </div>
+      </form>
 
-      <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 12 }}>{t('home.tools')}</div>
-      <div className="grid-4" style={{ marginBottom: 0 }}>
-        {tools.map((tool) => (
-          <button
-            type="button"
-            key={tool.id}
-            onClick={() => open(tool.id, false)}
-            style={{
-              background: 'var(--card)',
-              borderRadius: 12,
-              padding: 15,
-              boxShadow: 'var(--sh)',
-              border: 'none',
-              cursor: 'pointer',
-              textAlign: 'start',
-              color: 'var(--tx)',
-            }}
-          >
-            <div style={{ fontWeight: 600, fontSize: 13.5 }}>{t(`nav.${tool.id}.label`)}</div>
-            <div style={{ fontSize: 12, color: 'var(--tx3)', marginTop: 2 }}>{t(`nav.${tool.id}.blurb`)}</div>
+      {/* ---- Needs your attention ---- */}
+      <section className="stack" aria-labelledby="home-attention">
+        <div className="sechead">
+          <h2 className="sechead__title" id="home-attention" style={{ margin: 0 }}>
+            {t('home.needsAttention')}
+            {feed === 'ready' && ` · ${attention.length}`}
+          </h2>
+          <button type="button" className="sechead__link" onClick={() => navigate('/alerts')}>
+            {t('phone.seeAll')}
           </button>
-        ))}
-      </div>
+        </div>
+
+        {feed !== 'ready' || quiet ? (
+          // Checking, off, failed, engine down - or genuinely nothing. The
+          // sentence and colour are the bell's, so the two never disagree.
+          <div className="card hstack" role="status">
+            <span className="glyph" style={{ background: line.color }}>{line.glyph ?? '·'}</span>
+            <span style={{ color: line.color, fontWeight: 600 }}>{line.title}</span>
+          </div>
+        ) : (
+          attention.map((item) => (
+            <article key={item.id} className="card stack" style={{ gap: 10 }}>
+              <div>
+                <Badge tone={item.tone} icon={item.icon}>{item.kind}</Badge>
+              </div>
+              <div>
+                <div className="li__title">{item.title}</div>
+                <div className="li__sub">{item.sub}</div>
+              </div>
+              <div className="btnrow">
+                <button
+                  type="button"
+                  className={item.tone === 'bad' ? 'btn btn--danger' : 'btn btn--soft'}
+                  onClick={() => navigate(item.link, { state: { autoRun: true } })}
+                >
+                  {item.action}
+                </button>
+                {/* Takes the item off Home under the signed-in name. It changes
+                    nothing else: a knife still waits for its verdict. */}
+                <button type="button" className="btn btn--ghost" onClick={() => void acknowledge(item.id)}>
+                  {t('attention.acknowledge')}
+                </button>
+              </div>
+            </article>
+          ))
+        )}
+      </section>
+
+      {/* ---- Today so far ---- */}
+      <section className="stack" aria-labelledby="home-today">
+        <div className="sechead">
+          <h2 className="sechead__title" id="home-today" style={{ margin: 0 }}>{t('phone.home.today')}</h2>
+        </div>
+        <div className="statgrid">
+          {figures.map((f) => (
+            <button
+              type="button"
+              key={f.id}
+              className="stat"
+              onClick={() => navigate(f.to, { state: { autoRun: true } })}
+            >
+              <span className="stat__label">{t(FIGURE_LABEL[f.id])}</span>
+              {f.value !== null ? (
+                <span className="stat__value" style={{ fontSize: f.value.length > 10 ? 18 : 24 }}>
+                  {f.value}
+                </span>
+              ) : (
+                <span className="stat__value" style={{ color: 'var(--tx2)' }} aria-hidden="true">—</span>
+              )}
+              <span className="stat__detail" style={f.warn ? { color: 'var(--am)' } : undefined}>
+                {f.detail}
+              </span>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {/* ---- Live now ---- */}
+      <section className="stack" aria-labelledby="home-live">
+        <div className="sechead">
+          <h2 className="sechead__title" id="home-live" style={{ margin: 0 }}>{t('phone.home.liveNow')}</h2>
+          <button type="button" className="sechead__link" onClick={() => navigate('/cameras')}>
+            {t('phone.home.allCameras')}
+          </button>
+        </div>
+        {live ? (
+          <button type="button" className="camtile" onClick={() => navigate(`/cameras/${encodeURIComponent(live.id)}`)}>
+            {/* A plain picture: no overlay on Home, so no name is drawn here. */}
+            <CameraFrame camera={live} detections={false} />
+            <span className="camtile__caption">
+              <span className="camtile__name">{live.name}</span>
+              <span className="camtile__meta">{live.area || live.status}</span>
+            </span>
+          </button>
+        ) : (
+          <div className="card note">{t('phone.home.noLiveCamera')}</div>
+        )}
+      </section>
+
     </>
   );
 }

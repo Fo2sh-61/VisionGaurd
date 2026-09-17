@@ -12,12 +12,16 @@
  *  remove every honesty warning in the app at once. So they are copied exactly,
  *  comments included, and the difference from the console is one function.
  *
- *  What actually differs: `Stats` caps itself at two columns. Everything else
- *  here renders semantic class names, and `styles/app.css` does the rest.
+ *  What actually differs: `Stats` caps itself at two columns; `Select` opens a
+ *  bottom sheet instead of a native dropdown, and takes its sheet's title from
+ *  the `Field` around it; `PageHeader` draws only the lead, because the title
+ *  is already in the phone's back header; `Toggle` is finger-sized. Everything
+ *  else renders semantic class names, and `styles/app.css` does the rest.
  */
 
-import type { CSSProperties, ReactNode } from 'react';
+import { createContext, useContext, useState, type CSSProperties, type ReactNode } from 'react';
 import { useT } from '@/app/LanguageContext';
+import { Sheet, SheetOption } from './Sheet';
 import type { MessageArgs, MessageKey } from '@/i18n';
 import type { Capability } from '@/services/wire';
 import type { Stat, Tone } from '@/types';
@@ -48,7 +52,7 @@ export function Badge({
   return (
     <span className={icon ? 'badge badge--dot' : 'badge'} style={{ background: bg, color: fg }}>
       {icon && (
-        <span className="glyph" style={{ width: 15, height: 15, fontSize: 10, background: fg, color: bg }}>
+        <span className="glyph" style={{ width: 17, height: 17, fontSize: 12, background: fg, color: bg }}>
           {icon}
         </span>
       )}
@@ -92,6 +96,10 @@ export function CardHeader({ title, sub }: { title: string; sub?: string }) {
   );
 }
 
+/** The title is drawn by the phone's back header (`ScreenHeader`, an `h1`),
+ *  from the route table, so a screen's own copy of it would be the same words
+ *  twice pushing the answer down. `.page__title` hides this one - from screen
+ *  readers too, so there is still exactly one `h1` per screen. */
 export function PageHeader({ title, lead }: { title: string; lead: string }) {
   return (
     <>
@@ -128,6 +136,9 @@ export function Stats({ items, columns }: { items: Stat[]; columns?: number }) {
   );
 }
 
+/** The label a `Select` inside this field should give its sheet. */
+const FieldLabel = createContext<string>('');
+
 export function Field({
   label,
   children,
@@ -136,10 +147,12 @@ export function Field({
   children: ReactNode;
 }) {
   return (
-    <label className="field">
-      <span className="field__label">{label}</span>
-      {children}
-    </label>
+    <FieldLabel.Provider value={label}>
+      <label className="field">
+        <span className="field__label">{label}</span>
+        {children}
+      </label>
+    </FieldLabel.Provider>
   );
 }
 
@@ -159,14 +172,46 @@ export function Select({
    *  their own wording — a camera name, a group — need nothing here. */
   label?: (option: string) => string;
 }) {
+  // On a phone a native dropdown is a tiny list in a corner; the sheet is one
+  // thumb-sized row per option (P13-FR-050). The props are the console's, so
+  // every screen that uses `Select` gets the sheet without an edit.
+  const [open, setOpen] = useState(false);
+  const title = useContext(FieldLabel);
+  const say = (o: string) => (label ? label(o) : o);
   return (
-    <select className="input" value={value} onChange={(e) => onChange(e.target.value)}>
-      {options.map((o) => (
-        <option key={o} value={o}>
-          {label ? label(o) : o}
-        </option>
-      ))}
-    </select>
+    <>
+      <button
+        type="button"
+        className="input selectbtn"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={(e) => {
+          // Inside a <label>, a click on the text would otherwise re-fire here.
+          e.preventDefault();
+          setOpen(true);
+        }}
+      >
+        <span className="selectbtn__value">{options.includes(value) ? say(value) : value}</span>
+        <svg width="16" height="16" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+          <path d="M5 7 L9 11 L13 7" stroke="currentColor" strokeWidth="2"
+                strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+      <Sheet open={open} title={title || say(value)} onClose={() => setOpen(false)}>
+        {options.map((o) => (
+          <SheetOption
+            key={o}
+            selected={o === value}
+            onSelect={() => {
+              onChange(o);
+              setOpen(false);
+            }}
+          >
+            {say(o)}
+          </SheetOption>
+        ))}
+      </Sheet>
+    </>
   );
 }
 
@@ -189,7 +234,7 @@ export function Toggle({
       onClick={onToggle}
       style={{ background: on ? 'var(--ac)' : 'var(--toggle-off)' }}
     >
-      <span className="toggle__knob" style={{ left: on ? 18 : 2 }} />
+      <span className="toggle__knob" style={{ insetInlineStart: on ? 24 : 4 }} />
     </button>
   );
 }

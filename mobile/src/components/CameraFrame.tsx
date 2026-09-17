@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { ImgHTMLAttributes } from 'react';
 import { useT } from '@/app/LanguageContext';
 import { useSite } from '@/app/SiteContext';
 import type { CameraFeature } from '@/services/api';
@@ -18,19 +19,22 @@ const BOX_COLOR: Record<BoxColor, string> = {
 type Size = 'sm' | 'lg';
 
 const SCALE = {
+  // Phone (spec 015): no minimum height, because a 360-px screen gives a tile
+  // about 160 px and a minimum would letterbox the picture inside black bars;
+  // and no text under 12 px, the phone's floor for anything a person reads.
   sm: {
-    height: 128,
+    minHeight: 0,
     grid: 26,
     border: 2,
     inset: 8,
     insetX: 9,
-    chrome: 10.5,
-    labelFont: 10,
-    labelTop: -18,
+    chrome: 12,
+    labelFont: 12,
+    labelTop: -20,
     labelPad: '1px 6px',
   },
   lg: {
-    height: 380,
+    minHeight: 0,
     grid: 34,
     border: 2.5,
     inset: 12,
@@ -46,6 +50,13 @@ const SCALE = {
  *  screen — see `tileRefreshMs` there. */
 const SNAPSHOT_REFRESH_MS = 1_000;
 
+/** How long a tile waits for a picture before asking again anyway.
+ *
+ *  A tile asks for its next picture only once the last one has arrived, so a
+ *  slow link slows the tile down instead of piling requests up behind it.
+ *  This is the way out when a request never comes back at all. */
+const STALLED_MS = 5_000;
+
 /** How often the on-screen clock ticks. */
 const CLOCK_TICK_MS = 1_000;
 
@@ -60,6 +71,47 @@ const CLOCK_TICK_MS = 1_000;
  *  bytes and the response is ~4 ms. */
 const DETECTION_REFRESH_MS = 100;
 
+/** The live stream's picture, which lets go of the stream when it stops
+ *  showing it.
+ *
+ *  A browser does not stop loading an image because its element left the
+ *  page: the HTML spec keeps an image fetch alive even when the element is no
+ *  longer in the document. A still picture finishes anyway; an MJPEG response
+ *  never does. So closing the enlarged view left its stream running until the
+ *  whole page was left, and the engine, which counts an open stream as
+ *  somebody watching, kept that camera reading and converting every frame for
+ *  nobody — 822 a second on the recorded clip, measured 12 Sep 2026 with the
+ *  view closed. The Track page's big view and enrolment's live view are this
+ *  same element, so they left a stream behind too.
+ *
+ *  So this element owns its `src` and removes it when it stops showing the
+ *  stream. `removeAttribute('src')` aborts the request and fires no event.
+ *  `src = ''` aborts it too but fires `error`, which `CameraFrame` would read
+ *  as a failed camera. Both were measured in Chromium, which is what this
+ *  console runs on (Chrome/Edge); the spec requires the abort, but how a
+ *  multipart response is torn down is each engine's own code, and Safari has
+ *  an old open bug about not closing one at all.
+ *
+ *  React never sets `src` here, so development's StrictMode rehearsal
+ *  (unmount, then mount again) puts it back instead of leaving a blank
+ *  picture. A layout effect, so the address is in place before the first
+ *  paint. */
+function StreamImage({
+  src,
+  ...rest
+}: { src: string } & Omit<ImgHTMLAttributes<HTMLImageElement>, 'src'>) {
+  const ref = useRef<HTMLImageElement | null>(null);
+
+  useLayoutEffect(() => {
+    const img = ref.current;
+    if (!img) return;
+    img.src = src;
+    return () => img.removeAttribute('src');
+  }, [src]);
+
+  return <img ref={ref} {...rest} />;
+}
+
 /** A camera tile: the real frame, with whatever the engine detected drawn over it.
  *
  *  When the engine cannot supply a frame the synthetic dark room is drawn
@@ -71,6 +123,7 @@ export function CameraFrame({
   size = 'sm',
   live = false,
   refreshMs = SNAPSHOT_REFRESH_MS,
+  boxRefreshMs: tileBoxMs,
   onCount,
   onBoxes,
   badge = 'LIVE',
@@ -86,6 +139,9 @@ export function CameraFrame({
   live?: boolean;
   /** Snapshot poll interval. `CamGrid` scales this to the grid size. */
   refreshMs?: number;
+  /** How often a `tileOverlay` tile re-fetches its boxes. Defaults to
+   *  `refreshMs`; `CamGrid` keeps it slower than the picture. */
+  boxRefreshMs?: number;
   /** Called with each live headcount, so the enlarged view can show it
    *  without running a second poll of its own. */
   onCount?: (count: number | null) => void;
@@ -119,7 +175,7 @@ export function CameraFrame({
    *  a camera to ask it.
    *
    *  It is affordable there for two reasons. The poll runs at the tile's own
-   *  `refreshMs`, not the enlarged view's 100 ms. And the server no longer
+   *  `boxRefreshMs`, not the enlarged view's 100 ms. And the server no longer
    *  wakes face recognition for a weapons poll, so a grid of tiles costs the
    *  knife worker's boost and nothing else. */
   tileOverlay?: boolean;
@@ -171,9 +227,26 @@ export function CameraFrame({
   // the first frame lands.
   useEffect(() => setAspect(null), [camera.id]);
 
+  // One picture in flight at a time.
+  //
+  // The timer used to swap the picture's address every interval whether or
+  // not the last picture had arrived. At 15 a second on a slow link that is
+  // a request abandoned every 67 ms and a tile that never finishes loading
+  // one. Now a tick is skipped while the last picture is still on its way,
+  // so the tile runs at `refreshMs` on a fast link and as fast as the link
+  // allows on a slow one. Refs, not state: nothing here should re-render.
+  const requested = useRef({ tick: 0, at: performance.now() });
+  const loadedTick = useRef(-1);
+
   useEffect(() => {
     if (!usePolling) return;
-    const timer = setInterval(() => setTick((n) => n + 1), refreshMs);
+    const timer = setInterval(() => {
+      const now = performance.now();
+      const last = requested.current;
+      if (loadedTick.current < last.tick && now - last.at < STALLED_MS) return;
+      requested.current = { tick: last.tick + 1, at: now };
+      setTick(last.tick + 1);
+    }, refreshMs);
     return () => clearInterval(timer);
   }, [usePolling, refreshMs]);
 
@@ -191,9 +264,11 @@ export function CameraFrame({
   // attendance is unaffected by any of this.
   const wantLiveBoxes = (useStream || tileOverlay) && detections;
   // The enlarged view tracks a moving box at 100 ms. A tile is small and there
-  // may be a screenful of them, so it polls at its own snapshot rate — the
-  // same request it was already making for the picture, near enough.
-  const boxRefreshMs = useStream ? DETECTION_REFRESH_MS : refreshMs;
+  // may be a screenful of them, so it polls at the grid's overlay rate, which
+  // stayed where it was when the pictures sped up.
+  const boxRefreshMs = useStream
+    ? DETECTION_REFRESH_MS
+    : (tileBoxMs ?? refreshMs);
 
   useEffect(() => {
     if (!wantLiveBoxes) {
@@ -277,11 +352,54 @@ export function CameraFrame({
 
   // Cache-busting: the URL is stable, so without this the browser would serve
   // the first frame forever.
+  //
+  // `width` asks for a picture the size the tile will show, in device pixels;
+  // the engine rounds it up to one of a few sizes. Rounded up here to a step
+  // of 160 as well, so dragging the window edge does not re-request the
+  // picture at every pixel. Left out until the tile has been measured, which
+  // gets the full picture once rather than a tiny one.
+  //
+  // `fps` tells the engine how often this tile will ask, so the camera
+  // prepares new pictures that fast while the tile is on screen.
+  const devicePixels = frameSize.width * (window.devicePixelRatio || 1);
+  const requestWidth = Math.ceil(devicePixels / 160) * 160;
+  const snapshotQuery =
+    `t=${tick}` +
+    (requestWidth > 0 ? `&width=${requestWidth}` : '') +
+    `&fps=${Math.max(1, Math.round(1_000 / refreshMs))}`;
   const frameSrc = useStream
     ? camera.streamUrl
     : usePolling
-      ? `${camera.snapshotUrl}?t=${tick}`
+      ? `${camera.snapshotUrl}?${snapshotQuery}`
       : undefined;
+
+  // Shared by both pictures. The stream is a separate element (`StreamImage`)
+  // so it can let go of its connection, which makes a switch between stream
+  // and snapshots a new element rather than a new address on the old one.
+  const pictureProps: Omit<ImgHTMLAttributes<HTMLImageElement>, 'src'> = {
+    alt: camera.name,
+    onError: () => setImageFailed(true),
+    onLoad: (e) => {
+      loadedTick.current = tick;
+      const { naturalWidth, naturalHeight } = e.currentTarget;
+      if (naturalWidth > 0 && naturalHeight > 0) {
+        setAspect(naturalWidth / naturalHeight);
+      }
+    },
+    style: {
+      position: 'absolute',
+      inset: 0,
+      width: '100%',
+      height: '100%',
+      // Fitted, never cropped. `cover` filled the tile by throwing the
+      // edges of the frame away, which on a counting page means people
+      // who are in the number but not on the screen.
+      objectFit: 'contain',
+      // Dim a frame that is no longer current, so a still corridor does
+      // not read as a live one.
+      filter: camera.offline ? 'grayscale(1) brightness(.45)' : undefined,
+    },
+  };
 
   return (
     // dir="ltr" is pinned here and must stay pinned, in every language.
@@ -296,32 +414,23 @@ export function CameraFrame({
     // Arabic text inside still reads right-to-left on its own — a camera
     // name or a person's name is a text run, and the bidi algorithm handles
     // it without any help from the container. P11-FR-009.
-    <div className="camframe" dir="ltr" ref={frameRef} style={{ height: s.height }}>
+    <div
+      className="camframe"
+      dir="ltr"
+      ref={frameRef}
+      style={{
+        // The camera's own shape, once a frame has landed. 16:9 until then, so
+        // the tile does not jump from a square placeholder.
+        aspectRatio: aspect ?? 16 / 9,
+        minHeight: s.minHeight,
+      }}
+    >
       {frameSrc ? (
-        <img
-          src={frameSrc}
-          alt={camera.name}
-          onError={() => setImageFailed(true)}
-          onLoad={(e) => {
-            const { naturalWidth, naturalHeight } = e.currentTarget;
-            if (naturalWidth > 0 && naturalHeight > 0) {
-              setAspect(naturalWidth / naturalHeight);
-            }
-          }}
-          style={{
-            position: 'absolute',
-            inset: 0,
-            width: '100%',
-            height: '100%',
-            // Fitted, never cropped. `cover` filled the tile by throwing the
-            // edges of the frame away, which on a counting page means people
-            // who are in the number but not on the screen.
-            objectFit: 'contain',
-            // Dim a frame that is no longer current, so a still corridor does
-            // not read as a live one.
-            filter: camera.offline ? 'grayscale(1) brightness(.45)' : undefined,
-          }}
-        />
+        useStream ? (
+          <StreamImage src={frameSrc} {...pictureProps} />
+        ) : (
+          <img src={frameSrc} {...pictureProps} />
+        )
       ) : (
         <>
           <div
@@ -463,10 +572,10 @@ export function CameraFrame({
 
       {camera.offline && (
         <div className="camframe__nosignal">
-          <span style={{ color: '#aab5ac', fontSize: 12, fontWeight: 700, letterSpacing: '.05em' }}>
+          <span style={{ color: '#e4eae5', fontSize: 12, fontWeight: 700, letterSpacing: '.05em' }}>
             {t('camera.noSignal')}
           </span>
-          <span style={{ color: '#77827a', fontSize: 11 }}>showing last received frame</span>
+          <span style={{ color: '#c3ccc6', fontSize: 12 }}>showing last received frame</span>
         </div>
       )}
 

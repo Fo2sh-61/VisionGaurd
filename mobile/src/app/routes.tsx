@@ -3,6 +3,9 @@ import { AppShell } from './AppShell';
 import { useAuth } from './AuthContext';
 import { Login } from '@/pages/Login';
 import { Home } from '@/pages/Home';
+import { Alerts } from '@/pages/Alerts';
+import { Cameras } from '@/pages/Cameras';
+import { CameraView } from '@/pages/CameraView';
 import { Attendance } from '@/pages/Attendance';
 import { Counting } from '@/pages/Counting';
 import { Intrusion } from '@/pages/Intrusion';
@@ -30,10 +33,13 @@ import type { ReactElement } from 'react';
  *  here would not break the build; it would quietly turn every Ask answer on
  *  the phone into a redirect to Home.
  *
- *  Two paths exist here and not on the console — `/tools` and `/account`.
- *  They are the two tabs that are lists: the console shows its tools down the
- *  left of every screen and has no need of a page for them, and a phone has
- *  no room for a permanent sidebar. They add no capability.
+ *  Five paths exist here and not on the console (spec 015): `/tools` and
+ *  `/more` are tabs that are lists, because a phone has no room for the
+ *  console's sidebar; `/alerts` is the console's bell dropdown as a screen;
+ *  `/cameras` and `/cameras/:id` show the roster and one camera, which the
+ *  console only shows inside each tool. They add no capability - every figure
+ *  on them comes from calls the console already makes. `/account` was the old
+ *  fifth tab and now forwards to `/more`.
  *
  *  `RequireRole` and `RequireSignIn` are copied from the console rather than
  *  rewritten, comments included, because what they do and do not promise is
@@ -88,6 +94,11 @@ export function AppRoutes() {
 
       <Route element={<RequireSignIn><AppShell /></RequireSignIn>}>
         <Route index element={<Home />} />
+        <Route path="alerts" element={<Alerts />} />
+
+        {/* The Cameras tab: the roster, and one camera at a time. */}
+        <Route path="cameras" element={<Cameras />} />
+        <Route path="cameras/:id" element={<CameraView />} />
 
         {/* The Tools tab, and the seven screens behind it. */}
         <Route path="tools" element={<Tools />} />
@@ -108,11 +119,10 @@ export function AppRoutes() {
         <Route path="people/groups/:name" element={<PeopleGroup />} />
         <Route path="people/history/:name" element={<PersonHistory />} />
 
-        {/* The System tab. Camera setup is inside this page, not beside it. */}
+        {/* The More tab. Camera setup is inside System health, not beside it. */}
+        <Route path="more" element={<Account />} />
+        <Route path="account" element={<Navigate to="/more" replace />} />
         <Route path="system" element={<SystemHealth />} />
-
-        {/* The Account tab. */}
-        <Route path="account" element={<Account />} />
         <Route path="settings" element={<Settings />} />
         <Route
           path="users"

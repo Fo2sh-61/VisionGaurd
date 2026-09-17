@@ -26,9 +26,32 @@ import { CameraModal } from './CameraModal';
  *  Paging feeds this the number of tiles ACTUALLY rendered, not the roster
  *  size. That is the whole reason the two belong in one component: a page of
  *  eight tiles out of two hundred should refresh like eight, and it only can
- *  if whatever does the paging is also what computes this. */
-function tileRefreshMs(count: number): number {
-  if (count <= 4) return 200; // 5 fps — reads as live
+ *  if whatever does the paging is also what computes this.
+ *
+ *  Raised on 11 Sep 2026 from 5 / 2 / 0.67 a second, which read as a slide
+ *  show next to the enlarged view. Two things make it affordable. Each tile
+ *  asks for a picture sized to the tile — it used to be sent 1280 px to show
+ *  at 128 px tall, and compressing that was most of what a tile cost. And
+ *  the tile tells the engine its rate, so the camera decodes that fast while
+ *  the tile is on screen instead of at its analytics rate (5 a second or
+ *  less), which used to cap every tile whatever it asked for. Measured at
+ *  1080p on the dev laptop, one tile at 15 a second now costs about what one
+ *  at 5 did. The AI does not run any faster for it: models keep their own
+ *  rate. */
+export function tileRefreshMs(count: number): number {
+  if (count <= 4) return 1_000 / 15; // 15 a second — reads as video
+  if (count <= 12) return 200; // 5 a second
+  return 500; // 2 a second
+}
+
+/** How often a tile's OVERLAY re-fetches, on the pages that draw one.
+ *
+ *  Deliberately left at the old picture rates. An overlay poll is its own
+ *  request and renews a worker's boost, its boxes only change when the model
+ *  runs, and tripling the knife page's polls was never the point of making
+ *  the picture smoother. */
+function tileBoxRefreshMs(count: number): number {
+  if (count <= 4) return 200;
   if (count <= 12) return 500;
   return 1_500;
 }
@@ -50,6 +73,7 @@ export function CamGrid({
   pageSize,
   onPick,
   activeId,
+  activeRef,
   feature,
   colour,
   tileOverlay = false,
@@ -78,6 +102,9 @@ export function CamGrid({
   onPick?: (camera: Camera) => void;
   /** Draw this camera as the chosen one. */
   activeId?: string;
+  /** Handed the chosen camera's tile, so a page can bring it into view - the
+   *  camera an alert linked to. */
+  activeRef?: (element: HTMLElement | null) => void;
   /** Which overlay the enlarged view should draw. The tiles never draw one,
    *  so this only reaches the opened camera — which is exactly where it
    *  matters: the counting page must not open a face review. */
@@ -153,6 +180,7 @@ export function CamGrid({
     : ranked;
 
   const refreshMs = tileRefreshMs(ordered.length);
+  const boxRefreshMs = tileBoxRefreshMs(ordered.length);
   const [counts, setCounts] = useState<Record<string, number | null>>({});
 
   // The camera payload is fetched once when the page runs its query, so the
@@ -184,6 +212,7 @@ export function CamGrid({
     <button
       type="button"
       key={cam.id}
+      ref={cam.id === activeId ? activeRef : undefined}
       className="camcard"
       onClick={() => pick(cam)}
       style={
@@ -195,6 +224,7 @@ export function CamGrid({
       <CameraFrame
         camera={cam}
         refreshMs={refreshMs}
+        boxRefreshMs={boxRefreshMs}
         feature={tileOverlay ? feature : undefined}
         colour={colour}
         tileOverlay={tileOverlay}
@@ -212,7 +242,7 @@ export function CamGrid({
         >
           {cam.name}
         </div>
-        <div style={{ fontSize: 11.5, color: 'var(--tx2)', marginTop: 1 }}>
+        <div style={{ fontSize: 12, color: 'var(--tx2)', marginTop: 1 }}>
           {cam.offline ? cam.status : describeCount(counts[cam.id], cam.status, language)}
         </div>
         {pinned?.includes(cam.id) && (
@@ -233,10 +263,12 @@ export function CamGrid({
   }
 
   return (
-    <div className="card" style={{ padding: 20, marginTop: 14 }}>
+    <div className="card">
+      {/* Phone: the search takes its own full-width line under the title. */}
       <div
         style={{
           display: 'flex',
+          flexWrap: 'wrap',
           alignItems: 'flex-start',
           justifyContent: 'space-between',
           gap: 12,
@@ -257,7 +289,8 @@ export function CamGrid({
               setSearch(e.target.value);
               setPage(0);
             }}
-            style={{ minWidth: 200, maxWidth: 280 }}
+            className="input"
+            style={{ flex: '1 1 100%' }}
           />
         )}
       </div>
@@ -291,12 +324,12 @@ export function CamGrid({
             <div key={area} style={{ marginTop: 14 }}>
               <div
                 style={{
-                  fontSize: 12,
+                  fontSize: 12.5,
                   fontWeight: 700,
                   letterSpacing: 0.3,
                   textTransform: 'uppercase',
-                  color: 'var(--tx3)',
-                  marginBottom: 6,
+                  color: 'var(--tx2)',
+                  marginBottom: 2,
                 }}
               >
                 {area === UNPLACED ? t(UNPLACED) : area}

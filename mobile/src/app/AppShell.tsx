@@ -1,73 +1,95 @@
 import { useEffect } from 'react';
 import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { DevSignInBanner } from '@/components/DevSignInBanner'; // DEV-SIGNIN
-import { TABS, tabFor } from './tabs';
+import { Icon } from '@/components/Icon';
+import { ScreenHeader } from '@/components/ScreenHeader';
+import { TopBar } from '@/components/TopBar';
+import { PageChromeProvider, usePageChrome } from './PageChrome';
+import { TABS, isTabRoot, screenFor, tabFor } from './tabs';
 import { useAuth } from './AuthContext';
 import { useT } from './LanguageContext';
 
-/** The phone's chrome: a scrolling screen with a tab bar under it.
+/** The phone's frame: a header, a scrolling screen, and five tabs.
  *
- *  Deliberately not the console's shell. `web/src/app/AppShell.tsx` puts a
- *  sidebar beside a top bar; neither fits a hand, and the phone's design
- *  replaced both with five tabs long before this app was real.
+ *  Spec 015 (phone-first redesign). A tab's own screen gets the top bar -
+ *  brand, camera status, the alert bell, who is signed in. Every screen below
+ *  a tab gets a back header with its title instead, so a tool always has a way
+ *  back. Both sit above the scrolling area, so they stay put while it scrolls.
  *
- *  What it shares with the console is the part that matters: it renders
- *  `<Outlet/>` and nothing else. Every page below it is a byte copy of the
- *  console's page and knows nothing about which shell it is inside — which is
- *  the whole reason the copy was cheap.
- */
+ *  The screens themselves know nothing about which header they are under. A
+ *  screen that wants its own title in the header (a camera's name) or an
+ *  action there (Export) asks through `PageChrome`. */
 export function AppShell() {
   const { account } = useAuth();
+  if (!account) return <Navigate to="/login" replace />;
+  return (
+    <PageChromeProvider>
+      <Frame />
+    </PageChromeProvider>
+  );
+}
+
+function Frame() {
   const location = useLocation();
   const navigate = useNavigate();
   const t = useT();
+  const chrome = usePageChrome();
 
-  // The console scrolls the window; the phone scrolls a div inside a fixed
-  // viewport, so that is what has to be sent back to the top on a new screen.
-  // Without this, opening a person from halfway down the directory lands you
-  // halfway down their history.
+  // The phone scrolls a div inside a fixed viewport, not the window, so that
+  // is what has to be sent back to the top on a new screen. Without this,
+  // opening a person from halfway down the directory lands you halfway down
+  // their history.
   useEffect(() => {
     document.querySelector('.app__content')?.scrollTo(0, 0);
   }, [location.pathname]);
 
-  if (!account) return <Navigate to="/login" replace />;
-
+  const root = isTabRoot(location.pathname);
+  const screen = root ? null : screenFor(location.pathname);
   const active = tabFor(location.pathname);
 
   return (
     <div className="app">
       <DevSignInBanner /> {/* DEV-SIGNIN */}
-      <div className="app__content">
-        <Outlet />
-      </div>
 
-      {/* The bar itself needs no `dir` handling: it is a flex row, and the
-          document's `dir` — set by LanguageContext — reverses flex order for
-          free. Setting it here as well would reverse it twice and put Arabic
-          back in English order. */}
+      {root ? (
+        <TopBar />
+      ) : (
+        <ScreenHeader
+          title={chrome.title ?? (screen ? t(screen.title) : '')}
+          parent={screen?.parent ?? '/'}
+          action={chrome.action}
+        />
+      )}
+
+      <main className="app__content">
+        {/* Every screen gets the same gutter and rhythm; a screen that wants a
+            picture edge to edge steps out of it with negative margins. */}
+        <div className="screen">
+          <Outlet />
+        </div>
+      </main>
+
+      {/* The bar needs no `dir` handling: it is a grid, and the document's
+          `dir` - set by LanguageContext - reverses the column order for free. */}
       <nav className="tabbar">
         {TABS.map((tab) => {
           const on = active === tab.id;
-          const label = t(tab.label);
           return (
             <button
               key={tab.id}
               type="button"
               aria-current={on ? 'page' : undefined}
-              aria-label={label}
-              className={`tabbar__item ${on ? 'tabbar__item--active' : ''}`}
-              onClick={() => navigate(tab.path)}
+              className={on ? 'tabbar__item tabbar__item--active' : 'tabbar__item'}
+              onClick={() => {
+                // Tapping the tab you are already in goes back to its top.
+                if (location.pathname !== tab.path) navigate(tab.path);
+                else document.querySelector('.app__content')?.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
             >
-              <svg width="22" height="22" viewBox="0 0 18 18" fill="none" aria-hidden="true">
-                <path
-                  d={tab.icon}
-                  stroke={on ? 'var(--ac)' : 'var(--tx3)'}
-                  strokeWidth={on ? 2 : 1.6}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-              <span className="tabbar__label">{label}</span>
+              <span className="tabbar__icon">
+                <Icon name={tab.icon} size={21} strokeWidth={on ? 2 : 1.7} />
+              </span>
+              <span className="tabbar__label">{t(tab.label)}</span>
             </button>
           );
         })}

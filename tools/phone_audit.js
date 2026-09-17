@@ -12,8 +12,10 @@
  * `inlineLinks` are links and link-buttons sitting inside a run of text. WCAG
  * exempts those from the size rule, so they are listed apart and judged by eye.
  *
- * Nothing here changes the page. It returns a plain object. */
-(() => {
+ * Nothing here changes the page. It returns a plain object, and leaves itself
+ * behind as `window.__vgAudit()` so the next screen of the same visit can be
+ * measured without pasting it again. */
+(window.__vgAudit = () => {
   const content = document.querySelector('.app__content') || document.scrollingElement;
   const vw = document.documentElement.clientWidth;
 
@@ -37,6 +39,9 @@
   const wide = [];
   for (const el of document.querySelectorAll('.app *')) {
     const r = el.getBoundingClientRect();
+    // A strip that scrolls sideways on purpose (chips, other cameras) holds
+    // things past the edge by design; the strip itself must still fit.
+    if (el.parentElement?.closest('.chips, .hscroll')) continue;
     if (r.width > 0 && (r.right > vw + 1 || r.left < -1) && visible(el)) {
       // Only report the outermost offender, not every child inside it.
       if (!wide.some((w) => w.contains(el))) wide.push(el);
@@ -50,6 +55,8 @@
     'button, a[href], input:not([type=hidden]), select, textarea, [role=switch], [role=button], summary');
   for (const el of targets) {
     if (!visible(el) || el.disabled) continue;
+    // A camera tile's picture inside its button is not a second target.
+    if (el.closest('.camframe') && el.closest('button') !== el) continue;
     // A native checkbox inside a label: the label is the target.
     const host = (el.matches('input[type=checkbox],input[type=radio]') && el.closest('label')) || el;
     const r = host.getBoundingClientRect();

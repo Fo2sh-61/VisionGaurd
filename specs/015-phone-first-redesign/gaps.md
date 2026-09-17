@@ -19,7 +19,7 @@ pytest 1889 passed / 6 skipped. Nothing was failing.
 | G3 | "· retrying" on offline tiles | The roster does not say a retry is happening | "No signal · last picture HH:MM" |
 | G4 | "Not set up on this camera" per overlay | No per-camera, per-feature flag for non-admins | "No boxes right now" |
 | G5 | Blue "clothing match" rows in In view now | The Faces overlay sends no clothing matches | Face / Not identified rows |
-| G6 | Per-person Follow button | To be checked (context §5) | — |
+| G6 | ~~Per-person Follow button~~ **built** | Track's live mode picks up a follow started elsewhere on its first poll (`getFollow`), so Follow calls `startFollow` with the box centre and opens Track | — |
 | G7 | Photos-on-file grid + Add photo | The engine keeps embeddings, not photographs | "Face on file · N photos" |
 | G8 | Person's "Today" timeline of sightings | Engine sends last seen + day bars, not each sighting | Last seen + the console's history |
 | G9 | "No recorded video from…" with recording-range chips | The footage job returns one error string | The console's failed-footage message |

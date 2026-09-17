@@ -1,5 +1,46 @@
 @import './tokens.css';
 
+/* The phone's design system (spec 015, the phone-first redesign).
+ *
+ * `tokens.css` is shared with the console byte for byte, so the palette is
+ * the console's. This file is the phone's own: it decides how things are
+ * arranged for one hand on a 360-pixel screen, and nothing in it may change
+ * what a value means.
+ *
+ * Two kinds of rule live here:
+ *
+ *   1. The phone's own parts - top bar, back header, tab bar, sheets, chips,
+ *      segmented controls, list cards, stat tiles - used by the screens that
+ *      were rebuilt for the phone.
+ *   2. The console's class names (`card`, `btn`, `chip-btn`, `row`, `camframe`
+ *      ...), restyled for a finger. Several feature parts are still copies of
+ *      the console's (Track a person, Enrol, camera setup, the vehicle
+ *      register), and they render with these names.
+ *
+ * Every control a finger presses is at least 44 px in both directions, text is
+ * never under 12 px, and every text colour clears 4.5:1 on what it sits on. */
+
+/* ---------- legibility: the three text colours that failed on a phone ------
+ *
+ * Measured on 12 Sep 2026 at 360 px: `--tx3` was 3.55:1 on a dark card, 3.07:1
+ * on a light one and 2.80:1 on the light page. The console keeps its values -
+ * this only re-declares them for the phone, after the shared import, so the
+ * shared file stays identical. `tools/phone_audit.js` is what checks them. */
+:root {
+  --tx2: #4c5a52;
+  --tx3: #5e6b64;
+  --am: #735810;
+  --rd: #9c3328;
+  --tap: 44px;
+}
+
+body.dark {
+  --tx2: #b0bcb4;
+  --tx3: #97a59c;
+  --am: #dcb461;
+  --rd: #e8958a;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -16,14 +57,23 @@ body {
   background: var(--bg);
   color: var(--tx);
   font-size: 15px;
-  line-height: 1.5;
+  line-height: 1.45;
   -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
   overscroll-behavior-y: none;
 }
 
+[dir='rtl'] body {
+  font-family: 'Noto Sans Arabic', 'Segoe UI', Tahoma, 'Geeza Pro', system-ui, sans-serif;
+}
+
 a {
-  color: var(--ac);
+  color: var(--ac2);
   text-decoration: none;
+}
+
+body:not(.dark) a {
+  color: var(--ac);
 }
 
 input,
@@ -31,6 +81,11 @@ select,
 button,
 textarea {
   font-family: inherit;
+  color: inherit;
+}
+
+button {
+  -webkit-tap-highlight-color: transparent;
 }
 
 :focus-visible {
@@ -38,7 +93,21 @@ textarea {
   outline-offset: 2px;
 }
 
-/* ---------- app shell ---------- */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ================================================================
+   1. THE FRAME
+   ================================================================ */
 
 .app {
   display: flex;
@@ -53,263 +122,672 @@ textarea {
 
 .app__content {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  padding: calc(env(safe-area-inset-top, 0px) + 18px) 0 14px;
+  overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
 }
 
+/* One screen's worth of content. Every screen, rebuilt or copied, sits in
+   this: 16 px either side, 16 px between sections, room at the bottom so the
+   last card is not flush against the tab bar. */
 .screen {
-  padding: 0 20px;
+  padding: 4px 16px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
 }
 
-.screen__title {
-  font-weight: 700;
-  font-size: 25px;
-  letter-spacing: -0.02em;
-  margin: 0;
+.screen > * {
+  min-width: 0;
 }
 
-.screen__lead {
-  font-size: 13.5px;
+/* ---------- top bar (tab roots) ---------- */
+
+.topbar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 60px;
+  padding: calc(env(safe-area-inset-top, 0px) + 8px) 10px 8px 14px;
+  background: var(--bg);
+}
+
+.topbar__brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.topbar__name {
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.topbar__status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.topbar__date {
   color: var(--tx2);
-  margin: 4px 0 18px;
-  line-height: 1.4;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-/* ---------- bottom tab bar ---------- */
+.iconbtn {
+  position: relative;
+  width: var(--tap);
+  height: var(--tap);
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--tx);
+  cursor: pointer;
+  padding: 0;
+}
+
+.iconbtn:active {
+  background: var(--hover);
+}
+
+.iconbtn__marker {
+  position: absolute;
+  top: 5px;
+  inset-inline-end: 3px;
+  min-width: 19px;
+  height: 19px;
+  padding: 0 5px;
+  border-radius: 10px;
+  /* Ink on the light-mode fills, white on the dark-mode ones: --on-ac flips. */
+  color: var(--on-ac);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 19px;
+  text-align: center;
+  box-shadow: 0 0 0 2px var(--bg);
+}
+
+.bell-ring {
+  transform-origin: 50% 15%;
+  animation: vg-bell 0.9s ease-in-out 1;
+}
+
+@keyframes vg-bell {
+  0%, 100% { transform: rotate(0); }
+  20% { transform: rotate(14deg); }
+  40% { transform: rotate(-11deg); }
+  60% { transform: rotate(7deg); }
+  80% { transform: rotate(-4deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bell-ring { animation: none; }
+}
+
+.initials {
+  width: var(--tap);
+  height: var(--tap);
+  flex-shrink: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.initials > span {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--chip);
+  color: var(--ac2);
+  font-size: 13px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+body:not(.dark) .initials > span {
+  color: var(--ac2);
+}
+
+/* ---------- back header (below a tab root) ---------- */
+
+.screenhead {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 58px;
+  padding: calc(env(safe-area-inset-top, 0px) + 6px) 8px 6px 4px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+}
+
+.screenhead__title {
+  flex: 1;
+  min-width: 0;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.screenhead__action {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/* ---------- tab bar ---------- */
 
 .tabbar {
   flex-shrink: 0;
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   background: var(--panel);
   border-top: 1px solid var(--line);
-  padding: 8px 6px calc(env(safe-area-inset-bottom, 0px) + 10px);
+  padding: 6px 4px calc(env(safe-area-inset-bottom, 0px) + 6px);
 }
 
 .tabbar__item {
-  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  padding: 6px 0;
-  min-height: 44px;
+  justify-content: center;
+  gap: 3px;
+  min-height: 54px;
+  padding: 2px 0;
   background: none;
   border: none;
   cursor: pointer;
-  color: var(--tx3);
+  color: var(--tx2);
   font: inherit;
+  min-width: 0;
+}
+
+.tabbar__icon {
+  width: 56px;
+  max-width: 100%;
+  height: 30px;
+  border-radius: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
 }
 
 .tabbar__item--active {
-  color: var(--ac);
+  color: var(--tx);
+}
+
+.tabbar__item--active .tabbar__icon {
+  background: var(--chip);
+  color: var(--ac2);
 }
 
 .tabbar__label {
-  font-size: 11px;
-  font-weight: 500;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
-.tabbar__item--active .tabbar__label {
-  font-weight: 700;
+/* ================================================================
+   2. THE PHONE'S PARTS
+   ================================================================ */
+
+.h1 {
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.015em;
+  line-height: 1.15;
+  margin: 6px 0 0;
 }
 
-/* ---------- header (Home) ---------- */
+.lead {
+  font-size: 14px;
+  color: var(--tx2);
+  margin: 4px 0 0;
+  line-height: 1.45;
+}
 
-.mob-header {
+.note {
+  font-size: 13px;
+  color: var(--tx2);
+  line-height: 1.45;
+  margin: 0;
+}
+
+.muted {
+  color: var(--tx2);
+}
+
+/* A section heading with an optional link on the far side. */
+.sechead {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 18px;
+  gap: 8px;
+  margin: 6px 2px -6px;
+  min-height: 24px;
 }
 
-.mob-header__brand {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-}
-
-.mob-avatar {
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  background: var(--chip);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 600;
-  font-size: 12.5px;
-  color: var(--ac2);
-  border: none;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.tool-header {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 10px;
-}
-
-.tool-header__back {
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  background: var(--card);
-  box-shadow: var(--sh);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 16px;
-  color: var(--tx2);
-  border: none;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.tool-header__title {
+.sechead__title {
+  font-size: 13px;
   font-weight: 700;
-  font-size: 19px;
-  letter-spacing: -0.01em;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--tx2);
 }
 
-/* ---------- cards ---------- */
+[dir='rtl'] .sechead__title {
+  letter-spacing: 0;
+}
+
+.sechead__link {
+  min-height: var(--tap);
+  display: inline-flex;
+  align-items: center;
+  padding: 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ac2);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+body:not(.dark) .sechead__link {
+  color: var(--ac);
+}
+
+/* ---------- cards and lists ---------- */
 
 .card {
   background: var(--card);
+  border: 1px solid var(--line);
   border-radius: 16px;
-  padding: 16px;
   box-shadow: var(--sh);
+  padding: 16px;
+  min-width: 0;
 }
 
-.card--lg {
-  padding: 20px;
+.card--flush {
+  padding: 0;
+  overflow: hidden;
+}
+
+.card--tight {
+  padding: 16px;
 }
 
 .card--dashed {
-  border: 1.5px dashed var(--line);
+  border-style: dashed;
   box-shadow: none;
+  background: transparent;
+}
+
+.card__title {
+  font-weight: 700;
+  font-size: 16px;
+  line-height: 1.3;
+}
+
+.card__sub {
+  font-size: 13.5px;
+  color: var(--tx2);
+  margin: 3px 0 12px;
+  line-height: 1.45;
 }
 
 .stack {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
+  min-width: 0;
 }
 
-.section-title {
-  font-weight: 700;
-  font-size: 15.5px;
-  margin-bottom: 10px;
+.stack--tight {
+  gap: 8px;
 }
 
-/* ---------- forms ---------- */
-
-.input {
-  height: 46px;
-  width: 100%;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 0 13px;
-  font-size: 15px;
-  background: var(--card);
-  color: var(--tx);
-  outline: none;
-}
-
-.input:focus {
-  border-color: var(--ac);
-}
-
-.field {
+.hstack {
   display: flex;
-  flex-direction: column;
-  gap: 5px;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
 }
 
-.field__label {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--tx2);
+.spread {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
 }
 
-.btn {
-  height: 48px;
+/* A list inside a card: rows divided by hairlines, each a real tap target. */
+.list {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: var(--sh);
+  overflow: hidden;
+}
+
+.li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 64px;
+  padding: 10px 14px;
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
   width: 100%;
-  border: none;
-  border-radius: 13px;
-  background: var(--ac);
-  color: var(--on-ac);
-  font-weight: 600;
-  font-size: 15px;
+  min-width: 0;
+}
+
+.li:first-child {
+  border-top: 0;
+}
+
+a.li,
+button.li {
   cursor: pointer;
 }
 
-/* A disabled control has to look disabled. */
-.btn:disabled,
-.btn:disabled:active {
-  opacity: 0.5;
+a.li:active,
+button.li:active {
+  background: var(--hover);
+}
+
+.li__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.li__title {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--tx);
+  overflow-wrap: anywhere;
+}
+
+.li__sub {
+  font-size: 13px;
+  color: var(--tx2);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.li__chev {
+  color: var(--tx3);
+  flex-shrink: 0;
+  display: inline-flex;
+}
+
+.icontile {
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
+  background: var(--chip);
+  color: var(--ac2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.icontile--warn { background: var(--am-bg); color: var(--am); }
+.icontile--bad { background: var(--rd-bg); color: var(--rd); }
+.icontile--info { background: var(--chip); color: var(--ac2); }
+
+/* ---------- buttons ---------- */
+
+.btn {
+  min-height: 48px;
+  padding: 0 18px;
+  border-radius: 12px;
+  border: 0;
+  background: var(--ac);
+  color: var(--on-ac);
+  font-size: 15px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  text-align: center;
+  line-height: 1.2;
+  text-decoration: none;
+}
+
+a.btn {
+  color: var(--on-ac);
+}
+
+.btn:disabled {
+  opacity: 0.55;
   cursor: not-allowed;
 }
 
-.btn--ghost {
-  background: var(--card);
+.btn--block {
+  width: 100%;
+}
+
+.btn--sm {
+  min-height: var(--tap);
+  padding: 0 14px;
+  font-size: 14px;
+}
+
+.btn--ghost,
+.btn--quiet {
+  background: transparent;
   color: var(--tx);
   border: 1px solid var(--line);
 }
 
-.btn--quiet {
-  background: transparent;
-  color: var(--tx3);
-  height: 44px;
-  font-size: 13.5px;
+a.btn--ghost {
+  color: var(--tx);
+}
+
+.btn--soft {
+  background: var(--chip);
+  color: var(--ac2);
+}
+
+body:not(.dark) .btn--soft {
+  color: var(--ac2);
 }
 
 .btn--danger {
-  background: var(--rd);
+  background: #b1433a;
+  color: #fff;
 }
 
-/* ---------- badges & chips ---------- */
-
-.badge {
-  display: inline-block;
-  padding: 4px 10px;
-  border-radius: 9px;
-  font-size: 11.5px;
-  font-weight: 600;
-  white-space: nowrap;
+body.dark .btn--danger {
+  background: #b1433a;
+  color: #fff;
 }
 
-.chip {
-  padding: 8px 14px;
-  border-radius: 11px;
-  font-size: 13px;
-  font-weight: 500;
-  background: var(--chip);
-  color: var(--ac2);
-  white-space: nowrap;
-  flex-shrink: 0;
+.btn--danger-outline {
+  background: transparent;
+  color: var(--rd);
+  border: 1px solid var(--rd-bg);
+}
+
+/* Two or three actions of equal weight, side by side. */
+.btnrow {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+
+/* A text link that is still a finger-sized target: the padding makes the
+   hit area, the text stays where a link belongs. */
+.linkbtn {
+  background: none;
   border: none;
+  padding: 0 4px;
+  min-height: var(--tap);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   cursor: pointer;
+  color: var(--ac2);
+  font: inherit;
+  font-weight: 600;
+  font-size: 14px;
+  text-align: start;
 }
 
-.chip-row {
+body:not(.dark) .linkbtn {
+  color: var(--ac);
+}
+
+.linkbtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.linkbtn--quiet {
+  color: var(--tx2) !important;
+  font-weight: 500;
+}
+
+.linkbtn--danger {
+  color: var(--rd) !important;
+}
+
+/* ---------- chips (filters that open a sheet, and toggle chips) ---------- */
+
+.chips {
   display: flex;
   gap: 8px;
   overflow-x: auto;
-  padding-bottom: 6px;
+  margin: 0 -16px;
+  padding: 2px 16px;
+  scrollbar-width: none;
 }
 
-.chip-btn {
-  padding: 7px 15px;
-  border-radius: 10px;
-  font-size: 12.5px;
+.chips::-webkit-scrollbar {
+  display: none;
+}
+
+.chips--wrap {
+  flex-wrap: wrap;
+  overflow: visible;
+  margin: 0;
+  padding: 0;
+}
+
+.chip {
+  min-height: var(--tap);
+  padding: 0 14px;
+  border-radius: 22px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--tx);
+  font-size: 14px;
   font-weight: 600;
-  border: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  cursor: pointer;
+  flex-shrink: 0;
+  max-width: 100%;
+}
+
+.chip > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chip--on {
+  background: var(--chip);
+  border-color: transparent;
+  color: var(--ac2);
+}
+
+body:not(.dark) .chip--on {
+  color: var(--ac2);
+}
+
+.chip__n {
+  color: var(--tx2);
+  font-weight: 600;
+}
+
+.chip__label {
+  color: var(--tx2);
+  font-weight: 500;
+}
+
+.chip:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* The console's small toggle chips, at a finger's size. */
+.chip-btn {
+  min-height: var(--tap);
+  padding: 0 14px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  border: 1px solid transparent;
   cursor: pointer;
   white-space: nowrap;
-  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
 }
 
 .chip-btn--on {
@@ -318,8 +796,9 @@ textarea {
 }
 
 .chip-btn--off {
-  background: var(--bg);
-  color: var(--tx3);
+  background: var(--card);
+  color: var(--tx2);
+  border-color: var(--line);
 }
 
 .chip-btn--brand {
@@ -327,182 +806,639 @@ textarea {
   color: var(--on-ac);
 }
 
-/* ---------- stats ---------- */
+.chip-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
 
-.stats2 {
+/* ---------- segmented control ---------- */
+
+.seg {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 9px;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 4px;
+  padding: 4px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
 }
 
-.stat {
-  background: var(--bg);
-  border-radius: 12px;
-  padding: 12px 13px;
-}
-
-.stat__label {
-  font-size: 11.5px;
+.seg__btn {
+  min-height: var(--tap);
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
   color: var(--tx2);
-}
-
-.stat__value {
-  font-size: 20px;
-  font-weight: 700;
-}
-
-/* ---------- rows ---------- */
-
-/* A console table row, read in a hand.
- *
- *  The console renders `.row` as a grid and sets its columns inline, at 28
- *  call sites: `style={{ gridTemplateColumns: '1.5fr .7fr 1.4fr 1.5fr .9fr .9fr' }}`.
- *  Six columns across 375px is about 50px each — a column of broken words.
- *
- *  An inline style cannot be overridden by a stylesheet on specificity, so the
- *  usual answer would be `grid-template-columns: 1fr !important` at every
- *  breakpoint. This does something quieter instead: it is not a grid at all.
- *  `display: flex` makes `grid-template-columns` a property nothing reads, so
- *  the inline value goes inert on its own and **no page is edited**.
- *
- *  What the reader gets: the first cell as the headline on its own line, and
- *  the remaining cells flowing underneath as one muted line separated by `·`,
- *  wrapping when there are many. Nothing is dropped — every column the console
- *  shows is still on screen, in the same order, just folded. Pages that carry
- *  more detail than folds well open it on tap.
- *
- *  `min-width: 0` on the children because a flex item defaults to its content
- *  width and a long plate or camera name would otherwise push the row wider
- *  than the screen — which is precisely the sideways scroll this avoids. */
-.row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0 7px;
-  padding: 12px 0;
-  border-bottom: 1px solid var(--line);
-  min-height: 44px;
-}
-
-.row > * {
-  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0 6px;
+  line-height: 1.2;
   overflow-wrap: anywhere;
 }
 
-/* The headline: first cell, own line. */
-.row > *:first-child {
-  flex: 0 0 100%;
+.seg__btn--on {
+  background: var(--card);
+  color: var(--tx);
+  box-shadow: var(--sh);
+}
+
+/* ---------- badges and dots ---------- */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 24px;
+  padding: 2px 9px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.badge--dot {
+  gap: 6px;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.dotline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
   font-weight: 600;
-  font-size: 14.5px;
-  margin-bottom: 2px;
 }
 
-/* Everything after it: one muted line, in the console's order. */
-.row > *:not(:first-child) {
-  font-size: 12.5px;
-  color: var(--tx3);
-  line-height: 1.4;
+.glyph {
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  color: var(--card);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  flex-shrink: 0;
 }
 
-/* `·` between the folded cells — before each one except the first of them, so
-   the line reads "Gate 3 · 07:42 · 96%" rather than opening with a stray dot. */
-.row > *:not(:first-child):not(:nth-child(2))::before {
-  content: '·';
-  margin-inline-end: 7px;
-  color: var(--line);
+/* ---------- figures ---------- */
+
+.statgrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
 }
 
-.row:last-child {
-  border-bottom: none;
-}
-
-.row--pressable {
-  cursor: pointer;
-  background: none;
-  border-inline: none;
-  border-top: none;
-  width: 100%;
+.stat {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px 14px;
+  min-height: 86px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 4px;
+  min-width: 0;
+  color: var(--tx);
   text-align: start;
   font: inherit;
-  color: inherit;
 }
 
-.row__name {
-  font-weight: 600;
-  font-size: 14.5px;
+a.stat,
+button.stat {
+  cursor: pointer;
 }
 
-.row__sub {
-  font-size: 12px;
-  color: var(--tx3);
+a.stat:active,
+button.stat:active {
+  background: var(--hover);
+}
+
+.stat__label {
+  font-size: 13px;
+  color: var(--tx2);
+  line-height: 1.3;
+}
+
+.stat__value {
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.stat__detail {
+  font-size: 12.5px;
+  color: var(--tx2);
   line-height: 1.35;
 }
 
-.row__chevron {
-  color: var(--tx3);
-  font-size: 16px;
-  flex-shrink: 0;
+/* The console's `Stats` helper: two across on a phone. */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(var(--cols, 2), minmax(0, 1fr));
+  gap: 10px;
 }
 
-.avatar {
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
-  background: var(--chip);
-  color: var(--ac2);
+.hero__value {
+  font-size: 34px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+
+.bar {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.bar > i {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  background: var(--ac);
+}
+
+.bar-track {
+  flex: 1;
+  height: 14px;
+  background: var(--panel);
+  border-radius: 7px;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.bar-fill {
+  height: 100%;
+  background: var(--ac);
+  border-radius: 7px;
+}
+
+.progress {
+  height: 8px;
+  background: var(--panel);
+  border-radius: 6px;
+  overflow: hidden;
+  position: relative;
+}
+
+.progress__scanner {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 30%;
+  background: var(--ac);
+  border-radius: 6px;
+  animation: vg-scan 1.1s linear infinite;
+}
+
+/* ---------- notices ---------- */
+
+.notice {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 700;
-  font-size: 12.5px;
-  flex-shrink: 0;
+  align-items: flex-start;
+  gap: 10px;
+  border-radius: 14px;
+  padding: 12px 14px;
+  font-size: 14px;
+  line-height: 1.45;
 }
 
-/* ---------- toggle ---------- */
+.notice--amber,
+.notice--warn {
+  background: var(--am-bg);
+  color: var(--am);
+}
+
+.notice--bad {
+  background: var(--rd-bg);
+  color: var(--rd);
+}
+
+.notice b,
+.notice strong {
+  font-weight: 700;
+}
+
+.notice__icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+  display: inline-flex;
+}
+
+.linked-missing {
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--am);
+  background: var(--am-bg);
+  padding: 10px 14px;
+  border-radius: 12px;
+}
+
+.empty {
+  text-align: center;
+  padding: 28px 16px;
+  color: var(--tx2);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* ---------- forms ---------- */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.field__label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--tx2);
+}
+
+.input {
+  min-height: 48px;
+  width: 100%;
+  min-width: 0;
+  padding: 0 14px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--tx);
+  font-size: 16px;
+  outline: none;
+}
+
+textarea.input {
+  padding: 12px 14px;
+  min-height: 96px;
+  line-height: 1.45;
+}
+
+.input::placeholder {
+  color: var(--tx3);
+}
+
+.input:focus {
+  border-color: var(--ac);
+}
+
+select.input {
+  appearance: auto;
+}
+
+.edit-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+}
+
+.edit-input {
+  min-height: 48px;
+  border: 1.5px solid var(--ac);
+  border-radius: 12px;
+  padding-inline: 12px;
+  font-size: 16px;
+  font-family: inherit;
+  background: var(--card);
+  color: var(--tx);
+  outline: none;
+  width: 100%;
+  min-width: 0;
+}
+
+/* The console's filter row: each picker takes the full width. */
+.filters {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: stretch;
+}
+
+.filters .field {
+  width: 100%;
+}
 
 .toggle {
-  width: 44px;
-  height: 26px;
-  border-radius: 14px;
   position: relative;
+  width: 52px;
+  height: 32px;
+  border-radius: 16px;
+  border: 0;
+  padding: 0;
   cursor: pointer;
   flex-shrink: 0;
-  border: none;
-  padding: 0;
+  background: var(--toggle-off);
+}
+
+/* 52 x 32 visible, 52 x 44 to a finger. */
+.toggle::before {
+  content: '';
+  position: absolute;
+  inset: -6px 0;
 }
 
 .toggle__knob {
-  width: 22px;
-  height: 22px;
+  position: absolute;
+  top: 4px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
   background: #fff;
-  position: absolute;
-  top: 2px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
   transition: left 0.15s;
 }
 
-/* ---------- camera frames (shared visual language with web) ---------- */
+.toggle:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
 
-/* One camera across a phone, two across anything wider.
- *
- *  The console fits four or five tiles abreast and that is the right answer at
- *  a desk, where the job is scanning many cameras at once. In a hand it is the
- *  opposite: a 178px tile is too small to tell a person from a shadow, and the
- *  reason to open a camera on a phone is to *look* at it.
- *
- *  240px rather than a hard `1fr`, so a tablet or a phone turned sideways
- *  still gets two — the layout follows the space it has instead of assuming
- *  the smallest screen.
- *
- *  `CamGrid.tsx` itself is a byte copy of the console's, `tileRefreshMs`
- *  included. Fewer tiles on screen must not make the phone ask the engine for
- *  more than the desk does, and the way to guarantee that is to not touch the
- *  code that decides it. */
+/* ---------- people ---------- */
+
+.avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--chip);
+  color: var(--ac2);
+  font-weight: 800;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.avatar--lg {
+  width: 72px;
+  height: 72px;
+  font-size: 24px;
+}
+
+/* ---------- bottom sheet ---------- */
+
+.sheet-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  max-width: 560px;
+  margin: 0 auto;
+}
+
+.sheet-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 12, 10, 0.55);
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+.sheet {
+  position: relative;
+  background: var(--card);
+  color: var(--tx);
+  border-radius: 22px 22px 0 0;
+  padding: 8px 16px calc(env(safe-area-inset-bottom, 0px) + 16px);
+  max-height: 80dvh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.25);
+  animation: vg-sheet 0.18s ease-out;
+}
+
+@keyframes vg-sheet {
+  from { transform: translateY(24px); opacity: 0.4; }
+  to { transform: none; opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet { animation: none; }
+}
+
+.sheet__grab {
+  width: 40px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--line);
+  margin: 2px auto 8px;
+  flex-shrink: 0;
+}
+
+.sheet__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 2px 6px;
+  flex-shrink: 0;
+}
+
+.sheet__title {
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.sheet__body {
+  overflow-y: auto;
+  min-height: 0;
+  overscroll-behavior: contain;
+}
+
+.sheet__option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 52px;
+  padding: 0 4px;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--tx);
+  font: inherit;
+  font-size: 16px;
+  text-align: start;
+  cursor: pointer;
+}
+
+.sheet__option:last-child {
+  border-bottom: 0;
+}
+
+.sheet__option--on {
+  font-weight: 700;
+}
+
+.sheet__tick {
+  color: var(--ac2);
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+body:not(.dark) .sheet__tick {
+  color: var(--ac);
+}
+
+/* ---------- camera tiles ---------- */
+
+.camtile {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: start;
+  font: inherit;
+  cursor: pointer;
+}
+
+.camtile__caption {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 2px 0;
+  min-width: 0;
+}
+
+.camtile__name {
+  font-size: 15px;
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.camtile__meta {
+  font-size: 13px;
+  color: var(--tx2);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.camgrid-phone {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.hscroll {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  margin: 0 -16px;
+  padding: 0 16px 4px;
+  scrollbar-width: none;
+}
+
+.hscroll::-webkit-scrollbar {
+  display: none;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  font-size: 13px;
+  color: var(--tx2);
+}
+
+.legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend__swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  border: 2px solid;
+  flex-shrink: 0;
+}
+
+/* ---------- timeline ---------- */
+
+.timeline {
+  position: relative;
+  padding-inline-start: 26px;
+}
+
+.timeline::before {
+  content: '';
+  position: absolute;
+  inset-inline-start: 8px;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  background: var(--line);
+}
+
+.timeline__item {
+  position: relative;
+  padding: 8px 0 12px;
+}
+
+.timeline__item::before {
+  content: '';
+  position: absolute;
+  inset-inline-start: -23px;
+  top: 13px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--card);
+  border: 3px solid var(--tone, var(--ac));
+}
+
+/* ================================================================
+   3. THE CONSOLE'S CAMERA PARTS
+   Everything under `.camframe__` positions with PHYSICAL left/right, and must
+   keep doing so. A box has to sit over the thing it describes, in Arabic
+   exactly as in English. `CameraFrame` pins the picture to `dir="ltr"` for
+   the same reason. P11-FR-009.
+   ================================================================ */
+
 .camgrid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
   margin-top: 12px;
+}
+
+.camgrid:has(> :only-child) {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .camcard {
@@ -515,30 +1451,26 @@ textarea {
   text-align: start;
   display: block;
   width: 100%;
+  min-width: 0;
+  color: inherit;
+  font: inherit;
 }
-
-/* Everything from here to the end of the camera-frame rules uses `left` and
-   `right` on purpose, and must keep doing so.
- *
- * The layout around a camera flips for Arabic. **The picture inside it never
- * does.** A mirrored frame would put a person on the wrong side of a doorway
- * and a plate's characters in the wrong order — a guard comparing what is on
- * screen with what is in front of them would be comparing a lie.
- *
- * The overlay boxes are positioned from fractions computed in
- * `services/frame.ts`, which is a byte copy of the console's and knows nothing
- * about reading direction. Logical properties here would silently mirror every
- * detection box the moment somebody switched language. */
 
 .camcard__meta {
   padding: 8px 10px;
   background: var(--card);
+  min-height: 44px;
 }
 
 .camframe {
   position: relative;
-  background: #242b27;
+  background: #1a201d;
   overflow: hidden;
+  border-radius: 12px;
+}
+
+.camcard .camframe {
+  border-radius: 0;
 }
 
 .camframe__grid {
@@ -564,7 +1496,7 @@ textarea {
   align-items: center;
   gap: 5px;
   color: #fff;
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: 0.05em;
 }
 
@@ -576,18 +1508,24 @@ textarea {
 .camframe__nosignal {
   position: absolute;
   inset: 0;
-  background: rgba(29, 36, 32, 0.74);
+  background: rgba(20, 26, 23, 0.8);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 3px;
+  text-align: center;
+  padding: 8px;
 }
 
 .camframe__time {
   position: absolute;
-  color: #c3cdc5;
+  color: #dfe6e1;
   font-family: ui-monospace, Menlo, monospace;
+}
+
+.camframe__stage {
+  position: absolute;
 }
 
 .camframe__box {
@@ -626,250 +1564,84 @@ textarea {
   border-top: 2px dashed var(--det-blue);
 }
 
-.dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-/* ---------- modal ---------- */
-
+/* The console's camera dialog becomes a full-screen layer on the phone: the
+   picture wants every pixel of width, and the page underneath keeps its state
+   because it never unmounted. */
 .modal__backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(24, 32, 27, 0.6);
+  z-index: 70;
+  background: var(--bg);
   display: flex;
-  align-items: flex-end;
   justify-content: center;
-  z-index: 60;
 }
 
 .modal__panel {
-  background: var(--card);
-  border-radius: 20px 20px 0 0;
+  background: var(--bg);
   width: 100%;
   max-width: 560px;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
-  max-height: 88vh;
+}
+
+.modal__body {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
 }
 
-/* ---------- progress ---------- */
+/* ================================================================
+   4. THE CONSOLE'S PAGE CLASSES, FOR THE PARTS STILL COPIED
+   ================================================================ */
 
-.progress {
-  height: 8px;
-  background: var(--bg);
-  border-radius: 6px;
-  overflow: hidden;
-  position: relative;
-}
-
-.progress__scanner {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 30%;
-  background: var(--ac);
-  border-radius: 6px;
-  animation: vg-scan 1.1s linear infinite;
-}
-
-.bar-track {
-  flex: 1;
-  height: 18px;
-  background: var(--bg);
-  border-radius: 6px;
-  overflow: hidden;
-}
-
-.bar-fill {
-  height: 100%;
-  background: var(--ac);
-  border-radius: 6px;
-}
-
-/* ---------- notice ---------- */
-
-.notice {
-  display: flex;
-  align-items: flex-start;
-  gap: 9px;
-  border-radius: 13px;
-  padding: 12px 14px;
-  font-size: 12.5px;
-  line-height: 1.4;
-}
-
-.notice--amber {
-  background: var(--am-bg);
-  color: var(--am);
-}
-
-.empty {
-  text-align: center;
-  padding: 44px 30px;
-  color: var(--tx3);
-  font-size: 14px;
-  line-height: 1.4;
-}
-
-.linkbtn {
-  background: none;
-  border: none;
-  padding: 0;
-  font: inherit;
-  color: var(--ac);
-  font-weight: 600;
-  font-size: 13.5px;
-  cursor: pointer;
-}
-
-/* ==========================================================================
-   Classes the console's screens bring with them
-   ==========================================================================
-
-   Every page under `pages/` is a byte copy of the console's. They render the
-   same class names, so those names have to exist here — phone-shaped, but
-   present. A missing one is not a compile error; it is a screen that renders
-   with no styling at all and looks broken rather than different.
-
-   `tools/check_parity.py` does not police this file: presentation is the one
-   thing the phone is allowed to do its own way. What it may not do is drop a
-   fact the console shows.
-
-   Written with logical properties throughout — `padding-inline-start`, never
-   `padding-left`. `LanguageContext` flips `documentElement.dir` for Arabic,
-   and logical properties mean that is the whole change instead of a mirrored
-   second stylesheet that drifts.
-   ========================================================================== */
-
-/* ---------- page headings (from PageHeader / CardHeader) ---------- */
-
-/* Smaller than the console's 26px: a phone headline competes with a tab bar
-   and a status bar for a much shorter screen. */
+/* The title is in the back header now; a second big title would push the
+   answer off the first screen. `PageHeader` renders only the lead. */
 .page__title {
-  font-weight: 700;
-  font-size: 22px;
-  letter-spacing: -0.02em;
-  margin: 0;
+  display: none;
 }
 
 .page__lead {
   font-size: 14px;
   color: var(--tx2);
-  margin: 4px 0 18px;
+  margin: 0;
   line-height: 1.45;
 }
 
-.card__title {
-  font-weight: 700;
-  font-size: 17px;
-  letter-spacing: -0.01em;
-}
-
-.card__sub {
+.section-title {
   font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   color: var(--tx2);
-  margin: 2px 0 14px;
-  line-height: 1.45;
+  margin: 18px 2px 8px;
 }
 
-/* ---------- headline figures ---------- */
+[dir='rtl'] .section-title {
+  letter-spacing: 0;
+}
 
-/* The console sets `gridTemplateColumns` inline here too, but `ui.tsx` caps
-   the count at two before it does, so this grid is honoured rather than
-   sidestepped. Two across at 375px is about 165px each — enough for "1,679". */
-.stats {
+.grid-2,
+.grid-3,
+.grid-4,
+.plan {
   display: grid;
-  grid-template-columns: repeat(var(--cols, 2), 1fr);
-  gap: 10px;
-  margin-bottom: 18px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
 }
-
-/* ---------- the last resort: inline grids that are not `.row` ---------- */
-
-/* Twelve places in the copied screens set `display: 'grid'` **inline**,
- * alongside their columns — the camera channel list at `'64px 1fr 1fr 44px'`,
- * the vehicle register header, the enrolment photo strip. The `.row` rule
- * above cannot reach those: an inline `display` beats a stylesheet, so they
- * would stay grids and push a 375px screen sideways.
- *
- * Matching on the style attribute is blunt, and `!important` is a thing to
- * justify rather than reach for. The justification is that the alternative is
- * editing twelve copied page bodies — and a page body edited here is a page
- * body that has silently stopped being the console's. The whole design rests
- * on those files staying byte-identical, so the fold happens in CSS or it
- * happens by breaking the thing that makes this app trustworthy.
- *
- * `Stats` is the one grid that must survive, and it does: it passes its column
- * count through `--cols` rather than `grid-template-columns`, so it does not
- * match this selector. Camera overlays position with `left`/`top` and never
- * with grid, so they are untouched.
- *
- * Scoped to `.app__content` so it can only ever affect a screen, never the
- * tab bar or a modal's chrome. */
-.app__content [style*='grid-template-columns'] {
-  display: flex !important;
-  flex-wrap: wrap;
-  align-items: baseline;
-}
-
-.app__content [style*='grid-template-columns'] > * {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-/* A control with a fixed minimum width cannot be talked out of it by anything
- * except this. Eleven inputs in the copied screens ask for 200-340px — an RTSP
- * URL box, a camera search, a plate field — inside a card that has about 270px
- * to give. `min-width: 0` lets them shrink; `max-width: 100%` stops them
- * reaching past the card either way.
- *
- * Nothing is hidden by this. A narrower input scrolls its own text, which is
- * how every text field on every phone already behaves. */
-.app__content input,
-.app__content select,
-.app__content textarea {
-  min-width: 0 !important;
-  max-width: 100%;
-}
-
-/* ---------- row variants ---------- */
-
-/* Column headings over stacked rows describe an arrangement that is no longer
-   on screen. The console needs them; the phone must not show them. */
-.row--head {
-  display: none;
-}
-
-.row--click {
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-}
-
-.row--click:active {
-  background: var(--hover);
-}
-
-.row__muted {
-  color: var(--tx2);
-}
-
-/* ---------- full-width list button ---------- */
 
 .list-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 13px 0;
-  min-height: 48px;          /* a thumb, not a mouse */
+  padding: 12px 0;
+  min-height: 52px;
+  border: 0;
   border-bottom: 1px solid var(--line);
   cursor: pointer;
   background: none;
-  border-inline: none;
-  border-top: none;
   width: 100%;
   text-align: start;
   font: inherit;
@@ -880,97 +1652,128 @@ textarea {
   background: var(--hover);
 }
 
-/* ---------- small markers ---------- */
-
-.dotline {
+/* `.row` is the console's table row. In a copied part it folds: the first
+   cell is the headline on its own line, the rest follow as a wrapped line of
+   values. Rebuilt screens do not use it. */
+.row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
-  font-size: 12.5px;
-  font-weight: 600;
-  white-space: nowrap;
+  gap: 4px 10px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+  min-height: 48px;
 }
 
-.glyph {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  color: var(--card);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 9.5px;
-  font-weight: 800;
-  line-height: 1;
+.row > * {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.row > *:first-child {
+  flex: 0 0 100%;
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.row > *:not(:first-child) {
+  font-size: 13.5px;
+  color: var(--tx2);
+  line-height: 1.4;
+}
+
+.row:last-child {
+  border-bottom: none;
+}
+
+.row--head {
+  display: none;
+}
+
+.row--click {
+  cursor: pointer;
+  border-radius: 8px;
+}
+
+.row--click:active {
+  background: var(--hover);
+}
+
+.row--pressable {
+  cursor: pointer;
+  background: none;
+  border-inline: none;
+  border-top: none;
+  width: 100%;
+  text-align: start;
+  font: inherit;
+  color: inherit;
+}
+
+.row__name {
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.row__sub {
+  font-size: 13px;
+  color: var(--tx2);
+  line-height: 1.35;
+}
+
+.row__muted {
+  color: var(--tx2);
+}
+
+.row__chevron {
+  color: var(--tx3);
+  font-size: 16px;
   flex-shrink: 0;
 }
 
-/* ---------- layout grids ---------- */
-
-/* All of them are one column. The console's `.grid-4` is four cards abreast;
-   on a phone that is four unreadable slivers, and stacking them costs only
-   scroll — which a phone has and a desk does not. */
-.grid-2,
-.grid-3,
-.grid-4,
-.plan {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 12px;
+/* Inside a copied part only: an inline grid the console lays out in columns
+ * (the camera channel list, the register header, the photo strip) cannot fit
+ * 360 px. Matching the style attribute is blunt, and `!important` has to be
+ * justified: the alternative is editing the copied bodies, and a copied body
+ * edited here has quietly stopped being the console's. Rebuilt screens are not
+ * inside `.legacy` and keep their real grids. */
+.legacy [style*='grid-template-columns'] {
+  display: flex !important;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
 }
 
-/* ---------- filter bars ---------- */
-
-/* The console lays pickers out in a row. On a phone each one takes the full
-   width: a half-width `<select>` truncates the option text, and the option
-   text is how somebody knows what they are about to ask for. */
-.filters {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  align-items: stretch;
+.legacy [style*='grid-template-columns'] > * {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
-.filters .field {
-  width: 100%;
+.legacy input,
+.legacy select,
+.legacy textarea {
+  min-width: 0 !important;
+  max-width: 100%;
 }
 
-/* ---------- inline editing ---------- */
-
-/* Console: `1fr 1.9fr 0.5fr` on one line. Phone: label, then the input, then
-   the action — stacked, because a 0.5fr action column is not a tap target. */
-.edit-row {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px 0;
-  border-bottom: 1px solid var(--line);
-  font-size: 14px;
+.legacy input:not([type='checkbox']):not([type='radio']):not([type='range']),
+.legacy select {
+  min-height: 44px;
+  font-size: 16px;
 }
 
-.edit-input {
-  height: 42px;
-  border: 1.5px solid var(--ac);
-  border-radius: 9px;
-  padding-inline: 10px;
-  font-size: 16px;           /* 16px or iOS Safari zooms the page on focus */
-  font-family: inherit;
-  background: var(--card);
-  color: var(--tx);
-  outline: none;
-  width: 100%;
+.legacy video {
+  max-width: 100%;
+  border-radius: 12px;
+}
+
+.legacy .card + .card,
+.legacy .card + div > .card {
+  margin-top: 14px;
 }
 
 /* ---------- misc ---------- */
 
-.linkbtn--quiet {
-  color: var(--tx3);
-  font-weight: 400;
-  font-size: 13px;
-}
-
-/* An arrow or chevron that means "forward" has to point the other way in
-   Arabic, while the text beside it must not be flipped. */
 .mirror-rtl {
   display: inline-block;
 }
@@ -979,25 +1782,32 @@ textarea {
   transform: scaleX(-1);
 }
 
-/* The absolutely-positioned layer inside a camera tile that overlay boxes are
-   drawn onto. Its geometry comes from `services/frame.ts`, which is copied, so
-   this must stay a plain positioned box and nothing more. */
-.camframe__stage {
-  position: absolute;
+.mono {
+  font-family: ui-monospace, Menlo, monospace;
 }
 
-/* A badge that leads with a character in a filled circle. Without this it
-   renders as `inline-block` and the glyph sits on the text's baseline instead
-   of centred beside it. */
-.badge--dot {
-  display: inline-flex;
+.wrap-anywhere {
+  overflow-wrap: anywhere;
+}
+
+/* `Select` on a phone: looks like a field, opens a sheet. */
+.selectbtn {
+  display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  text-align: start;
 }
 
-/* `Card tight` on the console means *more* padding, not less — it is the
-   variant used where a card stands alone rather than in a stack. Kept
-   proportional to the phone's 16px base. */
-.card--tight {
-  padding: 20px;
+.selectbtn__value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.selectbtn > svg {
+  flex-shrink: 0;
+  color: var(--tx2);
 }
