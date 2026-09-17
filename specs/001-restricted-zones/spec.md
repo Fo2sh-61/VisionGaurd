@@ -76,11 +76,28 @@ operator presses **Watch clip** on the log entry and sees what happened.
 - **P4-FR-003**: Toggle state MUST survive an engine restart.
 - **P4-FR-004**: Changing a toggle MUST be allowed only for admins, enforced
   server-side; all signed-in roles may view the page.
-- **P4-FR-005**: When one or more people are detected on a toggled-on camera,
-  the system MUST create a log entry and start recording that camera.
-- **P4-FR-006**: Recording MUST stop after one continuous second with no
-  person detected. Gaps shorter than one second MUST NOT split or end the
+- **P4-FR-005**: When one or more people are detected on a toggled-on camera
+  **and are still there two seconds later**, the system MUST create a log entry
+  and start recording that camera. The entry's time MUST be the first sighting,
+  not the moment it was confirmed. A detection that does not last that long MUST
+  leave no entry, no clip and no message.
+  *(Amended by the owner 2026-09-12: a body in one frame is as easily a coat on
+  a chair, and it cost a row, a clip and an email.)*
+- **P4-FR-006**: Recording MUST stop after five continuous seconds with no
+  person detected. Gaps shorter than five seconds MUST NOT split or end the
   clip.
+  *(Amended by the owner 2026-09-12, from one second. At the 5 Hz analysis rate
+  one second is five frames, and the person detector loses a standing person for
+  longer than that routinely: one continuous fifty-second visit became sixteen
+  entries, sixteen alerts and thirteen deleted clips.)*
+- **P4-FR-006a**: A camera MUST be empty for a full minute before somebody on it
+  is a new incident. Every entry opened before that minute has passed MUST be
+  marked a continuation, which sends no message. Entries themselves are
+  unaffected: every one is still logged, recorded and listed.
+  *(Added by the owner 2026-09-12. Spec 013 already required it - "a person
+  standing in a restricted room for ten minutes is one message, not five" - but
+  only the two-minute cut was marked a continuation, so a detector that blinked
+  sent one email per blink.)*
 - **P4-FR-007**: A stopped recording MUST be saved and playable from its log
   entry via Watch clip.
 - **P4-FR-008**: To bound storage, only the three most recent scenes' clips

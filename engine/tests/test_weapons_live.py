@@ -445,6 +445,57 @@ class TestSceneMachine:
         assert len(logged) == 1, "a blink must not become a second entry"
         assert logged[0].running is True
 
+    def test_a_knife_seen_again_soon_is_one_incident_not_two_alerts(
+            self, scenes, tmp_path):
+        """One knife, one message - even when the entry is cut in two.
+
+        GAP_SECONDS is two seconds, so a hand turning for three splits one
+        incident into two entries. Each entry is worth keeping; a second alert
+        about the same knife is not. This is the rule the zone feature was
+        missing on 12 Sep 2026, when one visit sent thirty-two emails.
+        """
+        announced: list[bool] = []
+        scenes.on_open = lambda scene, camera, at, confidence, continues: (
+            announced.append(continues))
+
+        people = FakeDetector()
+        knives = FakeKnives()
+        ww = worker(scenes, people=people, knives=knives)
+
+        script = [(0.0, 1, 1), (0.5, 1, 1), (1.0, 1, 1)]     # confirmed
+        script += [(t / 2, 1, 0) for t in range(3, 10)]      # 1.5 s to 4.5 s
+        script += [(5.0, 1, 1), (5.5, 1, 1), (6.0, 1, 1)]    # and back
+        walk(ww, people, knives, script)
+
+        assert len(scenes.recent(None, None)) == 2, "two entries, both kept"
+        assert announced == [False, True], (
+            "the second entry is a continuation and sends nothing"
+        )
+
+    def test_a_knife_after_a_clear_minute_is_news_again(self, scenes, tmp_path):
+        # The other half of the rule. A camera clear of knives this long is
+        # reporting a new one, and holding that back would be the feature
+        # failing silently.
+        from vg.features.weapons import ALERT_AGAIN_AFTER_SECONDS
+
+        announced: list[bool] = []
+        scenes.on_open = lambda scene, camera, at, confidence, continues: (
+            announced.append(continues))
+
+        people = FakeDetector()
+        knives = FakeKnives()
+        ww = worker(scenes, people=people, knives=knives)
+
+        later = ALERT_AGAIN_AFTER_SECONDS + 10.0
+        script = [(0.0, 1, 1), (0.5, 1, 1), (1.0, 1, 1)]
+        script += [(1.5 + t, 1, 0) for t in range(int(later))]
+        script += [(later + 2.0, 1, 1), (later + 2.5, 1, 1), (later + 3.0, 1, 1)]
+        walk(ww, people, knives, script)
+
+        assert announced == [False, False], (
+            "a knife a clear minute later is a new incident"
+        )
+
     def test_the_video_ends_two_seconds_after_the_knife_does(
             self, scenes, tmp_path):
         # Owner decision, 22 Aug 2026, made with a real knife in his hand. This

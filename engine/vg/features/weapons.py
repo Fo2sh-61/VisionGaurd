@@ -103,6 +103,23 @@ CANDIDATE_GAP_SECONDS = 2.0
 #: describes what changes.
 GAP_SECONDS = 2.0
 
+#: How long the camera must see no knife at all before the next one is news
+#: again — the length of a *run*, as opposed to a scene.
+#:
+#: `GAP_SECONDS` decides when an entry ends. This decides when a *message*
+#: ends, and they are deliberately not the same number: at two seconds a hand
+#: turning cuts one incident into two entries, and without this that would be
+#: two alerts about one knife. Only the first scene of a run is announced; the
+#: rest are opened `continues=True` and send nothing.
+#:
+#: Entries are untouched — every scene is still logged, recorded and listed.
+#: The same rule and the same minute as `features/zones.py`, set by the owner
+#: on 12 Sep 2026 after the zone feature mailed thirty-two times about one
+#: visit. The two are separate numbers on purpose: a knife reappearing is not
+#: the same kind of news as somebody walking back past a door, so either can
+#: move without the other.
+ALERT_AGAIN_AFTER_SECONDS = 60.0
+
 #: Longest a single scene may run. Somebody holding a knife for an afternoon is
 #: not one clip, and the entry says it was cut rather than looking like they
 #: put it away. Deliberately NOT `recorder.MAX_SECONDS` — the manual record
@@ -234,6 +251,13 @@ class WeaponsWorker(FeatureWorker[WeaponsResult]):
         # measured between two FRAME times, never against the wall clock, so it
         # means the same thing on a live camera and on a recorded clip.
         self._last_frame_at: dict[str, datetime] = {}
+        # camera id -> the last frame with a knife on it, ACROSS scenes.
+        # `_seen` is dropped when a scene closes; this outlives it, and is the
+        # only thing that can say whether the camera has been clear long enough
+        # for the next knife to be a new incident. See ALERT_AGAIN_AFTER_SECONDS.
+        self._last_hit_at: dict[str, datetime] = {}
+        # Cameras whose current run has already been handed to the alert hook.
+        self._announced: set[str] = set()
 
     # -- one frame ----------------------------------------------------------
 
@@ -241,6 +265,11 @@ class WeaponsWorker(FeatureWorker[WeaponsResult]):
         camera_id = frame.camera_id
         now = frame.captured_at
         self._last_frame_at[camera_id] = now
+        # On every frame, before anything else: a camera that went dark
+        # delivers no quiet frames at all, and if the run could only end on
+        # those, the first knife after an outage would be taken for the last
+        # one before it and nobody would be told.
+        self._end_run(camera_id, now)
 
         people = self.people.detect(frame)
         if not people:
@@ -262,6 +291,8 @@ class WeaponsWorker(FeatureWorker[WeaponsResult]):
         # the overlay says what the camera has shown recently, which is what a
         # person needs to be able to see at all.
         self._seen[camera_id] = (now, hits)
+        # Spans scenes, so it is set here rather than on the scene state.
+        self._last_hit_at[camera_id] = now
 
         peak = max(k.confidence for k in hits)
         state = self._live.get(camera_id)
@@ -283,8 +314,11 @@ class WeaponsWorker(FeatureWorker[WeaponsResult]):
             self._close(camera_id, now, "limit")
             return WeaponsResult(
                 checked=True, people=len(people), knives=hits,
-                # Same knife, same hand: a new entry, not a new alert.
-                scene_id=self._open(camera_id, now, peak, continues=True),
+                # Same knife, same hand: a new entry, not a new alert — and
+                # `_open` works that out from the run rather than being told,
+                # because "same hand" is only true while the frames kept
+                # coming. A camera dark for two hours reaches this line too.
+                scene_id=self._open(camera_id, now, peak, at=now),
             )
 
         return WeaponsResult(
@@ -308,6 +342,20 @@ class WeaponsWorker(FeatureWorker[WeaponsResult]):
         if state is not None:
             if (now - state.last_knife_at).total_seconds() >= GAP_SECONDS:
                 self._close(camera_id, now, "gone")
+
+    def _end_run(self, camera_id: str, now: datetime) -> None:
+        """A camera clear of knives this long ends the run: the next is news.
+
+        Called from the top of `analyse`, on every frame. The mark is dropped
+        with the run, so a quiet camera costs one dictionary lookup a frame
+        and nothing else.
+        """
+        last = self._last_hit_at.get(camera_id)
+        if last is None:
+            return
+        if (now - last).total_seconds() >= ALERT_AGAIN_AFTER_SECONDS:
+            del self._last_hit_at[camera_id]
+            self._announced.discard(camera_id)
 
     def _note_candidate(
         self, camera_id: str, now: datetime, confidence: float
@@ -345,10 +393,16 @@ class WeaponsWorker(FeatureWorker[WeaponsResult]):
     # -- opening and closing ------------------------------------------------
 
     def _open(self, camera_id: str, started_at: datetime, confidence: float,
-              at: datetime | None = None, continues: bool = False) -> str:
+              at: datetime | None = None) -> str:
+        # Whether this is news is never passed in: it is the run that decides,
+        # in one place. Still inside a run — the camera has not been clear of
+        # knives for `ALERT_AGAIN_AFTER_SECONDS` — means a new entry and not a
+        # new alert, and the alert hook reads `continues` and sends nothing.
+        continues = camera_id in self._announced
         scene_id = self.scenes.open(
             camera_id, started_at, confidence, self.knives.version,
             continues=continues)
+        self._announced.add(camera_id)
         state = SceneState(
             scene_id=scene_id,
             started_at=started_at,
@@ -376,11 +430,14 @@ class WeaponsWorker(FeatureWorker[WeaponsResult]):
     def _closing(self, camera_id: str) -> None:
         """This camera is leaving the worker. Close its scene, on its thread.
 
-        `_close` already drops `_seen`; `_last_frame_at` is dropped here so a
-        camera that leaves the roster leaves nothing behind.
+        `_close` already drops `_seen`; the rest is dropped here so a camera
+        that leaves the roster leaves nothing behind — and so the next knife
+        after it comes back is news, not a continuation of the last run.
         """
         self._close(camera_id, datetime.now(timezone.utc), "switched_off")
         self._last_frame_at.pop(camera_id, None)
+        self._last_hit_at.pop(camera_id, None)
+        self._announced.discard(camera_id)
         super()._closing(camera_id)
 
     def close_all(self, reason: str = "shutdown") -> None:

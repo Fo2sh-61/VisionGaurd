@@ -7,17 +7,28 @@ deliberately not called. It stays there for the polygon zones in engine.yaml.
 
 The entire feature is one small state machine per camera:
 
-    idle      --person seen-->      recording    open a scene, start recording
+    idle      --person seen-->      waiting      remember them; write nothing
+    waiting   --still there, 2 s--> recording    open a scene, start recording
+    waiting   --nobody, >=5 s-->    idle         forget them; nothing happened
     recording --person seen-->      recording    extend, raise the peak count
-    recording --nobody, <1 s-->     recording    a blink; do nothing
-    recording --nobody, >=1 s-->    idle         close, reason "nobody"
+    recording --nobody, <5 s-->     recording    a blink; do nothing
+    recording --nobody, >=5 s-->    idle         close, reason "nobody"
     recording --2 min elapsed-->    idle         close, reason "limit"
     recording --toggled off-->      idle         close, reason "switched_off"
 
-**The one-second rule is wall clock, measured from the last frame that had a
-person in it** — not a count of empty frames. Counting frames would make the
-rule mean something different on a 2 Hz camera than on a 12 Hz boosted one, so
-the same walk would be one entry on a quiet page and three on a watched one.
+**The gap rule is wall clock, measured from the last frame that had a person in
+it** — not a count of empty frames. Counting frames would make the rule mean
+something different on a 2 Hz camera than on a 12 Hz boosted one, so the same
+walk would be one entry on a quiet page and three on a watched one.
+
+**A scene is an entry; a run is a message.** Those are two different clocks and
+this file owns both. A scene ends after `GAP_SECONDS` of nobody, or at the
+two-minute limit — so one visit can be several entries, each with its own clip.
+A *run* ends only after `ALERT_AGAIN_AFTER_SECONDS` of the camera being empty,
+and every scene inside a run after the first is opened `continues=True`, which
+the alert hook reads as "same incident, send nothing". Without that, a detector
+that blinks turns one person walking past into one message per blink: on
+12 Sep 2026 a single fifty-second visit sent thirty-two emails.
 
 **Time comes from `frame.captured_at`, never `time.monotonic()`.** The gap then
 matches the video rather than however long the machine was busy, and a test can
@@ -45,10 +56,52 @@ from vg.ingest.source import Frame
 
 log = logging.getLogger(__name__)
 
-#: How long the camera must see nobody before the scene is over. Short enough
-#: that a walk-through ends promptly, long enough to ride out a detector losing
-#: somebody who turned around. P4-FR-006.
-GAP_SECONDS = 1.0
+#: How long the camera must see nobody before the scene is over. Long enough to
+#: ride out a detector losing somebody who is still standing there, short enough
+#: that a walk-through ends promptly. P4-FR-006.
+#:
+#: **Five seconds, set by the owner on 12 Sep 2026 after one walk past a webcam
+#: sent thirty-two emails.** It was one second, which at the 5 Hz analysis rate
+#: is five frames — and the person detector loses a person for longer than that
+#: routinely. One continuous fifty-second visit became sixteen scenes, each
+#: ending "nobody" after a dropout of 1.0 to 1.9 seconds, each opening a fresh
+#: alert; the three-clips-per-camera cap then replaced thirteen of the sixteen
+#: clips it had just recorded. Five seconds covers every dropout that visit
+#: produced, with room over.
+#:
+#: The cost is real and was accepted: the clip now runs five seconds past the
+#: last sighting rather than one, and two people four seconds apart read as one
+#: visit rather than two.
+GAP_SECONDS = 5.0
+
+#: How long somebody must stay in view before a visit is a visit.
+#:
+#: One frame with a body in it is not somebody entering a restricted area; it is
+#: as easily a coat on a chair, or the detector guessing once. Until this much
+#: time has passed with them still there, nothing at all is written — no row, no
+#: clip, no message — so a candidate that never confirms leaves no trace. This
+#: is the rule `features/weapons.py` already runs as `CONFIRM_HITS` and
+#: `CONFIRM_SECONDS`; zones had none.
+#:
+#: The cost is that the recorder starts here rather than at the first sighting,
+#: so the first two seconds of an arrival are not on the video. The scene's own
+#: `started_at` is still the first sighting, so the entry says when they
+#: arrived. Owner's decision, 12 Sep 2026.
+CONFIRM_SECONDS = 2.0
+
+#: How long a restricted camera must be EMPTY before somebody on it is news
+#: again — the length of a *run*, as opposed to a scene.
+#:
+#: Spec 013 states the rule this enforces: "a person standing in a restricted
+#: room for ten minutes is one message, not five." A scene cut at the two-minute
+#: limit, or by a dropout longer than `GAP_SECONDS`, is the same person still
+#: standing there. Only the first scene of a run is announced; the rest are
+#: opened `continues=True` and send nothing.
+#:
+#: Scenes are untouched by this: every one is still logged, recorded and listed.
+#: It decides who hears about them. Owner's decision, 12 Sep 2026 — a minute
+#: clear, and the next arrival is news again.
+ALERT_AGAIN_AFTER_SECONDS = 60.0
 
 #: Longest a single scene may run. Somebody standing in a doorway all afternoon
 #: is not one clip, and the entry says it was cut rather than looking like they
@@ -67,6 +120,20 @@ ACTOR = "restricted-zones"
 BUSY_REASON = (
     "No clip: a recording was already running on this camera."
 )
+
+
+@dataclass
+class Candidate:
+    """Somebody seen, not yet long enough to count as a visit.
+
+    Nothing of a candidate reaches the database. One that never confirms must
+    leave no row, no clip and no message behind it, or the log fills with the
+    single-frame guesses `CONFIRM_SECONDS` exists to remove.
+    """
+
+    first_at: datetime
+    last_at: datetime
+    peak: int = 1
 
 
 @dataclass
@@ -123,8 +190,17 @@ class ZonesWorker(FeatureWorker[ZonesResult]):
         # missing clip rather than a button that does nothing.
         self.recorder = recorder
         self._restricted: set[str] = set(restricted or ())
+        # camera id -> somebody seen, not yet long enough to be a visit.
+        self._candidates: dict[str, Candidate] = {}
         # camera id -> the scene running on it right now.
         self._live: dict[str, SceneState] = {}
+        # camera id -> the last frame that had anybody on it, ACROSS scenes.
+        # A scene's own `last_person_at` dies with the scene; this outlives it,
+        # and is the only thing that can say whether the camera has been clear
+        # long enough for the next arrival to be a new incident.
+        self._last_person_at: dict[str, datetime] = {}
+        # Cameras whose current run has already been handed to the alert hook.
+        self._announced: set[str] = set()
 
     # -- the toggle ---------------------------------------------------------
 
@@ -163,10 +239,21 @@ class ZonesWorker(FeatureWorker[ZonesResult]):
             # this feature nothing.
             if camera_id in self._live:
                 self._close(camera_id, frame.captured_at, "switched_off")
+            self._forget(camera_id)
             return ZonesResult(restricted=False)
 
         now = frame.captured_at
         people = len(self.detector.detect(frame))
+        # Before the state machine, because it spans scenes: this is what
+        # decides whether the next arrival is a new incident or the same one.
+        # It runs on every frame and not only on empty ones, and it runs
+        # BEFORE the mark is moved: a camera that went dark delivers no empty
+        # frames at all, and if the run could only end on those, the first
+        # person after an outage would be taken for the last one before it and
+        # nobody would be told.
+        self._end_run(camera_id, now)
+        if people:
+            self._last_person_at[camera_id] = now
         state = self._live.get(camera_id)
 
         if state is None:
@@ -174,7 +261,8 @@ class ZonesWorker(FeatureWorker[ZonesResult]):
                 return ZonesResult(restricted=True)
             return ZonesResult(
                 restricted=True, people=people,
-                scene_id=self._open(camera_id, now, people),
+                # None while they have not stayed long enough to be a visit.
+                scene_id=self._note_candidate(camera_id, now, people),
             )
 
         if people == 0:
@@ -196,21 +284,90 @@ class ZonesWorker(FeatureWorker[ZonesResult]):
             self._close(camera_id, now, "limit")
             return ZonesResult(
                 restricted=True, people=people,
-                # Same visit, still going: a new scene, not a new alert.
-                scene_id=self._open(camera_id, now, people, continues=True),
+                # Same visit, still going: a new scene, not a new alert — and
+                # `_open` works that out from the run rather than being told,
+                # because "still going" is only true while the frames kept
+                # coming. A camera dark for two hours reaches this line too.
+                scene_id=self._open(camera_id, now, people, at=now),
             )
 
         return ZonesResult(restricted=True, people=people, scene_id=state.scene_id)
 
     # -- opening and closing ------------------------------------------------
 
-    def _open(self, camera_id: str, at: datetime, people: int,
-              continues: bool = False) -> str:
-        scene_id = self.scenes.open(camera_id, at, continues=continues)
+    def _note_candidate(self, camera_id: str, now: datetime,
+                        people: int) -> str | None:
+        """Remember somebody seen, and open a scene once they have stayed.
+
+        Returns the new scene's id, or None while this is still a candidate.
+        A candidate whose last sighting is older than `GAP_SECONDS` is not the
+        same person coming back — it is a fresh arrival, and the wait starts
+        again.
+        """
+        candidate = self._candidates.get(camera_id)
+        if candidate is None or (
+                (now - candidate.last_at).total_seconds() >= GAP_SECONDS):
+            self._candidates[camera_id] = Candidate(
+                first_at=now, last_at=now, peak=people)
+            return None
+
+        candidate.last_at = now
+        candidate.peak = max(candidate.peak, people)
+        if (now - candidate.first_at).total_seconds() < CONFIRM_SECONDS:
+            return None
+
+        started_at, peak = candidate.first_at, candidate.peak
+        del self._candidates[camera_id]
+        # The entry starts at the FIRST sighting — it must say when they
+        # arrived, even though the recorder can only start here — but the gap
+        # is measured from THIS frame, which is the last one that saw them.
+        # Starting the gap at the arrival would spend the wait as if nobody
+        # had been seen since, and close the scene `CONFIRM_SECONDS` early.
+        return self._open(camera_id, started_at, peak, at=now)
+
+    def _end_run(self, camera_id: str, now: datetime) -> None:
+        """A camera clear this long ends the run: the next arrival is news.
+
+        Called on every frame, before the mark is moved. The mark is dropped
+        with the run, so an empty corridor costs one dictionary lookup a frame
+        and nothing else.
+        """
+        last = self._last_person_at.get(camera_id)
+        if last is None:
+            return
+        if (now - last).total_seconds() >= ALERT_AGAIN_AFTER_SECONDS:
+            del self._last_person_at[camera_id]
+            self._announced.discard(camera_id)
+
+    def _forget(self, camera_id: str) -> None:
+        """Drop everything remembered about a camera outside its scene.
+
+        Switching a camera off and on again, or taking it off the roster, ends
+        the run: the next person on it is news, not a continuation of whatever
+        was happening before somebody touched the switch.
+        """
+        self._candidates.pop(camera_id, None)
+        self._last_person_at.pop(camera_id, None)
+        self._announced.discard(camera_id)
+
+    def _open(self, camera_id: str, started_at: datetime, people: int,
+              at: datetime | None = None) -> str:
+        # `started_at` is when they arrived and `at` when they were last seen.
+        # They differ by the confirming wait, and only the second may time the
+        # gap. See `_note_candidate`.
+        #
+        # Whether this is news is never passed in: it is the run that decides,
+        # in one place. Still inside a run — the camera has not been clear for
+        # `ALERT_AGAIN_AFTER_SECONDS` — means a new entry and not a new alert,
+        # and the alert hook reads `continues` and sends nothing.
+        continues = camera_id in self._announced
+        scene_id = self.scenes.open(camera_id, started_at, continues=continues)
+        self._announced.add(camera_id)
         if people > 1:
             self.scenes.note_people(scene_id, people)
         state = SceneState(
-            scene_id=scene_id, started_at=at, last_person_at=at, peak=people,
+            scene_id=scene_id, started_at=started_at,
+            last_person_at=at or started_at, peak=people,
         )
         self._live[camera_id] = state
         state.recording = self._start_recording(camera_id, scene_id)
@@ -234,6 +391,7 @@ class ZonesWorker(FeatureWorker[ZonesResult]):
         `set_restricted` above, and the recording it once destroyed.
         """
         self._close(camera_id, datetime.now(timezone.utc), "switched_off")
+        self._forget(camera_id)
         super()._closing(camera_id)
 
     def close_all(self, reason: str = "shutdown") -> None:
@@ -244,6 +402,8 @@ class ZonesWorker(FeatureWorker[ZonesResult]):
         """
         for camera_id in list(self._live):
             self._close(camera_id, datetime.now(timezone.utc), reason)
+        for camera_id in list(self._candidates) + list(self._announced):
+            self._forget(camera_id)
 
     def stop(self) -> None:
         # Threads first, then the scenes. The other order would close a scene

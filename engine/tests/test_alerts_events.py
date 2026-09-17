@@ -334,6 +334,96 @@ class TestZoneMessages:
         assert {r.event_key for r in world.alerts.recent(50)} == {f"intrusion:{first.id}"}
         assert len(world.courier.sent) == 2
 
+    def test_a_detector_that_blinks_does_not_mail_for_every_blink(
+            self, world, zones):
+        """The bug, 12 Sep 2026: one fifty-second visit sent thirty-two emails.
+
+        Nobody left. The person detector lost them for one to two seconds at a
+        time, which at the old one-second gap closed the scene each time - and
+        every reopening was a new event key, so every blink was an email. The
+        dropouts below are the real ones, measured off the scene rows the
+        night it happened.
+        """
+        worker, detector = zone_worker(zones)
+        dropouts = [1.0, 1.9, 1.4, 0.6, 1.2, 1.0, 1.4, 0.8]
+        at, seq = 0.0, 0
+
+        def play(seconds: float, people: int) -> None:
+            nonlocal at, seq
+            for _ in range(round(seconds / 0.2)):      # the 5 Hz analysis rate
+                detector.people = people
+                worker.analyse(frame("cam-a", at=at, sequence=seq))
+                at, seq = at + 0.2, seq + 1
+
+        for gap in dropouts:
+            play(3.0, 1)
+            play(gap, 0)
+
+        assert len(zones.recent(since_days=1)) == 1, (
+            "a dropout under the gap is a detector blinking, not a new visit"
+        )
+        drain(world.service)
+        assert len(world.courier.sent) == 2, (
+            "one visit, one message each to the two recipients"
+        )
+
+    def test_coming_back_within_the_minute_is_the_same_incident(
+            self, world, zones):
+        # They walk out of shot for long enough to end the entry - fifteen
+        # seconds - and walk back. That is one person pacing, not two visits,
+        # and the second entry must send nothing.
+        from vg.features.zones import GAP_SECONDS
+
+        worker, detector = zone_worker(zones)
+        for start in (0.0, GAP_SECONDS + 15.0):
+            for i in range(20):                        # 4 s of being seen
+                detector.people = 1
+                worker.analyse(frame("cam-a", at=start + i * 0.2, sequence=i))
+            for i in range(int((GAP_SECONDS + 5.0) / 0.2)):
+                detector.people = 0
+                worker.analyse(frame("cam-a", at=start + 4.0 + i * 0.2, sequence=i))
+
+        assert len(zones.recent(since_days=1)) == 2, "two entries"
+        drain(world.service)
+        assert len(world.courier.sent) == 2, "and one message each, not two"
+
+    def test_coming_back_after_a_clear_minute_is_news_again(self, world, zones):
+        # The other half of the rule, and the one that keeps it honest: a
+        # quiet camera that has been empty this long is reporting somebody
+        # new, and holding that back would be the feature failing silently.
+        from vg.features.zones import ALERT_AGAIN_AFTER_SECONDS
+
+        worker, detector = zone_worker(zones)
+        for start in (0.0, ALERT_AGAIN_AFTER_SECONDS + 30.0):
+            for i in range(20):                        # 4 s of being seen
+                detector.people = 1
+                worker.analyse(frame("cam-a", at=start + i * 0.2, sequence=i))
+            for i in range(int((ALERT_AGAIN_AFTER_SECONDS + 10.0) / 0.5)):
+                detector.people = 0
+                worker.analyse(frame("cam-a", at=start + 4.0 + i * 0.5, sequence=i))
+
+        drain(world.service)
+        assert len(world.courier.sent) == 4, (
+            "two visits a clear minute apart are two pieces of news"
+        )
+
+    def test_a_camera_that_went_dark_does_not_swallow_the_next_alert(
+            self, world, zones):
+        # A camera that loses its stream sends NO frames - not empty ones. If
+        # the run could only end on a frame with nobody in it, the first person
+        # after an outage would be taken for the last one before it, and the
+        # feature would go silent with every screen saying it was running.
+        worker, detector = zone_worker(zones)
+        for start in (0.0, 7200.0):                    # two hours of nothing
+            for i in range(20):                        # 4 s of being seen
+                detector.people = 1
+                worker.analyse(frame("cam-a", at=start + i * 0.2, sequence=i))
+
+        drain(world.service)
+        assert len(world.courier.sent) == 4, (
+            "somebody on a camera that has been dark for hours is news"
+        )
+
 
 class TestNothingAboutAMinor:
     """SC-007, proved by a test and not a review: a student was recognised on

@@ -13,8 +13,8 @@ What is under test is the part that can lie:
   * nothing is recorded on a camera nobody switched on
 
 The scene state machine is fed fake frames with fake detections and a clock the
-test controls, so a two-minute limit takes microseconds to prove and a 0.9
-second flicker is exactly 0.9 seconds every run.
+test controls, so a two-minute limit takes microseconds to prove and a 4.5
+second flicker is exactly 4.5 seconds every run.
 """
 
 from __future__ import annotations
@@ -515,41 +515,61 @@ def walk(zones_worker, detector, script, camera_id="cam-a"):
         zones_worker.analyse(frame(camera_id, at=at, sequence=i))
 
 
+#: Somebody arriving and staying long enough to be a visit — seen, and still
+#: there `CONFIRM_SECONDS` later. Almost every walk below begins with this,
+#: because one frame with a body in it is no longer an entry: it is as likely
+#: to be a coat on a chair. The entry still says they arrived at 0.0.
+ARRIVES = [(0.0, 1), (2.0, 1)]
+
+
 class TestSceneMachine:
-    def test_person_opens_a_scene(self, scenes):
-        # P4-FR-005. The first frame with a body in it is a scene.
+    def test_a_person_who_stays_opens_a_scene(self, scenes):
+        # P4-FR-005, as amended 12 Sep 2026: a body in one frame is not an
+        # entry — it has to still be there CONFIRM_SECONDS later. The entry's
+        # own time is the first sighting, not the moment it was confirmed.
         detector = FakeDetector()
         zw = worker(scenes, detector=detector)
-        walk(zw, detector, [(0.0, 1)])
+        walk(zw, detector, [(0.0, 1), (1.0, 1), (2.0, 1)])
 
         logged = scenes.recent(since_days=1)
         assert len(logged) == 1
         assert logged[0].camera_id == "cam-a"
-        assert logged[0].started_at == START
+        assert logged[0].started_at == START, "the entry says when they arrived"
         assert logged[0].running is True, "still there until they leave"
 
-    def test_flicker_under_one_second_does_not_split_the_scene(self, scenes):
+    def test_one_frame_with_a_body_in_it_writes_nothing(self, scenes, tmp_path):
+        # P4-FR-005 as amended. A single detection is as easily a coat on a
+        # chair as a person, and it used to cost a row, a clip and an email.
+        # A candidate that never confirms must leave no trace at all.
+        recorder = FakeRecorder(tmp_path / "zones")
+        detector = FakeDetector()
+        zw = worker(scenes, detector=detector, recorder=recorder)
+        walk(zw, detector, [(0.0, 1), (0.2, 0), (0.4, 0), (10.0, 0)])
+
+        assert scenes.recent(since_days=1) == []
+        assert recorder.started == [], "nor may it start a recording"
+
+    def test_flicker_under_the_gap_does_not_split_the_scene(self, scenes):
         # P4-FR-006 and SC-003 — the single most important test in the feature.
-        # A detector losing somebody for nine tenths of a second is a detector
-        # blinking, not a person leaving and coming back.
+        # A detector losing somebody for a few seconds is a detector blinking,
+        # not a person leaving and coming back.
         detector = FakeDetector()
         zw = worker(scenes, detector=detector)
-        walk(zw, detector, [
-            (0.0, 1),
-            (0.5, 0),
-            (0.9, 0),   # 0.9 s since the last sighting — still one scene
-            (1.2, 1),   # found again
-            (1.6, 1),
+        walk(zw, detector, ARRIVES + [
+            (2.5, 0),
+            (6.5, 0),   # 4.5 s since the last sighting — still one scene
+            (6.8, 1),   # found again
+            (7.2, 1),
         ])
 
         logged = scenes.recent(since_days=1)
         assert len(logged) == 1, "a blink must not become a second entry"
         assert logged[0].running is True
 
-    def test_one_full_second_of_nobody_closes_the_scene(self, scenes):
+    def test_a_full_gap_of_nobody_closes_the_scene(self, scenes):
         detector = FakeDetector()
         zw = worker(scenes, detector=detector)
-        walk(zw, detector, [(0.0, 1), (0.5, 0), (1.6, 0)])
+        walk(zw, detector, ARRIVES + [(2.5, 0), (7.1, 0)])
 
         logged = scenes.recent(since_days=1)
         assert len(logged) == 1
@@ -563,20 +583,20 @@ class TestSceneMachine:
         # together; one closes the scene if it is far enough away.
         detector = FakeDetector()
         zw = worker(scenes, detector=detector)
-        walk(zw, detector, [(0.0, 1), (0.1, 0), (0.2, 0), (0.3, 0), (0.4, 0)])
+        walk(zw, detector, ARRIVES + [(2.1, 0), (2.2, 0), (2.3, 0), (2.4, 0)])
         assert scenes.recent(since_days=1)[0].running is True
 
-        walk(zw, detector, [(1.5, 0)])
+        walk(zw, detector, [(7.5, 0)])
         assert scenes.recent(since_days=1)[0].running is False
 
     def test_a_new_person_after_the_gap_starts_a_second_scene(self, scenes):
         detector = FakeDetector()
         zw = worker(scenes, detector=detector)
-        walk(zw, detector, [(0.0, 1), (2.0, 0), (5.0, 1)])
+        walk(zw, detector, ARRIVES + [(8.0, 0), (10.0, 1), (12.0, 1)])
 
         logged = scenes.recent(since_days=1)
         assert len(logged) == 2
-        assert logged[0].started_at == START + timedelta(seconds=5)
+        assert logged[0].started_at == START + timedelta(seconds=10)
         assert logged[1].end_reason == "nobody"
 
     def test_scene_is_cut_at_the_two_minute_limit(self, scenes):
@@ -587,7 +607,7 @@ class TestSceneMachine:
 
         detector = FakeDetector()
         zw = worker(scenes, detector=detector)
-        walk(zw, detector, [(0.0, 1), (60.0, 1), (MAX_SCENE_SECONDS + 0.5, 1)])
+        walk(zw, detector, ARRIVES + [(60.0, 1), (MAX_SCENE_SECONDS + 0.5, 1)])
 
         cut = [s for s in scenes.recent(since_days=1) if s.end_reason == "limit"]
         assert len(cut) == 1, "the scene must end at the limit, with that reason"
@@ -599,7 +619,7 @@ class TestSceneMachine:
 
         detector = FakeDetector()
         zw = worker(scenes, detector=detector)
-        walk(zw, detector, [(0.0, 1), (MAX_SCENE_SECONDS + 0.5, 1)])
+        walk(zw, detector, ARRIVES + [(MAX_SCENE_SECONDS + 0.5, 1)])
 
         logged = scenes.recent(since_days=1)
         assert len(logged) == 2
@@ -623,20 +643,30 @@ class TestSceneMachine:
         # last count would report 0 for every entry.
         detector = FakeDetector()
         zw = worker(scenes, detector=detector)
-        walk(zw, detector, [(0.0, 1), (0.4, 3), (0.8, 1), (2.0, 0)])
+        walk(zw, detector, ARRIVES + [(2.4, 3), (2.8, 1), (8.0, 0)])
+
+        assert scenes.recent(since_days=1)[0].peak_people == 3
+
+    def test_the_arrival_count_survives_the_wait(self, scenes):
+        # The busiest moment can be before the scene is confirmed — three
+        # people walk in together and two walk straight out. The candidate
+        # carries the peak, so the entry is not left saying one.
+        detector = FakeDetector()
+        zw = worker(scenes, detector=detector)
+        walk(zw, detector, [(0.0, 3), (1.0, 3), (2.0, 1), (8.0, 0)])
 
         assert scenes.recent(since_days=1)[0].peak_people == 3
 
     def test_toggling_off_mid_scene_closes_the_scene(self, scenes):
         detector = FakeDetector()
         zw = worker(scenes, detector=detector)
-        walk(zw, detector, [(0.0, 1)])
+        walk(zw, detector, ARRIVES)
         assert scenes.recent(since_days=1)[0].running is True
 
         # The toggle is a single assignment; the camera's own thread closes
         # its scene on the next frame. See `set_restricted` for why.
         zw.set_restricted(set())
-        walk(zw, detector, [(0.5, 1)])
+        walk(zw, detector, [(2.5, 1)])
 
         logged = scenes.recent(since_days=1)[0]
         assert logged.running is False
@@ -653,7 +683,7 @@ class TestSceneMachine:
         recorder = FakeRecorder(tmp_path / "zones")
         detector = FakeDetector()
         zw = worker(scenes, detector=detector, recorder=recorder)
-        walk(zw, detector, [(0.0, 1)])
+        walk(zw, detector, ARRIVES)
 
         zw.set_restricted(set())
         assert scenes.recent(since_days=1)[0].running is True, (
@@ -661,7 +691,7 @@ class TestSceneMachine:
         )
         assert recorder.stopped == [], "nor stop a recording from another thread"
 
-        walk(zw, detector, [(0.5, 1)])
+        walk(zw, detector, [(2.5, 1)])
         logged = scenes.recent(since_days=1)
         assert len(logged) == 1, "no second scene may be opened"
         assert logged[0].clip_state == "saved", (
@@ -671,17 +701,17 @@ class TestSceneMachine:
     def test_toggling_a_camera_on_starts_watching_it(self, scenes):
         detector = FakeDetector()
         zw = worker(scenes, detector=detector, restricted=())
-        walk(zw, detector, [(0.0, 1)])
+        walk(zw, detector, ARRIVES)
         assert scenes.recent(since_days=1) == []
 
         zw.set_restricted({"cam-a"})
-        walk(zw, detector, [(1.0, 1)])
+        walk(zw, detector, [(3.0, 1), (5.0, 1)])
         assert len(scenes.recent(since_days=1)) == 1
 
     def test_shutdown_closes_the_open_scene(self, scenes):
         detector = FakeDetector()
         zw = worker(scenes, detector=detector)
-        walk(zw, detector, [(0.0, 1)])
+        walk(zw, detector, ARRIVES)
         zw.close_all("shutdown")  # `stop()` calls this once the threads are joined
 
         logged = scenes.recent(since_days=1)[0]
@@ -936,7 +966,7 @@ class TestRecording:
         recorder = FakeRecorder(tmp_path / "zones")
         detector = FakeDetector()
         zw = worker(scenes, detector=detector, recorder=recorder)
-        walk(zw, detector, [(0.0, 1)])
+        walk(zw, detector, ARRIVES)
 
         assert recorder.started == ["cam-a"]
         assert scenes.recent(since_days=1)[0].clip_state == "recording"
@@ -957,7 +987,7 @@ class TestRecording:
         detector = FakeDetector()
         zw = worker(scenes, detector=detector,
                     recorder=Watching(tmp_path / "zones"))
-        walk(zw, detector, [(0.0, 1)])
+        walk(zw, detector, ARRIVES)
 
         assert recorded == [ACTOR] == ["restricted-zones"]
 
@@ -966,7 +996,7 @@ class TestRecording:
         recorder = FakeRecorder(tmp_path / "zones")
         detector = FakeDetector()
         zw = worker(scenes, detector=detector, recorder=recorder)
-        walk(zw, detector, [(0.0, 1), (2.0, 0)])
+        walk(zw, detector, ARRIVES + [(8.0, 0)])
 
         assert recorder.stopped == ["cam-a"]
         scene = scenes.recent(since_days=1)[0]
@@ -981,7 +1011,7 @@ class TestRecording:
         recorder = FakeRecorder(tmp_path / "zones", fails=True)
         detector = FakeDetector()
         zw = worker(scenes, detector=detector, recorder=recorder)
-        walk(zw, detector, [(0.0, 1), (2.0, 0)])
+        walk(zw, detector, ARRIVES + [(8.0, 0)])
 
         scene = scenes.recent(since_days=1)[0]
         assert scene.clip_state == "failed"
@@ -995,7 +1025,7 @@ class TestRecording:
         recorder = FakeRecorder(tmp_path / "zones", already=True)
         detector = FakeDetector()
         zw = worker(scenes, detector=detector, recorder=recorder)
-        walk(zw, detector, [(0.0, 1), (2.0, 0)])
+        walk(zw, detector, ARRIVES + [(8.0, 0)])
 
         scene = scenes.recent(since_days=1)[0]
         assert scene.running is False, "the scene is still logged"
@@ -1006,7 +1036,7 @@ class TestRecording:
     def test_no_recorder_at_all_still_logs_the_scene(self, scenes):
         detector = FakeDetector()
         zw = worker(scenes, detector=detector, recorder=None)
-        walk(zw, detector, [(0.0, 1), (2.0, 0)])
+        walk(zw, detector, ARRIVES + [(8.0, 0)])
 
         scene = scenes.recent(since_days=1)[0]
         assert scene.clip_state == "failed"
@@ -1019,7 +1049,7 @@ class TestRecording:
         recorder = FakeRecorder(tmp_path / "zones")
         detector = FakeDetector()
         zw = worker(scenes, detector=detector, recorder=recorder)
-        walk(zw, detector, [(0.0, 1), (MAX_SCENE_SECONDS + 0.5, 1)])
+        walk(zw, detector, ARRIVES + [(MAX_SCENE_SECONDS + 0.5, 1)])
 
         assert recorder.started == ["cam-a", "cam-a"]
         assert recorder.stopped == ["cam-a"]
@@ -1033,8 +1063,9 @@ class TestRecording:
         zw = worker(scenes, detector=detector, recorder=recorder,
                     restricted=("cam-a", "cam-b"))
         for i in range(4):
-            walk(zw, detector, [(i * 10.0, 1), (i * 10.0 + 2.0, 0)])
-        walk(zw, detector, [(0.0, 1), (2.0, 0)], camera_id="cam-b")
+            base = i * 20.0
+            walk(zw, detector, [(base, 1), (base + 2.0, 1), (base + 8.0, 0)])
+        walk(zw, detector, ARRIVES + [(8.0, 0)], camera_id="cam-b")
 
         by_camera = {}
         for scene in scenes.recent(since_days=1):
