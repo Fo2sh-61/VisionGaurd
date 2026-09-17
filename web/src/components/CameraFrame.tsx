@@ -20,7 +20,7 @@ type Size = 'sm' | 'lg';
 
 const SCALE = {
   sm: {
-    height: 128,
+    minHeight: 121,
     grid: 26,
     border: 2,
     inset: 8,
@@ -31,7 +31,7 @@ const SCALE = {
     labelPad: '1px 6px',
   },
   lg: {
-    height: 380,
+    minHeight: 380,
     grid: 34,
     border: 2.5,
     inset: 12,
@@ -411,7 +411,17 @@ export function CameraFrame({
     // Arabic text inside still reads right-to-left on its own — a camera
     // name or a person's name is a text run, and the bidi algorithm handles
     // it without any help from the container. P11-FR-009.
-    <div className="camframe" dir="ltr" ref={frameRef} style={{ height: s.height }}>
+    <div
+      className="camframe"
+      dir="ltr"
+      ref={frameRef}
+      style={{
+        // The camera's own shape, once a frame has landed. 16:9 until then, so
+        // the tile does not jump from a square placeholder.
+        aspectRatio: aspect ?? 16 / 9,
+        minHeight: s.minHeight,
+      }}
+    >
       {frameSrc ? (
         useStream ? (
           <StreamImage src={frameSrc} {...pictureProps} />

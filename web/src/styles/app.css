@@ -752,7 +752,12 @@ select.input {
 
 .camgrid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(215px, 1fr));
+  /* auto-fill with a capped track: a short roster stays tiles rather than one
+     camera stretching into a card-wide banner. Tiles of different shapes sit
+     top-aligned. */
+  grid-template-columns: repeat(auto-fill, minmax(215px, 260px));
+  justify-content: start;
+  align-items: start;
   gap: 12px;
   margin-top: 14px;
 }
@@ -896,9 +901,12 @@ select.input {
 .modal__panel {
   background: var(--card);
   border-radius: 16px;
-  width: 680px;
+  width: 860px;
   max-width: 100%;
+  max-height: calc(100vh - 48px);
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 /* ---------- progress ---------- */
