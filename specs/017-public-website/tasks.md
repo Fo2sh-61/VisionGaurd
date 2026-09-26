@@ -191,7 +191,7 @@ message arrives.
 
   Also check: empty Company → no request; the button is disabled during a send.
   Then reload to restore the real fetch.
-- [ ] T017 [US2] Real send, approved by Mohamed on 27 Sep 2026 for exactly this
+- [ ] T017 [US2] **Blocked (27 Sep): the sales@vision-guard.org forwarding is not live yet, so nothing was sent.** Real send, approved by Mohamed on 27 Sep 2026 for exactly this
   sequence:
   1. Fill Full name "VisionGuard website test", Work email sales@vision-guard.org,
      Company "VisionGuard", and the message "Test from the new website — please
@@ -283,13 +283,13 @@ Mohamed can do by eye.
 
 ## Phase 6: Polish and handover
 
-- [ ] T025 Final gates:
+- [X] T025 Final gates:
   - quickstart §2 at 1440, 390 and 360 px, all `true`;
   - no console errors on load or during a full scroll;
   - `python -m pytest engine` → 1889 passed, 6 skipped;
   - `git status --short` shows no new change outside `website/` and
     `specs/017-public-website/`.
-- [ ] T026 [P] Add a "Website" row to `STATUS.md`. **The file is CRLF**: use the
+- [X] T026 [P] Add a "Website" row to `STATUS.md`. **The file is CRLF**: use the
   Edit tool and check `git diff --stat STATUS.md` shows a small change. The row
   covers:
   - "Real — static one-page site in `website/`, the approved v2 design";
@@ -298,7 +298,7 @@ Mohamed can do by eye.
   - footer items marked Soon;
   - the three claims awaiting Mohamed's confirmation (spec, Constitution check);
   - not yet published to vision-guard.org.
-- [ ] T027 Commit 4 (`STATUS.md` hunk only, plus any `website/` fix from T025):
+- [X] T027 Commit 4 (`STATUS.md` hunk only, plus any `website/` fix from T025):
   "STATUS says what the website is and what it is not yet". Then hand over to
   Mohamed with the list only he can check:
   - the page beside the design, by eye;
