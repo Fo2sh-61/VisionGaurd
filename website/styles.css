@@ -101,3 +101,38 @@ section[id]{scroll-margin-top:72px}
 /* footer items with no page yet: dimmed, not links, with a small Soon tag */
 .soon{color:rgba(163,176,168,.55)!important;cursor:default}
 .soon small{display:inline-block;margin-left:6px;padding:2px 6px;border-radius:5px;background:#2e3933;color:#a3b0a8;font-family:'Albert Sans',system-ui,sans-serif;font-size:11px;font-weight:600;letter-spacing:.04em;line-height:1.3;vertical-align:2px}
+
+/* ---- Scroll animations where the browser has no scroll timelines (Firefox).
+   main.js adds .vg-io to <html> only there, and never under reduced motion; then .vg-in to
+   each element once it comes into view. The same keyframes play on a clock. .vg-in sets
+   the end state itself, so nothing stays hidden if animations are switched off. ---- */
+.vg-io [data-reveal]:not(.vg-in),.vg-io [data-count]:not(.vg-in),.vg-io [data-line]:not(.vg-in),.vg-io [data-tilt]:not(.vg-in),.vg-io [data-progress],.vg-io [data-nav]{animation:none}
+.vg-io [data-reveal]:not(.vg-in){opacity:0}
+.vg-io [data-reveal].vg-in{opacity:1;animation:vg-rv .8s cubic-bezier(.2,.8,.2,1) both}
+.vg-io [data-reveal="zoom"].vg-in{animation-name:vg-zoom}
+.vg-io [data-stagger]>*:nth-child(4n+2).vg-in{animation-delay:.1s}
+.vg-io [data-stagger]>*:nth-child(4n+3).vg-in{animation-delay:.2s}
+.vg-io [data-stagger]>*:nth-child(4n).vg-in{animation-delay:.3s}
+.vg-io [data-count]:not(.vg-in){--n:0!important}
+.vg-io [data-count].vg-in{animation:vg-count 1.6s ease-out both}
+.vg-io [data-line]{transform-origin:left}
+.vg-io [data-line]:not(.vg-in){transform:scaleX(0)}
+.vg-io [data-line].vg-in{animation:vg-line .8s both}
+.vg-io [data-tilt].vg-in{animation:vg-tilt 1.2s both}
+.vg-io [data-par="a"]{animation:vg-float 7s ease-in-out infinite}
+.vg-io [data-par="b"]{animation:vg-float 7s -3.5s ease-in-out infinite}
+
+/* ---- Narrow screens (measured at 390 and 360 px; spec P14-FR-003).
+   The header's four section links wrapped into a stack about 240 px tall that stuck over a
+   quarter of the screen. The same links are in the hero and the footer, so here they step
+   aside and "Contact us" moves to the right. The two-phone scene is 532 px wide: it shrinks
+   as one picture and gives back the height it no longer uses. ---- */
+@media (max-width:620px){
+header nav>div{display:none!important}
+header nav{gap:16px!important}
+header nav>a{white-space:nowrap}
+header nav>a:last-child{margin-left:auto}
+#mobile>div>[data-reveal="1"]{--s:.74;transform:scale(var(--s));transform-origin:50% 0;margin-bottom:calc(560px * (var(--s) - 1))}
+}
+@media (max-width:480px){#mobile>div>[data-reveal="1"]{--s:.56}}
+@media (max-width:380px){#mobile>div>[data-reveal="1"]{--s:.52}}

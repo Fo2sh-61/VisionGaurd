@@ -118,4 +118,46 @@
       label.textContent = 'Send message';
     });
   }
+
+  // ---- Scroll animations where the browser has no scroll timelines (Firefox; research R4).
+  // ?motion=fallback forces it, for testing in Chrome. Never under reduced motion, and the
+  // hiding class is added here, so if this script fails nothing stays hidden.
+  const forced = new URLSearchParams(location.search).get('motion') === 'fallback';
+  if (!reduced && (forced || !CSS.supports('animation-timeline: view()')) && 'IntersectionObserver' in window) {
+    document.documentElement.classList.add('vg-io');
+
+    const io = new IntersectionObserver(entries => entries.forEach(en => {
+      if (en.isIntersecting) { en.target.classList.add('vg-in'); io.unobserve(en.target); }
+    }), { threshold: 0.15 });
+    document.querySelectorAll('[data-reveal],[data-count],[data-line],[data-tilt]').forEach(el => io.observe(el));
+
+    // The three effects tied to the scroll position itself
+    const bar = document.querySelector('[data-progress]');
+    const nav = document.querySelector('[data-nav]');
+    const phones = [...document.querySelectorAll('[data-par]')];
+    const drift = { a: [90, -50], b: [160, -90] }; // px, from vg-parA / vg-parB
+    let queued = false;
+    const update = () => {
+      queued = false;
+      const max = document.documentElement.scrollHeight - innerHeight;
+      if (bar) bar.style.transform = `scaleX(${max > 0 ? Math.min(1, scrollY / max) : 0})`;
+      if (nav) { // vg-nav: solid with a soft shadow over the first 240 px
+        const k = Math.min(1, scrollY / 240);
+        nav.style.background = `rgba(242,245,242,${(0.78 + 0.16 * k).toFixed(3)})`;
+        nav.style.boxShadow = `0 10px 30px rgba(30,42,36,${(0.08 * k).toFixed(3)})`;
+      }
+      phones.forEach(el => {
+        // 0 as the phone enters at the bottom, 1 as it leaves at the top. Measured from
+        // layout (offsetTop), not the moved box, so the drift does not feed on itself.
+        const top = el.offsetParent.getBoundingClientRect().top + el.offsetTop;
+        const p = Math.min(1, Math.max(0, (innerHeight - top) / (innerHeight + el.offsetHeight)));
+        const [from, to] = drift[el.dataset.par];
+        el.style.translate = `0 ${(from + (to - from) * p).toFixed(1)}px`;
+      });
+    };
+    const queue = () => { if (!queued) { queued = true; requestAnimationFrame(update); } };
+    addEventListener('scroll', queue, { passive: true });
+    addEventListener('resize', queue);
+    update();
+  }
 })();

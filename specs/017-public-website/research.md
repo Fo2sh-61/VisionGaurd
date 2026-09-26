@@ -135,3 +135,11 @@ the "one business day" wording stay as designed.
   (`left:calc(50% - 250px)`, 560 px tall), the footer's `grid-column:span 2`, and the
   four-across camera picker. The wrapper's clip already stops sideways scroll. Fix
   only what the check finds cut off, with one `@media (max-width:520px)` block.
+
+  **What the check found** (measured at 360–620 px): the phone scene is 532 px wide
+  and was cut on both sides below about 610 px. It now shrinks as one picture (×0.74
+  up to 620 px, ×0.56 up to 480, ×0.52 up to 380) and gives back the height. The
+  header's four section links wrapped into a 240-px stack that stuck over a quarter
+  of the screen, so up to 620 px they are hidden. The same links are in the hero and
+  the footer. That is a small change to the design, flagged for Mohamed. The hero
+  note, the footer and the camera picker were not cut.

@@ -219,7 +219,7 @@ animations (research R4); reduced motion shows everything still (P14-FR-006, 007
 - with the fallback forced on, sections slide in and numbers count up;
 - with animations disabled, every section is fully visible.
 
-- [ ] T019 [P] [US3] Append the fallback to `website/styles.css`, all under `.vg-io`
+- [X] T019 [P] [US3] Append the fallback to `website/styles.css`, all under `.vg-io`
   (research R4):
   - `[data-reveal]:not(.vg-in){opacity:0}`;
   - `.vg-in` plays `vg-rv .8s cubic-bezier(.2,.8,.2,1) both`, or `vg-zoom` for
@@ -231,7 +231,7 @@ animations (research R4); reduced motion shows everything still (P14-FR-006, 007
     `transform:scaleX(0)`, and `.vg-in` plays `vg-line .8s both`;
   - `[data-tilt].vg-in` plays `vg-tilt 1.2s both`;
   - `[data-progress]` and `[data-nav]` are left to the script.
-- [ ] T020 [US3] Add the fallback to `website/main.js` (research R4, context §3):
+- [X] T020 [US3] Add the fallback to `website/main.js` (research R4, context §3):
   - It runs only when `!CSS.supports('animation-timeline: view()')`, or when the URL
     has `?motion=fallback` (for testing in Chrome), and never when
     `matchMedia('(prefers-reduced-motion: reduce)').matches`.
@@ -246,7 +246,7 @@ animations (research R4); reduced motion shows everything still (P14-FR-006, 007
       −90 px (b) as the element crosses the viewport. It leaves `transform` alone,
       so the float keeps playing.
   - Run the scroll handler once on load.
-- [ ] T021 [US3] Verify the fallback in the in-app browser at
+- [X] T021 [US3] Verify the fallback in the in-app browser at
   `http://localhost:8090/?motion=fallback`:
   - sections fade up as they are reached; 208 / 3 / 7 count up; the tile top lines
     draw;
@@ -255,7 +255,7 @@ animations (research R4); reduced motion shows everything still (P14-FR-006, 007
 
   If Firefox is installed on this machine, open the page there as well. If not, add
   "open it in Firefox" to the handover list (T027).
-- [ ] T022 [US3] Narrow screens:
+- [X] T022 [US3] Narrow screens:
   - `resize_window` to 390×844, then 360×800; run quickstart §2 at each, and scroll
     the whole page.
   - Fix only what is cut off or overflowing, in one
@@ -264,7 +264,7 @@ animations (research R4); reduced motion shows everything still (P14-FR-006, 007
     (`#mobile [data-reveal="1"]` with height 560) down and centre it, pull the hero
     note in from `left:-28px`, and let the footer's first column `span 1`.
   - Reset with the `desktop` preset afterwards.
-- [ ] T023 [US3] Reduced motion (the in-app browser cannot emulate it):
+- [X] T023 [US3] Reduced motion (the in-app browser cannot emulate it):
   - inject `<style>*{animation:none!important;transition:none!important}</style>`
     with `javascript_tool`;
   - confirm every `[data-reveal]` has computed opacity 1, and that the three count
@@ -273,7 +273,7 @@ animations (research R4); reduced motion shows everything still (P14-FR-006, 007
 
   Then ask Mohamed for one by-eye check with Windows "Animation effects" off
   (quickstart §5).
-- [ ] T024 [US3] Commit 3 (`website/` only): "The website fits a 360-pixel phone, and
+- [X] T024 [US3] Commit 3 (`website/` only): "The website fits a 360-pixel phone, and
   Firefox gets the scroll animations too"
 
 **Checkpoint**: every requirement in the spec is met, apart from the checks that only
