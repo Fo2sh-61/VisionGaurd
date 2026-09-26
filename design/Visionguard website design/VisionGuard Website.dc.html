@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Albert+Sans:wght@400;500;600;700;800&amp;family=Noto+Sans+Arabic:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+<link rel="icon" href="./assets/visionguard.ico">
+<style>
+html{scroll-behavior:smooth}
+body{margin:0;background:#f2f5f2;color:#1f2b26;font-family:'Albert Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#33705b;text-decoration:none}
+a:hover{color:#285948}
+*{box-sizing:border-box}
+@keyframes vg-pulse{0%,100%{opacity:1}50%{opacity:.3}}
+@keyframes vg-scan{0%{top:-20%}100%{top:110%}}
+@keyframes vg-nextcam{0%,100%{box-shadow:0 0 0 0 rgba(92,174,145,0)}50%{box-shadow:0 0 0 7px rgba(92,174,145,.3)}}
+@keyframes vg-drift1{0%,100%{transform:translate(0,0)}50%{transform:translate(38px,6px)}}
+@keyframes vg-drift2{0%,100%{transform:translate(0,0)}50%{transform:translate(-30px,-4px)}}
+@keyframes vg-drift3{0%,100%{transform:translate(0,0)}50%{transform:translate(20px,-8px)}}
+@keyframes vg-float{0%,100%{transform:translateY(0)}50%{transform:translateY(-12px)}}
+@keyframes vg-toast{0%,8%{opacity:0;transform:translateY(14px)}14%,80%{opacity:1;transform:translateY(0)}88%,100%{opacity:0;transform:translateY(-6px)}}
+@keyframes vg-dash{to{background-position:40px 0}}
+@keyframes vg-spin{to{transform:rotate(360deg)}}
+@keyframes vg-caret{0%,49%{opacity:1}50%,100%{opacity:0}}
+@keyframes vg-rv{from{opacity:0;translate:0 40px}to{opacity:1;translate:0 0}}
+@supports (animation-timeline: view()){[data-reveal]{animation:vg-rv linear both;animation-timeline:view();animation-range:entry 0% entry 45%}}
+@keyframes vg-glow{0%,100%{opacity:.55;transform:scale(1)}50%{opacity:.9;transform:scale(1.08)}}
+</style>
+
+</helmet>
+
+<div style="min-height:100vh;overflow-x:hidden">
+
+<!-- NAV -->
+<header style="position:sticky;top:0;z-index:50;background:rgba(242,245,242,.78);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid #e0e7e1">
+  <nav style="max-width:1200px;margin:0 auto;padding:14px 28px;display:flex;align-items:center;gap:32px">
+    <a href="#top" style="display:flex;align-items:center;gap:11px;color:#1f2b26">
+      <div style="width:34px;height:34px;border-radius:9px;background:#33705b;display:grid;place-items:center">
+        <div style="width:15px;height:13px;border-radius:6px 7px 6px 7px;background:#f2f5f2"></div>
+      </div>
+      <span style="font-weight:700;font-size:18px;letter-spacing:-.01em">VisionGuard AI</span>
+    </a>
+    <div style="display:flex;gap:26px;margin-left:auto;font-size:15px;font-weight:500;flex-wrap:wrap">
+      <a href="#how" style="color:#57655d" style-hover="color:#1f2b26">How it works</a>
+      <a href="#tools" style="color:#57655d" style-hover="color:#1f2b26">Tools</a>
+      <a href="#honest" style="color:#57655d" style-hover="color:#1f2b26">Honest by design</a>
+      <a href="#mobile" style="color:#57655d" style-hover="color:#1f2b26">Mobile</a>
+    </div>
+    <a href="#demo" style="background:#1f2b26;color:#f2f5f2;padding:10px 18px;border-radius:10px;font-weight:600;font-size:14px;transition:transform .2s" style-hover="color:#fff;transform:translateY(-1px)">Book a demo</a>
+  </nav>
+</header>
+
+<!-- HERO -->
+<section id="top" style="position:relative;padding:72px 28px 96px">
+  <div style="position:absolute;width:620px;height:620px;right:-120px;top:-80px;border-radius:50%;background:radial-gradient(circle,rgba(92,174,145,.28),rgba(92,174,145,0) 68%);pointer-events:none;animation:vg-glow 9s ease-in-out infinite"></div>
+  <div style="max-width:1200px;margin:0 auto;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,460px),1fr));gap:56px;align-items:center;position:relative">
+    <div data-reveal="1">
+      <div style="display:inline-flex;align-items:center;gap:8px;background:#dfe9e0;color:#33705b;padding:7px 13px;border-radius:999px;font-size:13px;font-weight:600">
+        <span style="width:7px;height:7px;border-radius:50%;background:#33705b;animation:vg-pulse 2s infinite"></span>
+        Vision for any site with cameras
+      </div>
+      <h1 style="font-size:clamp(44px,6vw,76px);line-height:1.02;letter-spacing:-.035em;font-weight:800;margin:22px 0 20px;text-wrap:balance">Ask your cameras.<br><span style="color:#33705b">Get the footage.</span></h1>
+      <p style="font-size:19px;line-height:1.55;color:#57655d;max-width:520px;margin:0 0 32px;text-wrap:pretty">VisionGuard turns the surveillance cameras you already have — offices, factories, warehouses, hospitals, malls — into plain answers: who arrived, how busy it is, where a person went. With the clip attached.</p>
+      <div style="background:#fff;border-radius:14px;padding:8px 8px 8px 20px;display:flex;align-items:center;gap:12px;box-shadow:0 12px 40px rgba(30,42,36,.1),0 1px 3px rgba(30,42,36,.07);max-width:540px">
+        <div style="flex:1;font-size:17px;color:#1f2b26;min-height:24px;display:flex;align-items:center;overflow:hidden;white-space:nowrap;font-family:'Albert Sans','Noto Sans Arabic',sans-serif"><span ref="{{ typedRef }}"></span><span style="display:inline-block;width:2px;height:20px;background:#33705b;margin-left:2px;animation:vg-caret 1s infinite"></span></div>
+        <span ref="{{ langRef }}" style="font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:500;color:#33705b;background:#dfe9e0;padding:4px 8px;border-radius:6px;white-space:nowrap;transition:opacity .3s">English</span>
+        <div style="background:#33705b;color:#fff;padding:13px 24px;border-radius:10px;font-weight:700;font-size:16px">Ask</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:14px;font-size:14px;color:#57655d"><span>Type the way you talk —</span><span style="font-weight:600;color:#1f2b26">English</span><span style="color:#c3ccc4">·</span><span style="font-weight:600;color:#1f2b26;font-family:'Noto Sans Arabic',sans-serif">العربية</span><span style="color:#c3ccc4">·</span><span style="font-weight:600;color:#1f2b26">Franco</span><span style="color:#c3ccc4">·</span><span style="font-weight:600;color:#1f2b26">or all mixed</span></div>
+      <div style="display:flex;gap:12px;margin-top:32px;flex-wrap:wrap">
+        <a href="#demo" style="background:#33705b;color:#fff;padding:15px 26px;border-radius:12px;font-weight:700;font-size:16px;transition:all .25s;box-shadow:0 6px 20px rgba(51,112,91,.3)" style-hover="background:#285948;color:#fff;transform:translateY(-2px)">Book a demo →</a>
+        <a href="#how" style="background:transparent;color:#1f2b26;padding:15px 22px;border-radius:12px;font-weight:600;font-size:16px;border:1px solid #c3ccc4" style-hover="background:#fff;color:#1f2b26">See how it works</a>
+      </div>
+    </div>
+
+    <!-- camera mosaic -->
+    <div data-reveal="2" style="position:relative">
+      <div style="background:#161c19;border-radius:20px;padding:12px;box-shadow:0 30px 80px rgba(22,28,25,.35);transform:perspective(1400px) rotateY(-6deg) rotateX(3deg)">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 6px 12px;color:#a3b0a8;font-size:12px;font-family:'JetBrains Mono',monospace">
+          <span style="display:flex;align-items:center;gap:7px"><span style="width:7px;height:7px;border-radius:50%;background:#3ec776;animation:vg-pulse 1.6s infinite"></span>LIVE · 4 of 208</span>
+          <span>08:47:12</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <sc-for list="{{ cams }}" as="c" hint-placeholder-count="4">
+            <div style="position:relative;aspect-ratio:16/10;border-radius:10px;overflow:hidden;background:repeating-linear-gradient(135deg,#212a25 0 10px,#1c2420 10px 20px);animation:{{ c.halo }}">
+              <div style="position:absolute;left:8px;bottom:7px;font-family:'JetBrains Mono',monospace;font-size:10px;color:#718076">{{ c.feed }}</div>
+              <div style="position:absolute;left:8px;top:7px;font-size:11px;font-weight:600;color:#e4eae5;background:rgba(22,28,25,.7);padding:3px 7px;border-radius:5px">{{ c.name }}</div>
+              <div style="position:absolute;left:{{ c.x }};top:{{ c.y }};width:{{ c.w }};height:{{ c.h }};border:2px solid {{ c.color }};border-radius:4px;animation:{{ c.drift }}">
+                <div style="position:absolute;left:-2px;top:-20px;white-space:nowrap;background:{{ c.color }};color:#10201a;font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px 4px 4px 0">{{ c.label }}</div>
+              </div>
+              <div style="position:absolute;left:0;right:0;height:30%;background:linear-gradient(180deg,rgba(92,174,145,0),rgba(92,174,145,.12),rgba(92,174,145,0));animation:vg-scan 3.6s linear infinite;animation-delay:{{ c.delay }}"></div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+      <div style="position:absolute;left:-28px;bottom:-30px;background:#fff;border-radius:14px;padding:14px 16px;box-shadow:0 16px 40px rgba(30,42,36,.18);display:flex;gap:12px;align-items:center;max-width:300px;animation:vg-toast 7s ease-in-out infinite">
+        <div style="width:36px;height:36px;border-radius:10px;background:#f3ecd9;display:grid;place-items:center;flex-shrink:0"><span style="width:9px;height:9px;border-radius:50%;background:#8a6a14"></span></div>
+        <div>
+          <div style="font-size:14px;font-weight:700">34 employees not yet arrived</div>
+          <div style="font-size:12px;color:#8a968e;margin-top:2px">Attendance · entrance cameras</div>
+        </div>
+      </div>
+      <div style="position:absolute;right:-14px;top:-22px;background:#1f2b26;color:#e4eae5;border-radius:12px;padding:10px 14px;font-size:13px;font-weight:600;display:flex;gap:8px;align-items:center;box-shadow:0 12px 30px rgba(0,0,0,.25);animation:vg-float 6s ease-in-out infinite">
+        <span style="width:8px;height:8px;border-radius:50%;background:#5cae91"></span>Next camera: Library east
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- STATS STRIP -->
+<section style="padding:0 28px">
+  <div data-reveal="1" style="max-width:1200px;margin:0 auto;display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1px;background:#e0e7e1;border:1px solid #e0e7e1;border-radius:18px;overflow:hidden">
+    <div style="background:#fff;padding:28px 30px"><div style="font-size:44px;font-weight:800;letter-spacing:-.03em">208</div><div style="color:#57655d;font-size:15px;margin-top:4px">cameras, one site</div></div>
+    <div style="background:#fff;padding:28px 30px"><div style="font-size:44px;font-weight:800;letter-spacing:-.03em">1</div><div style="color:#57655d;font-size:15px;margin-top:4px">detection pass per frame</div></div>
+    <div style="background:#fff;padding:28px 30px"><div style="font-size:44px;font-weight:800;letter-spacing:-.03em">7</div><div style="color:#57655d;font-size:15px;margin-top:4px">tools behind one question box</div></div>
+    <div style="background:#fff;padding:28px 30px"><div style="font-size:44px;font-weight:800;letter-spacing:-.03em;color:#33705b">0</div><div style="color:#57655d;font-size:15px;margin-top:4px">invented numbers on screen</div></div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section id="how" style="padding:120px 28px 100px">
+  <div style="max-width:1200px;margin:0 auto">
+    <div data-reveal="1" style="max-width:680px">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:#33705b;letter-spacing:.04em">01 — HOW IT WORKS</div>
+      <h2 style="font-size:clamp(34px,4.4vw,52px);letter-spacing:-.03em;line-height:1.08;margin:14px 0 16px;font-weight:800;text-wrap:balance">From a wall of feeds to one plain answer.</h2>
+      <p style="font-size:18px;color:#57655d;line-height:1.6;margin:0;text-wrap:pretty">Cameras feed a frame bus. One person-detection pass fans out to counting, zones and tracking. Events land in a database, and both apps read from it.</p>
+    </div>
+    <div style="position:relative;margin-top:64px">
+      <div style="position:absolute;left:4%;right:4%;top:34px;height:2px;background-image:linear-gradient(90deg,#33705b 50%,transparent 50%);background-size:20px 2px;animation:vg-dash 1.2s linear infinite;opacity:.5"></div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:24px;position:relative">
+        <sc-for list="{{ steps }}" as="s" hint-placeholder-count="4">
+          <div data-reveal="1" style="background:#fff;border-radius:16px;padding:24px;box-shadow:0 1px 3px rgba(30,42,36,.07);transition:transform .3s,box-shadow .3s" style-hover="transform:translateY(-6px);box-shadow:0 18px 40px rgba(30,42,36,.12)">
+            <div style="width:44px;height:44px;border-radius:12px;background:#33705b;color:#fff;display:grid;place-items:center;font-weight:800;font-size:17px;font-family:'JetBrains Mono',monospace">{{ s.n }}</div>
+            <div style="font-weight:700;font-size:19px;margin:20px 0 8px">{{ s.title }}</div>
+            <div style="color:#57655d;font-size:15px;line-height:1.55">{{ s.body }}</div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- TOOLS -->
+<section id="tools" style="padding:100px 28px;background:#e9efe9">
+  <div style="max-width:1200px;margin:0 auto">
+    <div data-reveal="1" style="display:flex;justify-content:space-between;align-items:end;gap:32px;flex-wrap:wrap">
+      <div style="max-width:620px">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:#33705b;letter-spacing:.04em">02 — TOOLS</div>
+        <h2 style="font-size:clamp(34px,4.4vw,52px);letter-spacing:-.03em;line-height:1.08;margin:14px 0 0;font-weight:800;text-wrap:balance">Ask in any language. It opens the right tool.</h2>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;max-width:460px">
+        <sc-for list="{{ chips }}" as="q" hint-placeholder-count="4">
+          <span style="background:#dfe9e0;color:#285948;padding:9px 14px;border-radius:10px;font-size:14px;font-weight:500;font-family:'Albert Sans','Noto Sans Arabic',sans-serif" dir="auto">{{ q }}</span>
+        </sc-for>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,330px),1fr));gap:16px;margin-top:52px">
+      <sc-for list="{{ tools }}" as="t" hint-placeholder-count="6">
+        <div data-reveal="1" style="position:relative;background:#fff;border-radius:18px;padding:28px;min-height:220px;display:flex;flex-direction:column;overflow:hidden;transition:transform .35s cubic-bezier(.2,.8,.2,1),box-shadow .35s" style-hover="transform:translateY(-6px);box-shadow:0 22px 50px rgba(30,42,36,.13)">
+          <div style="display:inline-flex;align-self:flex-start;align-items:center;gap:7px;background:{{ t.tagBg }};color:{{ t.tagTx }};padding:5px 10px;border-radius:7px;font-size:12px;font-weight:600"><span style="width:6px;height:6px;border-radius:50%;background:{{ t.tagTx }}"></span>{{ t.tag }}</div>
+          <div style="font-size:23px;font-weight:700;letter-spacing:-.015em;margin:22px 0 6px">{{ t.title }}</div>
+          <div style="color:#33705b;font-weight:600;font-size:15px">{{ t.sub }}</div>
+          <div style="color:#57655d;font-size:15px;line-height:1.55;margin-top:12px;text-wrap:pretty">{{ t.body }}</div>
+          <div style="position:absolute;right:22px;top:24px;font-family:'JetBrains Mono',monospace;font-size:12px;color:#8a968e">{{ t.n }}</div>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+</section>
+
+<!-- HONEST BY DESIGN -->
+<section id="honest" style="padding:120px 28px;background:#161c19;color:#e4eae5;position:relative;overflow:hidden">
+  <div style="position:absolute;inset:0;background-image:linear-gradient(#2e3933 1px,transparent 1px),linear-gradient(90deg,#2e3933 1px,transparent 1px);background-size:56px 56px;opacity:.35;mask-image:radial-gradient(ellipse at 30% 40%,#000,transparent 70%);-webkit-mask-image:radial-gradient(ellipse at 30% 40%,#000,transparent 70%)"></div>
+  <div style="max-width:1200px;margin:0 auto;position:relative;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,440px),1fr));gap:64px;align-items:center">
+    <div data-reveal="1">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:#5cae91;letter-spacing:.04em">03 — HONEST BY DESIGN</div>
+      <h2 style="font-size:clamp(34px,4.4vw,52px);letter-spacing:-.03em;line-height:1.08;margin:14px 0 18px;font-weight:800;text-wrap:balance">A face names a person. Clothing only says “the same body.”</h2>
+      <p style="font-size:18px;color:#a3b0a8;line-height:1.6;margin:0 0 36px;text-wrap:pretty">The two signals are never merged, and every screen says where its data came from. When a subsystem is off, you see that — not a plausible guess.</p>
+      <div style="display:flex;flex-direction:column;gap:14px">
+        <div style="display:flex;gap:14px;align-items:center"><span style="width:28px;height:18px;border:2px solid #3ec776;border-radius:4px"></span><span style="font-size:16px"><b style="color:#3ec776">Green</b> — identified by face</span></div>
+        <div style="display:flex;gap:14px;align-items:center"><span style="width:28px;height:18px;border:2px solid #5b9bd8;border-radius:4px"></span><span style="font-size:16px"><b style="color:#5b9bd8">Blue</b> — matched by appearance</span></div>
+        <div style="display:flex;gap:14px;align-items:center"><span style="width:28px;height:18px;border:2px solid #dfa23f;border-radius:4px"></span><span style="font-size:16px"><b style="color:#dfa23f">Amber</b> — awaiting a person’s review</span></div>
+      </div>
+    </div>
+    <div data-reveal="2" style="display:flex;flex-direction:column;gap:14px">
+      <sc-for list="{{ sources }}" as="d" hint-placeholder-count="3">
+        <div style="background:#212a25;border:1px solid #2e3933;border-radius:16px;padding:20px 22px;display:flex;gap:18px;align-items:center;transition:border-color .3s,transform .3s" style-hover="border-color:#5cae91;transform:translateX(6px)">
+          <span style="font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:500;padding:6px 10px;border-radius:7px;background:{{ d.bg }};color:{{ d.tx }};min-width:104px;text-align:center">{{ d.state }}</span>
+          <div>
+            <div style="font-weight:700;font-size:16px">{{ d.title }}</div>
+            <div style="color:#a3b0a8;font-size:14px;margin-top:3px">{{ d.body }}</div>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+</section>
+
+<!-- MOBILE -->
+<section id="mobile" style="padding:120px 28px 110px;position:relative;overflow:hidden">
+  <div style="max-width:1200px;margin:0 auto;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,440px),1fr));gap:56px;align-items:center">
+    <div data-reveal="1" style="position:relative;height:560px;display:flex;justify-content:center">
+      <div style="position:absolute;width:420px;height:420px;border-radius:50%;background:#dfe9e0;top:60px"></div>
+      <div style="position:absolute;left:calc(50% - 250px);top:50px;width:240px;border-radius:34px;background:#0e1311;padding:9px;box-shadow:0 30px 60px rgba(22,28,25,.3);transform:rotate(-7deg);animation:vg-float 7s ease-in-out infinite">
+        <img src="./assets/mobile-2.png" alt="VisionGuard mobile attendance" style="width:100%;display:block;border-radius:26px">
+      </div>
+      <div style="position:absolute;left:calc(50% - 20px);top:0;width:260px;border-radius:36px;background:#0e1311;padding:9px;box-shadow:0 40px 80px rgba(22,28,25,.38);transform:rotate(4deg);animation:vg-float 7s ease-in-out infinite;animation-delay:-3.5s">
+        <div style="position:relative;width:100%;aspect-ratio:482/912;border-radius:28px;overflow:hidden;background:#161c19">
+<div style="position:absolute;left:0;top:0;width:390px;height:738px;transform:scale(0.6205);transform-origin:0 0;background:#161c19;color:#e4eae5;font-family:'Albert Sans',sans-serif;display:flex;flex-direction:column">
+<div style="display:flex;align-items:center;gap:6px;min-height:60px;padding:14px 10px 8px 14px">
+<div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0"><div style="width:34px;height:34px;border-radius:10.9px;background:#5cae91;display:flex;align-items:center;justify-content:center;flex-shrink:0"><div style="width:14.6px;height:14.6px;border-radius:50% 50% 50% 4px;background:#1c2420"></div></div>
+<div><div style="font-size:15px;font-weight:800;letter-spacing:-.01em;line-height:1.2">VisionGuard</div><div style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:#5cae91"><span style="width:8px;height:8px;border-radius:50%;background:#5cae91"></span>All 208 cameras up</div></div></div>
+<div style="position:relative;width:44px;height:44px;display:flex;align-items:center;justify-content:center;color:#e4eae5"><svg width="22" height="22" viewBox="0 0 18 18" fill="none"><path d="M9 2.9c-2.5 0-4.3 1.9-4.3 4.4v3.1l-1.4 2.2h11.4l-1.4-2.2V7.3c0-2.5-1.8-4.4-4.3-4.4z M7.4 14.7c.3.8.9 1.2 1.6 1.2s1.3-.4 1.6-1.2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path></svg><span style="position:absolute;top:5px;right:3px;min-width:19px;height:19px;padding:0 5px;border-radius:10px;background:#d97e70;color:#10201a;font-size:12px;font-weight:800;line-height:19px;text-align:center;box-shadow:0 0 0 2px #161c19">1</span></div>
+<div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center"><span style="width:36px;height:36px;border-radius:50%;background:#2a3d34;color:#7cc3a9;font-size:13px;font-weight:800;display:flex;align-items:center;justify-content:center">MF</span></div>
+</div>
+<div style="flex:1;min-height:0;overflow:hidden;padding:4px 16px 28px;display:flex;flex-direction:column;gap:16px">
+<div><div style="font-size:26px;font-weight:800;letter-spacing:-.015em;line-height:1.15;margin-top:6px">Good morning, Mohamed.</div><div style="font-size:14px;color:#a3b0a8;margin-top:4px">Saturday, 26 September</div></div>
+<div style="flex-shrink:0;background:#212a25;border:1px solid #2e3933;border-radius:16px;padding:12px;display:flex;flex-direction:column;gap:10px;overflow:hidden">
+<div style="flex-shrink:0;display:flex;gap:8px"><div style="flex:1;min-height:48px;padding:0 14px;border-radius:12px;border:1px solid #2e3933;background:#1c2420;color:#718076;font-size:16px;display:flex;align-items:center">e.g. Who was absent today?</div><div style="min-height:48px;padding:0 18px;border-radius:12px;background:#5cae91;color:#10201a;font-size:15px;font-weight:700;display:flex;align-items:center">Ask</div></div>
+<div style="flex-shrink:0;display:flex;gap:8px;margin:0 -12px;padding:2px 12px;overflow:hidden"><span style="min-height:44px;padding:0 14px;border-radius:22px;background:#2a3d34;color:#7cc3a9;font-size:14px;font-weight:600;display:inline-flex;align-items:center;white-space:nowrap;flex-shrink:0">Who is absent today?</span><span style="min-height:44px;padding:0 14px;border-radius:22px;background:#2a3d34;color:#7cc3a9;font-size:14px;font-weight:600;display:inline-flex;align-items:center;white-space:nowrap;flex-shrink:0">How many people are in the lobby?</span></div>
+</div>
+<div style="flex-shrink:0;display:flex;justify-content:space-between;align-items:center;margin:6px 2px -6px;min-height:24px"><span style="font-size:13px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#a3b0a8">Needs your attention · 1</span><span style="font-size:14px;font-weight:600;color:#7cc3a9">See all</span></div>
+<div style="flex-shrink:0;background:#212a25;border:1px solid #2e3933;border-radius:16px;padding:16px;display:flex;flex-direction:column;gap:10px">
+<div><span style="display:inline-flex;align-items:center;gap:6px;min-height:24px;padding:2px 9px;border-radius:12px;font-size:12px;font-weight:700;background:#41302c;color:#d97e70"><span style="width:8px;height:8px;border-radius:50%;background:#d97e70"></span>Needs review</span></div>
+<div><div style="font-size:15px;font-weight:600">Knife spotted — Loading bay</div><div style="font-size:13px;color:#a3b0a8;margin-top:2px">4 min ago · awaiting a person’s review</div></div>
+<div style="flex-shrink:0;display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:8px"><div style="min-height:48px;border-radius:12px;background:#b1433a;color:#fff;font-size:15px;font-weight:700;display:flex;align-items:center;justify-content:center">Review</div><div style="min-height:48px;border-radius:12px;border:1px solid #2e3933;color:#e4eae5;font-size:15px;font-weight:700;display:flex;align-items:center;justify-content:center">Acknowledge</div></div>
+</div>
+<div style="flex-shrink:0;display:flex;align-items:center;margin:6px 2px -6px;min-height:24px"><span style="font-size:13px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#a3b0a8">Today so far</span></div>
+<div style="flex-shrink:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px"><div style="background:#212a25;border:1px solid #2e3933;border-radius:14px;padding:12px 14px;min-height:86px;display:flex;flex-direction:column;justify-content:space-between;gap:4px"><span style="font-size:13px;color:#a3b0a8;line-height:1.3">Arrived</span><span style="font-size:24px;font-weight:800;letter-spacing:-.01em;line-height:1.15">142</span><span style="font-size:12.5px;color:#a3b0a8;line-height:1.35">of 160 expected</span></div><div style="background:#212a25;border:1px solid #2e3933;border-radius:14px;padding:12px 14px;min-height:86px;display:flex;flex-direction:column;justify-content:space-between;gap:4px"><span style="font-size:13px;color:#a3b0a8;line-height:1.3">People in view</span><span style="font-size:24px;font-weight:800;letter-spacing:-.01em;line-height:1.15">37</span><span style="font-size:12.5px;color:#a3b0a8;line-height:1.35">across 208 cameras</span></div><div style="background:#212a25;border:1px solid #2e3933;border-radius:14px;padding:12px 14px;min-height:86px;display:flex;flex-direction:column;justify-content:space-between;gap:4px"><span style="font-size:13px;color:#a3b0a8;line-height:1.3">Cars in</span><span style="font-size:24px;font-weight:800;letter-spacing:-.01em;line-height:1.15">58</span><span style="font-size:12.5px;color:#a3b0a8;line-height:1.35">3 gate cameras reading</span></div><div style="background:#212a25;border:1px solid #2e3933;border-radius:14px;padding:12px 14px;min-height:86px;display:flex;flex-direction:column;justify-content:space-between;gap:4px"><span style="font-size:13px;color:#a3b0a8;line-height:1.3">Restricted areas</span><span style="font-size:24px;font-weight:800;letter-spacing:-.01em;line-height:1.15">2 clips</span><span style="font-size:12.5px;color:#cfa955;line-height:1.35">1 camera paused</span></div></div>
+</div>
+<div style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));background:#1c2420;border-top:1px solid #2e3933;padding:6px 4px 10px"><div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:54px;color:#e4eae5"><div style="width:56px;height:30px;border-radius:15px;display:flex;align-items:center;justify-content:center;background:#2a3d34;color:#7cc3a9"><svg width="21" height="21" viewBox="0 0 18 18" fill="none"><path d="M3 8 L9 3 L15 8 V15 H3 Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg></div><span style="font-size:12px;font-weight:600;line-height:1.1">Home</span></div><div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:54px;color:#a3b0a8"><div style="width:56px;height:30px;border-radius:15px;display:flex;align-items:center;justify-content:center;"><svg width="21" height="21" viewBox="0 0 18 18" fill="none"><path d="M2.5 5.5 H11.5 V12.5 H2.5 Z M11.5 7.8 L15.5 5.5 V12.5 L11.5 10.2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path></svg></div><span style="font-size:12px;font-weight:600;line-height:1.1">Cameras</span></div><div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:54px;color:#a3b0a8"><div style="width:56px;height:30px;border-radius:15px;display:flex;align-items:center;justify-content:center;"><svg width="21" height="21" viewBox="0 0 18 18" fill="none"><path d="M3 3 H8 V8 H3 Z M10 3 H15 V8 H10 Z M3 10 H8 V15 H3 Z M10 10 H15 V15 H10 Z" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path></svg></div><span style="font-size:12px;font-weight:600;line-height:1.1">Tools</span></div><div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:54px;color:#a3b0a8"><div style="width:56px;height:30px;border-radius:15px;display:flex;align-items:center;justify-content:center;"><svg width="21" height="21" viewBox="0 0 18 18" fill="none"><path d="M6.2 3.5 a2.3 2.3 0 1 0 0.01 0 M2.8 14.5 c0-2.6 1.7-4 3.4-4 s3.4 1.4 3.4 4 M12.3 5.5 a2 2 0 1 0 0.01 0 M11.5 11.3 c1.9 .3 3.4 1.5 3.4 3.2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path></svg></div><span style="font-size:12px;font-weight:600;line-height:1.1">People</span></div><div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:54px;color:#a3b0a8"><div style="width:56px;height:30px;border-radius:15px;display:flex;align-items:center;justify-content:center;"><svg width="21" height="21" viewBox="0 0 18 18" fill="none"><path d="M4 9 a.9 .9 0 1 0 .01 0 M9 9 a.9 .9 0 1 0 .01 0 M14 9 a.9 .9 0 1 0 .01 0" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path></svg></div><span style="font-size:12px;font-weight:600;line-height:1.1">More</span></div></div>
+</div></div>
+      </div>
+    </div>
+    <div data-reveal="2">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:#33705b;letter-spacing:.04em">04 — ON YOUR PHONE</div>
+      <h2 style="font-size:clamp(34px,4.4vw,52px);letter-spacing:-.03em;line-height:1.08;margin:14px 0 18px;font-weight:800;text-wrap:balance">The whole console, in your pocket.</h2>
+      <p style="font-size:18px;color:#57655d;line-height:1.6;margin:0 0 28px;text-wrap:pretty">Same question box, same tools, same data. Walk the floor and still know who’s missing, how busy the lobby is, and whether anything needs you.</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div style="background:#fff;border-radius:14px;padding:18px"><div style="font-weight:700">Arabic &amp; English</div><div style="color:#57655d;font-size:14px;margin-top:4px">Full right-to-left layout</div></div>
+        <div style="background:#fff;border-radius:14px;padding:18px"><div style="font-weight:700">Light &amp; dark</div><div style="color:#57655d;font-size:14px;margin-top:4px">Easy on night shifts</div></div>
+        <div style="background:#fff;border-radius:14px;padding:18px"><div style="font-weight:700">Email alerts</div><div style="color:#57655d;font-size:14px;margin-top:4px">Rules, recipients, a delivery log</div></div>
+        <div style="background:#fff;border-radius:14px;padding:18px"><div style="font-weight:700">Needs your attention</div><div style="color:#57655d;font-size:14px;margin-top:4px">Only what matters, that’s all</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- PRIVACY -->
+<section style="padding:20px 28px 120px">
+  <div data-reveal="1" style="max-width:1200px;margin:0 auto;background:#fff;border-radius:24px;padding:clamp(28px,5vw,56px);display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:40px">
+    <div>
+      <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:#33705b;letter-spacing:.04em">05 — TRUST</div>
+      <h2 style="font-size:clamp(30px,3.6vw,42px);letter-spacing:-.03em;line-height:1.1;margin:14px 0 0;font-weight:800;text-wrap:balance">Built for places full of people.</h2>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:28px 32px">
+      <sc-for list="{{ trust }}" as="p" hint-placeholder-count="4">
+        <div style="border-top:2px solid #33705b;padding-top:16px">
+          <div style="font-weight:700;font-size:17px">{{ p.title }}</div>
+          <div style="color:#57655d;font-size:15px;line-height:1.55;margin-top:6px">{{ p.body }}</div>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section id="demo" style="padding:0 28px 80px">
+  <div data-reveal="1" style="max-width:1200px;margin:0 auto;border-radius:28px;background:#33705b;color:#fff;padding:clamp(40px,7vw,88px) clamp(28px,5vw,64px);position:relative;overflow:hidden">
+    <div style="position:absolute;width:520px;height:520px;border-radius:50%;border:1px solid rgba(255,255,255,.18);right:-140px;top:-180px;animation:vg-spin 40s linear infinite"></div>
+    <div style="position:absolute;width:360px;height:360px;border-radius:50%;border:1px dashed rgba(255,255,255,.22);right:-60px;top:-100px;animation:vg-spin 28s linear infinite reverse"></div>
+    <div style="position:relative;max-width:640px">
+      <h2 style="font-size:clamp(36px,5vw,60px);letter-spacing:-.035em;line-height:1.02;margin:0 0 18px;font-weight:800;text-wrap:balance">See your site in plain words.</h2>
+      <p style="font-size:18px;line-height:1.6;color:#dfe9e0;margin:0 0 32px">We’ll connect a few of your cameras and show you real answers on real footage.</p>
+      <form onSubmit="{{ submit }}" style="display:flex;gap:10px;flex-wrap:wrap;max-width:520px">
+        <input type="email" required placeholder="you@company.com" style="flex:1;min-width:220px;padding:16px 18px;border-radius:12px;border:none;font:inherit;font-size:16px;color:#1f2b26;outline:none">
+        <button type="submit" style="padding:16px 24px;border-radius:12px;border:none;background:#1f2b26;color:#fff;font:inherit;font-weight:700;font-size:16px;cursor:pointer;transition:transform .2s" style-hover="transform:translateY(-2px)">{{ ctaLabel }}</button>
+      </form>
+    </div>
+  </div>
+</section>
+
+<footer style="padding:0 28px 48px">
+  <div style="max-width:1200px;margin:0 auto;display:flex;justify-content:space-between;align-items:center;gap:20px;flex-wrap:wrap;color:#8a968e;font-size:14px">
+    <div style="display:flex;align-items:center;gap:10px">
+      <div style="width:26px;height:26px;border-radius:7px;background:#33705b;display:grid;place-items:center"><div style="width:11px;height:10px;border-radius:5px;background:#f2f5f2"></div></div>
+      <span style="color:#1f2b26;font-weight:600">VisionGuard AI</span>
+    </div>
+    <div>Vision for organisations and workplaces · © 2026</div>
+  </div>
+</footer>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;motion&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Animation&quot;},&quot;reveal&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Animation&quot;}}">
+class Component extends DCLogic {
+  state = { sent: false };
+  typedRef = React.createRef();
+  qs = [['Who was absent today?','English'], ['مين غاب النهارده؟','العربية'], ['el cafeteria zahma dlw2ty?','Franco'], ['حد دخل الـ server room بعد 6؟','Mixed'], ['7ad la2a black backpack fel lobby?','Franco + English'], ['في حد دخل منطقة ممنوعة النهارده؟','العربية'], ['Where did Layla go today?','English']];
+  langRef = React.createRef();
+
+  componentDidMount() {
+    this.startTyping();
+    this.applyMotion();
+  }
+  componentDidUpdate(prev) {
+    if (prev.motion !== this.props.motion) this.applyMotion();
+  }
+  componentWillUnmount() {
+    clearTimeout(this.t); clearTimeout(this.fallback); this.offScroll && this.offScroll();
+    this.io && this.io.disconnect();
+  }
+  startTyping() {
+    let qi = 0, ci = 0, del = false;
+    const tick = () => {
+      const [q, lang] = this.qs[qi];
+      const tn = this.typedRef.current, ln = this.langRef.current;
+      if (tn) tn.parentNode.dir = /[\u0600-\u06FF]/.test(q) ? 'rtl' : 'ltr';
+      if (ln && ln.textContent !== lang) ln.textContent = lang;
+      if (!del) { ci++; if (ci > q.length) { del = true; this.t = setTimeout(tick, 1800); return; } }
+      else { ci--; if (ci === 0) { del = false; qi = (qi + 1) % this.qs.length; } }
+      if (this.typedRef.current) this.typedRef.current.textContent = q.slice(0, ci);
+      this.t = setTimeout(tick, del ? 22 : 55);
+    };
+    tick();
+  }
+  applyMotion() {
+    const off = this.props.motion === false;
+    let s = document.getElementById('vg-motion-off');
+    if (off && !s) { s = document.createElement('style'); s.id = 'vg-motion-off'; s.textContent = '*{animation:none!important;transition:none!important}'; document.head.appendChild(s); }
+    if (!off && s) s.remove();
+  }
+  renderVals() {
+    const G = '#3ec776', B = '#5b9bd8', R = '#e5564a', A = '#dfa23f';
+    return {
+      typedRef: this.typedRef,
+      langRef: this.langRef,
+      ctaLabel: this.state.sent ? 'Thanks — we’ll be in touch' : 'Book a demo',
+      submit: e => { e.preventDefault(); this.setState({ sent: true }); },
+      cams: [
+        { name: 'Gate 2 · entrance', feed: 'camera feed', x: '22%', y: '32%', w: '20%', h: '52%', color: G, label: 'Layla A. · face', drift: 'vg-drift1 6s ease-in-out infinite', halo: 'none', delay: '0s' },
+        { name: 'Corridor B', feed: 'camera feed', x: '56%', y: '28%', w: '18%', h: '56%', color: B, label: 'same body', drift: 'vg-drift2 7s ease-in-out infinite', halo: 'none', delay: '-1.2s' },
+        { name: 'Server room · restricted', feed: 'camera feed', x: '38%', y: '30%', w: '19%', h: '54%', color: R, label: 'zone entry', drift: 'vg-drift3 5s ease-in-out infinite', halo: 'none', delay: '-2.1s' },
+        { name: 'Library east', feed: 'camera feed', x: '30%', y: '40%', w: '16%', h: '30%', color: A, label: 'awaiting review', drift: 'vg-drift1 8s ease-in-out infinite', halo: 'vg-nextcam 2s ease-in-out infinite', delay: '-3s' }
+      ],
+      steps: [
+        { n: '01', title: 'Cameras', body: 'The cameras you already own, named and placed in one configuration file. Any site, any layout.' },
+        { n: '02', title: 'One detection pass', body: 'Each frame is read once, then shared by counting, zones and tracking.' },
+        { n: '03', title: 'Events', body: 'Arrivals, breaches and sightings are written down with the clip that proves them.' },
+        { n: '04', title: 'Answers', body: 'Ask on the console or your phone — in English, Arabic, Franco or a mix. It opens the right tool.' }
+      ],
+      chips: ['Who was absent today?', 'مين دخل المخزن بعد الساعة 6؟', 'el lobby zahma dlw2ty?', 'fein Omar ra7 after the meeting?'],
+      tools: [
+        { n: '01', title: 'Attendance', sub: 'Who arrived, who’s missing', body: 'A register of staff and visitors built from face recognition at the entrance cameras. Exportable and auditable.', tag: 'Face recognition', tagBg: '#dfe9e0', tagTx: '#33705b' },
+        { n: '02', title: 'People counting', sub: 'How many, anywhere', body: 'Live headcounts per floor, hall or lobby, with history — know how busy it is before you walk over.', tag: 'Live', tagBg: '#dfe9e0', tagTx: '#33705b' },
+        { n: '03', title: 'Restricted zones', sub: 'Areas that must stay empty', body: 'Mark a camera restricted. Each entry becomes one event with an evidence clip — not three flickers.', tag: 'Evidence clip', tagBg: '#f7e3e0', tagTx: '#a5372c' },
+        { n: '04', title: 'Knife detection', sub: 'Human-reviewed, always', body: 'A detection is flagged “awaiting review.” A person confirms it before anyone is told it’s real.', tag: 'Needs review', tagBg: '#f7e3e0', tagTx: '#a5372c' },
+        { n: '05', title: 'Lost bag', sub: 'Look for it now', body: 'Describe the item and search the cameras you choose, live, on demand.', tag: 'On demand', tagBg: '#f3ecd9', tagTx: '#8a6a14' },
+        { n: '06', title: 'Track a person', sub: 'Always logged', body: 'Follow someone camera to camera, with the next likely camera highlighted. Every search is recorded.', tag: 'Audited', tagBg: '#f3ecd9', tagTx: '#8a6a14' }
+      ],
+      sources: [
+        { state: 'live', bg: '#2a3d34', tx: '#7cc3a9', title: 'Real data, right now', body: 'Straight from the cameras and the event store.' },
+        { state: 'unavailable', bg: '#41302c', tx: '#d97e70', title: 'Off, and it says why', body: 'A stopped subsystem shows its reason — never a stand-in.' },
+        { state: 'demo', bg: '#3a3527', tx: '#cfa955', title: 'Demo, with a permanent banner', body: 'Sample data only when you ask for it, and clearly marked.' }
+      ],
+      trust: [
+        { title: 'Server-enforced roles', body: 'Enrolment and camera changes are admin-only, checked on the server.' },
+        { title: 'Append-only audit', body: 'Searches are written down before their results come back.' },
+        { title: 'Retention', body: 'Footage and events expire on the schedule you set.' },
+        { title: 'Erasure', body: 'Remove a person and they’re removed from every table.' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>
