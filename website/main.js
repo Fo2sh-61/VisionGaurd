@@ -48,4 +48,74 @@
       o.setAttribute('aria-pressed', String(o === b));
     });
   }));
+
+  // ---- Contact form: sends to the sales inbox through FormSubmit (contracts/contact-form.md).
+  // The thank-you shows only when FormSubmit confirms; anything else says "not sent".
+  const form = document.getElementById('contact-form');
+  const sent = document.getElementById('contact-sent');
+  const failed = document.getElementById('contact-failed');
+  const button = form && form.querySelector('button[type="submit"]');
+  const label = document.getElementById('send-label');
+  let sending = false;
+
+  async function send(fields) {
+    const abort = new AbortController();
+    let timer;
+    const late = new Promise((_, reject) => {
+      timer = setTimeout(() => { abort.abort(); reject(new Error('no answer within 15 s')); }, 15000);
+    });
+    try {
+      const res = await Promise.race([late, fetch('https://formsubmit.co/ajax/sales@vision-guard.org', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify(fields),
+        signal: abort.signal,
+      })]);
+      const data = await Promise.race([late, res.json()]);
+      if (res.ok && (data.success === 'true' || data.success === true)) return true;
+      console.warn('FormSubmit did not accept the message:', data.message);
+    } catch (err) {
+      console.warn('The message could not be sent:', err);
+    } finally {
+      clearTimeout(timer);
+    }
+    return false;
+  }
+
+  if (form) {
+    form.addEventListener('submit', async e => {
+      e.preventDefault(); // the browser's own required/email checks have already passed
+      if (sending) return;
+      const f = form.elements;
+      if (f._honey.value) { failed.hidden = false; return; } // a bot filled the hidden field
+
+      sending = true;
+      failed.hidden = true;
+      button.disabled = true;
+      label.textContent = 'Sending…';
+      const on = camButtons.find(b => b.getAttribute('aria-pressed') === 'true');
+      const ok = await send({
+        name: f.name.value,
+        email: f.email.value,
+        company: f.company.value,
+        phone: f.phone.value,
+        site_type: f.site_type.value,
+        cameras: on ? on.dataset.cams : '',
+        message: f.message.value,
+        _subject: 'Website enquiry: ' + f.company.value,
+        _replyto: f.email.value,
+        _template: 'table',
+        _honey: '',
+      });
+      sending = false;
+      if (ok) {
+        form.hidden = true;
+        sent.hidden = false;
+        return;
+      }
+      failed.hidden = false; // everything typed stays in the fields
+      button.disabled = false;
+      label.textContent = 'Send message';
+    });
+  }
 })();

@@ -159,7 +159,7 @@ data-model.md).
 "not sent" and keeps the text. With delivery working, the thank-you shows and the
 message arrives.
 
-- [ ] T014 [US2] In `website/index.html`, inside `#contact-form`:
+- [X] T014 [US2] In `website/index.html`, inside `#contact-form`:
   - Add a honeypot: `<input type="text" name="_honey" tabindex="-1"
     autocomplete="off" aria-hidden="true">`, placed off-screen with inline
     `position:absolute;left:-9999px`.
@@ -169,7 +169,7 @@ message arrives.
     <a href="mailto:sales@vision-guard.org">sales@vision-guard.org</a> or call
     <a href="tel:+201002535081">+20 100 253 5081</a>."
   - Give the button's label span `id="send-label"`.
-- [ ] T015 [US2] In `website/main.js`, the form's `submit` handler (the browser's own
+- [X] T015 [US2] In `website/main.js`, the form's `submit` handler (the browser's own
   `required` / `type=email` checks run first):
   - If `_honey` is filled, show `#contact-failed` and stop.
   - Otherwise: disable the button and set the label to "Sending…". Then
@@ -182,7 +182,7 @@ message arrives.
   - In every other case (non-2xx, non-JSON, rejected or aborted): show
     `#contact-failed`, re-enable the button, restore "Send message", keep the
     fields, and `console.warn` FormSubmit's `message`.
-- [ ] T016 [US2] Verify the failure paths in the in-app browser (quickstart §4). To
+- [X] T016 [US2] Verify the failure paths in the in-app browser (quickstart §4). To
   make the request fail, override `window.fetch` with `javascript_tool` in three
   ways:
   1. a rejecting fetch → "not sent";
@@ -202,7 +202,7 @@ message arrives.
      email arrived with every field and that Reply is addressed to the Work email.
 
   No further real sends. If step 3 still says "not sent", stop and report it.
-- [ ] T018 [US2] Commit 2 (`website/` only): "The contact form sends to
+- [X] T018 [US2] Commit 2 (`website/` only): "The contact form sends to
   sales@vision-guard.org, and says so when it cannot"
 
 **Checkpoint**: the site is shippable on Chrome, Edge and Safari at desktop width.

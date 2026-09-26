@@ -80,6 +80,13 @@ sales@vision-guard.org. Mohamed's forwarding takes it to his Gmail, and he click
 once. Until then FormSubmit answers `"false"`, and the form shows "not sent" with the
 email and phone. That is the honest state the spec asks for, with no extra code.
 
+Without the script (still loading, or failed), the browser would submit the form
+itself. With no `action` that was a GET to the page, which puts everything typed into
+the address bar and sends nothing (found while testing). So the form carries
+`action="https://formsubmit.co/sales@vision-guard.org" method="POST"`, FormSubmit's
+ordinary address: the script always cancels it, and without the script the message
+still really goes, with FormSubmit's own confirmation page.
+
 Spam: a hidden `_honey` field. FormSubmit drops a message where it is filled, and the
 script does not send such a message at all. Timeout: 15 s, then "not sent".
 **Alternatives**: Web3Forms (Mohamed would have to fetch a key); a server of our own
