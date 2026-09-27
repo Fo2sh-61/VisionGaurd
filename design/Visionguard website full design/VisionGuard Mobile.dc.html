@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&amp;family=Instrument+Serif:ital@0;1&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+<link rel="icon" href="./assets/visionguard.ico">
+<style>
+html{scroll-behavior:smooth}
+body{margin:0;background:#dfe5e0;color:#1f2b26;font-family:'Rubik',system-ui,sans-serif;-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent}
+a{color:#33705b;text-decoration:none}
+a:hover{color:#285948}
+*{box-sizing:border-box}
+section[id]{scroll-margin-top:68px}
+[data-snap]::-webkit-scrollbar{display:none}
+@keyframes vg-pulse{0%,100%{opacity:1}50%{opacity:.3}}
+@keyframes vg-hbar{0%,100%{transform:scaleY(.4)}50%{transform:scaleY(1)}}
+@keyframes vg-htrack{0%,100%{transform:translate(0,0)}35%{transform:translate(34px,8px)}70%{transform:translate(-12px,3px)}}
+@keyframes vg-harc{0%,100%{opacity:.55;transform:translateX(-50%) scale(1)}50%{opacity:1;transform:translateX(-50%) scale(1.02)}}
+@keyframes vg-hpop{0%,100%{transform:translateY(0) rotate(var(--r,0deg))}50%{transform:translateY(-8px) rotate(var(--r,0deg))}}
+@keyframes vg-scan{0%{top:-20%}100%{top:110%}}
+@keyframes vg-float{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+@keyframes vg-toast{0%,8%{opacity:0;transform:translateY(14px)}14%,80%{opacity:1;transform:translateY(0)}88%,100%{opacity:0;transform:translateY(-6px)}}
+@keyframes vg-caret{0%,49%{opacity:1}50%,100%{opacity:0}}
+@keyframes vg-rv{from{opacity:0;translate:0 28px}to{opacity:1;translate:0 0}}
+@supports (animation-timeline: view()){[data-reveal]{animation:vg-rv linear both;animation-timeline:view();animation-range:entry 0% entry 40%}[data-count]{animation:vg-count linear both;animation-timeline:view();animation-range:entry 10% cover 40%}[data-progress]{animation:vg-progress linear both;animation-timeline:scroll(root)}[data-grow]{transform-origin:top;animation:vg-grow linear both;animation-timeline:view();animation-range:entry 20% cover 70%}}
+@keyframes vg-glow{0%,100%{opacity:.55;transform:scale(1)}50%{opacity:.9;transform:scale(1.08)}}
+@property --n{syntax:'&lt;integer&gt;';inherits:false;initial-value:0}
+@property --a{syntax:'&lt;angle&gt;';inherits:false;initial-value:0deg}
+@keyframes vg-count{from{--n:0}}
+@keyframes vg-grow{from{transform:scaleY(0)}to{transform:scaleY(1)}}
+[data-count]::after,[data-live]::after{content:counter(n)}
+@keyframes vg-sheen{to{background-position:300% 0}}
+@keyframes vg-rise{from{transform:translateY(.4em);filter:blur(6px)}to{transform:none;filter:blur(0)}}
+@keyframes vg-marquee{to{transform:translateX(-50%)}}
+@keyframes vg-shine{0%,55%{transform:translateX(-150%) skewX(-20deg)}100%{transform:translateX(350%) skewX(-20deg)}}
+@keyframes vg-aurora{0%,100%{transform:translate(0,0) scale(1)}33%{transform:translate(10%,-8%) scale(1.15)}66%{transform:translate(-8%,6%) scale(.9)}}
+@keyframes vg-ring{0%{box-shadow:0 0 0 0 rgba(51,112,91,.45)}100%{box-shadow:0 0 0 12px rgba(51,112,91,0)}}
+@keyframes vg-progress{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@keyframes vg-radar{to{transform:rotate(360deg)}}
+@keyframes vg-ripple{from{transform:scale(.08);opacity:.7}to{transform:scale(1);opacity:0}}
+@keyframes vg-blip{0%{opacity:1;transform:scale(1.6)}8%{opacity:1;transform:scale(1)}55%{opacity:.35}100%{opacity:0;transform:scale(1)}}
+@keyframes vg-border{to{--a:360deg}}
+@keyframes vg-live{0%{--n:37}20%{--n:39}40%{--n:38}60%{--n:41}80%{--n:36}100%{--n:37}}
+@keyframes vg-badge{0%,70%,100%{transform:scale(1)}78%{transform:scale(1.35)}86%{transform:scale(.9)}}
+@keyframes vg-alert{0%,100%{border-color:#2e3933;box-shadow:0 0 0 0 rgba(217,126,112,0)}50%{border-color:#d97e70;box-shadow:0 0 0 4px rgba(217,126,112,.16)}}
+@keyframes vg-type{0%,6%{max-width:0}45%,80%{max-width:230px}92%,100%{max-width:0}}
+@keyframes vg-glare{0%,62%{transform:translateX(-160%) rotate(20deg)}100%{transform:translateX(420%) rotate(20deg)}}
+@keyframes vg-ticker{to{transform:translateY(-50%)}}
+@keyframes vg-pop{0%,10%{opacity:0;transform:translateY(12px) scale(.94)}16%,78%{opacity:1;transform:none}86%,100%{opacity:0;transform:translateY(-6px) scale(.97)}}
+@keyframes vg-menu{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:none}}
+@keyframes vg-cta{from{transform:translateY(110%)}to{transform:none}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important}}
+</style>
+</helmet>
+
+<div style="max-width:430px;margin:0 auto;min-height:100vh;background:#f2f5f2;overflow-x:hidden;position:relative;box-shadow:0 0 60px rgba(22,28,25,.12)">
+
+<header style="position:sticky;top:0;z-index:60;background:rgba(251,252,250,.88);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid rgba(30,42,36,.06)">
+  <div data-progress="1" style="position:absolute;left:0;right:0;bottom:-1px;height:2px;background:linear-gradient(90deg,#33705b,#5cae91);transform-origin:left;transform:scaleX(0)"></div>
+  <nav style="height:60px;padding:0 12px;display:flex;align-items:center;gap:10px">
+    <button onClick="{{ toggleMenu }}" aria-label="Menu" style="flex-shrink:0;width:44px;height:44px;border:none;background:transparent;border-radius:11px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;cursor:pointer;padding:0">
+      <span style="width:20px;height:2px;border-radius:2px;background:#1f2b26;transition:transform .3s;transform:{{ bar1 }}"></span>
+      <span style="width:20px;height:2px;border-radius:2px;background:#1f2b26;transition:opacity .2s;opacity:{{ bar2 }}"></span>
+      <span style="width:20px;height:2px;border-radius:2px;background:#1f2b26;transition:transform .3s;transform:{{ bar3 }}"></span>
+    </button>
+    <a href="#top" onClick="{{ closeMenu }}" style="display:flex;align-items:center;gap:9px;color:#1f2b26;flex:1">
+      <div style="width:30px;height:30px;border-radius:9px;background:#1f2b26;display:grid;place-items:center"><div style="width:13px;height:11px;border-radius:6px 7px 6px 7px;background:#5cae91"></div></div>
+      <span style="font-weight:800;font-size:18px;letter-spacing:-.02em">VisionGuard</span>
+    </a>
+    <a href="#contact" onClick="{{ closeMenu }}" style="display:flex;align-items:center;gap:7px;background:#1f2b26;color:#fff;height:40px;padding:0 14px;border-radius:11px;font-weight:600;font-size:14px" style-hover="color:#fff"><span style="width:6px;height:6px;border-radius:50%;background:#7cf0bf;animation:vg-pulse 2s infinite"></span>Contact</a>
+    
+  </nav>
+  <sc-if value="{{ menuOpen }}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute;left:0;right:0;top:60px;height:calc(100vh - 60px);background:#f2f5f2;padding:12px 20px 28px;display:flex;flex-direction:column;animation:vg-menu .3s cubic-bezier(.2,.8,.2,1) both">
+      <sc-for list="{{ menuLinks }}" as="m" hint-placeholder-count="5">
+        <a href="{{ m.href }}" onClick="{{ m.go }}" style="display:flex;align-items:center;justify-content:space-between;min-height:62px;border-bottom:1px solid #e0e7e1;color:#1f2b26;font-size:22px;font-weight:700;letter-spacing:-.01em"><span style="display:flex;align-items:baseline;gap:14px"><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#8a968e;font-weight:500">{{ m.n }}</span>{{ m.label }}</span><span style="color:#33705b;font-size:18px">→</span></a>
+      </sc-for>
+      <a href="#contact" onClick="{{ closeMenu }}" style="margin-top:24px;display:flex;align-items:center;justify-content:center;gap:10px;background:#1f2b26;color:#fff;min-height:54px;border-radius:14px;font-weight:700;font-size:17px" style-hover="color:#fff">Talk to our team →</a>
+      <div style="margin-top:auto;display:flex;gap:4px;padding:4px;border-radius:12px;background:#e4eae5;align-self:flex-start"><span style="padding:9px 16px;border-radius:9px;background:#fff;color:#1f2b26;font-weight:600;font-size:15px">English</span><a href="VisionGuard%20Mobile%20AR.dc.html" style="padding:9px 16px;border-radius:9px;color:#57655d;font-size:15px">العربية</a></div>
+    </div>
+  </sc-if>
+</header>
+
+<!-- HERO -->
+<section id="top" style="position:relative;padding:36px 20px 0;text-align:center;background:#F4F4F4;overflow:hidden">
+  <div style="position:absolute;left:0;right:0;top:0;bottom:30%;background:linear-gradient(180deg,#fbfcfa 0%,#f5f9f5 24%,#cfe8dc 52%,#9fd3bd 72%,#b9dccb 86%,#F4F4F4 100%);pointer-events:none;overflow:hidden">
+    <div style="position:absolute;top:0;bottom:0;left:12%;width:60px;margin-left:-30px;background:linear-gradient(180deg,rgba(255,255,255,0),rgba(255,255,255,.55) 55%,rgba(255,255,255,0));animation:vg-glow 7s ease-in-out infinite"></div>
+    <div style="position:absolute;top:0;bottom:0;left:38%;width:40px;margin-left:-20px;background:linear-gradient(180deg,rgba(255,255,255,0),rgba(255,255,255,.55) 55%,rgba(255,255,255,0));animation:vg-glow 9s -2s ease-in-out infinite"></div>
+    <div style="position:absolute;top:0;bottom:0;left:64%;width:60px;margin-left:-30px;background:linear-gradient(180deg,rgba(255,255,255,0),rgba(255,255,255,.55) 55%,rgba(255,255,255,0));animation:vg-glow 11s -4s ease-in-out infinite"></div>
+    <div style="position:absolute;top:0;bottom:0;left:88%;width:40px;margin-left:-20px;background:linear-gradient(180deg,rgba(255,255,255,0),rgba(255,255,255,.55) 55%,rgba(255,255,255,0));animation:vg-glow 8s -6s ease-in-out infinite"></div>
+  </div>
+  <div style="position:relative;display:flex;flex-direction:column;align-items:center">
+    <h1 style="font-size:46px;line-height:1.02;letter-spacing:-.045em;font-weight:800;margin:8px 0 18px"><span style="display:inline-block;animation:vg-rise 1s cubic-bezier(.2,.8,.2,1) both">Ask your cameras.</span><br><span style="display:inline-block;padding:0 .06em .08em 0;font-family:'Instrument Serif',serif;font-style:italic;font-weight:400;font-size:1.14em;letter-spacing:-.02em;background:linear-gradient(90deg,#1f2b26,#33705b 25%,#1f2b26 50%,#33705b 75%,#1f2b26);background-size:300% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:vg-rise 1s .18s cubic-bezier(.2,.8,.2,1) both,vg-sheen 9s linear infinite">Get the footage.</span></h1>
+    <p style="font-size:17px;line-height:1.55;color:#3f4d46;margin:0 0 24px;text-wrap:pretty">VisionGuard turns the surveillance cameras you already have — offices, schools, factories, warehouses, hospitals, supermarkets, malls — into plain answers: who arrived, how busy it is, where a person went. With the clip attached.</p>
+    <div style="width:100%;background:#fff;border-radius:16px;padding:6px 6px 6px 16px;display:flex;align-items:center;gap:8px;box-shadow:0 14px 40px rgba(30,42,36,.12),0 1px 3px rgba(30,42,36,.07);text-align:left">
+      <div style="flex:1;min-width:0;font-size:16px;color:#1f2b26;min-height:24px;display:flex;align-items:center;overflow:hidden;white-space:nowrap"><span ref="{{ typedRef }}"></span><span style="display:inline-block;width:2px;height:19px;background:#33705b;margin-left:2px;flex-shrink:0;animation:vg-caret 1s infinite"></span></div>
+      <div style="background:#33705b;color:#fff;height:46px;padding:0 20px;border-radius:11px;font-weight:700;font-size:16px;display:flex;align-items:center">Ask</div>
+    </div>
+    <div style="display:flex;gap:6px;align-items:center;justify-content:center;flex-wrap:wrap;margin-top:12px;font-size:14px;color:#3f4d46"><span>Type the way you talk —</span><span ref="{{ langRef }}" style="font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:500;color:#33705b;background:#dfe9e0;padding:3px 8px;border-radius:6px">English</span></div>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-top:24px;width:100%">
+      <a href="#contact" style="position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;gap:10px;background:#1f2b26;color:#fff;min-height:54px;border-radius:14px;font-weight:700;font-size:16px;box-shadow:0 8px 22px rgba(22,28,25,.25)" style-hover="color:#fff"><span style="position:absolute;top:0;bottom:0;left:0;width:35%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.25),transparent);animation:vg-shine 4s ease-in-out infinite;pointer-events:none"></span><span style="position:relative;width:7px;height:7px;border-radius:50%;background:#7cf0bf"></span><span style="position:relative">Talk to our team →</span></a>
+      <a href="#how" style="display:flex;align-items:center;justify-content:center;background:#fff;color:#1f2b26;min-height:54px;border-radius:14px;font-weight:600;font-size:16px;border:1px solid #d5ddd6" style-hover="color:#1f2b26">See how it works</a>
+    </div>
+  </div>
+
+  <div style="position:relative;height:470px;margin:40px -20px 0;mask-image:linear-gradient(180deg,#000 80%,transparent);-webkit-mask-image:linear-gradient(180deg,#000 80%,transparent)">
+    <div style="position:absolute;left:50%;top:60px;width:560px;height:560px;border-radius:50%;border:1px solid rgba(51,112,91,.18);animation:vg-harc 8s ease-in-out infinite"></div>
+    <div style="position:absolute;left:50%;top:150px;width:380px;height:380px;border-radius:50%;background:radial-gradient(circle at 50% 30%,rgba(92,174,145,.35),rgba(92,174,145,.08) 60%,transparent 72%);animation:vg-harc 8s -4s ease-in-out infinite"></div>
+    <div style="position:absolute;left:50%;top:0;width:236px;margin-left:-118px;height:500px;z-index:2;border-radius:46px;padding:3px;background:linear-gradient(135deg,#8e9a93 0%,#3d4642 22%,#c6ceca 48%,#4a534f 72%,#9aa49f 100%);box-shadow:0 40px 70px rgba(22,28,25,.3),0 0 0 1px rgba(22,28,25,.35)">
+      <div style="height:100%;border-radius:43px;padding:6px;background:#050706">
+      <div style="position:relative;height:100%;border-radius:37px;overflow:hidden;background:radial-gradient(120% 70% at 50% 30%,#2e3a33,#171d1a 70%)">
+        <div style="position:absolute;left:0;right:0;top:0;height:40px;z-index:4;display:flex;align-items:center;justify-content:space-between;padding:4px 22px 0 26px;color:#fff;font-size:12px;font-weight:600"><span>9:41</span><span style="width:20px;height:10px;border:1.2px solid rgba(255,255,255,.55);border-radius:3px;padding:1px;display:flex"><span style="width:80%;background:#fff;border-radius:1px"></span></span></div>
+        <div style="position:absolute;left:50%;top:9px;width:74px;height:22px;margin-left:-37px;border-radius:999px;background:#000;z-index:5"></div>
+        <div style="position:absolute;left:50%;bottom:7px;width:90px;height:4px;margin-left:-45px;border-radius:999px;background:rgba(255,255,255,.7);z-index:4"></div>
+        <div style="position:absolute;inset:0;background:repeating-linear-gradient(90deg,rgba(255,255,255,.025) 0 1px,transparent 1px 30px),repeating-linear-gradient(0deg,rgba(255,255,255,.025) 0 1px,transparent 1px 30px)"></div>
+        <div style="position:absolute;left:12px;right:12px;top:48px;display:flex;align-items:center;gap:8px;z-index:2;text-align:left">
+          <div style="width:26px;height:26px;border-radius:50%;background:#5cae91;display:grid;place-items:center;flex-shrink:0"><div style="width:10px;height:9px;border-radius:5px 6px 5px 6px;background:#161c19"></div></div>
+          <div style="flex:1;min-width:0;color:#fff;font-size:12px;font-weight:600">Gate 2 · entrance</div>
+          <span style="display:flex;align-items:center;gap:4px;background:#d9453a;color:#fff;font-size:11px;font-weight:700;padding:3px 8px;border-radius:999px"><span style="width:5px;height:5px;border-radius:50%;background:#fff;animation:vg-pulse 1.2s infinite"></span>Live</span>
+        </div>
+        <div style="position:absolute;left:60px;top:140px;width:84px;height:156px;border:2px solid #7cf0bf;border-radius:8px;box-shadow:0 0 0 4px rgba(124,240,191,.12);animation:vg-htrack 9s ease-in-out infinite">
+          <span style="position:absolute;left:-2px;top:-22px;white-space:nowrap;background:#7cf0bf;color:#10201a;font-size:10px;font-weight:700;padding:3px 6px;border-radius:5px 5px 5px 0">Layla A. · 98%</span>
+        </div>
+        <div style="position:absolute;left:0;right:0;height:22%;background:linear-gradient(180deg,rgba(92,174,145,0),rgba(92,174,145,.18),rgba(92,174,145,0));animation:vg-scan 5s linear infinite"></div>
+        <div style="position:absolute;left:12px;right:12px;bottom:60px;display:flex;flex-direction:column;gap:7px;z-index:2;text-align:left">
+          <div style="align-self:flex-end;background:rgba(255,255,255,.14);color:#fff;font-size:13px;padding:8px 12px;border-radius:13px 13px 4px 13px;white-space:nowrap">Who arrived after 9?</div>
+          <div style="align-self:flex-start;background:#fff;color:#1f2b26;font-size:13px;font-weight:600;padding:8px 12px;border-radius:13px 13px 13px 4px;display:flex;align-items:center;gap:7px;animation:vg-toast 7s ease-in-out infinite"><span style="width:7px;height:7px;border-radius:50%;background:#33705b"></span>3 people · clips ready</div>
+        </div>
+      </div>
+      </div>
+    </div>
+    <div style="position:absolute;z-index:3;left:10px;top:70px;background:#1f2b26;color:#fff;padding:8px 12px;border-radius:999px;font-size:13px;font-weight:600;white-space:nowrap;display:flex;gap:7px;align-items:center;box-shadow:0 12px 26px rgba(22,28,25,.2);animation:vg-hpop 7s ease-in-out infinite;--r:-2deg"><span style="width:7px;height:7px;border-radius:50%;background:#7cf0bf;animation:vg-pulse 1.4s infinite"></span>Face match</div>
+    <div style="position:absolute;z-index:3;right:10px;top:210px;width:118px;background:#f3e7c4;border-radius:16px;padding:12px 14px;box-shadow:0 18px 40px rgba(30,42,36,.14);text-align:left;animation:vg-hpop 7s -2.5s ease-in-out infinite;--r:3deg">
+      <div style="font-size:12px;color:#5c4a14">Arrived today</div>
+      <div style="font-size:26px;font-weight:700;letter-spacing:-.02em;color:#1f2b26">142<span style="font-size:14px;color:#5c4a14;font-weight:500"> / 160</span></div>
+    </div>
+    <div style="position:absolute;z-index:3;left:10px;top:330px;width:150px;background:#cfe8dc;border-radius:16px;padding:12px 14px;box-shadow:0 18px 40px rgba(30,42,36,.12);text-align:left;animation:vg-hpop 7s -4.5s ease-in-out infinite">
+      <div style="display:flex;align-items:baseline;gap:6px;white-space:nowrap"><span style="font-size:30px;font-weight:700;line-height:1;color:#1f2b26">3</span><span style="font-size:14px;font-weight:600;color:#1f2b26">zone alerts</span></div>
+      <div style="font-size:12px;color:#33705b;margin-top:3px;white-space:nowrap">Reviewed this morning</div>
+    </div>
+  </div>
+</section>
+
+<!-- STATS -->
+<section style="padding:8px 20px 0">
+  <div data-reveal="1" style="display:grid;grid-template-columns:1fr 1fr;gap:1px;background:#e0e7e1;border:1px solid #e0e7e1;border-radius:18px;overflow:hidden">
+    <div style="background:#fff;padding:20px 18px"><div data-count="1" style="font-size:34px;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums;--n:208;counter-reset:n var(--n)"></div><div style="color:#57655d;font-size:15px;margin-top:4px;line-height:1.35">cameras on a single site</div></div>
+    <div style="background:#fff;padding:20px 18px"><div data-count="1" style="font-size:34px;font-weight:800;letter-spacing:-.03em;--n:3;counter-reset:n var(--n)"></div><div style="color:#57655d;font-size:15px;margin-top:4px;line-height:1.35">languages, mixed freely</div></div>
+    <div style="background:#fff;padding:20px 18px"><div data-count="1" style="font-size:34px;font-weight:800;letter-spacing:-.03em;--n:7;counter-reset:n var(--n)"></div><div style="color:#57655d;font-size:15px;margin-top:4px;line-height:1.35">smart tools, one search box</div></div>
+    <div style="background:#fff;padding:20px 18px"><div style="font-size:34px;font-weight:800;letter-spacing:-.03em;color:#33705b">0</div><div style="color:#57655d;font-size:15px;margin-top:4px;line-height:1.35">guesses — every answer shows its footage</div></div>
+  </div>
+</section>
+
+<!-- SITES -->
+<section style="padding:48px 0 0;overflow:hidden">
+  <div style="text-align:center;font-family:Arial;font-size:12px;color:#57655d;letter-spacing:.24em;margin-bottom:16px;padding:0 20px">ONE SYSTEM FOR EVERY SITE WITH CAMERAS</div>
+  <div style="mask-image:linear-gradient(90deg,transparent,#000 12%,#000 88%,transparent);-webkit-mask-image:linear-gradient(90deg,transparent,#000 12%,#000 88%,transparent)">
+    <div style="display:flex;width:max-content;animation:vg-marquee 30s linear infinite">
+      <sc-for list="{{ sitesLoop }}" as="s" hint-placeholder-count="12">
+        <div style="display:flex;align-items:center;gap:12px;padding:0 18px;font-size:22px;font-weight:700;color:#98a59d;letter-spacing:-.02em;white-space:nowrap;line-height:1.7;padding-top:6px;padding-bottom:6px"><span style="width:7px;height:7px;border-radius:2px;background:#5cae91;rotate:45deg"></span>{{ s }}</div>
+      </sc-for>
+    </div>
+  </div>
+</section>
+
+<!-- HOW -->
+<section id="how" style="padding:72px 20px 64px">
+  <div data-reveal="1">
+    <div style="font-family:Arial;font-size:14px;color:#33705b;letter-spacing:.08em;font-weight:700">01 — HOW IT WORKS</div>
+    <h2 style="font-size:34px;letter-spacing:-.03em;line-height:1.08;margin:12px 0 12px;font-weight:800;text-wrap:balance">From a wall of screens to one clear answer.</h2>
+    <p style="font-size:17px;color:#57655d;line-height:1.6;margin:0;text-wrap:pretty">VisionGuard watches every camera at once, notices what matters and keeps the proof. All you do is ask.</p>
+  </div>
+  <div style="position:relative;margin-top:36px;padding-left:4px">
+    <div style="position:absolute;left:25px;top:22px;bottom:40px;width:2px;background:#dfe9e0"></div>
+    <div data-grow="1" style="position:absolute;left:25px;top:22px;bottom:40px;width:2px;background:linear-gradient(180deg,#33705b,#5cae91)"></div>
+    <div style="display:flex;flex-direction:column;gap:14px;position:relative">
+      <sc-for list="{{ steps }}" as="s" hint-placeholder-count="4">
+        <div data-reveal="1" style="display:flex;gap:16px;align-items:flex-start">
+          <div style="width:44px;height:44px;border-radius:12px;background:#33705b;color:#fff;display:grid;place-items:center;font-weight:800;font-size:15px;font-family:'JetBrains Mono',monospace;flex-shrink:0;animation:vg-ring 2.4s ease-out infinite;animation-delay:{{ s.delay }}">{{ s.n }}</div>
+          <div style="flex:1;background:#fff;border-radius:16px;padding:18px;box-shadow:0 1px 3px rgba(30,42,36,.07)">
+            <div style="font-weight:700;font-size:19px;margin-bottom:6px">{{ s.title }}</div>
+            <div style="color:#57655d;font-size:16px;line-height:1.5">{{ s.body }}</div>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+</section>
+
+<!-- TOOLS -->
+<section id="tools" style="padding:64px 0 56px;background:#e9efe9">
+  <div data-reveal="1" style="padding:0 20px;text-align:center">
+    <div style="font-family:Arial;font-size:14px;color:#33705b;letter-spacing:.08em;font-weight:700">02 — TOOLS</div>
+    <h2 style="font-size:34px;letter-spacing:-.03em;line-height:1.08;margin:12px 0 0;font-weight:800">Our Services</h2>
+  </div>
+  <div data-snap="1" ref="{{ toolsRef }}" onScroll="{{ onToolsScroll }}" style="display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;padding:28px 20px 8px;scrollbar-width:none;scroll-padding:0 20px">
+    <sc-for list="{{ tools }}" as="t" hint-placeholder-count="6">
+      <div style="flex:0 0 84%;scroll-snap-align:start;position:relative;background:#fff;border-radius:18px;padding:24px;min-height:250px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 1px 3px rgba(30,42,36,.06)">
+        <div style="display:inline-flex;align-self:flex-start;align-items:center;gap:7px;background:{{ t.tagBg }};color:{{ t.tagTx }};padding:6px 11px;border-radius:7px;font-size:13px;font-weight:600"><span style="width:6px;height:6px;border-radius:50%;background:{{ t.tagTx }}"></span>{{ t.tag }}</div>
+        <div style="font-size:24px;font-weight:700;letter-spacing:-.015em;margin:20px 0 6px">{{ t.title }}</div>
+        <div style="color:#33705b;font-weight:600;font-size:16px">{{ t.sub }}</div>
+        <div style="color:#57655d;font-size:16px;line-height:1.55;margin-top:10px;text-wrap:pretty">{{ t.body }}</div>
+        <div style="position:absolute;right:20px;top:24px;font-family:'JetBrains Mono',monospace;font-size:12px;color:#8a968e">{{ t.n }} / 06</div>
+        <div style="position:absolute;left:0;right:0;bottom:0;height:3px;background:linear-gradient(90deg,#33705b,#5cae91)"></div>
+      </div>
+    </sc-for>
+  </div>
+  <div style="display:flex;justify-content:center;align-items:center;gap:6px;margin-top:14px">
+    <sc-for list="{{ toolDots }}" as="d" hint-placeholder-count="6">
+      <button onClick="{{ d.go }}" aria-label="Go to tool" style="border:none;padding:0;cursor:pointer;height:8px;width:{{ d.w }};border-radius:4px;background:{{ d.bg }};transition:all .3s"></button>
+    </sc-for>
+  </div>
+</section>
+
+<!-- HONEST -->
+<section id="honest" style="padding:80px 20px;background:#161c19;color:#e4eae5;position:relative;overflow:hidden">
+  <div style="position:absolute;inset:0;background-image:linear-gradient(#2e3933 1px,transparent 1px),linear-gradient(90deg,#2e3933 1px,transparent 1px);background-size:40px 40px;opacity:.3;mask-image:radial-gradient(ellipse at 50% 20%,#000,transparent 70%);-webkit-mask-image:radial-gradient(ellipse at 50% 20%,#000,transparent 70%)"></div>
+  <div style="position:relative;width:260px;height:260px;margin:0 auto 36px">
+    <div style="position:absolute;inset:0;border-radius:50%;border:1px solid rgba(92,174,145,.2)"></div>
+    <div style="position:absolute;inset:22%;border-radius:50%;border:1px solid rgba(92,174,145,.2)"></div>
+    <div style="position:absolute;inset:42%;border-radius:50%;border:1px solid rgba(92,174,145,.3)"></div>
+    <div style="position:absolute;inset:0;border-radius:50%;border:1.5px solid rgba(92,174,145,.5);animation:vg-ripple 4s ease-out infinite"></div>
+    <div style="position:absolute;inset:0;border-radius:50%;border:1.5px solid rgba(92,174,145,.5);animation:vg-ripple 4s -2s ease-out infinite"></div>
+    <div style="position:absolute;inset:0;border-radius:50%;background:conic-gradient(from 0deg,rgba(92,174,145,0) 0 75%,rgba(92,174,145,.4) 100%);animation:vg-radar 6s linear infinite"><div style="position:absolute;left:50%;top:0;width:2px;height:50%;margin-left:-1px;background:linear-gradient(0deg,rgba(124,240,191,.9),rgba(124,240,191,0))"></div></div>
+    <div style="position:absolute;left:66%;top:28%;animation:vg-blip 6s -5.4s ease-out infinite;display:flex;align-items:center;gap:6px"><span style="width:9px;height:9px;margin:-4px 0 0 -4px;border-radius:50%;background:#7cf0bf;box-shadow:0 0 14px #5cae91"></span><span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#9fe3c6;background:rgba(22,28,25,.8);border:1px solid rgba(92,174,145,.35);padding:2px 6px;border-radius:5px">Person</span></div>
+    <div style="position:absolute;left:62%;top:74%;animation:vg-blip 6s -3.4s ease-out infinite;display:flex;align-items:center;gap:6px"><span style="width:9px;height:9px;margin:-4px 0 0 -4px;border-radius:50%;background:#7cf0bf;box-shadow:0 0 14px #5cae91"></span><span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#9fe3c6;background:rgba(22,28,25,.8);border:1px solid rgba(92,174,145,.35);padding:2px 6px;border-radius:5px">Vehicle</span></div>
+    <div style="position:absolute;left:24%;top:66%;animation:vg-blip 6s -1.9s ease-out infinite"><span style="display:block;width:9px;height:9px;margin:-4px 0 0 -4px;border-radius:50%;background:#7cf0bf;box-shadow:0 0 14px #5cae91"></span></div>
+    <div style="position:absolute;left:30%;top:24%;animation:vg-blip 6s -.6s ease-out infinite"><span style="display:block;width:9px;height:9px;margin:-4px 0 0 -4px;border-radius:50%;background:#7cf0bf;box-shadow:0 0 14px #5cae91"></span></div>
+    <div style="position:absolute;left:50%;top:50%;width:10px;height:10px;margin:-5px 0 0 -5px;border-radius:50%;background:#5cae91;box-shadow:0 0 20px #5cae91"></div>
+  </div>
+  <div data-reveal="1" style="position:relative">
+    <div style="font-family:Arial;font-size:14px;color:#5cae91;letter-spacing:.08em;font-weight:700">03 — HONEST BY DESIGN</div>
+    <h2 style="font-size:32px;letter-spacing:-.03em;line-height:1.1;margin:12px 0 14px;font-weight:800;text-wrap:balance">It tells you what it knows — and how sure it is.</h2>
+    <p style="font-size:17px;color:#a3b0a8;line-height:1.6;margin:0 0 26px;text-wrap:pretty">Recognising a face and matching an outfit are kept apart, so you always know how certain a result is. If something is offline, it says so — no guesswork.</p>
+    <div style="display:flex;flex-direction:column;gap:12px;padding:18px;border-radius:16px;background:rgba(33,42,37,.7);border:1px solid #2e3933">
+      <div style="display:flex;gap:12px;align-items:center"><span style="width:26px;height:17px;border:2px solid #3ec776;border-radius:4px;flex-shrink:0"></span><span style="font-size:16px"><b style="color:#3ec776">Green</b> — confirmed by face</span></div>
+      <div style="display:flex;gap:12px;align-items:center"><span style="width:26px;height:17px;border:2px solid #5b9bd8;border-radius:4px;flex-shrink:0"></span><span style="font-size:16px"><b style="color:#5b9bd8">Blue</b> — matched by appearance</span></div>
+      <div style="display:flex;gap:12px;align-items:center"><span style="width:26px;height:17px;border:2px solid #dfa23f;border-radius:4px;flex-shrink:0"></span><span style="font-size:16px"><b style="color:#dfa23f">Amber</b> — waiting for human review</span></div>
+    </div>
+  </div>
+  <div style="position:relative;display:flex;flex-direction:column;gap:10px;margin-top:14px">
+    <sc-for list="{{ sources }}" as="d" hint-placeholder-count="3">
+      <div data-reveal="1" style="background:rgba(33,42,37,.82);border:1px solid #2e3933;border-radius:16px;padding:16px 18px;display:flex;flex-direction:column;gap:10px">
+        <span style="align-self:flex-start;font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:500;padding:5px 10px;border-radius:7px;background:{{ d.bg }};color:{{ d.tx }}">{{ d.state }}</span>
+        <div><div style="font-weight:700;font-size:18px">{{ d.title }}</div><div style="color:#b5c1b9;font-size:15px;margin-top:4px;line-height:1.45">{{ d.body }}</div></div>
+      </div>
+    </sc-for>
+  </div>
+</section>
+
+<!-- MOBILE -->
+<section id="mobile" style="padding:72px 20px 64px;position:relative;overflow:hidden">
+  <div data-reveal="1">
+    <div style="font-family:Arial;font-size:14px;color:#33705b;letter-spacing:.08em;font-weight:700">04 — ON YOUR PHONE</div>
+    <h2 style="font-size:34px;letter-spacing:-.03em;line-height:1.08;margin:12px 0 12px;font-weight:800;text-wrap:balance">The whole console, in your pocket.</h2>
+    <p style="font-size:17px;color:#57655d;line-height:1.6;margin:0;text-wrap:pretty">Same question box, same tools, same data. Walk the floor and still know who’s missing, how busy the lobby is, and whether anything needs you.</p>
+  </div>
+  <div style="position:relative;height:420px;margin:28px 0 12px">
+    <div style="position:absolute;width:320px;height:320px;left:50%;margin-left:-160px;top:40px;border-radius:50%;background:radial-gradient(circle,#dfe9e0 55%,rgba(223,233,224,0) 72%);animation:vg-glow 8s ease-in-out infinite"></div>
+    <div style="position:absolute;left:50%;margin-left:-165px;top:44px;width:160px;border-radius:32px;border:2px solid transparent;background:linear-gradient(#050706,#050706) padding-box,linear-gradient(135deg,#8e9a93,#3d4642 22%,#c6ceca 48%,#4a534f 72%,#9aa49f) border-box;padding:5px;box-shadow:0 24px 50px rgba(22,28,25,.28);rotate:-6deg;animation:vg-float 7s ease-in-out infinite">
+      <div style="position:absolute;left:50%;top:11px;width:48px;height:15px;margin-left:-24px;border-radius:999px;background:#000;z-index:5"></div>
+      <img src="./assets/mobile-2.png" alt="VisionGuard mobile attendance" style="width:100%;display:block;border-radius:26px">
+      <div style="position:absolute;inset:5px;border-radius:26px;overflow:hidden;pointer-events:none;z-index:2"><div style="position:absolute;top:-30%;bottom:-30%;left:0;width:28%;background:linear-gradient(90deg,rgba(255,255,255,0),rgba(255,255,255,.16),rgba(255,255,255,0));animation:vg-glare 7s ease-in-out infinite"></div></div>
+    </div>
+    <div style="position:absolute;left:50%;margin-left:-20px;top:0;width:186px;border-radius:36px;border:2px solid transparent;background:linear-gradient(#050706,#050706) padding-box,linear-gradient(135deg,#8e9a93,#3d4642 22%,#c6ceca 48%,#4a534f 72%,#9aa49f) border-box;padding:5px;box-shadow:0 34px 64px rgba(22,28,25,.36);rotate:4deg;animation:vg-float 7s -3.5s ease-in-out infinite">
+            <div style="position:absolute;inset:5px;border-radius:30px;overflow:hidden;pointer-events:none;z-index:2"><div style="position:absolute;top:-30%;bottom:-30%;left:0;width:28%;background:linear-gradient(90deg,rgba(255,255,255,0),rgba(255,255,255,.16),rgba(255,255,255,0));animation:vg-glare 7s 2.5s ease-in-out infinite"></div></div>
+      <div style="position:relative;width:100%;aspect-ratio:482/912;border-radius:30px;overflow:hidden;background:#161c19">
+<div style="position:absolute;left:0;top:0;width:390px;height:738px;transform:scale(0.4513);transform-origin:0 0;background:#161c19;color:#e4eae5;font-family:'Rubik',sans-serif;display:flex;flex-direction:column">
+<div style="display:flex;align-items:center;gap:6px;min-height:60px;padding:14px 10px 8px 14px">
+<div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0"><div style="width:34px;height:34px;border-radius:10.9px;background:#5cae91;display:flex;align-items:center;justify-content:center;flex-shrink:0"><div style="width:14.6px;height:14.6px;border-radius:50% 50% 50% 4px;background:#1c2420"></div></div>
+<div><div style="font-size:15px;font-weight:800;letter-spacing:-.01em;line-height:1.2">VisionGuard</div><div style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:#5cae91"><span style="width:8px;height:8px;border-radius:50%;background:#5cae91"></span>All 208 cameras up</div></div></div>
+<div style="position:relative;width:44px;height:44px;display:flex;align-items:center;justify-content:center;color:#e4eae5"><svg width="22" height="22" viewBox="0 0 18 18" fill="none"><path d="M9 2.9c-2.5 0-4.3 1.9-4.3 4.4v3.1l-1.4 2.2h11.4l-1.4-2.2V7.3c0-2.5-1.8-4.4-4.3-4.4z M7.4 14.7c.3.8.9 1.2 1.6 1.2s1.3-.4 1.6-1.2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path></svg><span style="position:absolute;top:5px;right:3px;min-width:19px;height:19px;padding:0 5px;border-radius:10px;background:#d97e70;color:#10201a;font-size:12px;font-weight:800;line-height:19px;text-align:center;box-shadow:0 0 0 2px #161c19;animation:vg-badge 3s ease-in-out infinite">1</span></div>
+<div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center"><span style="width:36px;height:36px;border-radius:50%;background:#2a3d34;color:#7cc3a9;font-size:13px;font-weight:800;display:flex;align-items:center;justify-content:center">MF</span></div>
+</div>
+<div style="flex:1;min-height:0;overflow:hidden;padding:4px 16px 28px;display:flex;flex-direction:column;gap:16px">
+<div><div style="font-size:26px;font-weight:800;letter-spacing:-.015em;line-height:1.15;margin-top:6px">Good morning, Mohamed.</div><div style="font-size:14px;color:#a3b0a8;margin-top:4px">Saturday, 26 September</div></div>
+<div style="flex-shrink:0;background:#212a25;border:1px solid #2e3933;border-radius:16px;padding:12px;display:flex;flex-direction:column;gap:10px;overflow:hidden">
+<div style="flex-shrink:0;display:flex;gap:8px"><div style="flex:1;min-height:48px;padding:0 14px;border-radius:12px;border:1px solid #2e3933;background:#1c2420;color:#e4eae5;font-size:16px;display:flex;align-items:center"><span style="display:inline-block;overflow:hidden;white-space:nowrap;animation:vg-type 7s steps(22) infinite">Who was absent today?</span><span style="width:2px;height:20px;background:#5cae91;margin-left:2px;animation:vg-caret 1s infinite"></span></div><div style="min-height:48px;padding:0 18px;border-radius:12px;background:#5cae91;color:#10201a;font-size:15px;font-weight:700;display:flex;align-items:center">Ask</div></div>
+<div style="flex-shrink:0;margin:0 -12px;overflow:hidden"><div style="display:flex;gap:8px;padding:2px 12px;width:max-content;animation:vg-marquee 16s linear infinite"><span style="min-height:44px;padding:0 14px;border-radius:22px;background:#2a3d34;color:#7cc3a9;font-size:14px;font-weight:600;display:inline-flex;align-items:center;white-space:nowrap;flex-shrink:0">Who is absent today?</span><span style="min-height:44px;padding:0 14px;border-radius:22px;background:#2a3d34;color:#7cc3a9;font-size:14px;font-weight:600;display:inline-flex;align-items:center;white-space:nowrap;flex-shrink:0">How many people are in the lobby?</span><span style="min-height:44px;padding:0 14px;border-radius:22px;background:#2a3d34;color:#7cc3a9;font-size:14px;font-weight:600;display:inline-flex;align-items:center;white-space:nowrap;flex-shrink:0">Cars at gate 3 today?</span><span style="min-height:44px;padding:0 14px;border-radius:22px;background:#2a3d34;color:#7cc3a9;font-size:14px;font-weight:600;display:inline-flex;align-items:center;white-space:nowrap;flex-shrink:0">Who is absent today?</span><span style="min-height:44px;padding:0 14px;border-radius:22px;background:#2a3d34;color:#7cc3a9;font-size:14px;font-weight:600;display:inline-flex;align-items:center;white-space:nowrap;flex-shrink:0">How many people are in the lobby?</span><span style="min-height:44px;padding:0 14px;border-radius:22px;background:#2a3d34;color:#7cc3a9;font-size:14px;font-weight:600;display:inline-flex;align-items:center;white-space:nowrap;flex-shrink:0">Cars at gate 3 today?</span></div></div>
+</div>
+<div style="flex-shrink:0;display:flex;justify-content:space-between;align-items:center;margin:6px 2px -6px;min-height:24px"><span style="font-size:13px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#a3b0a8">Needs your attention · 1</span><span style="font-size:14px;font-weight:600;color:#7cc3a9">See all</span></div>
+<div style="flex-shrink:0;background:#212a25;border:1px solid #2e3933;border-radius:16px;padding:16px;display:flex;flex-direction:column;gap:10px;animation:vg-alert 2.6s ease-in-out infinite">
+<div><span style="display:inline-flex;align-items:center;gap:6px;min-height:24px;padding:2px 9px;border-radius:12px;font-size:12px;font-weight:700;background:#41302c;color:#d97e70"><span style="width:8px;height:8px;border-radius:50%;background:#d97e70;animation:vg-pulse 1.2s infinite"></span>Needs review</span></div>
+<div><div style="font-size:15px;font-weight:600">Knife spotted — Loading bay</div><div style="font-size:13px;color:#a3b0a8;margin-top:2px">4 min ago · awaiting a person’s review</div></div>
+<div style="flex-shrink:0;display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:8px"><div style="min-height:48px;border-radius:12px;background:#b1433a;color:#fff;font-size:15px;font-weight:700;display:flex;align-items:center;justify-content:center">Review</div><div style="min-height:48px;border-radius:12px;border:1px solid #2e3933;color:#e4eae5;font-size:15px;font-weight:700;display:flex;align-items:center;justify-content:center">Acknowledge</div></div>
+</div>
+<div style="flex-shrink:0;display:flex;align-items:center;margin:6px 2px -6px;min-height:24px"><span style="font-size:13px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#a3b0a8">Today so far</span></div>
+<div style="flex-shrink:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px"><div style="background:#212a25;border:1px solid #2e3933;border-radius:14px;padding:12px 14px;min-height:86px;display:flex;flex-direction:column;justify-content:space-between;gap:4px"><span style="font-size:13px;color:#a3b0a8;line-height:1.3">Arrived</span><span data-count="1" style="font-size:24px;font-weight:800;letter-spacing:-.01em;line-height:1.15;--n:142;counter-reset:n var(--n)"></span><span style="font-size:12.5px;color:#a3b0a8;line-height:1.35">of 160 expected</span></div><div style="background:#212a25;border:1px solid #2e3933;border-radius:14px;padding:12px 14px;min-height:86px;display:flex;flex-direction:column;justify-content:space-between;gap:4px"><span style="font-size:13px;color:#a3b0a8;line-height:1.3;display:flex;align-items:center;gap:6px">People in view<span style="width:7px;height:7px;border-radius:50%;background:#3ec776;animation:vg-pulse 1.4s infinite"></span></span><span data-live="1" style="font-size:24px;font-weight:800;letter-spacing:-.01em;line-height:1.15;--n:37;counter-reset:n var(--n);animation:vg-live 9s steps(1) infinite"></span><span style="font-size:12.5px;color:#a3b0a8;line-height:1.35">across 208 cameras</span></div><div style="background:#212a25;border:1px solid #2e3933;border-radius:14px;padding:12px 14px;min-height:86px;display:flex;flex-direction:column;justify-content:space-between;gap:4px"><span style="font-size:13px;color:#a3b0a8;line-height:1.3">Cars in</span><span data-count="1" style="font-size:24px;font-weight:800;letter-spacing:-.01em;line-height:1.15;--n:58;counter-reset:n var(--n)"></span><span style="font-size:12.5px;color:#a3b0a8;line-height:1.35">3 gate cameras reading</span></div><div style="background:#212a25;border:1px solid #2e3933;border-radius:14px;padding:12px 14px;min-height:86px;display:flex;flex-direction:column;justify-content:space-between;gap:4px"><span style="font-size:13px;color:#a3b0a8;line-height:1.3">Restricted areas</span><span style="font-size:24px;font-weight:800;letter-spacing:-.01em;line-height:1.15">2 clips</span><span style="font-size:12.5px;color:#cfa955;line-height:1.35">1 camera paused</span></div></div>
+</div>
+<div style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));background:#1c2420;border-top:1px solid #2e3933;padding:6px 4px 10px"><div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:54px;color:#e4eae5"><div style="width:56px;height:30px;border-radius:15px;display:flex;align-items:center;justify-content:center;background:#2a3d34;color:#7cc3a9"><svg width="21" height="21" viewBox="0 0 18 18" fill="none"><path d="M3 8 L9 3 L15 8 V15 H3 Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg></div><span style="font-size:12px;font-weight:600;line-height:1.1">Home</span></div><div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:54px;color:#a3b0a8"><div style="width:56px;height:30px;border-radius:15px;display:flex;align-items:center;justify-content:center;"><svg width="21" height="21" viewBox="0 0 18 18" fill="none"><path d="M2.5 5.5 H11.5 V12.5 H2.5 Z M11.5 7.8 L15.5 5.5 V12.5 L11.5 10.2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path></svg></div><span style="font-size:12px;font-weight:600;line-height:1.1">Cameras</span></div><div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:54px;color:#a3b0a8"><div style="width:56px;height:30px;border-radius:15px;display:flex;align-items:center;justify-content:center;"><svg width="21" height="21" viewBox="0 0 18 18" fill="none"><path d="M3 3 H8 V8 H3 Z M10 3 H15 V8 H10 Z M3 10 H8 V15 H3 Z M10 10 H15 V15 H10 Z" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path></svg></div><span style="font-size:12px;font-weight:600;line-height:1.1">Tools</span></div><div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:54px;color:#a3b0a8"><div style="width:56px;height:30px;border-radius:15px;display:flex;align-items:center;justify-content:center;"><svg width="21" height="21" viewBox="0 0 18 18" fill="none"><path d="M6.2 3.5 a2.3 2.3 0 1 0 0.01 0 M2.8 14.5 c0-2.6 1.7-4 3.4-4 s3.4 1.4 3.4 4 M12.3 5.5 a2 2 0 1 0 0.01 0 M11.5 11.3 c1.9 .3 3.4 1.5 3.4 3.2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path></svg></div><span style="font-size:12px;font-weight:600;line-height:1.1">People</span></div><div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:54px;color:#a3b0a8"><div style="width:56px;height:30px;border-radius:15px;display:flex;align-items:center;justify-content:center;"><svg width="21" height="21" viewBox="0 0 18 18" fill="none"><path d="M4 9 a.9 .9 0 1 0 .01 0 M9 9 a.9 .9 0 1 0 .01 0 M14 9 a.9 .9 0 1 0 .01 0" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path></svg></div><span style="font-size:12px;font-weight:600;line-height:1.1">More</span></div></div>
+</div></div>
+    </div>
+    <div style="position: absolute; left: 0; top: -23px; z-index: 3; background: #fff; border-radius: 13px; padding: 10px 12px; box-shadow: 0 16px 36px rgba(30,42,36,.2); display: flex; gap: 9px; align-items: center; animation: vg-pop 8s ease-in-out infinite">
+      <div style="width:28px;height:28px;border-radius:9px;background:#f7e3e0;display:grid;place-items:center;flex-shrink:0"><span style="width:8px;height:8px;border-radius:50%;background:#a5372c;animation:vg-pulse 1.2s infinite"></span></div>
+      <div><div style="font-size:13px;font-weight:700;white-space:nowrap">Knife spotted</div><div style="font-size:11px;color:#57655d;white-space:nowrap">Loading bay · just now</div></div>
+    </div>
+    <div style="position: absolute; right: 0; bottom: 35px; z-index: 3; background: #1f2b26; color: #e4eae5; border-radius: 12px; padding: 9px 13px; font-size: 13px; font-weight: 600; display: flex; gap: 8px; align-items: center; box-shadow: 0 14px 30px rgba(0,0,0,.25); animation: vg-pop 8s -4s ease-in-out infinite"><span style="width:7px;height:7px;border-radius:50%;background:#5cae91;animation:vg-pulse 1.6s infinite"></span>142 of 160 arrived</div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+    <sc-for list="{{ tiles }}" as="p" hint-placeholder-count="4">
+      <div data-reveal="1" style="position:relative;overflow:hidden;background:#fff;border-radius:14px;padding:16px">
+        <div style="position:absolute;left:0;right:0;top:0;height:3px;background:linear-gradient(90deg,#33705b,#5cae91)"></div>
+        <div style="font-weight:700;font-size:16px;display:flex;align-items:flex-start;gap:8px;line-height:1.25"><span style="width:7px;height:7px;border-radius:50%;background:#5cae91;margin-top:6px;flex-shrink:0;animation:vg-pulse 2.4s infinite"></span>{{ p.title }}</div>
+        <div style="color:#57655d;font-size:14px;margin-top:6px;line-height:1.4">{{ p.body }}</div>
+      </div>
+    </sc-for>
+  </div>
+</section>
+
+<!-- TRUST -->
+<section style="padding:8px 20px 64px">
+  <div data-reveal="1" style="border-radius:22px;border:1.5px solid transparent;background:linear-gradient(#fff,#fff) padding-box,conic-gradient(from var(--a),#e0e7e1 0 55%,#5cae91 75%,#33705b 80%,#e0e7e1 95%) border-box;animation:vg-border 7s linear infinite;padding:26px 20px;display:flex;flex-direction:column;gap:22px;box-shadow:0 20px 60px rgba(30,42,36,.06)">
+    <div>
+      <div style="font-family:Arial;font-size:14px;color:#33705b;letter-spacing:.08em;font-weight:700">05 — TRUST</div>
+      <h2 style="font-size:30px;letter-spacing:-.03em;line-height:1.1;margin:12px 0 10px;font-weight:800;text-wrap:balance">Built for places full of people.</h2>
+      <p style="margin:0;font-size:16px;line-height:1.6;color:#57655d">Every action is recorded, so you always know who looked at what, and when.</p>
+    </div>
+    <div style="border-radius:14px;background:#f5f8f5;border:1px solid #e0e7e1;padding:4px 14px 0">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0 6px;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#57655d"><span>Activity log</span><span style="display:flex;align-items:center;gap:6px;color:#33705b"><span style="width:7px;height:7px;border-radius:50%;background:#3ec776;animation:vg-pulse 1.6s infinite"></span>Recording</span></div>
+      <div style="height:168px;overflow:hidden;mask-image:linear-gradient(180deg,transparent,#000 15%,#000 80%,transparent);-webkit-mask-image:linear-gradient(180deg,transparent,#000 15%,#000 80%,transparent)">
+        <div style="animation:vg-ticker 18s linear infinite">
+          <sc-for list="{{ logs }}" as="l" hint-placeholder-count="12">
+            <div style="display:flex;gap:10px;align-items:center;padding:11px 0;border-bottom:1px solid #e9efe9;font-size:14px"><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#8a968e">{{ l.t }}</span><span style="width:6px;height:6px;border-radius:50%;background:#5cae91;flex-shrink:0"></span><span style="font-weight:600;color:#1f2b26">{{ l.a }}</span><span style="color:#57655d;margin-left:auto;white-space:nowrap">{{ l.b }}</span></div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <sc-for list="{{ trust }}" as="p" hint-placeholder-count="4">
+        <div data-reveal="1" style="display:flex;gap:14px;align-items:flex-start;padding:16px;border-radius:14px;background:#f5f8f5;border:1px solid #e0e7e1">
+          <div style="width:36px;height:36px;border-radius:10px;background:#dfe9e0;display:grid;place-items:center;flex-shrink:0;animation:vg-ring 3s ease-out infinite;animation-delay:{{ p.delay }}"><span style="width:11px;height:11px;border-radius:4px;background:#33705b"></span></div>
+          <div><div style="font-weight:700;font-size:17px">{{ p.title }}</div><div style="color:#57655d;font-size:15px;line-height:1.5;margin-top:3px">{{ p.body }}</div></div>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+</section>
+
+<!-- CONTACT -->
+<section id="contact" style="padding:0 20px 64px">
+  <div data-reveal="1" style="border-radius:24px;overflow:hidden;box-shadow:0 24px 60px rgba(22,28,25,.14)">
+    <div style="position:relative;overflow:hidden;background:#33705b;color:#fff;padding:28px 20px;display:flex;flex-direction:column;gap:22px">
+      <div style="position:absolute;width:420px;height:420px;left:-160px;bottom:-240px;border-radius:50%;background:radial-gradient(circle,rgba(124,195,169,.55),transparent 65%);animation:vg-aurora 16s ease-in-out infinite;pointer-events:none"></div>
+      <div style="position:relative">
+        <div style="font-family:Arial;font-size:14px;color:#bfe0d2;letter-spacing:.08em;font-weight:700">06 — CONTACT</div>
+        <h2 style="font-size:32px;letter-spacing:-.035em;line-height:1.05;margin:12px 0 10px;font-weight:800">Let’s talk about your site.</h2>
+        <p style="font-size:16px;line-height:1.6;color:#e3efe9;margin:0">Tell us a little about your organisation. Our team will get back to you within one business day.</p>
+      </div>
+      <div style="position:relative;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px">
+        <a href="mailto:sales@visionguard.ai" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-height:68px;border-radius:14px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.18);color:#fff;font-size:14px;font-weight:700" style-hover="color:#fff">Email<span style="font-size:11px;font-weight:500;color:#cfe3da">Quotes</span></a>
+        <a href="tel:+20200000000" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-height:68px;border-radius:14px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.18);color:#fff;font-size:14px;font-weight:700" style-hover="color:#fff">Call us<span style="font-size:11px;font-weight:500;color:#cfe3da">Sun – Thu</span></a>
+        <a href="#" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-height:68px;border-radius:14px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.18);color:#fff;font-size:14px;font-weight:700" style-hover="color:#fff">WhatsApp<span style="font-size:11px;font-weight:500;color:#cfe3da">Fast replies</span></a>
+      </div>
+      <div style="position:relative;border-top:1px solid rgba(255,255,255,.18);padding-top:18px">
+        <div style="font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#bfe0d2;margin-bottom:12px">What happens next</div>
+        <div style="display:flex;flex-direction:column;gap:10px;font-size:15px;color:#f2f7f4">
+          <div style="display:flex;gap:10px;align-items:center"><span style="width:24px;height:24px;border-radius:50%;background:rgba(255,255,255,.16);display:grid;place-items:center;font-size:12px;font-weight:700;flex-shrink:0">1</span>We reply within one business day</div>
+          <div style="display:flex;gap:10px;align-items:center"><span style="width:24px;height:24px;border-radius:50%;background:rgba(255,255,255,.16);display:grid;place-items:center;font-size:12px;font-weight:700;flex-shrink:0">2</span>A short call to understand your site</div>
+          <div style="display:flex;gap:10px;align-items:center"><span style="width:24px;height:24px;border-radius:50%;background:rgba(255,255,255,.16);display:grid;place-items:center;font-size:12px;font-weight:700;flex-shrink:0">3</span>A live walkthrough on your own cameras</div>
+        </div>
+      </div>
+    </div>
+    <div style="background:#fff;padding:26px 20px">
+      <sc-if value="{{ notSent }}" hint-placeholder-val="{{ true }}">
+        <form onSubmit="{{ submit }}" style="display:flex;flex-direction:column;gap:16px">
+          <div style="font-size:22px;font-weight:800;letter-spacing:-.02em">Send us a message</div>
+          <label style="display:flex;flex-direction:column;gap:7px;font-size:14px;font-weight:600">Full name<input required="" type="text" autocomplete="name" placeholder="Your name" style="height:52px;padding:0 16px;border-radius:12px;border:1px solid #d5ddd6;background:#fff;font:inherit;font-size:16px;font-weight:400;color:#1f2b26;outline:none;width:100%" style-focus="border-color:#33705b;box-shadow:0 0 0 4px rgba(51,112,91,.14)"></label>
+          <label style="display:flex;flex-direction:column;gap:7px;font-size:14px;font-weight:600">Work email<input required="" type="email" inputmode="email" autocomplete="email" placeholder="you@company.com" style="height:52px;padding:0 16px;border-radius:12px;border:1px solid #d5ddd6;background:#fff;font:inherit;font-size:16px;font-weight:400;color:#1f2b26;outline:none;width:100%" style-focus="border-color:#33705b;box-shadow:0 0 0 4px rgba(51,112,91,.14)"></label>
+          <label style="display:flex;flex-direction:column;gap:7px;font-size:14px;font-weight:600">Company<input required="" type="text" autocomplete="organization" placeholder="Organisation name" style="height:52px;padding:0 16px;border-radius:12px;border:1px solid #d5ddd6;background:#fff;font:inherit;font-size:16px;font-weight:400;color:#1f2b26;outline:none;width:100%" style-focus="border-color:#33705b;box-shadow:0 0 0 4px rgba(51,112,91,.14)"></label>
+          <label style="display:flex;flex-direction:column;gap:7px;font-size:14px;font-weight:600">Phone<input type="tel" inputmode="tel" autocomplete="tel" placeholder="Optional" style="height:52px;padding:0 16px;border-radius:12px;border:1px solid #d5ddd6;background:#fff;font:inherit;font-size:16px;font-weight:400;color:#1f2b26;outline:none;width:100%" style-focus="border-color:#33705b;box-shadow:0 0 0 4px rgba(51,112,91,.14)"></label>
+          <label style="display:flex;flex-direction:column;gap:7px;font-size:14px;font-weight:600">Type of site<select style="height:52px;padding:0 14px;border-radius:12px;border:1px solid #d5ddd6;background:#fff;font:inherit;font-size:16px;font-weight:400;color:#1f2b26;outline:none;width:100%;appearance:auto" style-focus="border-color:#33705b;box-shadow:0 0 0 4px rgba(51,112,91,.14)"><option>Office</option><option>School &amp; education</option><option>Supermarket</option><option>Factory</option><option>Warehouse &amp; logistics</option><option>Hospital &amp; healthcare</option><option>Retail &amp; malls</option><option>Other</option></select></label>
+          <div style="display:flex;flex-direction:column;gap:7px;font-size:14px;font-weight:600">Number of cameras
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+              <sc-for list="{{ camOpts }}" as="o" hint-placeholder-count="4">
+                <button type="button" onClick="{{ o.pick }}" style="height:48px;border-radius:12px;border:1px solid {{ o.bd }};background:{{ o.bg }};color:{{ o.tx }};font:inherit;font-size:15px;font-weight:600;cursor:pointer;transition:all .2s">{{ o.label }}</button>
+              </sc-for>
+            </div>
+          </div>
+          <label style="display:flex;flex-direction:column;gap:7px;font-size:14px;font-weight:600">How can we help?<textarea rows="4" placeholder="Tell us about your site and what you’d like to see." style="padding:14px 16px;border-radius:12px;border:1px solid #d5ddd6;background:#fff;font:inherit;font-size:16px;font-weight:400;color:#1f2b26;outline:none;width:100%;resize:vertical" style-focus="border-color:#33705b;box-shadow:0 0 0 4px rgba(51,112,91,.14)"></textarea></label>
+          <button type="submit" style="position:relative;overflow:hidden;height:56px;border-radius:14px;border:none;background:#1f2b26;color:#fff;font:inherit;font-weight:700;font-size:17px;cursor:pointer"><span style="position:absolute;top:0;bottom:0;left:0;width:35%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.22),transparent);animation:vg-shine 4s 1s ease-in-out infinite;pointer-events:none"></span><span style="position:relative">Send message</span></button>
+          <div style="font-size:13px;color:#57655d;line-height:1.5;text-align:center">By sending, you agree to our <a href="#">privacy policy</a>. We never share your details.</div>
+        </form>
+      </sc-if>
+      <sc-if value="{{ sent }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;flex-direction:column;align-items:center;text-align:center;gap:12px;padding:24px 0">
+          <div style="width:56px;height:56px;border-radius:16px;background:#dfe9e0;display:grid;place-items:center;animation:vg-ring 2s ease-out infinite"><span style="width:16px;height:16px;border-radius:50%;background:#33705b"></span></div>
+          <div style="font-size:24px;font-weight:800;letter-spacing:-.02em">Thank you — message received.</div>
+          <div style="font-size:16px;color:#57655d;line-height:1.6">Our team will reach out within one business day.</div>
+        </div>
+      </sc-if>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer style="background:#161c19;color:#a3b0a8;padding:56px 20px 96px;position:relative;overflow:hidden">
+  <div style="position:absolute;left:0;right:0;top:0;height:1px;background:linear-gradient(90deg,transparent,rgba(92,174,145,.6),transparent)"></div>
+  <div style="position:relative;display:flex;flex-direction:column;gap:18px">
+    <a href="#top" style="display:flex;align-items:center;gap:10px;color:#fff">
+      <div style="width:34px;height:34px;border-radius:10px;background:#5cae91;display:grid;place-items:center"><div style="width:14px;height:12px;border-radius:6px 7px 6px 7px;background:#161c19"></div></div>
+      <span style="font-weight:700;font-size:19px">VisionGuard</span>
+    </a>
+    <p style="margin:0;font-size:15px;line-height:1.6">AI vision for workplaces. Ask your cameras anything — in your own language — and get the answer with the footage.</p>
+    
+  </div>
+  <div style="position:relative;margin-top:28px;border-top:1px solid #2e3933">
+    <sc-for list="{{ cols }}" as="c" hint-placeholder-count="4">
+      <div style="border-bottom:1px solid #2e3933">
+        <button onClick="{{ c.toggle }}" style="width:100%;min-height:56px;display:flex;align-items:center;justify-content:space-between;background:none;border:none;padding:0;cursor:pointer;color:#e4eae5;font:inherit;font-size:14px;font-weight:700;letter-spacing:.08em;text-transform:uppercase">{{ c.title }}<span style="font-size:20px;font-weight:400;color:#5cae91;transition:transform .3s;transform:{{ c.rot }}">+</span></button>
+        <sc-if value="{{ c.open }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;flex-direction:column;padding:0 0 12px;animation:vg-menu .3s ease both">
+            <sc-for list="{{ c.links }}" as="l" hint-placeholder-count="4">
+              <a href="{{ l.href }}" style="color:#a3b0a8;font-size:16px;min-height:44px;display:flex;align-items:center" style-hover="color:#fff">{{ l.label }}</a>
+            </sc-for>
+          </div>
+        </sc-if>
+      </div>
+    </sc-for>
+  </div>
+  <div style="position:relative;margin-top:24px;display:flex;flex-direction:column;gap:18px;font-size:14px">
+    <div style="display:flex;gap:4px;padding:4px;border-radius:10px;background:#212a25;align-self:flex-start"><span style="padding:8px 14px;border-radius:7px;background:#2a3d34;color:#e4eae5;font-weight:600">English</span><a href="VisionGuard%20Mobile%20AR.dc.html" style="padding:8px 14px;border-radius:7px;color:#a3b0a8">العربية</a></div>
+    <div style="display:flex;gap:22px"><a href="#" style="color:#a3b0a8" style-hover="color:#fff">LinkedIn</a><a href="#" style="color:#a3b0a8" style-hover="color:#fff">X</a><a href="#" style="color:#a3b0a8" style-hover="color:#fff">YouTube</a></div>
+    <div>© 2026 VisionGuard. All rights reserved.</div>
+  </div>
+  <div aria-hidden="true" style="position:relative;text-align:center;font-size:min(62px,calc((100vw - 40px) / 5.9));font-weight:800;letter-spacing:-.05em;line-height:1;padding:0 .06em .08em;white-space:nowrap;margin-top:36px;background:linear-gradient(90deg,#2a3d34,#5cae91 30%,#2a3d34 60%,#5cae91 85%,#2a3d34);background-size:300% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:vg-sheen 14s linear infinite;mask-image:linear-gradient(180deg,#000 55%,rgba(0,0,0,.35) 100%);-webkit-mask-image:linear-gradient(180deg,#000 55%,rgba(0,0,0,.35) 100%);user-select:none">VisionGuard</div>
+</footer>
+
+<sc-if value="{{ showCta }}" hint-placeholder-val="{{ false }}">
+  <div style="position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:430px;z-index:55;pointer-events:none">
+    <div style="margin:0 12px 12px;padding:8px;border-radius:18px;background:rgba(31,43,38,.92);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);box-shadow:0 14px 40px rgba(0,0,0,.25);display:flex;align-items:center;gap:10px;pointer-events:auto;animation:vg-cta .45s cubic-bezier(.2,.8,.2,1) both">
+      <div style="flex:1;padding-left:10px;color:#e4eae5;font-size:14px;line-height:1.3"><div style="font-weight:700">See it on your cameras</div><div style="color:#a3b0a8;font-size:12px">Reply within one business day</div></div>
+      <a href="#contact" style="height:46px;padding:0 18px;border-radius:12px;background:#5cae91;color:#10201a;font-weight:700;font-size:15px;display:flex;align-items:center" style-hover="color:#10201a">Contact us</a>
+    </div>
+  </div>
+</sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { sent: false, cams: '25–100', menuOpen: false, tool: 0, openCol: -1, showCta: false };
+  typedRef = React.createRef();
+  langRef = React.createRef();
+  toolsRef = React.createRef();
+  qs = [['Who was absent today?','English'], ['مين غاب النهارده؟','العربية'], ['el cafeteria zahma dlw2ty?','Franco'], ['حد دخل الـ server room بعد 6؟','Mixed'], ['7ad la2a black backpack fel lobby?','Franco + English'], ['Where did Layla go today?','English']];
+  componentDidMount() {
+    this.startTyping();
+    this.onScroll = () => {
+      const y = window.scrollY, c = document.getElementById('contact');
+      const nearContact = c && c.getBoundingClientRect().top < window.innerHeight * 0.9;
+      const show = y > 560 && !nearContact;
+      if (show !== this.state.showCta) this.setState({ showCta: show });
+    };
+    window.addEventListener('scroll', this.onScroll, { passive: true });
+  }
+  componentWillUnmount() { clearTimeout(this.t); window.removeEventListener('scroll', this.onScroll); }
+  startTyping() {
+    let qi = 0, ci = 0, del = false;
+    const tick = () => {
+      const [q, lang] = this.qs[qi];
+      const tn = this.typedRef.current, ln = this.langRef.current;
+      if (tn) tn.parentNode.dir = /[\u0600-\u06FF]/.test(q) ? 'rtl' : 'ltr';
+      if (ln && ln.textContent !== lang) ln.textContent = lang;
+      if (!del) { ci++; if (ci > q.length) { del = true; this.t = setTimeout(tick, 1800); return; } }
+      else { ci--; if (ci === 0) { del = false; qi = (qi + 1) % this.qs.length; } }
+      if (tn) tn.textContent = q.slice(0, ci);
+      this.t = setTimeout(tick, del ? 22 : 55);
+    };
+    tick();
+  }
+  goTool(i) {
+    const el = this.toolsRef.current; if (!el) return;
+    const card = el.children[i]; if (card) el.scrollTo({ left: card.offsetLeft - 20, behavior: 'smooth' });
+  }
+  renderVals() {
+    const open = this.state.menuOpen;
+    const close = () => this.setState({ menuOpen: false });
+    const toolData = [
+      { n: '01', title: 'Attendance', sub: 'Who arrived, who’s missing', body: 'A daily register of staff and visitors, built automatically at the entrance. Export it anytime.', tag: 'Face recognition', tagBg: '#dfe9e0', tagTx: '#33705b' },
+      { n: '02', title: 'People counting', sub: 'How many, anywhere', body: 'Live headcounts per floor, hall or lobby, with history — know how busy it is before you walk over.', tag: 'Live', tagBg: '#dfe9e0', tagTx: '#33705b' },
+      { n: '03', title: 'Restricted zones', sub: 'Areas that must stay empty', body: 'Choose areas that should stay empty. Every entry is flagged once, with the video to prove it.', tag: 'Evidence clip', tagBg: '#f7e3e0', tagTx: '#a5372c' },
+      { n: '04', title: 'Knife detection', sub: 'Human-reviewed, always', body: 'Every detection is checked by a person before anyone is alerted.', tag: 'Needs review', tagBg: '#f7e3e0', tagTx: '#a5372c' },
+      { n: '05', title: 'Lost bag', sub: 'Look for it now', body: 'Describe the item and search the cameras you choose, live, on demand.', tag: 'On demand', tagBg: '#f3ecd9', tagTx: '#8a6a14' },
+      { n: '06', title: 'Track a person', sub: 'Always logged', body: 'Follow someone across cameras, with the next likely camera highlighted. Every search is logged.', tag: 'Audited', tagBg: '#f3ecd9', tagTx: '#8a6a14' }
+    ];
+    const logs = [['08:02','Arrival recorded','Gate 2'],['08:47','Search logged','by M. Farid'],['09:15','Zone alert reviewed','Server room'],['10:30','Report exported','Attendance'],['11:04','Person removed','on request'],['12:00','Old footage deleted','retention rule']];
+    const colData = [
+      ['Product', [['How it works','#how'],['Tools','#tools'],['Honest by design','#honest'],['Mobile app','#mobile']]],
+      ['Solutions', [['Offices','#'],['Schools','#'],['Supermarkets','#'],['Factories','#'],['Warehouses','#'],['Hospitals','#'],['Retail & malls','#']]],
+      ['Company', [['About us','#'],['Careers','#'],['Partners','#'],['Contact sales','#contact']]],
+      ['Trust', [['Security','#'],['Privacy policy','#'],['Terms of service','#'],['Help centre','#']]]
+    ];
+    return {
+      typedRef: this.typedRef, langRef: this.langRef, toolsRef: this.toolsRef,
+      menuOpen: open,
+      toggleMenu: () => this.setState(s => ({ menuOpen: !s.menuOpen })),
+      closeMenu: close,
+      bar1: open ? 'translateY(7px) rotate(45deg)' : 'none',
+      bar2: open ? 0 : 1,
+      bar3: open ? 'translateY(-7px) rotate(-45deg)' : 'none',
+      menuLinks: [['01','How it works','#how'],['02','Tools','#tools'],['03','Honest by design','#honest'],['04','Mobile','#mobile'],['06','Contact','#contact']].map(([n, label, href]) => ({ n, label, href, go: close })),
+      showCta: this.state.showCta && !open,
+      sitesLoop: [0, 1].flatMap(() => ['Offices', 'Schools', 'Supermarkets', 'Factories', 'Warehouses', 'Hospitals', 'Malls', 'Campuses', 'Logistics hubs', 'Hotels']),
+      steps: [
+        { n: '01', delay: '0s', title: 'Connect your cameras', body: 'Works with the cameras you already have. Any building, any layout.' },
+        { n: '02', delay: '.6s', title: 'AI watches everything', body: 'Every feed is analysed around the clock — people, movement and restricted areas.' },
+        { n: '03', delay: '1.2s', title: 'Moments are saved', body: 'Arrivals, alerts and sightings are kept with the video that proves them.' },
+        { n: '04', delay: '1.8s', title: 'You ask, it answers', body: 'On desktop or phone, in English, Arabic, Franco or a mix.' }
+      ],
+      tools: toolData,
+      onToolsScroll: e => { const el = e.currentTarget; const w = el.children[0] ? el.children[0].offsetWidth + 12 : 1; const i = Math.round(el.scrollLeft / w); if (i !== this.state.tool) this.setState({ tool: i }); },
+      toolDots: toolData.map((_, i) => ({ w: i === this.state.tool ? '24px' : '8px', bg: i === this.state.tool ? '#33705b' : '#c3cfc6', go: () => this.goTool(i) })),
+      sources: [
+        { state: 'live', bg: '#2a3d34', tx: '#7cc3a9', title: 'Live, as it happens', body: 'Straight from your cameras, in real time.' },
+        { state: 'offline', bg: '#41302c', tx: '#d97e70', title: 'Offline, and it says why', body: 'If a feature is paused, you see the reason — never a stand-in.' },
+        { state: 'demo', bg: '#3a3527', tx: '#cfa955', title: 'Demo, always labelled', body: 'Sample data only when you ask for it, clearly marked.' }
+      ],
+      tiles: [
+        { title: 'Arabic & English', body: 'Full right-to-left layout' },
+        { title: 'Light & dark', body: 'Easy on night shifts' },
+        { title: 'Email alerts', body: 'Rules, recipients, a delivery log' },
+        { title: 'Needs your attention', body: 'Only what matters, that’s all' }
+      ],
+      logs: [...logs, ...logs].map(([t, a, b]) => ({ t, a, b })),
+      trust: [
+        { delay: '0s', title: 'Role-based access', body: 'Only administrators can add people or change cameras.' },
+        { delay: '.75s', title: 'Full audit trail', body: 'Every search is recorded, so nothing happens unseen.' },
+        { delay: '1.5s', title: 'Your retention rules', body: 'Footage is deleted on the schedule you choose.' },
+        { delay: '2.25s', title: 'Right to be forgotten', body: 'Remove a person and every trace goes with them.' }
+      ],
+      sent: this.state.sent, notSent: !this.state.sent,
+      camOpts: ['Under 25', '25–100', '100–500', '500+'].map(l => { const on = this.state.cams === l; return { label: l, bg: on ? '#33705b' : '#fff', tx: on ? '#fff' : '#1f2b26', bd: on ? '#33705b' : '#d5ddd6', pick: () => this.setState({ cams: l }) }; }),
+      submit: e => { e.preventDefault(); this.setState({ sent: true }); },
+      cols: colData.map(([title, links], i) => { const o = this.state.openCol === i; return { title, open: o, rot: o ? 'rotate(45deg)' : 'none', links: links.map(([label, href]) => ({ label, href })), toggle: () => this.setState({ openCol: o ? -1 : i }) }; })
+    };
+  }
+}
+</script>
+</body>
+</html>

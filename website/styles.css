@@ -1,106 +1,37 @@
-html{scroll-behavior:smooth}
-body{margin:0;background:#f2f5f2;color:#1f2b26;font-family:'Albert Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
-a{color:#33705b;text-decoration:none}
-a:hover{color:#285948}
-*{box-sizing:border-box}
-@keyframes vg-pulse{0%,100%{opacity:1}50%{opacity:.3}}
-@keyframes vg-scan{0%{top:-20%}100%{top:110%}}
-@keyframes vg-nextcam{0%,100%{box-shadow:0 0 0 0 rgba(92,174,145,0)}50%{box-shadow:0 0 0 7px rgba(92,174,145,.3)}}
-@keyframes vg-drift1{0%,100%{transform:translate(0,0)}50%{transform:translate(38px,6px)}}
-@keyframes vg-drift2{0%,100%{transform:translate(0,0)}50%{transform:translate(-30px,-4px)}}
-@keyframes vg-drift3{0%,100%{transform:translate(0,0)}50%{transform:translate(20px,-8px)}}
-@keyframes vg-float{0%,100%{transform:translateY(0)}50%{transform:translateY(-12px)}}
-@keyframes vg-toast{0%,8%{opacity:0;transform:translateY(14px)}14%,80%{opacity:1;transform:translateY(0)}88%,100%{opacity:0;transform:translateY(-6px)}}
-@keyframes vg-dash{to{background-position:40px 0}}
-@keyframes vg-spin{to{transform:rotate(360deg)}}
-@keyframes vg-caret{0%,49%{opacity:1}50%,100%{opacity:0}}
-@keyframes vg-rv{from{opacity:0;translate:0 40px}to{opacity:1;translate:0 0}}
-@supports (animation-timeline: view()){[data-reveal]{animation:vg-rv linear both;animation-timeline:view();animation-range:entry 0% entry 45%}}
-@keyframes vg-glow{0%,100%{opacity:.55;transform:scale(1)}50%{opacity:.9;transform:scale(1.08)}}
-@property --n{syntax:'<integer>';inherits:false;initial-value:0}
-@keyframes vg-sheen{to{background-position:300% 0}}
-@keyframes vg-rise{from{transform:translateY(.4em);filter:blur(6px)}to{transform:none;filter:blur(0)}}
-@keyframes vg-marquee{to{transform:translateX(-50%)}}
-@keyframes vg-shine{0%,55%{transform:translateX(-150%) skewX(-20deg)}100%{transform:translateX(350%) skewX(-20deg)}}
-@keyframes vg-aurora{0%,100%{transform:translate(0,0) scale(1)}33%{transform:translate(10%,-8%) scale(1.15)}66%{transform:translate(-8%,6%) scale(.9)}}
-@keyframes vg-travel{0%{left:4%;opacity:0}10%,90%{opacity:1}100%{left:92%;opacity:0}}
-@keyframes vg-ring{0%{box-shadow:0 0 0 0 rgba(51,112,91,.45)}100%{box-shadow:0 0 0 14px rgba(51,112,91,0)}}
-@keyframes vg-progress{from{transform:scaleX(0)}to{transform:scaleX(1)}}
-@keyframes vg-nav{to{background:rgba(242,245,242,.94);box-shadow:0 10px 30px rgba(30,42,36,.08)}}
-@keyframes vg-tilt{from{transform:perspective(1400px) rotateX(20deg) rotateY(-16deg) scale(.9)}to{transform:perspective(1400px) rotateY(-3deg) rotateX(2deg) scale(1)}}
-@keyframes vg-count{from{--n:0}}
-@keyframes vg-zoom{from{opacity:0;transform:scale(.94);filter:blur(12px)}to{opacity:1;transform:none;filter:blur(0)}}
-@keyframes vg-parA{from{translate:0 90px}to{translate:0 -50px}}
-@keyframes vg-parB{from{translate:0 160px}to{translate:0 -90px}}
-@keyframes vg-radar{to{transform:rotate(360deg)}}
-@keyframes vg-ripple{from{transform:scale(.08);opacity:.7}to{transform:scale(1);opacity:0}}
-@keyframes vg-blip{0%{opacity:1;transform:scale(1.6)}8%{opacity:1;transform:scale(1)}55%{opacity:.35}100%{opacity:0;transform:scale(1)}}
-@keyframes vg-line{from{transform:scaleX(0)}to{transform:scaleX(1)}}
-[data-count]::after,[data-live]::after{content:counter(n)}
-@property --a{syntax:'<angle>';inherits:false;initial-value:0deg}
-@keyframes vg-border{to{--a:360deg}}
-@keyframes vg-live{0%{--n:37}20%{--n:39}40%{--n:38}60%{--n:41}80%{--n:36}100%{--n:37}}
-@keyframes vg-badge{0%,70%,100%{transform:scale(1)}78%{transform:scale(1.35)}86%{transform:scale(.9)}}
-@keyframes vg-alert{0%,100%{border-color:#2e3933;box-shadow:0 0 0 0 rgba(217,126,112,0)}50%{border-color:#d97e70;box-shadow:0 0 0 4px rgba(217,126,112,.16)}}
-@keyframes vg-type{0%,6%{max-width:0}45%,80%{max-width:230px}92%,100%{max-width:0}}
-@keyframes vg-glare{0%,62%{transform:translateX(-160%) rotate(20deg)}100%{transform:translateX(420%) rotate(20deg)}}
-@keyframes vg-ticker{to{transform:translateY(-50%)}}
-@keyframes vg-pop{0%,10%{opacity:0;transform:translateY(16px) scale(.94)}16%,78%{opacity:1;transform:none}86%,100%{opacity:0;transform:translateY(-8px) scale(.97)}}
-[data-par]{animation:vg-float 7s ease-in-out infinite}
-[data-par="b"]{animation-delay:-3.5s}
-[data-tile]:hover [data-tile-dot]{transform:scale(1.4)}
-[data-card]:hover [data-sweep]{transform:scaleX(1)}
-[data-card]:hover [data-halo]{opacity:1}
-@supports (animation-timeline: view()){
-[data-reveal="2"]{animation-range:entry 10% entry 60%}
-[data-reveal="zoom"]{animation:vg-zoom linear both;animation-timeline:view();animation-range:entry 0% entry 55%}
-[data-stagger]>*:nth-child(4n+2){animation-range:entry 8% entry 55%}
-[data-stagger]>*:nth-child(4n+3){animation-range:entry 16% entry 62%}
-[data-stagger]>*:nth-child(4n){animation-range:entry 24% entry 70%}
-[data-tilt]{animation:vg-tilt linear both;animation-timeline:view();animation-range:cover 0% cover 55%}
-[data-count]{animation:vg-count linear both;animation-timeline:view();animation-range:entry 10% cover 40%}
-[data-par="a"]{animation:vg-parA linear both,vg-float 7s ease-in-out infinite;animation-timeline:view(),auto}
-[data-par="b"]{animation:vg-parB linear both,vg-float 7s -3.5s ease-in-out infinite;animation-timeline:view(),auto}
-[data-line]{transform-origin:left;animation:vg-line linear both;animation-timeline:view();animation-range:entry 30% cover 45%}
-[data-progress]{animation:vg-progress linear both;animation-timeline:scroll(root)}
-[data-nav]{animation:vg-nav linear both;animation-timeline:scroll(root);animation-range:0 240px}
-}
-@media (max-width:1000px){[data-radar-label]{display:none}}
-@media (prefers-reduced-motion:reduce){*{animation:none!important}}
-
-/* ---- Added for the website. Everything above is the design's own <style>, unchanged. ---- */
+/* ---- The website's own rules. The design's CSS is in design-pc.css and design-phone.css,
+   generated by tools/build_website.mjs and each loaded only at its own width. ---- */
 
 /* the form and thank-you carry an inline display, which would otherwise beat [hidden] */
 [hidden]{display:none!important}
-/* a section link lands below the sticky header, not under it */
-section[id]{scroll-margin-top:72px}
+/* the design's conditions (menu, thank-you, contact bar, footer folds) become wrappers
+   that take no room of their own (contracts/page-hooks.md) */
+[data-if]{display:contents}
+[data-if][hidden]{display:none!important}
+
+/* ---- One page, two copies: the PC design from 600 px, the phone design below (research R1) */
+@media (width < 600px){.vg-pc{display:none!important}}
+@media (width >= 600px){.vg-ph{display:none!important}}
+/* the phone design's page colour, now that it fills the screen instead of a 430 px frame */
+@media (width < 600px){body{background:#f2f5f2}}
+
+/* a section link lands below the sticky header, not under it (the phone design sets its own) */
+.vg-pc section[id]{scroll-margin-top:84px}
 @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
 
-/* the design's style-hover and style-focus. An inline style beats a class, so every
-   declaration is !important, exactly as the design tool applies them */
-.h1:hover{color:#1f2b26!important}
-.h2:hover{color:#fff!important;transform:translateY(-1px)!important}
-.h3:hover{background:#285948!important;color:#fff!important;transform:translateY(-2px)!important;box-shadow:0 14px 34px rgba(51,112,91,.42)!important}
-.h4:hover{background:#fff!important;color:#1f2b26!important}
-.h5:hover{transform:translateY(-6px)!important;box-shadow:0 18px 40px rgba(30,42,36,.12)!important}
-.h6:hover{transform:translateY(-6px)!important;box-shadow:0 22px 50px rgba(30,42,36,.13)!important}
-.h7:hover{border-color:#5cae91!important;transform:translateX(6px)!important;box-shadow:0 0 0 4px rgba(92,174,145,.08),0 20px 40px rgba(0,0,0,.3)!important}
-.h8:hover{transform:translateY(-4px)!important;box-shadow:0 16px 36px rgba(30,42,36,.12)!important}
-.h9:hover{transform:translateY(-5px)!important;background:#fff!important;box-shadow:0 18px 40px rgba(30,42,36,.1)!important}
-.h10:hover{background:rgba(255,255,255,.14)!important;color:#fff!important;transform:translateX(4px)!important}
-.h11:hover{transform:translateY(-2px)!important;box-shadow:0 14px 30px rgba(22,28,25,.25)!important}
-.h12:hover{color:#10201a!important;transform:translateY(-2px)!important}
-.h13:hover{color:#fff!important}
-.f1:focus{border-color:#33705b!important;box-shadow:0 0 0 4px rgba(51,112,91,.14)!important}
-
 /* tool cards: the corner glow and bottom line have an inline opacity/transform that
-   would beat the design's hover rules above */
+   would beat the design's own hover rules */
 [data-card]:hover [data-sweep]{transform:scaleX(1)!important}
 [data-card]:hover [data-halo]{opacity:1!important}
 
-/* footer items with no page yet: dimmed, not links, with a small Soon tag */
+/* items with no page yet: dimmed, not links, with a small Soon tag */
 .soon{color:rgba(163,176,168,.55)!important;cursor:default}
-.soon small{display:inline-block;margin-left:6px;padding:2px 6px;border-radius:5px;background:#2e3933;color:#a3b0a8;font-family:'Albert Sans',system-ui,sans-serif;font-size:11px;font-weight:600;letter-spacing:.04em;line-height:1.3;vertical-align:2px}
+.soon small{display:inline-block;margin-inline-start:6px;padding:2px 6px;border-radius:5px;background:#2e3933;color:#a3b0a8;font-family:'Rubik',system-ui,sans-serif;font-size:11px;font-weight:600;letter-spacing:.04em;line-height:1.3;vertical-align:2px}
+/* decorative loops pause while their section is off screen (main.js sets .vg-offscreen on
+   narrow screens). [style*="infinite"] only matches an element's own inline loop; no
+   scroll-driven hook carries one, so none of them can be paused by this */
+.vg-offscreen [style*="infinite"]{animation-play-state:paused!important}
+/* "Send another message", after a confirmed send */
+.vg-again:hover{background:#f2f5f2!important}
 
 /* ---- Scroll animations where the browser has no scroll timelines (Firefox).
    main.js adds .vg-io to <html> only there, and never under reduced motion; then .vg-in to
@@ -122,20 +53,16 @@ section[id]{scroll-margin-top:72px}
 .vg-io [data-par="a"]{animation:vg-float 7s ease-in-out infinite}
 .vg-io [data-par="b"]{animation:vg-float 7s -3.5s ease-in-out infinite}
 
-/* ---- Narrow screens (measured at 390 and 360 px; spec P14-FR-003).
-   The header's four section links wrapped into a stack about 240 px tall that stuck over a
-   quarter of the screen. The same links are in the hero and the footer, so here they step
-   aside and "Contact us" moves to the right. The two-phone scene is 532 px wide: it shrinks
-   as one picture and gives back the height it no longer uses. ---- */
-@media (max-width:620px){
-header nav>div{display:none!important}
-header nav{gap:16px!important}
-header nav>a{white-space:nowrap}
-header nav>a:last-child{margin-left:auto}
-#mobile>div>[data-reveal="1"]{--s:.74;transform:scale(var(--s));transform-origin:50% 0;margin-bottom:calc(560px * (var(--s) - 1))}
+/* ---- Tablets (600–1079 px) get the PC design (spec P14-FR-024). Only what was measured
+   to overlap or push sideways is fixed here, each with the width it was seen at. ---- */
+/* Header, measured 27 Sep 2026: the four section links wrap in the middle column into a
+   stack — header 100 px tall at 768–900, 150 at 700, 237 at 600, sticky over a third of the
+   screen. Below 920 px they get a row of their own under the logo, on one line. Nothing
+   else overlapped at 600, 700, 768, 900 or 1024 (text boxes compared with animation off). */
+@media (width >= 600px) and (width < 920px){
+.vg-pc header nav{grid-template-columns:auto auto!important;justify-content:space-between!important;row-gap:8px!important;padding-bottom:12px!important}
+.vg-pc header nav>div:nth-child(2){grid-column:1/-1;grid-row:2;flex-wrap:nowrap!important;gap:24px!important}
 }
-@media (max-width:480px){#mobile>div>[data-reveal="1"]{--s:.56}}
-@media (max-width:380px){#mobile>div>[data-reveal="1"]{--s:.48}}
 
 /* ---- Inner pages (About us, Security, Help centre): the home page's colours, fonts and
    cards, laid out for reading. Not in the design; built from its tokens. ---- */
@@ -152,252 +79,15 @@ header nav>a:last-child{margin-left:auto}
 .pg-card p{font-size:17px;line-height:1.65;color:#57655d;margin:0 0 10px;text-wrap:pretty}
 .pg-card p:last-child,.pg-card ul:last-child{margin-bottom:0}
 .pg-card ul{list-style:none;padding:0;margin:4px 0 10px;display:flex;flex-direction:column;gap:9px}
-.pg-card li{position:relative;padding-left:22px;font-size:17px;line-height:1.55;color:#57655d}
-.pg-card li::before{content:"";position:absolute;left:3px;top:.62em;width:7px;height:7px;border-radius:50%;background:#5cae91}
+.pg-card li{position:relative;padding-inline-start:22px;font-size:17px;line-height:1.55;color:#57655d}
+.pg-card li::before{content:"";position:absolute;inset-inline-start:3px;top:.62em;width:7px;height:7px;border-radius:50%;background:#5cae91}
 .pg-card a{color:#33705b;font-weight:600;text-decoration:underline;text-underline-offset:2px}
 .pg-card [data-line]{position:absolute;left:0;right:0;top:0;height:3px;background:linear-gradient(90deg,#33705b,#5cae91)}
 .pg-updated{font-family:'JetBrains Mono',monospace;font-size:13px;color:#8a968e;margin-top:10px}
 @media (max-width:520px){.pg-card{padding:22px}.pg-intro{font-size:18px}}
 #ask{scroll-margin-top:84px}
-
-/* ================= PHONE ONLY — appended to the end of styles.css =================
-   Every rule below lives inside a media query of max-width:900px or narrower (the
-   existing 620/480/380 steps, plus one new 900px step for scroll-animation timing and
-   cost), so the 1024/1200/1440px desktop fingerprint is untouched by construction.
-   Ordered widest media query to narrowest. */
-
-@media (max-width:900px){
-
-  /* -- Native scroll reveals: finish within roughly 120-220px of entering, regardless of
-     the block's own height, instead of a percentage of it. Fixes the hero column, honest
-     text, sources, mobile text, trust wrapper and contact wrapper sitting half-faded while
-     already being read, and the hero painting mid-fade on first load. Longhand override
-     (animation-range only), so the animation-name/animation-timeline set above in this
-     file keep working; scoped in @supports so a browser without scroll-timelines is
-     untouched here (its fallback timing is fixed separately, in main.js, below). -- */
-  @supports (animation-timeline: view()){
-    [data-reveal],[data-reveal="2"]{animation-range:entry 0px entry 160px}
-    [data-reveal="zoom"]{animation-range:entry 0px entry 180px}
-    [data-stagger]>*:nth-child(4n+2){animation-range:entry 20px entry 180px}
-    [data-stagger]>*:nth-child(4n+3){animation-range:entry 40px entry 200px}
-    [data-stagger]>*:nth-child(4n){animation-range:entry 60px entry 220px}
-    [data-tilt]{animation-range:cover 0px cover 200px}
-    [data-count]{animation-range:entry 0px entry 180px}
-    [data-line]{animation-range:entry 0px entry 160px}
-  }
-
-  /* HONEST BY DESIGN: below 900px (the section already goes single-column under ~944px)
-     the 820px radar was absolutely centred on the section's own height and painted
-     straight through the text column. Taking it out of absolute flow lets it render in
-     its own space above the text instead — it is already #honest's 2nd child in the
-     markup, so no reordering is needed. Only its PAINT is scaled (transform), so every
-     %-based ring/blip inside keeps the design's exact proportions and keeps sweeping.
-     Hook: data-radar-wrap="1" (markup edit). */
-  #honest>[data-radar-wrap]{
-    position:relative!important;
-    top:auto!important;
-    right:auto!important;
-    margin-top:0!important;
-    left:50%;
-    transform:translateX(-50%) scale(.5);
-    transform-origin:50% 0;
-    margin-bottom:calc(820px * (.5 - 1));
-  }
-
-  /* Pause decorative infinite loops while their section is off screen (main.js adds
-     .vg-offscreen to header/section/footer). [style*="infinite"] only matches an element's
-     OWN inline animation; no scroll-driven hook (data-reveal/count/line/tilt/par/progress/
-     nav) carries one, so none of them can be paused by this. */
-  .vg-offscreen [style*="infinite"]{animation-play-state:paused!important}
-
-  /* Layout/paint-heavy keyframes swapped for transform/opacity look-alikes. Longhand
-     animation-name overrides only (never the animation shorthand) on elements that carry
-     their own per-instance animation-delay inline, so the existing stagger never resets. */
-
-  /* vg-scan animates `top` (layout) across the 4 hero camera tiles. left/right/height stay
-     percentages so every breakpoint keeps the same beam height; only the vertical travel
-     moves to `transform` (compositor-only). 433.333% = 130% travel / 30% beam height * 100,
-     so it lands correctly at any tile size. Hook: data-scan="1" (markup edit, 4x). */
-  [data-scan]{top:-20%;animation-name:vg-scan-t!important}
-  @keyframes vg-scan-t{0%{transform:translateY(0)}100%{transform:translateY(433.333%)}}
-
-  /* backdrop-filter cost: the sticky header re-blurs on every scroll frame; the honest-
-     section cards (.h7) re-blur whenever anything moves behind them. Smaller radius,
-     same frosted-glass read, cheaper sampling kernel. */
-  header[data-nav]{backdrop-filter:blur(8px)!important;-webkit-backdrop-filter:blur(8px)!important}
-  .h7{backdrop-filter:blur(5px)!important;-webkit-backdrop-filter:blur(5px)!important}
-
-}
-
-@media (max-width:900px) and (prefers-reduced-motion:reduce){
-  /* The site-wide `*{animation:none!important}` rule further up this file (a) is not
-     guaranteed to reach ::before/::after — resets separately write `*::before,*::after`
-     for exactly this reason — and (b) loses the `animation-name` longhand to any
-     higher-specificity !important rule on that same longhand, since importance ties are
-     broken by specificity and `*` has none. Both gaps are closed here, scoped to only
-     what changed above. */
-  [data-scan]{animation:none!important}
-}
-
-@media (max-width:620px){
-  /* ---- HEADER: a touch tighter so the wordmark and Contact us never crowd. The gap
-     stays the existing 16px set in the P14-FR-003 block above — not re-declared here,
-     so the two rules don't fight over the same property. ---- */
-  header nav{padding:12px 20px!important}
-  header nav>a:last-child{padding:13px 18px!important}
-
-  /* ---- HERO: cut the air, not the words ---- */
-  #top{padding:20px 20px 32px!important}
-  #hero-grid{gap:28px!important}
-
-  #top h1{font-size:34px!important;line-height:1.12!important;margin:12px 0 12px!important}
-  #top p{font-size:16px!important;line-height:1.5!important;margin:0 0 18px!important;max-width:none!important}
-
-  #ask-box{padding:6px 6px 6px 14px!important;gap:8px!important}
-  #ask-box>div:first-child{font-size:15px!important}
-  #ask-box>div:last-child{padding:13px 18px!important;font-size:14px!important;white-space:nowrap!important}
-  #ask-box+div{margin-top:10px!important;font-size:14px!important;gap:6px!important}
-  #ask-box+div+div{margin-top:18px!important;flex-direction:column!important}
-  #ask-box+div+div>a{width:100%!important;box-sizing:border-box!important;text-align:center!important;display:block!important;padding:15px 22px!important}
-
-  /* ---- CAMERA WALL ---- */
-  [data-tilt]{padding:8px!important}
-
-  /* top-left camera name: ellipsis instead of running to/through the tile edge */
-  .tile-name{font-size:9px!important;max-width:calc(100% - 16px)!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important;padding:2px 5px!important}
-
-  /* detection tag: INSIDE the coloured box, bottom-left, instead of floating above it —
-     a box's bottom edge is always clear of the fixed top name-label band, and the tag can
-     no longer run past the tile's own edge (it used to, on the appearance-match tile) */
-  .tile-tag{top:auto!important;left:3px!important;bottom:3px!important;max-width:50px!important;white-space:normal!important;font-size:8px!important;line-height:1.15!important;padding:2px 4px!important;border-radius:4px!important}
-
-  /* toast + "Last seen" pill: out of absolute/overlapping entirely — plain stacked cards
-     below the camera box, in their existing source order */
-  [data-tilt]+div{position:static!important;display:flex!important;width:max-content!important;max-width:100%!important;margin:14px 0 0!important;left:auto!important;right:auto!important;top:auto!important;bottom:auto!important;padding:10px 12px!important;gap:10px!important}
-  [data-tilt]+div>div:first-child{width:30px!important;height:30px!important}
-  [data-tilt]+div+div{position:static!important;display:flex!important;width:max-content!important;max-width:100%!important;margin:10px 0 0!important;left:auto!important;right:auto!important;top:auto!important;bottom:auto!important;font-size:12px!important;padding:8px 11px!important}
-
-  /* ---- NUMBERS STRIP: 2x2 instead of 4 stacked rows ---- */
-  #stats-strip [data-reveal="1"]{grid-template-columns:repeat(2,1fr)!important;border-radius:14px!important}
-  #stats-strip [data-reveal="1"]>div{padding:18px 16px!important}
-  /* REVIEW: targeting [data-count] misses the 4th cell ("0 — made-up figures"), which
-     has no counter and so no data-count attribute — its number would have stayed at
-     the original 44px/17px while the other three shrank to 32px/14px, an inconsistent
-     2x2 grid. Targeted by position instead (every cell is exactly a number div then a
-     caption div), so all four cells match regardless of which ones animate. */
-  #stats-strip [data-reveal="1"]>div>div:first-child{font-size:32px!important}
-  #stats-strip [data-reveal="1"]>div>div:last-child{font-size:14px!important;margin-top:4px!important}
-
-  /* ---- SITES BAND: sized for a phone, marquee kept ---- */
-  #sites-band{padding:36px 0 0!important}
-  #sites-band>div:first-child{font-size:11px!important;padding:0 24px!important;margin-bottom:16px!important}
-  #sites-band [style*="padding:0 32px"]{padding:0 18px!important;font-size:19px!important;gap:10px!important}
-
-  /* ---- HOW IT WORKS: a real vertical timeline, not a sideways line above a stack of
-     cards. The 4 step cards already stack to one column at this width; the dashed line
-     and travelling light just didn't reach past card 1. ---- */
-  #how{padding:64px 20px 56px!important}
-  #how .vg-how-track{margin-top:40px!important}
-  #how [data-stagger="1"]{grid-template-columns:1fr!important;gap:20px!important}
-
-  /* the old horizontal dashed line only reads correctly above a row; hidden rather than
-     left running sideways above just the first card */
-  #how .vg-how-line{display:none!important}
-
-  /* the travelling light is kept — never removed — and repointed to run straight down
-     through the badges instead of across them. 46px = 24px card padding + half the
-     44px badge, so it lines up with the rail exactly. transform:translateY() instead of
-     the desktop version's `left`, so it doesn't force layout on a phone GPU. */
-  #how .vg-how-travel{left:42px!important;right:auto!important;top:0!important;width:10px!important;height:90px!important;margin-left:-5px!important;z-index:2;animation:vg-travel-v 4.5s cubic-bezier(.6,0,.4,1) infinite!important}
-  @keyframes vg-travel-v{0%{transform:translateY(0);opacity:0}10%,90%{opacity:1}100%{transform:translateY(calc(var(--how-h,900px) - 90px));opacity:0}}
-
-  /* the rail: one dashed segment per card (skipping the last), from this card's own
-     badge centre down past its own bottom edge and into the gap toward the next card.
-     REVIEW: the card itself was never made position:relative, so this ::after's only
-     positioned ancestor was the whole [data-stagger] grid — every card's segment was
-     anchoring to the SAME point near the top of the grid instead of its own badge.
-     Fixed by giving each card position:relative, so the pseudo-element is now
-     contained by the card it visually belongs to.
-     REVIEW: height:calc(100% + 28px) also could not resolve: a percentage height on an
-     absolutely positioned box computes as if 'auto' when its containing block's own
-     height is intrinsic (content-driven) — which every card's height is here — so the
-     segment would render at zero height even with the anchor fixed. Replaced the
-     percentage height with a fixed bottom offset (bottom:-28px, the row gap) so the
-     height instead comes from the top/bottom constraint against the card's own
-     resolved height, not an unresolvable percentage — still whatever height this
-     card's text made it, no JS measurement needed. */
-  /* each step card: badge in a 44px left column, title and text beside it, so the rail
-     runs down the empty space under the badge instead of through the words */
-  #how [data-stagger="1"]>div{position:relative;display:grid!important;grid-template-columns:44px 1fr;column-gap:16px;align-items:start;padding:20px!important}
-  #how [data-stagger="1"]>div>div:first-child{grid-row:1 / span 2}
-  #how [data-stagger="1"]>div>div:nth-child(2){margin:9px 0 6px!important;font-size:20px!important;line-height:1.3}
-  #how [data-stagger="1"]>div>div:nth-child(3){grid-column:2;font-size:16px!important}
-  /* the rail: from under this card's badge (20px padding + 44px badge + 4px) to this
-     card's bottom edge and across the 20px gap to the next card */
-  #how [data-stagger="1"]>div:not(:last-child)::after{content:"";position:absolute;left:41px;top:68px;width:2px;bottom:-20px;background-image:linear-gradient(180deg,#33705b 50%,transparent 50%);background-size:2px 12px;opacity:.5;pointer-events:none}
-
-  /* ---- TOOLS: comfortable cards, less wasted height ---- */
-  #tools{padding:56px 20px!important}
-  #tools>div>[data-reveal="1"]{flex-direction:column!important;align-items:flex-start!important;gap:20px!important}
-  #tools>div>[data-reveal="1"]>div:last-child{gap:10px!important}
-  #tools .q-chip{padding:10px 14px!important;font-size:15px!important;line-height:1.35!important}
-  #tools>div>[data-stagger="1"]{margin-top:28px!important}
-  #tools [data-card="1"]{padding:20px!important;min-height:0!important}
-  #tools [data-card="1"]>div:nth-child(2){margin:16px 0 6px!important}
-  #tools [data-card="1"]>div:nth-child(5){top:16px!important;right:16px!important}
-
-  /* ---- HONEST BY DESIGN: radar, next tier down from the 900px rule above ---- */
-  #honest>[data-radar-wrap]{transform:translateX(-50%) scale(.42);margin-bottom:calc(820px * (.42 - 1))}
-
-  /* ---- TRUST / CONTACT: the tall-wrapper reveal-timing fix lives in the sitewide
-     fixed-pixel rule at 900px above, which already covers both blocks — nothing to add
-     here for that. ---- */
-
-  /* ---- SECTION SPACING: the design's 110-120px bands read as empty screens on a phone ---- */
-  #honest{padding:64px 20px!important}
-  #mobile{padding:64px 20px 56px!important}
-  #trust{padding:8px 16px 64px!important}
-  #contact{padding:0 16px 64px!important}
-
-  /* ---- CONTACT ---- */
-  .cams-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:10px!important}
-  .cams-grid button{min-height:48px;font-size:16px!important}
-  .thanks-title{font-size:24px!important}
-
-  /* ---- FOOTER ---- */
-  /* two columns of link groups under a full-width brand block: 44px rows without a
-     1,700px footer */
-  .footer-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:32px 20px!important}
-  .footer-brand{grid-column:1 / -1!important}
-  .footer-links{gap:0!important}
-  .footer-links a,
-  .footer-links span.soon{display:flex;align-items:center;gap:8px;min-height:44px;font-size:17px!important}
-  .footer-bottom{flex-direction:column;align-items:flex-start!important;gap:16px!important}
-  .footer-meta{width:100%;gap:12px!important}
-  footer [aria-hidden="true"]{font-size:clamp(32px,12vw,72px)!important}
-}
-
-@media (max-width:620px) and (prefers-reduced-motion:reduce){
-  /* REVIEW: #how .vg-how-travel{animation:vg-travel-v ...!important} above carries an
-     ID in its selector (#how), giving it higher specificity than the sitewide
-     `*{animation:none!important}` reduced-motion reset in the main stylesheet —
-     importance ties break on specificity, so that reset was losing to this rule and
-     the travelling light kept animating under reduced motion below 620px. The
-     [data-scan] rule already has an equivalent
-     fix, correctly placed right after the block that enables them; this is the same
-     fix for the one hook that block didn't cover, placed after ITS enabling rule so it
-     wins the cascade the same way. */
-  #how .vg-how-travel{animation:none!important}
-}
-
-@media (max-width:480px){
-  #top h1{font-size:30px!important}
-  #ask-box{padding:6px 6px 6px 12px!important}
-  #ask-box>div:last-child{padding:12px 16px!important}
-  .tile-tag{max-width:44px!important;font-size:7.5px!important}
-  #honest>[data-radar-wrap]{transform:translateX(-50%) scale(.36);margin-bottom:calc(820px * (.36 - 1))}
-}
-
-@media (max-width:380px){
-  #honest>[data-radar-wrap]{transform:translateX(-50%) scale(.32);margin-bottom:calc(820px * (.32 - 1))}
-}
+/* the Help centre's question form: the same focus ring and button lift as the design's form */
+.pg-field:focus{border-color:#33705b!important;box-shadow:0 0 0 4px rgba(51,112,91,.14)!important}
+.pg-send:hover{transform:translateY(-2px)!important;box-shadow:0 14px 30px rgba(22,28,25,.25)!important}
+/* Arabic: the design turns letter-spacing off for Arabic script; the inner pages do too */
+[dir="rtl"] .pg-title,[dir="rtl"] .pg-card h2,[dir="rtl"] .pg-label{letter-spacing:0}

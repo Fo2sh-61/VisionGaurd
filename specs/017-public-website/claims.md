@@ -48,3 +48,38 @@ your pocket"; Light & dark; Email alerts; Needs your attention; Role-based acces
   it stays on the site while the count is this far off is Mohamed's call.
 - **Audit trail**: Mohamed asked for it to survive restarts, with a way to remove chosen
   entries. Once built, the Trust card can say more.
+
+## Reverted to the design's words, 27 Sep 2026 (spec 019, Mohamed's choice)
+
+The same day, Mohamed redesigned the website and chose, when asked, to use his design's
+words exactly. His new designs (`design/Visionguard website full design/`, Website v3 and
+Mobile, English and Arabic) carry the "Was" wording of the Changed table above. The
+rebuilt home page (`website/index.html`, `website/ar/index.html`), in both languages,
+therefore says again:
+
+- "With the clip attached."
+- "…and keeps the proof."
+- "Any building, any layout."
+- "Arrivals, alerts and sightings are kept with the video that proves them."
+- "208 — cameras on a single site"
+- "0 — guesses — every answer shows its footage"
+- "How many, anywhere" / "Live headcounts per floor, hall or lobby"
+- "Every detection is checked by a person before anyone is alerted."
+- "Describe the item and search the cameras you choose…"
+- "…with the next likely camera highlighted"
+- "Next camera" on the hero card
+- "Amber — waiting for human review"
+- "Arabic & English — Full right-to-left layout"
+- "Every action is recorded, so you always know who looked at what, and when."
+- "Full audit trail — Every search is recorded, so nothing happens unseen."
+- "Your retention rules — Footage is deleted on the schedule you choose."
+- "Right to be forgotten — Remove a person and every trace goes with them."
+- the footer's "Ask your cameras anything… and get the answer with the footage."
+
+The Tools heading "Ask in any language. It opens the right tool." is gone: the new design
+says "Our Services". The hero also gains a card the check never saw, "Face match ·
+verified". The evidence in the Changed table still holds. None of these sentences is
+backed by the product today; they are on the page by decision, not by check.
+
+About us, Security and Help centre keep their checked words, and their Arabic
+translations keep the same facts.

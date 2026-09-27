@@ -7,8 +7,10 @@
 <meta name="description" content="Answers to what people ask before they buy VisionGuard, and after.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Albert+Sans:wght@400;500;600;700;800&amp;family=Noto+Sans+Arabic:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&amp;family=Instrument+Serif:ital@0;1&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
 <link rel="icon" href="./assets/visionguard.ico">
+<link rel="stylesheet" href="design-pc.css" media="(width >= 600px)">
+<link rel="stylesheet" href="design-phone.css" media="(width < 600px)">
 <link rel="stylesheet" href="styles.css">
 <script src="main.js" defer></script>
 </head>
@@ -16,24 +18,57 @@
 
 <div style="min-height:100vh;overflow-x:clip">
 
-<header data-nav="1" style="position:sticky;top:0;z-index:50;background:rgba(242,245,242,.78);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid #e0e7e1">
-  <div data-progress="1" style="position:absolute;left:0;right:0;bottom:-1px;height:2px;background:linear-gradient(90deg,#33705b,#5cae91);transform-origin:left;transform:scaleX(0)"></div>
-  <nav style="max-width:1200px;margin:0 auto;padding:14px 28px;display:flex;align-items:center;gap:32px">
-    <a href="./" style="display:flex;align-items:center;gap:11px;color:#1f2b26">
-      <div style="width:34px;height:34px;border-radius:9px;background:#33705b;display:grid;place-items:center">
-        <div style="width:15px;height:13px;border-radius:6px 7px 6px 7px;background:#f2f5f2"></div>
-      </div>
-      <span style="font-weight:700;font-size:18px;letter-spacing:-.01em">VisionGuard</span>
+<!-- vg:header -->
+<header class="vg-pc" data-nav="1" style="position:sticky;top:0;z-index:50;background:rgba(251,252,250,.8);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)">
+  <div data-progress="1" style="position:absolute;left:0;right:0;bottom:0;height:2px;background:linear-gradient(90deg,#33705b,#5cae91);transform-origin:left;transform:scaleX(0)"></div>
+  <nav style="max-width:1200px;margin:0 auto;padding:16px 28px;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:24px">
+    <a href="./" style="display:flex;align-items:center;gap:10px;color:#1f2b26;justify-self:start">
+      <div style="width:32px;height:32px;border-radius:9px;background:#1f2b26;display:grid;place-items:center"><div style="width:14px;height:12px;border-radius:6px 7px 6px 7px;background:#5cae91"></div></div>
+      <span style="font-weight:800;font-size:20px;letter-spacing:-.02em">VisionGuard</span>
     </a>
-    <div style="display:flex;gap:26px;margin-left:auto;font-size:16px;font-weight:500;flex-wrap:wrap">
-      <a href="./#how" style="color:#57655d" class="h1">How it works</a>
-      <a href="./#tools" style="color:#57655d" class="h1">Tools</a>
-      <a href="./#honest" style="color:#57655d" class="h1">Honest by design</a>
-      <a href="./#mobile" style="color:#57655d" class="h1">Mobile</a>
+    <div style="display:flex;gap:30px;font-size:16px;font-weight:500;flex-wrap:wrap;justify-content:center">
+      <a href="./#how" style="color:#1f2b26" class="hp1">How it works</a>
+      <a href="./#tools" style="color:#1f2b26" class="hp1">Tools</a>
+      <a href="./#honest" style="color:#1f2b26" class="hp1">Honest by design</a>
+      <a href="./#mobile" style="color:#1f2b26" class="hp1">Mobile</a>
     </div>
-    <a href="./#contact" style="background:#1f2b26;color:#f2f5f2;padding:10px 18px;border-radius:10px;font-weight:600;font-size:14px;transition:transform .2s" class="h2">Contact us</a>
+    <div style="justify-self:end;display:flex;align-items:center;gap:18px"><a href="ar/help.html" style="color:#1f2b26;font-size:15px;font-weight:600;display:flex;align-items:center;gap:7px;white-space:nowrap;flex-shrink:0" class="hp1"><span style="width:18px;height:18px;border-radius:50%;border:1.5px solid currentColor;display:inline-block"></span>العربية</a><a href="./#contact" style="display:flex;align-items:center;gap:10px;white-space:nowrap;flex-shrink:0;background:#1f2b26;color:#fff;padding:12px 20px;border-radius:12px;font-weight:600;font-size:15px;box-shadow:0 6px 18px rgba(22,28,25,.18);transition:transform .2s,box-shadow .2s" class="hp2"><span style="width:7px;height:7px;border-radius:50%;background:#7cf0bf;animation:vg-pulse 2s infinite"></span>Contact us</a></div>
   </nav>
 </header>
+<header class="vg-ph" style="position:sticky;top:0;z-index:60;background:rgba(251,252,250,.88);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid rgba(30,42,36,.06)">
+  <div data-progress="1" style="position:absolute;left:0;right:0;bottom:-1px;height:2px;background:linear-gradient(90deg,#33705b,#5cae91);transform-origin:left;transform:scaleX(0)"></div>
+  <nav style="height:60px;padding:0 12px;display:flex;align-items:center;gap:10px">
+    <button data-on="click:toggleMenu" aria-label="Menu" style="flex-shrink:0;width:44px;height:44px;border:none;background:transparent;border-radius:11px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;cursor:pointer;padding:0">
+      <span style="width:20px;height:2px;border-radius:2px;background:#1f2b26;transition:transform .3s;transform:none"></span>
+      <span style="width:20px;height:2px;border-radius:2px;background:#1f2b26;transition:opacity .2s;opacity:1"></span>
+      <span style="width:20px;height:2px;border-radius:2px;background:#1f2b26;transition:transform .3s;transform:none"></span>
+    </button>
+    <a href="./" data-on="click:closeMenu" style="display:flex;align-items:center;gap:9px;color:#1f2b26;flex:1">
+      <div style="width:30px;height:30px;border-radius:9px;background:#1f2b26;display:grid;place-items:center"><div style="width:13px;height:11px;border-radius:6px 7px 6px 7px;background:#5cae91"></div></div>
+      <span style="font-weight:800;font-size:18px;letter-spacing:-.02em">VisionGuard</span>
+    </a>
+    <a href="./#m-contact" data-on="click:closeMenu" style="display:flex;align-items:center;gap:7px;background:#1f2b26;color:#fff;height:40px;padding:0 14px;border-radius:11px;font-weight:600;font-size:14px" class="hm1"><span style="width:6px;height:6px;border-radius:50%;background:#7cf0bf;animation:vg-pulse 2s infinite"></span>Contact</a>
+    
+  </nav>
+  <div data-if="menuOpen" style="display:contents" hidden>
+    <div style="position:absolute;left:0;right:0;top:60px;height:calc(100vh - 60px);background:#f2f5f2;padding:12px 20px 28px;display:flex;flex-direction:column;animation:vg-menu .3s cubic-bezier(.2,.8,.2,1) both">
+      
+        <a href="./#m-how" data-on="click:m.go" data-i="0" style="display:flex;align-items:center;justify-content:space-between;min-height:62px;border-bottom:1px solid #e0e7e1;color:#1f2b26;font-size:22px;font-weight:700;letter-spacing:-.01em"><span style="display:flex;align-items:baseline;gap:14px"><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#8a968e;font-weight:500">01</span>How it works</span><span style="color:#33705b;font-size:18px">→</span></a>
+      
+        <a href="./#m-tools" data-on="click:m.go" data-i="1" style="display:flex;align-items:center;justify-content:space-between;min-height:62px;border-bottom:1px solid #e0e7e1;color:#1f2b26;font-size:22px;font-weight:700;letter-spacing:-.01em"><span style="display:flex;align-items:baseline;gap:14px"><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#8a968e;font-weight:500">02</span>Tools</span><span style="color:#33705b;font-size:18px">→</span></a>
+      
+        <a href="./#m-honest" data-on="click:m.go" data-i="2" style="display:flex;align-items:center;justify-content:space-between;min-height:62px;border-bottom:1px solid #e0e7e1;color:#1f2b26;font-size:22px;font-weight:700;letter-spacing:-.01em"><span style="display:flex;align-items:baseline;gap:14px"><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#8a968e;font-weight:500">03</span>Honest by design</span><span style="color:#33705b;font-size:18px">→</span></a>
+      
+        <a href="./#m-mobile" data-on="click:m.go" data-i="3" style="display:flex;align-items:center;justify-content:space-between;min-height:62px;border-bottom:1px solid #e0e7e1;color:#1f2b26;font-size:22px;font-weight:700;letter-spacing:-.01em"><span style="display:flex;align-items:baseline;gap:14px"><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#8a968e;font-weight:500">04</span>Mobile</span><span style="color:#33705b;font-size:18px">→</span></a>
+      
+        <a href="./#m-contact" data-on="click:m.go" data-i="4" style="display:flex;align-items:center;justify-content:space-between;min-height:62px;border-bottom:1px solid #e0e7e1;color:#1f2b26;font-size:22px;font-weight:700;letter-spacing:-.01em"><span style="display:flex;align-items:baseline;gap:14px"><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#8a968e;font-weight:500">06</span>Contact</span><span style="color:#33705b;font-size:18px">→</span></a>
+      
+      <a href="./#m-contact" data-on="click:closeMenu" style="margin-top:24px;display:flex;align-items:center;justify-content:center;gap:10px;background:#1f2b26;color:#fff;min-height:54px;border-radius:14px;font-weight:700;font-size:17px" class="hm1">Talk to our team →</a>
+      <div style="margin-top:auto;display:flex;gap:4px;padding:4px;border-radius:12px;background:#e4eae5;align-self:flex-start"><span style="padding:9px 16px;border-radius:9px;background:#fff;color:#1f2b26;font-weight:600;font-size:15px">English</span><a href="ar/help.html" style="padding:9px 16px;border-radius:9px;color:#57655d;font-size:15px">العربية</a></div>
+    </div>
+  </div>
+</header>
+<!-- /vg:header -->
 
 <main>
 <section class="pg-hero">
@@ -51,20 +86,20 @@
         <form id="help-form" action="https://formsubmit.co/support@vision-guard.org" method="POST" style="display:flex;flex-direction:column;gap:16px;margin-top:6px">
           <input type="text" name="_honey" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px">
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:16px">
-            <label style="display:flex;flex-direction:column;gap:8px;font-size:15px;font-weight:600;color:#1f2b26">Your name<input required type="text" name="name" placeholder="Your name" style="padding:14px 16px;border-radius:10px;border:1px solid #d5ddd6;background:#fff;font:inherit;font-size:16px;font-weight:400;color:#1f2b26;outline:none;transition:border-color .2s,box-shadow .2s;width:100%" class="f1"></label>
-            <label style="display:flex;flex-direction:column;gap:8px;font-size:15px;font-weight:600;color:#1f2b26">Email<input required type="email" name="email" placeholder="you@company.com" style="padding:14px 16px;border-radius:10px;border:1px solid #d5ddd6;background:#fff;font:inherit;font-size:16px;font-weight:400;color:#1f2b26;outline:none;transition:border-color .2s,box-shadow .2s;width:100%" class="f1"></label>
+            <label style="display:flex;flex-direction:column;gap:8px;font-size:15px;font-weight:600;color:#1f2b26">Your name<input required type="text" name="name" placeholder="Your name" style="padding:14px 16px;border-radius:10px;border:1px solid #d5ddd6;background:#fff;font:inherit;font-size:16px;font-weight:400;color:#1f2b26;outline:none;transition:border-color .2s,box-shadow .2s;width:100%" class="pg-field"></label>
+            <label style="display:flex;flex-direction:column;gap:8px;font-size:15px;font-weight:600;color:#1f2b26">Email<input required type="email" name="email" placeholder="you@company.com" style="padding:14px 16px;border-radius:10px;border:1px solid #d5ddd6;background:#fff;font:inherit;font-size:16px;font-weight:400;color:#1f2b26;outline:none;transition:border-color .2s,box-shadow .2s;width:100%" class="pg-field"></label>
           </div>
-          <label style="display:flex;flex-direction:column;gap:8px;font-size:15px;font-weight:600;color:#1f2b26">Topic<select name="topic" style="padding:14px 16px;border-radius:10px;border:1px solid #d5ddd6;background:#fff;font:inherit;font-size:16px;font-weight:400;color:#1f2b26;outline:none;transition:border-color .2s,box-shadow .2s;width:100%;appearance:auto;cursor:pointer" class="f1"><option>Using VisionGuard</option><option>Cameras and setup</option><option>Accounts and signing in</option><option>Alerts</option><option>Security or privacy</option><option>Something else</option></select></label>
-          <label style="display:flex;flex-direction:column;gap:8px;font-size:15px;font-weight:600;color:#1f2b26">Your question<textarea required rows="5" name="question" placeholder="Tell us what you need help with." style="padding:14px 16px;border-radius:10px;border:1px solid #d5ddd6;background:#fff;font:inherit;font-size:16px;font-weight:400;color:#1f2b26;outline:none;transition:border-color .2s,box-shadow .2s;width:100%;resize:vertical" class="f1"></textarea></label>
-          <button type="submit" style="position:relative;overflow:hidden;padding:17px 24px;border-radius:12px;border:none;background:#1f2b26;color:#fff;font:inherit;font-weight:700;font-size:17px;cursor:pointer;transition:transform .2s,box-shadow .2s" class="h11"><span style="position:absolute;top:0;bottom:0;left:0;width:35%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.22),transparent);animation:vg-shine 4s 1s ease-in-out infinite;pointer-events:none"></span><span data-label style="position:relative">Send question</span></button>
-          <div id="help-failed" hidden role="alert" style="font-size:14px;color:#a5372c;line-height:1.5">Your question was not sent. Please email <a href="mailto:support@vision-guard.org" style="color:inherit;font-weight:600;text-decoration:underline">support@vision-guard.org</a> or call <a href="tel:+201002535081" style="color:inherit;font-weight:600;text-decoration:underline">+20 100 253 5081</a>.</div>
+          <label style="display:flex;flex-direction:column;gap:8px;font-size:15px;font-weight:600;color:#1f2b26">Topic<select name="topic" style="padding:14px 16px;border-radius:10px;border:1px solid #d5ddd6;background:#fff;font:inherit;font-size:16px;font-weight:400;color:#1f2b26;outline:none;transition:border-color .2s,box-shadow .2s;width:100%;appearance:auto;cursor:pointer" class="pg-field"><option>Using VisionGuard</option><option>Cameras and setup</option><option>Accounts and signing in</option><option>Alerts</option><option>Security or privacy</option><option>Something else</option></select></label>
+          <label style="display:flex;flex-direction:column;gap:8px;font-size:15px;font-weight:600;color:#1f2b26">Your question<textarea required rows="5" name="question" placeholder="Tell us what you need help with." style="padding:14px 16px;border-radius:10px;border:1px solid #d5ddd6;background:#fff;font:inherit;font-size:16px;font-weight:400;color:#1f2b26;outline:none;transition:border-color .2s,box-shadow .2s;width:100%;resize:vertical" class="pg-field"></textarea></label>
+          <button type="submit" style="position:relative;overflow:hidden;padding:17px 24px;border-radius:12px;border:none;background:#1f2b26;color:#fff;font:inherit;font-weight:700;font-size:17px;cursor:pointer;transition:transform .2s,box-shadow .2s" class="pg-send"><span style="position:absolute;top:0;bottom:0;left:0;width:35%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.22),transparent);animation:vg-shine 4s 1s ease-in-out infinite;pointer-events:none"></span><span data-label style="position:relative">Send question</span></button>
+          <div id="help-failed" data-failed hidden role="alert" style="font-size:14px;color:#a5372c;line-height:1.5">Your question was not sent. Please email <a href="mailto:support@vision-guard.org" style="color:inherit;font-weight:600;text-decoration:underline">support@vision-guard.org</a> or call <a href="tel:+201002535081" style="color:inherit;font-weight:600;text-decoration:underline">+20 100 253 5081</a>.</div>
           <div style="font-size:14px;color:#8a968e;line-height:1.5">Your question goes to our support inbox through FormSubmit. We use it only to answer you.</div>
         </form>
         <div id="help-sent" hidden style="display:flex;flex-direction:column;align-items:flex-start;gap:12px;padding:6px 0">
           <div style="width:48px;height:48px;border-radius:14px;background:#dfe9e0;display:grid;place-items:center;animation:vg-ring 2s ease-out infinite"><span style="width:14px;height:14px;border-radius:50%;background:#33705b"></span></div>
           <div style="font-size:24px;font-weight:800;letter-spacing:-.02em">Thank you — question received.</div>
           <p>We’ll reply to the email address you gave.</p>
-          <button type="button" data-again style="margin-top:6px;background:transparent;color:#1f2b26;padding:13px 20px;border-radius:12px;font:inherit;font-weight:600;font-size:16px;border:1px solid #c3ccc4;cursor:pointer;transition:background .2s" class="h4">Ask another question</button>
+          <button type="button" data-again class="vg-again" style="margin-top:6px;background:transparent;color:#1f2b26;padding:13px 20px;border-radius:12px;font:inherit;font-weight:600;font-size:16px;border:1px solid #c3ccc4;cursor:pointer;transition:background .2s">Ask another question</button>
         </div>
       </div>
       <div class="pg-card" data-reveal="1"><div data-line="1"></div>
@@ -119,28 +154,30 @@
 </section>
 </main>
 
-<footer style="background:#161c19;color:#a3b0a8;padding:96px 28px 0;position:relative;overflow:hidden">
+<!-- vg:footer -->
+<footer class="vg-pc" style="background:#161c19;color:#a3b0a8;padding:96px 28px 0;position:relative;overflow:hidden">
   <div style="position:absolute;left:0;right:0;top:0;height:1px;background:linear-gradient(90deg,transparent,rgba(92,174,145,.6),transparent)"></div>
   <div style="position:absolute;width:700px;height:700px;left:50%;top:-420px;margin-left:-350px;border-radius:50%;background:radial-gradient(circle,rgba(92,174,145,.16),transparent 65%);animation:vg-glow 10s ease-in-out infinite;pointer-events:none"></div>
   <div style="max-width:1200px;margin:0 auto;position:relative">
-    <div class="footer-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr));gap:48px 40px">
-      <div class="footer-brand" style="grid-column:span 2;min-width:0;display:flex;flex-direction:column;gap:22px;max-width:380px">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr));gap:48px 40px">
+      <div style="grid-column:span 2;min-width:0;display:flex;flex-direction:column;gap:22px;max-width:380px">
         <a href="./" style="display:flex;align-items:center;gap:12px;color:#fff">
           <div style="width:38px;height:38px;border-radius:10px;background:#5cae91;display:grid;place-items:center"><div style="width:16px;height:14px;border-radius:6px 7px 6px 7px;background:#161c19"></div></div>
           <span style="font-weight:700;font-size:20px;letter-spacing:-.01em">VisionGuard</span>
         </a>
-        <p style="margin:0;font-size:17px;line-height:1.6;color:#a3b0a8;text-wrap:pretty">AI vision for workplaces. Ask your cameras a question — in your own language — and get the answer, with footage when there is some.</p>
-        <a href="./#contact" style="align-self:flex-start;position:relative;overflow:hidden;background:#5cae91;color:#10201a;padding:14px 24px;border-radius:12px;font-weight:700;font-size:16px;transition:transform .2s" class="h12"><span style="position:absolute;top:0;bottom:0;left:0;width:35%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.4),transparent);animation:vg-shine 4s 2s ease-in-out infinite;pointer-events:none"></span><span style="position:relative">Contact us →</span></a>
+        <p style="margin:0;font-size:17px;line-height:1.6;color:#a3b0a8;text-wrap:pretty">AI vision for workplaces. Ask your cameras anything — in your own language — and get the answer with the footage.</p>
+        
+        <a href="./#contact" style="align-self:flex-start;position:relative;overflow:hidden;background:#5cae91;color:#10201a;padding:14px 24px;border-radius:12px;font-weight:700;font-size:16px;transition:transform .2s" class="hp12"><span style="position:absolute;top:0;bottom:0;left:0;width:35%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.4),transparent);animation:vg-shine 4s 2s ease-in-out infinite;pointer-events:none"></span><span style="position:relative">Contact us →</span></a>
       </div>
-      <div class="footer-links" style="display:flex;flex-direction:column;gap:14px"><div style="font-size:14px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#e4eae5">Product</div><a href="./#how" style="color:#a3b0a8;font-size:16px;transition:color .2s" class="h13">How it works</a><a href="./#tools" style="color:#a3b0a8;font-size:16px;transition:color .2s" class="h13">Tools</a><a href="./#honest" style="color:#a3b0a8;font-size:16px;transition:color .2s" class="h13">Honest by design</a><a href="./#mobile" style="color:#a3b0a8;font-size:16px;transition:color .2s" class="h13">Mobile app</a></div>
-      <div class="footer-links" style="display:flex;flex-direction:column;gap:14px"><div style="font-size:14px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#e4eae5">Solutions</div><span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px">Offices <small>Soon</small></span><span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px">Factories <small>Soon</small></span><span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px">Warehouses <small>Soon</small></span><span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px">Hospitals <small>Soon</small></span><span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px">Schools <small>Soon</small></span><span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px">Supermarkets <small>Soon</small></span><span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px">Retail &amp; malls <small>Soon</small></span></div>
-      <div class="footer-links" style="display:flex;flex-direction:column;gap:14px"><div style="font-size:14px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#e4eae5">Company</div><a href="about.html" style="color:#a3b0a8;font-size:16px;transition:color .2s" class="h13">About us</a><span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px">Careers <small>Soon</small></span><span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px">Partners <small>Soon</small></span><a href="./#contact" style="color:#a3b0a8;font-size:16px;transition:color .2s" class="h13">Contact sales</a></div>
-      <div class="footer-links" style="display:flex;flex-direction:column;gap:14px"><div style="font-size:14px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#e4eae5">Trust</div><a href="security.html" style="color:#a3b0a8;font-size:16px;transition:color .2s" class="h13">Security</a><span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px">Privacy policy <small>Soon</small></span><span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px">Terms of service <small>Soon</small></span><a href="help.html" style="color:#a3b0a8;font-size:16px;transition:color .2s" class="h13">Help centre</a></div>
+      <div style="display:flex;flex-direction:column;gap:14px"><div style="font-size:14px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#e4eae5">Product</div><a href="./#how" style="color:#a3b0a8;font-size:16px;transition:color .2s" class="hp13">How it works</a><a href="./#tools" style="color:#a3b0a8;font-size:16px;transition:color .2s" class="hp13">Tools</a><a href="./#honest" style="color:#a3b0a8;font-size:16px;transition:color .2s" class="hp13">Honest by design</a><a href="./#mobile" style="color:#a3b0a8;font-size:16px;transition:color .2s" class="hp13">Mobile app</a></div>
+      <div style="display:flex;flex-direction:column;gap:14px"><div style="font-size:14px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#e4eae5">Solutions</div><span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px;transition:color .2s">Offices <small>Soon</small></span><span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px;transition:color .2s">Schools <small>Soon</small></span><span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px;transition:color .2s">Supermarkets <small>Soon</small></span><span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px;transition:color .2s">Factories <small>Soon</small></span><span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px;transition:color .2s">Warehouses <small>Soon</small></span><span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px;transition:color .2s">Hospitals <small>Soon</small></span><span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px;transition:color .2s">Retail &amp; malls <small>Soon</small></span></div>
+      <div style="display:flex;flex-direction:column;gap:14px"><div style="font-size:14px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#e4eae5">Company</div><a href="about.html" style="color:#a3b0a8;font-size:16px;transition:color .2s" class="hp13">About us</a><span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px;transition:color .2s">Careers <small>Soon</small></span><span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px;transition:color .2s">Partners <small>Soon</small></span><a href="./#contact" style="color:#a3b0a8;font-size:16px;transition:color .2s" class="hp13">Contact sales</a></div>
+      <div style="display:flex;flex-direction:column;gap:14px"><div style="font-size:14px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#e4eae5">Trust</div><a href="security.html" style="color:#a3b0a8;font-size:16px;transition:color .2s" class="hp13">Security</a><span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px;transition:color .2s">Privacy policy <small>Soon</small></span><span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px;transition:color .2s">Terms of service <small>Soon</small></span><a href="help.html" style="color:#a3b0a8;font-size:16px;transition:color .2s" class="hp13">Help centre</a></div>
     </div>
-    <div class="footer-bottom" style="margin-top:72px;padding:26px 0;border-top:1px solid #2e3933;display:flex;justify-content:space-between;align-items:center;gap:20px;flex-wrap:wrap;font-size:15px">
+    <div style="margin-top:72px;padding:26px 0;border-top:1px solid #2e3933;display:flex;justify-content:space-between;align-items:center;gap:20px;flex-wrap:wrap;font-size:15px">
       <div>© 2026 VisionGuard. All rights reserved.</div>
-      <div class="footer-meta" style="display:flex;gap:24px;align-items:center;flex-wrap:wrap">
-        <div style="display:flex;gap:4px;padding:4px;border-radius:10px;background:#212a25"><span style="padding:6px 12px;border-radius:7px;background:#2a3d34;color:#e4eae5;font-weight:600">English</span><span class="soon" aria-disabled="true" style="padding:6px 12px;border-radius:7px;color:#a3b0a8;font-family:'Noto Sans Arabic',sans-serif">العربية <small>Soon</small></span></div>
+      <div style="display:flex;gap:24px;align-items:center;flex-wrap:wrap">
+        <div style="display:flex;gap:4px;padding:4px;border-radius:10px;background:#212a25"><span style="padding:6px 12px;border-radius:7px;background:#2a3d34;color:#e4eae5;font-weight:600">English</span><a href="ar/help.html" style="padding:6px 12px;border-radius:7px;color:#a3b0a8" class="hp13">العربية</a></div>
         <span class="soon" aria-disabled="true" style="color:#a3b0a8">LinkedIn <small>Soon</small></span>
         <span class="soon" aria-disabled="true" style="color:#a3b0a8">X <small>Soon</small></span>
         <span class="soon" aria-disabled="true" style="color:#a3b0a8">YouTube <small>Soon</small></span>
@@ -149,6 +186,101 @@
   </div>
   <div aria-hidden="true" style="position:relative;max-width:1300px;margin:0 auto;text-align:center;font-size:clamp(72px,16vw,230px);font-weight:800;letter-spacing:-.05em;line-height:.8;padding-top:10px;margin-bottom:-.12em;background:linear-gradient(90deg,#2a3d34,#5cae91 30%,#2a3d34 60%,#5cae91 85%,#2a3d34);background-size:300% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:vg-sheen 14s linear infinite;mask-image:linear-gradient(180deg,#000 30%,transparent 95%);-webkit-mask-image:linear-gradient(180deg,#000 30%,transparent 95%);user-select:none">VisionGuard</div>
 </footer>
+<footer class="vg-ph" style="background:#161c19;color:#a3b0a8;padding:56px 20px 96px;position:relative;overflow:hidden">
+  <div style="position:absolute;left:0;right:0;top:0;height:1px;background:linear-gradient(90deg,transparent,rgba(92,174,145,.6),transparent)"></div>
+  <div style="position:relative;display:flex;flex-direction:column;gap:18px">
+    <a href="./" style="display:flex;align-items:center;gap:10px;color:#fff">
+      <div style="width:34px;height:34px;border-radius:10px;background:#5cae91;display:grid;place-items:center"><div style="width:14px;height:12px;border-radius:6px 7px 6px 7px;background:#161c19"></div></div>
+      <span style="font-weight:700;font-size:19px">VisionGuard</span>
+    </a>
+    <p style="margin:0;font-size:15px;line-height:1.6">AI vision for workplaces. Ask your cameras anything — in your own language — and get the answer with the footage.</p>
+    
+  </div>
+  <div style="position:relative;margin-top:28px;border-top:1px solid #2e3933">
+    
+      <div style="border-bottom:1px solid #2e3933">
+        <button data-on="click:c.toggle" data-i="0" style="width:100%;min-height:56px;display:flex;align-items:center;justify-content:space-between;background:none;border:none;padding:0;cursor:pointer;color:#e4eae5;font:inherit;font-size:14px;font-weight:700;letter-spacing:.08em;text-transform:uppercase">Product<span style="font-size:20px;font-weight:400;color:#5cae91;transition:transform .3s;transform:none">+</span></button>
+        <div data-if="c.open" data-i="0" style="display:contents" hidden>
+          <div style="display:flex;flex-direction:column;padding:0 0 12px;animation:vg-menu .3s ease both">
+            
+              <a href="./#m-how" style="color:#a3b0a8;font-size:16px;min-height:44px;display:flex;align-items:center" class="hm1">How it works</a>
+            
+              <a href="./#m-tools" style="color:#a3b0a8;font-size:16px;min-height:44px;display:flex;align-items:center" class="hm1">Tools</a>
+            
+              <a href="./#m-honest" style="color:#a3b0a8;font-size:16px;min-height:44px;display:flex;align-items:center" class="hm1">Honest by design</a>
+            
+              <a href="./#m-mobile" style="color:#a3b0a8;font-size:16px;min-height:44px;display:flex;align-items:center" class="hm1">Mobile app</a>
+            
+          </div>
+        </div>
+      </div>
+    
+      <div style="border-bottom:1px solid #2e3933">
+        <button data-on="click:c.toggle" data-i="1" style="width:100%;min-height:56px;display:flex;align-items:center;justify-content:space-between;background:none;border:none;padding:0;cursor:pointer;color:#e4eae5;font:inherit;font-size:14px;font-weight:700;letter-spacing:.08em;text-transform:uppercase">Solutions<span style="font-size:20px;font-weight:400;color:#5cae91;transition:transform .3s;transform:none">+</span></button>
+        <div data-if="c.open" data-i="1" style="display:contents" hidden>
+          <div style="display:flex;flex-direction:column;padding:0 0 12px;animation:vg-menu .3s ease both">
+            
+              <span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px;min-height:44px;display:flex;align-items:center">Offices <small>Soon</small></span>
+            
+              <span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px;min-height:44px;display:flex;align-items:center">Schools <small>Soon</small></span>
+            
+              <span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px;min-height:44px;display:flex;align-items:center">Supermarkets <small>Soon</small></span>
+            
+              <span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px;min-height:44px;display:flex;align-items:center">Factories <small>Soon</small></span>
+            
+              <span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px;min-height:44px;display:flex;align-items:center">Warehouses <small>Soon</small></span>
+            
+              <span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px;min-height:44px;display:flex;align-items:center">Hospitals <small>Soon</small></span>
+            
+              <span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px;min-height:44px;display:flex;align-items:center">Retail &amp; malls <small>Soon</small></span>
+            
+          </div>
+        </div>
+      </div>
+    
+      <div style="border-bottom:1px solid #2e3933">
+        <button data-on="click:c.toggle" data-i="2" style="width:100%;min-height:56px;display:flex;align-items:center;justify-content:space-between;background:none;border:none;padding:0;cursor:pointer;color:#e4eae5;font:inherit;font-size:14px;font-weight:700;letter-spacing:.08em;text-transform:uppercase">Company<span style="font-size:20px;font-weight:400;color:#5cae91;transition:transform .3s;transform:none">+</span></button>
+        <div data-if="c.open" data-i="2" style="display:contents" hidden>
+          <div style="display:flex;flex-direction:column;padding:0 0 12px;animation:vg-menu .3s ease both">
+            
+              <a href="about.html" style="color:#a3b0a8;font-size:16px;min-height:44px;display:flex;align-items:center" class="hm1">About us</a>
+            
+              <span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px;min-height:44px;display:flex;align-items:center">Careers <small>Soon</small></span>
+            
+              <span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px;min-height:44px;display:flex;align-items:center">Partners <small>Soon</small></span>
+            
+              <a href="./#m-contact" style="color:#a3b0a8;font-size:16px;min-height:44px;display:flex;align-items:center" class="hm1">Contact sales</a>
+            
+          </div>
+        </div>
+      </div>
+    
+      <div style="border-bottom:1px solid #2e3933">
+        <button data-on="click:c.toggle" data-i="3" style="width:100%;min-height:56px;display:flex;align-items:center;justify-content:space-between;background:none;border:none;padding:0;cursor:pointer;color:#e4eae5;font:inherit;font-size:14px;font-weight:700;letter-spacing:.08em;text-transform:uppercase">Trust<span style="font-size:20px;font-weight:400;color:#5cae91;transition:transform .3s;transform:none">+</span></button>
+        <div data-if="c.open" data-i="3" style="display:contents" hidden>
+          <div style="display:flex;flex-direction:column;padding:0 0 12px;animation:vg-menu .3s ease both">
+            
+              <a href="security.html" style="color:#a3b0a8;font-size:16px;min-height:44px;display:flex;align-items:center" class="hm1">Security</a>
+            
+              <span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px;min-height:44px;display:flex;align-items:center">Privacy policy <small>Soon</small></span>
+            
+              <span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px;min-height:44px;display:flex;align-items:center">Terms of service <small>Soon</small></span>
+            
+              <a href="help.html" style="color:#a3b0a8;font-size:16px;min-height:44px;display:flex;align-items:center" class="hm1">Help centre</a>
+            
+          </div>
+        </div>
+      </div>
+    
+  </div>
+  <div style="position:relative;margin-top:24px;display:flex;flex-direction:column;gap:18px;font-size:14px">
+    <div style="display:flex;gap:4px;padding:4px;border-radius:10px;background:#212a25;align-self:flex-start"><span style="padding:8px 14px;border-radius:7px;background:#2a3d34;color:#e4eae5;font-weight:600">English</span><a href="ar/help.html" style="padding:8px 14px;border-radius:7px;color:#a3b0a8">العربية</a></div>
+    <div style="display:flex;gap:22px"><span class="soon" aria-disabled="true" style="color:#a3b0a8">LinkedIn <small>Soon</small></span><span class="soon" aria-disabled="true" style="color:#a3b0a8">X <small>Soon</small></span><span class="soon" aria-disabled="true" style="color:#a3b0a8">YouTube <small>Soon</small></span></div>
+    <div>© 2026 VisionGuard. All rights reserved.</div>
+  </div>
+  <div aria-hidden="true" style="position:relative;text-align:center;font-size:min(62px,calc((100vw - 40px) / 5.9));font-weight:800;letter-spacing:-.05em;line-height:1;padding:0 .06em .08em;white-space:nowrap;margin-top:36px;background:linear-gradient(90deg,#2a3d34,#5cae91 30%,#2a3d34 60%,#5cae91 85%,#2a3d34);background-size:300% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:vg-sheen 14s linear infinite;mask-image:linear-gradient(180deg,#000 55%,rgba(0,0,0,.35) 100%);-webkit-mask-image:linear-gradient(180deg,#000 55%,rgba(0,0,0,.35) 100%);user-select:none">VisionGuard</div>
+</footer>
+<!-- /vg:footer -->
 
 </div>
 
