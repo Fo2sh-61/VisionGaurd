@@ -158,3 +158,6 @@ header nav>a:last-child{margin-left:auto}
 .pg-card [data-line]{position:absolute;left:0;right:0;top:0;height:3px;background:linear-gradient(90deg,#33705b,#5cae91)}
 .pg-updated{font-family:'JetBrains Mono',monospace;font-size:13px;color:#8a968e;margin-top:10px}
 @media (max-width:520px){.pg-card{padding:22px}.pg-intro{font-size:18px}}
+.pg-ask{display:inline-flex;margin-top:24px;background:#33705b;color:#fff;padding:13px 22px;border-radius:12px;font-weight:700;font-size:16px;box-shadow:0 6px 20px rgba(51,112,91,.3);transition:all .25s}
+.pg-ask:hover{background:#285948;color:#fff;transform:translateY(-2px);box-shadow:0 14px 34px rgba(51,112,91,.42)}
+#ask{scroll-margin-top:84px}

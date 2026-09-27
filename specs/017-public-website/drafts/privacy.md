@@ -16,11 +16,11 @@ Draft for the owner to review — plain language, not legal advice, and not yet 
 
 ## Part 1 — This website
 
-vision-guard.org is a static website: three files and two pictures, with no server of its own. It is hosted on GitHub Pages, and it uses two outside services besides that: Google Fonts, to load its typefaces, and FormSubmit, to deliver the contact form. Visiting the site does not set a single cookie, and nothing on it tracks or analyses visitors.
+vision-guard.org is a static website: a handful of plain pages and two pictures, with no server of its own. It is hosted on GitHub Pages, and it uses two outside services besides that: Google Fonts, to load its typefaces, and FormSubmit, to deliver its two forms. Visiting the site does not set a single cookie, and nothing on it tracks or analyses visitors.
 
-When you use the 'Contact us' form, we collect what you type: your name, work email, company, phone (optional), the type of site you have, roughly how many cameras, and your message. A hidden field catches automated spam and collects nothing about you.
+When you use the 'Contact us' form, we collect what you type: your name, work email, company, phone (optional), the type of site you have, roughly how many cameras, and your message. When you use 'Ask us a question' in the Help centre, we collect your name, email, the topic you pick and your question. On both forms, a hidden field catches automated spam and collects nothing about you.
 
-When you press send, FormSubmit (formsubmit.co) sends your message toward sales@vision-guard.org, which is set up to forward to our team's Gmail inbox through ImprovMX. That forwarding is still being switched on: as of today a message is not guaranteed to reach us, and if the page cannot confirm it was sent, it says so plainly and gives you our email and phone number instead. The website itself keeps no copy of what you type, either way.
+When you press send, FormSubmit (formsubmit.co) sends your message toward sales@vision-guard.org (the contact form) or support@vision-guard.org (the Help centre form), each set up to forward to our team's Gmail inbox through ImprovMX. That forwarding is still being switched on: as of today a message is not guaranteed to reach us, and if the page cannot confirm it was sent, it says so plainly and gives you our email and phone number instead. The website itself keeps no copy of what you type, either way.
 
 - Hosting: GitHub Pages. Like any web host, GitHub sees the IP address of every visitor.
 - Fonts: loaded live from Google Fonts, so your browser also contacts Google when the page loads.

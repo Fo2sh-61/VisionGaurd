@@ -49,23 +49,17 @@
     });
   }));
 
-  // ---- Contact form: sends to the sales inbox through FormSubmit (contracts/contact-form.md).
-  // The thank-you shows only when FormSubmit confirms; anything else says "not sent".
-  const form = document.getElementById('contact-form');
-  const sent = document.getElementById('contact-sent');
-  const failed = document.getElementById('contact-failed');
-  const button = form && form.querySelector('button[type="submit"]');
-  const label = document.getElementById('send-label');
-  let sending = false;
-
-  async function send(fields) {
+  // ---- Forms send through FormSubmit (contracts/contact-form.md): the contact form to sales,
+  // the Help centre's question form to support. The thank-you shows only when FormSubmit
+  // confirms; anything else says "not sent" and keeps what was typed.
+  async function send(to, fields) {
     const abort = new AbortController();
     let timer;
     const late = new Promise((_, reject) => {
       timer = setTimeout(() => { abort.abort(); reject(new Error('no answer within 15 s')); }, 15000);
     });
     try {
-      const res = await Promise.race([late, fetch('https://formsubmit.co/ajax/sales@vision-guard.org', {
+      const res = await Promise.race([late, fetch('https://formsubmit.co/ajax/' + to, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify(fields),
@@ -82,7 +76,15 @@
     return false;
   }
 
-  if (form) {
+  function wire(id, to, fields) {
+    const form = document.getElementById(id);
+    if (!form) return;
+    const sent = document.getElementById(id.replace('-form', '-sent'));
+    const failed = document.getElementById(id.replace('-form', '-failed'));
+    const button = form.querySelector('button[type="submit"]');
+    const label = button.querySelector('[data-label]');
+    const idle = label.textContent;
+    let sending = false;
     form.addEventListener('submit', async e => {
       e.preventDefault(); // the browser's own required/email checks have already passed
       if (sending) return;
@@ -93,20 +95,7 @@
       failed.hidden = true;
       button.disabled = true;
       label.textContent = 'Sending…';
-      const on = camButtons.find(b => b.getAttribute('aria-pressed') === 'true');
-      const ok = await send({
-        name: f.name.value,
-        email: f.email.value,
-        company: f.company.value,
-        phone: f.phone.value,
-        site_type: f.site_type.value,
-        cameras: on ? on.dataset.cams : '',
-        message: f.message.value,
-        _subject: 'Website enquiry: ' + f.company.value,
-        _replyto: f.email.value,
-        _template: 'table',
-        _honey: '',
-      });
+      const ok = await send(to, { ...fields(f), _replyto: f.email.value, _template: 'table', _honey: '' });
       sending = false;
       if (ok) {
         form.hidden = true;
@@ -115,9 +104,31 @@
       }
       failed.hidden = false; // everything typed stays in the fields
       button.disabled = false;
-      label.textContent = 'Send message';
+      label.textContent = idle;
     });
   }
+
+  wire('contact-form', 'sales@vision-guard.org', f => {
+    const on = camButtons.find(b => b.getAttribute('aria-pressed') === 'true');
+    return {
+      name: f.name.value,
+      email: f.email.value,
+      company: f.company.value,
+      phone: f.phone.value,
+      site_type: f.site_type.value,
+      cameras: on ? on.dataset.cams : '',
+      message: f.message.value,
+      _subject: 'Website enquiry: ' + f.company.value,
+    };
+  });
+
+  wire('help-form', 'support@vision-guard.org', f => ({
+    name: f.name.value,
+    email: f.email.value,
+    topic: f.topic.value,
+    question: f.question.value,
+    _subject: 'Help centre: ' + f.topic.value,
+  }));
 
   // ---- Scroll animations where the browser has no scroll timelines (Firefox; research R4).
   // ?motion=fallback forces it, for testing in Chrome. Never under reduced motion, and the
