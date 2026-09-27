@@ -228,7 +228,7 @@ checks are:
   - from the design folder, only the four `.dc.html` files and `assets/`, together with the deletion of the old `design/Visionguard website design/` (Mohamed's rename)
 
   **Ask Mohamed before staging `uploads/`, `ref/`, `support.js` or `.thumbnail`.** Leave `dev.ps1`, `research/` and `specs/016-…` unstaged. Write a plain-sentence message with the Co-Authored-By line.
-- [ ] T037 Hand over to Mohamed, then stop. Ask him to:
+- [X] T037 Hand over to Mohamed, then stop. Ask him to:
   - read `arabic-review.md`;
   - look at the site by eye on a real phone (English and Arabic);
   - give the OK for one real send from `/ar/` (quickstart §6).
