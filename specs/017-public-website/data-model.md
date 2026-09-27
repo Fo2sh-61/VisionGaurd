@@ -11,7 +11,7 @@ the moment it is typed until the visitor leaves the page.
 | Work email | yes | a valid email address (browser's own check); also the reply-to address |
 | Company | yes | not blank |
 | Phone | no | free text |
-| Type of site | yes | one of: Office, Factory, Warehouse & logistics, Hospital & healthcare, Retail & malls, Other. Starts on Office |
+| Type of site | yes | one of: Office, Factory, Warehouse & logistics, Hospital & healthcare, School, Supermarket, Retail & malls, Other (School and Supermarket added 27 Sep 2026). Starts on Office |
 | Number of cameras | yes | exactly one of: Under 25, 25–100, 100–500, 500+. Starts on 25–100 |
 | How can we help? | no | free text, as designed (no `required` on the design's textarea) |
 | `_honey` | hidden | must stay empty; if it has anything in it, the message is not sent |
