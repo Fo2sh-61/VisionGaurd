@@ -38,6 +38,18 @@
     });
   }
 
+  // ---- #how timeline (phone): the travelling light's distance is measured, not guessed —
+  // card height depends on text length and viewport width, so a fixed translateY in the
+  // keyframe would drift out of step with the cards it's meant to run past. Skipped under
+  // reduced motion, since nothing there will animate it anyway.
+  const howTrack = document.querySelector('.vg-how-track');
+  if (howTrack && !reduced) {
+    const setHowHeight = () => howTrack.style.setProperty('--how-h', howTrack.offsetHeight + 'px');
+    setHowHeight();
+    addEventListener('resize', setHowHeight);
+    if (document.fonts) document.fonts.ready.then(setHowHeight).catch(() => {});
+  }
+
   // ---- Number of cameras: exactly one on (design: camOpts)
   const camButtons = [...document.querySelectorAll('[data-cams]')];
   const ON = { background: '#33705b', color: '#fff', borderColor: '#33705b' };
@@ -151,7 +163,7 @@
 
     const io = new IntersectionObserver(entries => entries.forEach(en => {
       if (en.isIntersecting) { en.target.classList.add('vg-in'); io.unobserve(en.target); }
-    }), { threshold: 0.15 });
+    }), { threshold: 0, rootMargin: '0px 0px -12% 0px' });
     document.querySelectorAll('[data-reveal],[data-count],[data-line],[data-tilt]').forEach(el => io.observe(el));
 
     // The three effects tied to the scroll position itself
@@ -182,5 +194,18 @@
     addEventListener('scroll', queue, { passive: true });
     addEventListener('resize', queue);
     update();
+  }
+
+  // ---- Pause decorative infinite loops while their section is off screen (phone perf).
+  // Only toggles a class on <section>/header/footer; the CSS side ([style*="infinite"] plus
+  // the data-scan/-type/-alert/-ring hooks, styles.css) decides which elements that class
+  // actually pauses, and it is written to skip every scroll-driven hook (data-reveal/count/
+  // line/tilt/par/progress/nav). Independent of whether the native or fallback reveal path
+  // is active.
+  if (!reduced && matchMedia('(max-width:900px)').matches && 'IntersectionObserver' in window) {
+    const sio = new IntersectionObserver(entries => entries.forEach(en => {
+      en.target.classList.toggle('vg-offscreen', !en.isIntersecting);
+    }), { rootMargin: '200px 0px 200px 0px', threshold: 0 });
+    document.querySelectorAll('header,section,footer').forEach(el => sio.observe(el));
   }
 })();
