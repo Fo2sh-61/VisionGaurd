@@ -76,7 +76,7 @@
     return false;
   }
 
-  function wire(id, to, fields) {
+  function wire(id, to, fields, fresh) {
     const form = document.getElementById(id);
     if (!form) return;
     const sent = document.getElementById(id.replace('-form', '-sent'));
@@ -106,6 +106,18 @@
       button.disabled = false;
       label.textContent = idle;
     });
+
+    // "Send another": the form comes back with who they are still filled in; only the
+    // message itself (`fresh`) starts empty.
+    const again = sent.querySelector('[data-again]');
+    if (again) again.addEventListener('click', () => {
+      form.elements[fresh].value = '';
+      button.disabled = false;
+      label.textContent = idle;
+      sent.hidden = true;
+      form.hidden = false;
+      form.elements[fresh].focus();
+    });
   }
 
   wire('contact-form', 'sales@vision-guard.org', f => {
@@ -120,7 +132,7 @@
       message: f.message.value,
       _subject: 'Website enquiry: ' + f.company.value,
     };
-  });
+  }, 'message');
 
   wire('help-form', 'support@vision-guard.org', f => ({
     name: f.name.value,
@@ -128,7 +140,7 @@
     topic: f.topic.value,
     question: f.question.value,
     _subject: 'Help centre: ' + f.topic.value,
-  }));
+  }), 'question');
 
   // ---- Scroll animations where the browser has no scroll timelines (Firefox; research R4).
   // ?motion=fallback forces it, for testing in Chrome. Never under reduced motion, and the
