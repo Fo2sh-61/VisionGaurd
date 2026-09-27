@@ -97,7 +97,7 @@ Numbered P14. The website is not yet a phase in `docs/PLAN.md` (see Assumptions)
 - **P14-FR-003**: The page MUST fit every width from a 360-pixel phone to a wide
   desktop without sideways scrolling, dropping to fewer columns as the design does.
 - **P14-FR-004**: The browser tab MUST show the VisionGuard icon and the title
-  "VisionGuard AI".
+  "VisionGuard" (Mohamed dropped "AI" from the name on 27 Sep 2026).
 
 **Motion — every animation in the design**
 
