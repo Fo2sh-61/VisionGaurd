@@ -76,3 +76,23 @@ python -m pytest engine
 The count must be the same as the baseline in `context.md` §4. The website touches
 no engine, console or phone file. `git status` shows only `website/` and this spec
 folder.
+
+## 7. Publish an update
+
+The live site is the public repo `Fo2sh-61/vision-guard-website` (GitHub Pages, custom
+domain vision-guard.org). It holds only the site: `index.html`, `styles.css`, `main.js`,
+`assets/`, plus `CNAME` and `.nojekyll`. `website/` in this repo stays the source.
+
+```powershell
+$d = Join-Path $env:TEMP "vg-site"; Remove-Item $d -Recurse -Force -ErrorAction SilentlyContinue
+gh repo clone Fo2sh-61/vision-guard-website $d
+Copy-Item website\* $d -Recurse -Force
+git -C $d add -A; git -C $d commit -m "Update the website"; git -C $d push
+```
+
+GitHub rebuilds in about a minute.
+
+**DNS at Spaceship** (set once): four `A` records on `@` — 185.199.108.153,
+185.199.109.153, 185.199.110.153, 185.199.111.153 — and a `CNAME` on `www` →
+`fo2sh-61.github.io`. The `MX` and `TXT` records belong to the ImprovMX email
+forwarding; leave them alone.
