@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>VisionGuard AI</title>
-<meta name="description" content="AI vision for workplaces. Ask your cameras anything — in your own language — and get the answer with the footage.">
+<meta name="description" content="AI vision for workplaces. Ask your cameras a question — in your own language — and get the answer, with footage when there is some.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Albert+Sans:wght@400;500;600;700;800&amp;family=Noto+Sans+Arabic:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
@@ -47,7 +47,7 @@
         Vision for any site with cameras
       </div>
       <h1 style="font-size:clamp(44px,6vw,76px);line-height:1.04;letter-spacing:-.035em;font-weight:800;margin:22px 0 20px;text-wrap:balance"><span style="display:inline-block;animation:vg-rise 1s cubic-bezier(.2,.8,.2,1) both">Ask your cameras.</span><br><span style="display:inline-block;padding-bottom:.08em;background:linear-gradient(90deg,#33705b,#5cae91 25%,#1f5a47 50%,#5cae91 75%,#33705b);background-size:300% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:vg-rise 1s .18s cubic-bezier(.2,.8,.2,1) both,vg-sheen 9s linear infinite">Get the footage.</span></h1>
-      <p style="font-size:21px;line-height:1.55;color:#57655d;max-width:560px;margin:0 0 32px;text-wrap:pretty">VisionGuard turns the surveillance cameras you already have — offices, factories, warehouses, hospitals, malls — into plain answers: who arrived, how busy it is, where a person went. With the clip attached.</p>
+      <p style="font-size:21px;line-height:1.55;color:#57655d;max-width:560px;margin:0 0 32px;text-wrap:pretty">VisionGuard turns the surveillance cameras you already have — offices, factories, warehouses, hospitals, malls — into plain answers: who arrived, how busy it is, where a person went. With the clip when there is one.</p>
       <div style="background:#fff;border-radius:14px;padding:8px 8px 8px 20px;display:flex;align-items:center;gap:12px;box-shadow:0 12px 40px rgba(30,42,36,.1),0 1px 3px rgba(30,42,36,.07);max-width:540px">
         <div style="flex:1;font-size:17px;color:#1f2b26;min-height:24px;display:flex;align-items:center;overflow:hidden;white-space:nowrap;font-family:'Albert Sans','Noto Sans Arabic',sans-serif"><span id="typed"></span><span style="display:inline-block;width:2px;height:20px;background:#33705b;margin-left:2px;animation:vg-caret 1s infinite"></span></div>
         <span id="lang" style="font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:500;color:#33705b;background:#dfe9e0;padding:4px 8px;border-radius:6px;white-space:nowrap;transition:opacity .3s">English</span>
@@ -96,7 +96,7 @@
             <div style="position:absolute;left:8px;bottom:7px;font-family:'JetBrains Mono',monospace;font-size:10px;color:#718076">camera feed</div>
             <div style="position:absolute;left:8px;top:7px;font-size:11px;font-weight:600;color:#e4eae5;background:rgba(22,28,25,.7);padding:3px 7px;border-radius:5px">Library east</div>
             <div style="position:absolute;left:30%;top:40%;width:16%;height:30%;border:2px solid #dfa23f;border-radius:4px;animation:vg-drift1 8s ease-in-out infinite">
-              <div style="position:absolute;left:-2px;top:-20px;white-space:nowrap;background:#dfa23f;color:#10201a;font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px 4px 4px 0">awaiting review</div>
+              <div style="position:absolute;left:-2px;top:-20px;white-space:nowrap;background:#dfa23f;color:#10201a;font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px 4px 4px 0">not identified</div>
             </div>
             <div style="position:absolute;left:0;right:0;height:30%;background:linear-gradient(180deg,rgba(92,174,145,0),rgba(92,174,145,.12),rgba(92,174,145,0));animation:vg-scan 3.6s linear infinite;animation-delay:-3s"></div>
           </div>
@@ -110,7 +110,7 @@
         </div>
       </div>
       <div style="position:absolute;right:-14px;top:-22px;background:#1f2b26;color:#e4eae5;border-radius:12px;padding:10px 14px;font-size:13px;font-weight:600;display:flex;gap:8px;align-items:center;box-shadow:0 12px 30px rgba(0,0,0,.25);animation:vg-float 6s ease-in-out infinite">
-        <span style="width:8px;height:8px;border-radius:50%;background:#5cae91"></span>Next camera: Library east
+        <span style="width:8px;height:8px;border-radius:50%;background:#5cae91"></span>Last seen: Library east
       </div>
     </div>
   </div>
@@ -119,10 +119,10 @@
 <!-- STATS STRIP -->
 <section style="padding:0 28px">
   <div data-reveal="1" style="max-width:1200px;margin:0 auto;display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1px;background:#e0e7e1;border:1px solid #e0e7e1;border-radius:18px;overflow:clip">
-    <div style="background:#fff;padding:28px 30px"><div data-count="1" style="font-size:44px;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums;--n:208;counter-reset:n var(--n)"></div><div style="color:#57655d;font-size:17px;margin-top:6px;line-height:1.4">cameras on a single site</div></div>
+    <div style="background:#fff;padding:28px 30px"><div data-count="1" style="font-size:44px;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums;--n:208;counter-reset:n var(--n)"></div><div style="color:#57655d;font-size:17px;margin-top:6px;line-height:1.4">cameras planned for our first site</div></div>
     <div style="background:#fff;padding:28px 30px"><div data-count="1" style="font-size:44px;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums;--n:3;counter-reset:n var(--n)"></div><div style="color:#57655d;font-size:17px;margin-top:6px;line-height:1.4">languages, mixed freely</div></div>
     <div style="background:#fff;padding:28px 30px"><div data-count="1" style="font-size:44px;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums;--n:7;counter-reset:n var(--n)"></div><div style="color:#57655d;font-size:17px;margin-top:6px;line-height:1.4">smart tools, one search box</div></div>
-    <div style="background:#fff;padding:28px 30px"><div style="font-size:44px;font-weight:800;letter-spacing:-.03em;color:#33705b">0</div><div style="color:#57655d;font-size:17px;margin-top:6px;line-height:1.4">guesses — every answer shows its footage</div></div>
+    <div style="background:#fff;padding:28px 30px"><div style="font-size:44px;font-weight:800;letter-spacing:-.03em;color:#33705b">0</div><div style="color:#57655d;font-size:17px;margin-top:6px;line-height:1.4">made-up figures — every answer is real data</div></div>
   </div>
 </section>
 
@@ -157,7 +157,7 @@
     <div data-reveal="1" style="max-width:680px">
       <div style="font-family:'JetBrains Mono',monospace;font-size:14px;color:#33705b;letter-spacing:.06em">01 — HOW IT WORKS</div>
       <h2 style="font-size:clamp(34px,4.4vw,52px);letter-spacing:-.03em;line-height:1.08;margin:14px 0 16px;font-weight:800;text-wrap:balance">From a wall of screens to one clear answer.</h2>
-      <p style="font-size:20px;color:#57655d;line-height:1.6;margin:0;text-wrap:pretty">VisionGuard watches every camera at once, notices what matters and keeps the proof. All you do is ask.</p>
+      <p style="font-size:20px;color:#57655d;line-height:1.6;margin:0;text-wrap:pretty">VisionGuard watches every camera at once, notices what matters and keeps a record. All you do is ask.</p>
     </div>
     <div style="position:relative;margin-top:64px">
       <div style="position:absolute;left:4%;right:4%;top:34px;height:2px;background-image:linear-gradient(90deg,#33705b 50%,transparent 50%);background-size:20px 2px;animation:vg-dash 1.2s linear infinite;opacity:.5"></div>
@@ -166,7 +166,7 @@
         <div data-reveal="1" style="background:#fff;border-radius:16px;padding:24px;box-shadow:0 1px 3px rgba(30,42,36,.07);transition:transform .3s,box-shadow .3s" class="h5">
           <div style="width:44px;height:44px;border-radius:12px;background:#33705b;color:#fff;display:grid;place-items:center;font-weight:800;font-size:17px;font-family:'JetBrains Mono',monospace;animation:vg-ring 2.4s ease-out infinite;animation-delay:0s">01</div>
           <div style="font-weight:700;font-size:22px;margin:20px 0 8px">Connect your cameras</div>
-          <div style="color:#57655d;font-size:17px;line-height:1.55">Works with the cameras you already have. Any building, any layout.</div>
+          <div style="color:#57655d;font-size:17px;line-height:1.55">Works with the cameras you already have. Add each one by its address.</div>
         </div>
         <div data-reveal="1" style="background:#fff;border-radius:16px;padding:24px;box-shadow:0 1px 3px rgba(30,42,36,.07);transition:transform .3s,box-shadow .3s" class="h5">
           <div style="width:44px;height:44px;border-radius:12px;background:#33705b;color:#fff;display:grid;place-items:center;font-weight:800;font-size:17px;font-family:'JetBrains Mono',monospace;animation:vg-ring 2.4s ease-out infinite;animation-delay:.6s">02</div>
@@ -176,12 +176,12 @@
         <div data-reveal="1" style="background:#fff;border-radius:16px;padding:24px;box-shadow:0 1px 3px rgba(30,42,36,.07);transition:transform .3s,box-shadow .3s" class="h5">
           <div style="width:44px;height:44px;border-radius:12px;background:#33705b;color:#fff;display:grid;place-items:center;font-weight:800;font-size:17px;font-family:'JetBrains Mono',monospace;animation:vg-ring 2.4s ease-out infinite;animation-delay:1.2s">03</div>
           <div style="font-weight:700;font-size:22px;margin:20px 0 8px">Moments are saved</div>
-          <div style="color:#57655d;font-size:17px;line-height:1.55">Arrivals, alerts and sightings are kept with the video that proves them.</div>
+          <div style="color:#57655d;font-size:17px;line-height:1.55">Arrivals and sightings are logged. Zone and knife alerts keep the video.</div>
         </div>
         <div data-reveal="1" style="background:#fff;border-radius:16px;padding:24px;box-shadow:0 1px 3px rgba(30,42,36,.07);transition:transform .3s,box-shadow .3s" class="h5">
           <div style="width:44px;height:44px;border-radius:12px;background:#33705b;color:#fff;display:grid;place-items:center;font-weight:800;font-size:17px;font-family:'JetBrains Mono',monospace;animation:vg-ring 2.4s ease-out infinite;animation-delay:1.8s">04</div>
           <div style="font-weight:700;font-size:22px;margin:20px 0 8px">You ask, it answers</div>
-          <div style="color:#57655d;font-size:17px;line-height:1.55">On desktop or phone, in English, Arabic, Franco or a mix.</div>
+          <div style="color:#57655d;font-size:17px;line-height:1.55">On desktop or phone — ask in English, Arabic, Franco or a mix.</div>
         </div>
       </div>
     </div>
@@ -194,7 +194,7 @@
     <div data-reveal="1" style="display:flex;justify-content:space-between;align-items:end;gap:32px;flex-wrap:wrap">
       <div style="max-width:620px">
         <div style="font-family:'JetBrains Mono',monospace;font-size:14px;color:#33705b;letter-spacing:.06em">02 — TOOLS</div>
-        <h2 style="font-size:clamp(34px,4.4vw,52px);letter-spacing:-.03em;line-height:1.08;margin:14px 0 0;font-weight:800;text-wrap:balance">Ask in any language. It opens the right tool.</h2>
+        <h2 style="font-size:clamp(34px,4.4vw,52px);letter-spacing:-.03em;line-height:1.08;margin:14px 0 0;font-weight:800;text-wrap:balance">Ask in your own words. It says what it understood.</h2>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;max-width:460px">
         <span style="background:#dfe9e0;color:#285948;padding:10px 16px;border-radius:10px;font-size:16px;font-weight:500;font-family:'Albert Sans','Noto Sans Arabic',sans-serif" dir="auto">Who was absent today?</span>
@@ -216,8 +216,8 @@
       <div data-reveal="1" data-card="1" style="position:relative;background:#fff;border-radius:18px;padding:28px;min-height:220px;display:flex;flex-direction:column;overflow:hidden;transition:transform .35s cubic-bezier(.2,.8,.2,1),box-shadow .35s" class="h6">
         <div style="display:inline-flex;align-self:flex-start;align-items:center;gap:7px;background:#dfe9e0;color:#33705b;padding:6px 11px;border-radius:7px;font-size:13px;font-weight:600"><span style="width:6px;height:6px;border-radius:50%;background:#33705b"></span>Live</div>
         <div style="font-size:26px;font-weight:700;letter-spacing:-.015em;margin:22px 0 6px">People counting</div>
-        <div style="color:#33705b;font-weight:600;font-size:17px">How many, anywhere</div>
-        <div style="color:#57655d;font-size:17px;line-height:1.55;margin-top:12px;text-wrap:pretty">Live headcounts per floor, hall or lobby, with history — know how busy it is before you walk over.</div>
+        <div style="color:#33705b;font-weight:600;font-size:17px">How many, right now</div>
+        <div style="color:#57655d;font-size:17px;line-height:1.55;margin-top:12px;text-wrap:pretty">Live headcounts for each area with a camera, with history — know how busy it is before you walk over.</div>
         <div style="position:absolute;right:22px;top:24px;font-family:'JetBrains Mono',monospace;font-size:12px;color:#8a968e">02</div>
         <div data-halo="1" style="position:absolute;width:260px;height:260px;right:-90px;top:-110px;border-radius:50%;background:radial-gradient(circle,rgba(92,174,145,.22),transparent 65%);opacity:0;transition:opacity .5s;pointer-events:none"></div>
         <div data-sweep="1" style="position:absolute;left:0;right:0;bottom:0;height:3px;background:linear-gradient(90deg,#33705b,#5cae91);transform:scaleX(0);transform-origin:left;transition:transform .6s cubic-bezier(.2,.8,.2,1)"></div>
@@ -235,7 +235,7 @@
         <div style="display:inline-flex;align-self:flex-start;align-items:center;gap:7px;background:#f7e3e0;color:#a5372c;padding:6px 11px;border-radius:7px;font-size:13px;font-weight:600"><span style="width:6px;height:6px;border-radius:50%;background:#a5372c"></span>Needs review</div>
         <div style="font-size:26px;font-weight:700;letter-spacing:-.015em;margin:22px 0 6px">Knife detection</div>
         <div style="color:#33705b;font-weight:600;font-size:17px">Human-reviewed, always</div>
-        <div style="color:#57655d;font-size:17px;line-height:1.55;margin-top:12px;text-wrap:pretty">Every detection is checked by a person before anyone is alerted.</div>
+        <div style="color:#57655d;font-size:17px;line-height:1.55;margin-top:12px;text-wrap:pretty">Every alert says unconfirmed until a person reviews it.</div>
         <div style="position:absolute;right:22px;top:24px;font-family:'JetBrains Mono',monospace;font-size:12px;color:#8a968e">04</div>
         <div data-halo="1" style="position:absolute;width:260px;height:260px;right:-90px;top:-110px;border-radius:50%;background:radial-gradient(circle,rgba(92,174,145,.22),transparent 65%);opacity:0;transition:opacity .5s;pointer-events:none"></div>
         <div data-sweep="1" style="position:absolute;left:0;right:0;bottom:0;height:3px;background:linear-gradient(90deg,#33705b,#5cae91);transform:scaleX(0);transform-origin:left;transition:transform .6s cubic-bezier(.2,.8,.2,1)"></div>
@@ -244,7 +244,7 @@
         <div style="display:inline-flex;align-self:flex-start;align-items:center;gap:7px;background:#f3ecd9;color:#8a6a14;padding:6px 11px;border-radius:7px;font-size:13px;font-weight:600"><span style="width:6px;height:6px;border-radius:50%;background:#8a6a14"></span>On demand</div>
         <div style="font-size:26px;font-weight:700;letter-spacing:-.015em;margin:22px 0 6px">Lost bag</div>
         <div style="color:#33705b;font-weight:600;font-size:17px">Look for it now</div>
-        <div style="color:#57655d;font-size:17px;line-height:1.55;margin-top:12px;text-wrap:pretty">Describe the item and search the cameras you choose, live, on demand.</div>
+        <div style="color:#57655d;font-size:17px;line-height:1.55;margin-top:12px;text-wrap:pretty">Pick a colour and see it outlined live on the cameras you choose.</div>
         <div style="position:absolute;right:22px;top:24px;font-family:'JetBrains Mono',monospace;font-size:12px;color:#8a968e">05</div>
         <div data-halo="1" style="position:absolute;width:260px;height:260px;right:-90px;top:-110px;border-radius:50%;background:radial-gradient(circle,rgba(92,174,145,.22),transparent 65%);opacity:0;transition:opacity .5s;pointer-events:none"></div>
         <div data-sweep="1" style="position:absolute;left:0;right:0;bottom:0;height:3px;background:linear-gradient(90deg,#33705b,#5cae91);transform:scaleX(0);transform-origin:left;transition:transform .6s cubic-bezier(.2,.8,.2,1)"></div>
@@ -253,7 +253,7 @@
         <div style="display:inline-flex;align-self:flex-start;align-items:center;gap:7px;background:#f3ecd9;color:#8a6a14;padding:6px 11px;border-radius:7px;font-size:13px;font-weight:600"><span style="width:6px;height:6px;border-radius:50%;background:#8a6a14"></span>Audited</div>
         <div style="font-size:26px;font-weight:700;letter-spacing:-.015em;margin:22px 0 6px">Track a person</div>
         <div style="color:#33705b;font-weight:600;font-size:17px">Always logged</div>
-        <div style="color:#57655d;font-size:17px;line-height:1.55;margin-top:12px;text-wrap:pretty">Follow someone across cameras, with the next likely camera highlighted. Every search is logged.</div>
+        <div style="color:#57655d;font-size:17px;line-height:1.55;margin-top:12px;text-wrap:pretty">Follow someone across cameras, with evidence at every stop. Every search is logged.</div>
         <div style="position:absolute;right:22px;top:24px;font-family:'JetBrains Mono',monospace;font-size:12px;color:#8a968e">06</div>
         <div data-halo="1" style="position:absolute;width:260px;height:260px;right:-90px;top:-110px;border-radius:50%;background:radial-gradient(circle,rgba(92,174,145,.22),transparent 65%);opacity:0;transition:opacity .5s;pointer-events:none"></div>
         <div data-sweep="1" style="position:absolute;left:0;right:0;bottom:0;height:3px;background:linear-gradient(90deg,#33705b,#5cae91);transform:scaleX(0);transform-origin:left;transition:transform .6s cubic-bezier(.2,.8,.2,1)"></div>
@@ -292,7 +292,7 @@
       <div style="display:flex;flex-direction:column;gap:14px">
         <div style="display:flex;gap:14px;align-items:center"><span style="width:28px;height:18px;border:2px solid #3ec776;border-radius:4px"></span><span style="font-size:18px"><b style="color:#3ec776">Green</b> — confirmed by face</span></div>
         <div style="display:flex;gap:14px;align-items:center"><span style="width:28px;height:18px;border:2px solid #5b9bd8;border-radius:4px"></span><span style="font-size:18px"><b style="color:#5b9bd8">Blue</b> — matched by appearance</span></div>
-        <div style="display:flex;gap:14px;align-items:center"><span style="width:28px;height:18px;border:2px solid #dfa23f;border-radius:4px"></span><span style="font-size:18px"><b style="color:#dfa23f">Amber</b> — waiting for human review</span></div>
+        <div style="display:flex;gap:14px;align-items:center"><span style="width:28px;height:18px;border:2px solid #dfa23f;border-radius:4px"></span><span style="font-size:18px"><b style="color:#dfa23f">Amber</b> — not yet identified</span></div>
       </div>
     </div>
     <div data-reveal="2" style="display:flex;flex-direction:column;gap:14px">
@@ -371,7 +371,7 @@
       <h2 style="font-size:clamp(34px,4.4vw,52px);letter-spacing:-.03em;line-height:1.08;margin:14px 0 18px;font-weight:800;text-wrap:balance">The whole console, in your pocket.</h2>
       <p style="font-size:20px;color:#57655d;line-height:1.6;margin:0 0 28px;text-wrap:pretty">Same question box, same tools, same data. Walk the floor and still know who’s missing, how busy the lobby is, and whether anything needs you.</p>
       <div data-stagger="1" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-        <div data-reveal="1" data-tile="1" style="position:relative;overflow:clip;background:#fff;border-radius:14px;padding:20px;transition:transform .3s,box-shadow .3s" class="h8"><div data-line="1" style="position:absolute;left:0;right:0;top:0;height:3px;background:linear-gradient(90deg,#33705b,#5cae91)"></div><div style="font-weight:700;font-size:18px;display:flex;align-items:center;gap:9px"><span data-tile-dot="1" style="width:8px;height:8px;border-radius:50%;background:#5cae91;transition:transform .3s;animation:vg-pulse 2.4s infinite"></span>Arabic &amp; English</div><div style="color:#57655d;font-size:16px;margin-top:4px;line-height:1.4">Full right-to-left layout</div></div>
+        <div data-reveal="1" data-tile="1" style="position:relative;overflow:clip;background:#fff;border-radius:14px;padding:20px;transition:transform .3s,box-shadow .3s" class="h8"><div data-line="1" style="position:absolute;left:0;right:0;top:0;height:3px;background:linear-gradient(90deg,#33705b,#5cae91)"></div><div style="font-weight:700;font-size:18px;display:flex;align-items:center;gap:9px"><span data-tile-dot="1" style="width:8px;height:8px;border-radius:50%;background:#5cae91;transition:transform .3s;animation:vg-pulse 2.4s infinite"></span>Ask in Arabic</div><div style="color:#57655d;font-size:16px;margin-top:4px;line-height:1.4">Arabic screens in review</div></div>
         <div data-reveal="1" data-tile="1" style="position:relative;overflow:clip;background:#fff;border-radius:14px;padding:20px;transition:transform .3s,box-shadow .3s" class="h8"><div data-line="1" style="position:absolute;left:0;right:0;top:0;height:3px;background:linear-gradient(90deg,#33705b,#5cae91)"></div><div style="font-weight:700;font-size:18px;display:flex;align-items:center;gap:9px"><span data-tile-dot="1" style="width:8px;height:8px;border-radius:50%;background:#5cae91;transition:transform .3s;animation:vg-pulse 2.4s infinite"></span>Light &amp; dark</div><div style="color:#57655d;font-size:16px;margin-top:4px;line-height:1.4">Easy on night shifts</div></div>
         <div data-reveal="1" data-tile="1" style="position:relative;overflow:clip;background:#fff;border-radius:14px;padding:20px;transition:transform .3s,box-shadow .3s" class="h8"><div data-line="1" style="position:absolute;left:0;right:0;top:0;height:3px;background:linear-gradient(90deg,#33705b,#5cae91)"></div><div style="font-weight:700;font-size:18px;display:flex;align-items:center;gap:9px"><span data-tile-dot="1" style="width:8px;height:8px;border-radius:50%;background:#5cae91;transition:transform .3s;animation:vg-pulse 2.4s infinite"></span>Email alerts</div><div style="color:#57655d;font-size:16px;margin-top:4px;line-height:1.4">Rules, recipients, a delivery log</div></div>
         <div data-reveal="1" data-tile="1" style="position:relative;overflow:clip;background:#fff;border-radius:14px;padding:20px;transition:transform .3s,box-shadow .3s" class="h8"><div data-line="1" style="position:absolute;left:0;right:0;top:0;height:3px;background:linear-gradient(90deg,#33705b,#5cae91)"></div><div style="font-weight:700;font-size:18px;display:flex;align-items:center;gap:9px"><span data-tile-dot="1" style="width:8px;height:8px;border-radius:50%;background:#5cae91;transition:transform .3s;animation:vg-pulse 2.4s infinite"></span>Needs your attention</div><div style="color:#57655d;font-size:16px;margin-top:4px;line-height:1.4">Only what matters, that’s all</div></div>
@@ -388,7 +388,7 @@
         <div>
           <div style="font-family:'JetBrains Mono',monospace;font-size:14px;color:#33705b;letter-spacing:.06em">05 — TRUST</div>
           <h2 style="font-size:clamp(30px,3.6vw,44px);letter-spacing:-.03em;line-height:1.1;margin:14px 0 12px;font-weight:800;text-wrap:balance">Built for places full of people.</h2>
-          <p style="margin:0;font-size:18px;line-height:1.6;color:#57655d;text-wrap:pretty">Every action is recorded, so you always know who looked at what, and when.</p>
+          <p style="margin:0;font-size:18px;line-height:1.6;color:#57655d;text-wrap:pretty">Searches and changes are logged, with who and when.</p>
         </div>
         <div style="border-radius:16px;background:#f5f8f5;border:1px solid #e0e7e1;padding:6px 18px 0;position:relative">
           <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 0 8px;font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#57655d"><span>Activity log</span><span style="display:flex;align-items:center;gap:7px;color:#33705b"><span style="width:7px;height:7px;border-radius:50%;background:#3ec776;animation:vg-pulse 1.6s infinite"></span>Recording</span></div>
@@ -407,20 +407,20 @@
         <div data-reveal="1" style="position:relative;overflow:clip;padding:24px 22px;border-radius:16px;background:#f5f8f5;border:1px solid #e0e7e1;transition:transform .3s,box-shadow .3s,background .3s" class="h9">
           <div data-line="1" style="position:absolute;left:0;right:0;top:0;height:3px;background:linear-gradient(90deg,#33705b,#5cae91)"></div>
           <div style="width:40px;height:40px;border-radius:11px;background:#dfe9e0;display:grid;place-items:center;margin-bottom:16px;animation:vg-ring 3s ease-out infinite;animation-delay:.75s"><span style="width:12px;height:12px;border-radius:4px;background:#33705b"></span></div>
-          <div style="font-weight:700;font-size:20px">Full audit trail</div>
-          <div style="color:#57655d;font-size:17px;line-height:1.55;margin-top:6px">Every search is recorded, so nothing happens unseen.</div>
+          <div style="font-weight:700;font-size:20px">Audit trail</div>
+          <div style="color:#57655d;font-size:17px;line-height:1.55;margin-top:6px">Every search is logged before results show.</div>
         </div>
         <div data-reveal="1" style="position:relative;overflow:clip;padding:24px 22px;border-radius:16px;background:#f5f8f5;border:1px solid #e0e7e1;transition:transform .3s,box-shadow .3s,background .3s" class="h9">
           <div data-line="1" style="position:absolute;left:0;right:0;top:0;height:3px;background:linear-gradient(90deg,#33705b,#5cae91)"></div>
           <div style="width:40px;height:40px;border-radius:11px;background:#dfe9e0;display:grid;place-items:center;margin-bottom:16px;animation:vg-ring 3s ease-out infinite;animation-delay:1.5s"><span style="width:12px;height:12px;border-radius:4px;background:#33705b"></span></div>
-          <div style="font-weight:700;font-size:20px">Your retention rules</div>
-          <div style="color:#57655d;font-size:17px;line-height:1.55;margin-top:6px">Footage is deleted on the schedule you choose.</div>
+          <div style="font-weight:700;font-size:20px">Automatic retention</div>
+          <div style="color:#57655d;font-size:17px;line-height:1.55;margin-top:6px">Footage is deleted after a set number of days.</div>
         </div>
         <div data-reveal="1" style="position:relative;overflow:clip;padding:24px 22px;border-radius:16px;background:#f5f8f5;border:1px solid #e0e7e1;transition:transform .3s,box-shadow .3s,background .3s" class="h9">
           <div data-line="1" style="position:absolute;left:0;right:0;top:0;height:3px;background:linear-gradient(90deg,#33705b,#5cae91)"></div>
           <div style="width:40px;height:40px;border-radius:11px;background:#dfe9e0;display:grid;place-items:center;margin-bottom:16px;animation:vg-ring 3s ease-out infinite;animation-delay:2.25s"><span style="width:12px;height:12px;border-radius:4px;background:#33705b"></span></div>
-          <div style="font-weight:700;font-size:20px">Right to be forgotten</div>
-          <div style="color:#57655d;font-size:17px;line-height:1.55;margin-top:6px">Remove a person and every trace goes with them.</div>
+          <div style="font-weight:700;font-size:20px">Remove anyone</div>
+          <div style="color:#57655d;font-size:17px;line-height:1.55;margin-top:6px">Their face data goes; recognition stops at once.</div>
         </div>
       </div>
     </div>
@@ -495,7 +495,7 @@
           <div style="width:38px;height:38px;border-radius:10px;background:#5cae91;display:grid;place-items:center"><div style="width:16px;height:14px;border-radius:6px 7px 6px 7px;background:#161c19"></div></div>
           <span style="font-weight:700;font-size:20px;letter-spacing:-.01em">VisionGuard AI</span>
         </a>
-        <p style="margin:0;font-size:17px;line-height:1.6;color:#a3b0a8;text-wrap:pretty">AI vision for workplaces. Ask your cameras anything — in your own language — and get the answer with the footage.</p>
+        <p style="margin:0;font-size:17px;line-height:1.6;color:#a3b0a8;text-wrap:pretty">AI vision for workplaces. Ask your cameras a question — in your own language — and get the answer, with footage when there is some.</p>
         <a href="#contact" style="align-self:flex-start;position:relative;overflow:hidden;background:#5cae91;color:#10201a;padding:14px 24px;border-radius:12px;font-weight:700;font-size:16px;transition:transform .2s" class="h12"><span style="position:absolute;top:0;bottom:0;left:0;width:35%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.4),transparent);animation:vg-shine 4s 2s ease-in-out infinite;pointer-events:none"></span><span style="position:relative">Contact us →</span></a>
       </div>
       <div style="display:flex;flex-direction:column;gap:14px"><div style="font-size:14px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#e4eae5">Product</div><a href="#how" style="color:#a3b0a8;font-size:16px;transition:color .2s" class="h13">How it works</a><a href="#tools" style="color:#a3b0a8;font-size:16px;transition:color .2s" class="h13">Tools</a><a href="#honest" style="color:#a3b0a8;font-size:16px;transition:color .2s" class="h13">Honest by design</a><a href="#mobile" style="color:#a3b0a8;font-size:16px;transition:color .2s" class="h13">Mobile app</a></div>
