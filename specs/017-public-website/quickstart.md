@@ -80,7 +80,8 @@ folder.
 ## 7. Publish an update
 
 The live site is the public repo `Fo2sh-61/vision-guard-website` (GitHub Pages, custom
-domain vision-guard.org). It holds only the site: `index.html`, `styles.css`, `main.js`,
+domain www.vision-guard.org since 27 Sep 2026; vision-guard.org forwards to it). The
+`CNAME` file holds `www.vision-guard.org`; GitHub manages it, so do not delete it. It holds only the site: `index.html`, `styles.css`, `main.js`,
 `assets/`, plus `CNAME` and `.nojekyll`. `website/` in this repo stays the source.
 
 ```powershell
