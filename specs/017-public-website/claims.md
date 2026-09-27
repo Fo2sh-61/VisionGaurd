@@ -42,7 +42,9 @@ your pocket"; Light & dark; Email alerts; Needs your attention; Role-based acces
 
 ## Open with Mohamed
 
-- **People counting accuracy**: STATUS says it over-counts (4–6 for one person).
-  Mohamed thinks that no longer happens; being checked.
+- **People counting accuracy**: checked 27 Sep 2026. It still over-counts: one person
+  reads 1–7 (2.5 on average) on the recorded clip, and an empty room reads 1–5 on three
+  frames in four. The card now reads "Live headcounts for each area with a camera"; whether
+  it stays on the site while the count is this far off is Mohamed's call.
 - **Audit trail**: Mohamed asked for it to survive restarts, with a way to remove chosen
   entries. Once built, the Trust card can say more.
