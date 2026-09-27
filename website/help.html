@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Help Centre — VisionGuard AI</title>
+<meta name="description" content="Answers to what people ask before they buy VisionGuard, and after.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Albert+Sans:wght@400;500;600;700;800&amp;family=Noto+Sans+Arabic:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+<link rel="icon" href="./assets/visionguard.ico">
+<link rel="stylesheet" href="styles.css">
+<script src="main.js" defer></script>
+</head>
+<body>
+
+<div style="min-height:100vh;overflow-x:clip">
+
+<header data-nav="1" style="position:sticky;top:0;z-index:50;background:rgba(242,245,242,.78);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid #e0e7e1">
+  <div data-progress="1" style="position:absolute;left:0;right:0;bottom:-1px;height:2px;background:linear-gradient(90deg,#33705b,#5cae91);transform-origin:left;transform:scaleX(0)"></div>
+  <nav style="max-width:1200px;margin:0 auto;padding:14px 28px;display:flex;align-items:center;gap:32px">
+    <a href="./" style="display:flex;align-items:center;gap:11px;color:#1f2b26">
+      <div style="width:34px;height:34px;border-radius:9px;background:#33705b;display:grid;place-items:center">
+        <div style="width:15px;height:13px;border-radius:6px 7px 6px 7px;background:#f2f5f2"></div>
+      </div>
+      <span style="font-weight:700;font-size:18px;letter-spacing:-.01em">VisionGuard AI</span>
+    </a>
+    <div style="display:flex;gap:26px;margin-left:auto;font-size:16px;font-weight:500;flex-wrap:wrap">
+      <a href="./#how" style="color:#57655d" class="h1">How it works</a>
+      <a href="./#tools" style="color:#57655d" class="h1">Tools</a>
+      <a href="./#honest" style="color:#57655d" class="h1">Honest by design</a>
+      <a href="./#mobile" style="color:#57655d" class="h1">Mobile</a>
+    </div>
+    <a href="./#contact" style="background:#1f2b26;color:#f2f5f2;padding:10px 18px;border-radius:10px;font-weight:600;font-size:14px;transition:transform .2s" class="h2">Contact us</a>
+  </nav>
+</header>
+
+<main>
+<section class="pg-hero">
+  <div class="pg-wrap" data-reveal="1">
+    <div class="pg-label">TRUST — HELP CENTRE</div>
+    <h1 class="pg-title">Help Centre</h1>
+    <p class="pg-intro">Answers to what people ask before they buy VisionGuard, and after. Everything below matches how the product works today, including the parts that are not finished yet.</p>
+  </div>
+</section>
+<section class="pg-body">
+  <div class="pg-wrap">
+      <div class="pg-card" data-reveal="1"><div data-line="1"></div>
+        <h2>Which cameras work, and how do I add one?</h2>
+        <p>VisionGuard works with the cameras and recorders you already have. An administrator adds a camera from the console by its address and turns on the features it needs — attendance, people counting, restricted zones, track a person, knife detection, lost bag, vehicle gate. It starts working without a restart.</p>
+        <p>Searching your network automatically for cameras is not built yet — you add each one by its address.</p>
+        <ul><li>IP camera or RTSP stream, added by address</li><li>Existing NVR or DVR recorder, added channel by channel — only the channels that actually answer get added</li><li>A plain webcam, for a quick single-entrance setup</li></ul>
+      </div>
+      <div class="pg-card" data-reveal="1"><div data-line="1"></div>
+        <h2>What languages can I ask in?</h2>
+        <p>Type your question the way you would say it — English, Arabic, Franco-Arabic (Arabic written in Latin letters), or a mix of these in one sentence. Ask always tells you what it understood before it answers.</p>
+        <p>The Arabic-language screens themselves — the menus and labels — are still an internal draft being checked, so for now the console and app stay in English even when your question was not.</p>
+      </div>
+      <div class="pg-card" data-reveal="1"><div data-line="1"></div>
+        <h2>Is there a phone app?</h2>
+        <p>Yes. It carries the same tools as the desktop console — a home summary, live cameras, attendance, tracking, the vehicle register — across five tabs: Home, Cameras, Tools, People and More. It is the same data and the same rules, laid out for a smaller screen.</p>
+        <p>It has been checked screen by screen on a simulated phone display, in light and dark, English and Arabic. It has not yet been tried on a real phone in someone's hand, so things like the on-screen keyboard covering a form, or a live camera over mobile data, are still unconfirmed.</p>
+      </div>
+      <div class="pg-card" data-reveal="1"><div data-line="1"></div>
+        <h2>How do alerts reach me?</h2>
+        <p>By email, and inside the console or phone app under "Needs your attention," where a guard can acknowledge it. An administrator decides who is on the list and which alerts they get. A knife detection sends one email when the entry opens, marked as not yet confirmed by a person, and a second once someone has reviewed it. Every message carries facts only — what, where, when, how sure, and who decided — never a name, a face or a photo.</p>
+        <p>WhatsApp and SMS alerts were tried and removed; email is what ships today. Arabic-speaking recipients currently get the English wording, since the Arabic version of alert messages has not been checked yet.</p>
+      </div>
+      <div class="pg-card" data-reveal="1"><div data-line="1"></div>
+        <h2>What happens when a camera goes offline?</h2>
+        <p>Its tile shows NO SIGNAL, and VisionGuard keeps trying to reconnect on its own — nobody needs to restart anything. Every other camera and feature keeps running. System Health lists which camera is down and why, instead of just looking fine while it is not.</p>
+      </div>
+      <div class="pg-card" data-reveal="1"><div data-line="1"></div>
+        <h2>How long is footage kept?</h2>
+        <p>It depends on the kind of record. Day-to-day sightings and attendance are logged as data, with no video attached. A restricted-zone entry keeps a video clip — each camera keeps its three most recent. A knife detection keeps its video for 30 days, but the entry itself, that it happened, when, and who reviewed it, stays in your history for good. A vehicle-gate pass keeps a photo and a close-up of the plate for 30 days, and the pass record is also kept for good.</p>
+        <p>Older footage played back through Track a person comes from your own recorder, so its retention is set by your recorder, not by VisionGuard.</p>
+      </div>
+      <div class="pg-card" data-reveal="1"><div data-line="1"></div>
+        <h2>Can a person be removed?</h2>
+        <p>Yes. An administrator can remove someone from People: their face data and profile are deleted and they stop being recognised immediately, with no restart needed, and the removal is logged first. Sightings recorded before the removal stay in the database, not visible on any page, until a full erasure feature, planned but not yet built, clears them completely.</p>
+      </div>
+      <div class="pg-card" data-reveal="1"><div data-line="1"></div>
+        <h2>Does anything I type ever leave the site?</h2>
+        <p>Camera footage and recognition run on a computer at your own site and stay there. Alert emails go out through Gmail with facts only, never a name, a face or a picture. And there is Ask: before your question goes anywhere, VisionGuard masks names and number plates on site, then sends the masked question to Google's Gemini, its free tier, to work out what you are asking. Gemini's terms let Google make use of what is submitted, and let human reviewers read it. A word Ask does not recognise, occasionally someone's name, is sent as typed; administrators can see exactly what was sent for any question.</p>
+      </div>
+      <div class="pg-card" data-reveal="1"><div data-line="1"></div>
+        <h2>What doesn't VisionGuard do yet?</h2>
+        <p>People counting works today but is not accurate yet. On a recorded test, one person alone in view was read as anywhere from one to seven, averaging around two and a half. Making it accurate is planned work, and we say so rather than hide it. Lost bag outlines a bag of the colour you pick, live, on the cameras you are watching, but keeps no history: nothing is recorded, so a bag taken before you opened the page cannot be found afterwards, and no alert is sent. And VisionGuard does not search your network for cameras on its own — you add each one by its address.</p>
+      </div>
+      <div class="pg-card" data-reveal="1"><div data-line="1"></div>
+        <h2>Still need help?</h2>
+        <p>Reach the team directly.</p>
+        <ul><li>Email: <a href="mailto:sales@vision-guard.org">sales@vision-guard.org</a></li><li>Phone and WhatsApp: <a href="tel:+201002535081">+20 100 253 5081</a></li><li>Hours: Sunday – Thursday, 9:00 – 18:00</li><li>For pricing or a walkthrough on your own cameras, contact us — we don't list prices here.</li></ul>
+      </div>
+    <div class="pg-updated">Last updated 27 September 2026</div>
+  </div>
+</section>
+</main>
+
+<footer style="background:#161c19;color:#a3b0a8;padding:96px 28px 0;position:relative;overflow:hidden">
+  <div style="position:absolute;left:0;right:0;top:0;height:1px;background:linear-gradient(90deg,transparent,rgba(92,174,145,.6),transparent)"></div>
+  <div style="position:absolute;width:700px;height:700px;left:50%;top:-420px;margin-left:-350px;border-radius:50%;background:radial-gradient(circle,rgba(92,174,145,.16),transparent 65%);animation:vg-glow 10s ease-in-out infinite;pointer-events:none"></div>
+  <div style="max-width:1200px;margin:0 auto;position:relative">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr));gap:48px 40px">
+      <div style="grid-column:span 2;min-width:0;display:flex;flex-direction:column;gap:22px;max-width:380px">
+        <a href="./" style="display:flex;align-items:center;gap:12px;color:#fff">
+          <div style="width:38px;height:38px;border-radius:10px;background:#5cae91;display:grid;place-items:center"><div style="width:16px;height:14px;border-radius:6px 7px 6px 7px;background:#161c19"></div></div>
+          <span style="font-weight:700;font-size:20px;letter-spacing:-.01em">VisionGuard AI</span>
+        </a>
+        <p style="margin:0;font-size:17px;line-height:1.6;color:#a3b0a8;text-wrap:pretty">AI vision for workplaces. Ask your cameras a question — in your own language — and get the answer, with footage when there is some.</p>
+        <a href="./#contact" style="align-self:flex-start;position:relative;overflow:hidden;background:#5cae91;color:#10201a;padding:14px 24px;border-radius:12px;font-weight:700;font-size:16px;transition:transform .2s" class="h12"><span style="position:absolute;top:0;bottom:0;left:0;width:35%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.4),transparent);animation:vg-shine 4s 2s ease-in-out infinite;pointer-events:none"></span><span style="position:relative">Contact us →</span></a>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:14px"><div style="font-size:14px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#e4eae5">Product</div><a href="./#how" style="color:#a3b0a8;font-size:16px;transition:color .2s" class="h13">How it works</a><a href="./#tools" style="color:#a3b0a8;font-size:16px;transition:color .2s" class="h13">Tools</a><a href="./#honest" style="color:#a3b0a8;font-size:16px;transition:color .2s" class="h13">Honest by design</a><a href="./#mobile" style="color:#a3b0a8;font-size:16px;transition:color .2s" class="h13">Mobile app</a></div>
+      <div style="display:flex;flex-direction:column;gap:14px"><div style="font-size:14px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#e4eae5">Solutions</div><span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px">Offices <small>Soon</small></span><span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px">Factories <small>Soon</small></span><span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px">Warehouses <small>Soon</small></span><span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px">Hospitals <small>Soon</small></span><span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px">Retail &amp; malls <small>Soon</small></span></div>
+      <div style="display:flex;flex-direction:column;gap:14px"><div style="font-size:14px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#e4eae5">Company</div><a href="about.html" style="color:#a3b0a8;font-size:16px;transition:color .2s" class="h13">About us</a><span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px">Careers <small>Soon</small></span><span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px">Partners <small>Soon</small></span><a href="./#contact" style="color:#a3b0a8;font-size:16px;transition:color .2s" class="h13">Contact sales</a></div>
+      <div style="display:flex;flex-direction:column;gap:14px"><div style="font-size:14px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#e4eae5">Trust</div><a href="security.html" style="color:#a3b0a8;font-size:16px;transition:color .2s" class="h13">Security</a><span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px">Privacy policy <small>Soon</small></span><span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px">Terms of service <small>Soon</small></span><a href="help.html" style="color:#a3b0a8;font-size:16px;transition:color .2s" class="h13">Help centre</a></div>
+    </div>
+    <div style="margin-top:72px;padding:26px 0;border-top:1px solid #2e3933;display:flex;justify-content:space-between;align-items:center;gap:20px;flex-wrap:wrap;font-size:15px">
+      <div>© 2026 VisionGuard AI. All rights reserved.</div>
+      <div style="display:flex;gap:24px;align-items:center;flex-wrap:wrap">
+        <div style="display:flex;gap:4px;padding:4px;border-radius:10px;background:#212a25"><span style="padding:6px 12px;border-radius:7px;background:#2a3d34;color:#e4eae5;font-weight:600">English</span><span class="soon" aria-disabled="true" style="padding:6px 12px;border-radius:7px;color:#a3b0a8;font-family:'Noto Sans Arabic',sans-serif">العربية <small>Soon</small></span></div>
+        <span class="soon" aria-disabled="true" style="color:#a3b0a8">LinkedIn <small>Soon</small></span>
+        <span class="soon" aria-disabled="true" style="color:#a3b0a8">X <small>Soon</small></span>
+        <span class="soon" aria-disabled="true" style="color:#a3b0a8">YouTube <small>Soon</small></span>
+      </div>
+    </div>
+  </div>
+  <div aria-hidden="true" style="position:relative;max-width:1300px;margin:0 auto;text-align:center;font-size:clamp(72px,16vw,230px);font-weight:800;letter-spacing:-.05em;line-height:.8;padding-top:10px;margin-bottom:-.12em;background:linear-gradient(90deg,#2a3d34,#5cae91 30%,#2a3d34 60%,#5cae91 85%,#2a3d34);background-size:300% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:vg-sheen 14s linear infinite;mask-image:linear-gradient(180deg,#000 30%,transparent 95%);-webkit-mask-image:linear-gradient(180deg,#000 30%,transparent 95%);user-select:none">VisionGuard</div>
+</footer>
+
+</div>
+
+</body>
+</html>

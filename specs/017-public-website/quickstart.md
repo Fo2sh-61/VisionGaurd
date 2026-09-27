@@ -23,7 +23,7 @@ const q = s => document.querySelectorAll(s);
   noSideScroll: document.documentElement.scrollWidth <= innerWidth,
   noDeadLinks: q('a[href="#"]').length === 0,
   noStatusPill: !document.body.textContent.includes('All systems operational'),
-  soonMarked: q('.soon').length === 16,          // 15 footer items + العربية
+  soonMarked: q('.soon').length === 13,          // 12 footer items + العربية (About us, Security, Help centre are pages since 27 Sep)
   mail: !!q('a[href="mailto:sales@vision-guard.org"]').length,
   phone: !!q('a[href="tel:+201002535081"]').length,
   whatsapp: !!q('a[href="https://wa.me/201002535081"]').length,

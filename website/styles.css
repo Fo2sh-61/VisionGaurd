@@ -136,3 +136,25 @@ header nav>a:last-child{margin-left:auto}
 }
 @media (max-width:480px){#mobile>div>[data-reveal="1"]{--s:.56}}
 @media (max-width:380px){#mobile>div>[data-reveal="1"]{--s:.52}}
+
+/* ---- Inner pages (About us, Security, Help centre): the home page's colours, fonts and
+   cards, laid out for reading. Not in the design; built from its tokens. ---- */
+.pg-hero{position:relative;padding:72px 28px 36px;overflow:clip}
+.pg-hero::before{content:"";position:absolute;inset:0;background-image:linear-gradient(#dde5de 1px,transparent 1px),linear-gradient(90deg,#dde5de 1px,transparent 1px);background-size:64px 64px;mask-image:radial-gradient(ellipse at 70% 20%,#000 10%,transparent 65%);-webkit-mask-image:radial-gradient(ellipse at 70% 20%,#000 10%,transparent 65%);pointer-events:none}
+.pg-wrap{max-width:780px;margin:0 auto;position:relative}
+.pg-label{font-family:'JetBrains Mono',monospace;font-size:14px;color:#33705b;letter-spacing:.06em}
+.pg-title{font-size:clamp(36px,5vw,56px);letter-spacing:-.03em;line-height:1.06;margin:14px 0 18px;font-weight:800;text-wrap:balance}
+.pg-intro{font-size:20px;line-height:1.6;color:#57655d;margin:0;text-wrap:pretty}
+.pg-body{padding:12px 28px 110px}
+.pg-body .pg-wrap{display:flex;flex-direction:column;gap:14px}
+.pg-card{position:relative;overflow:clip;background:#fff;border-radius:18px;padding:28px;box-shadow:0 1px 3px rgba(30,42,36,.07)}
+.pg-card h2{font-size:23px;font-weight:700;letter-spacing:-.015em;line-height:1.25;margin:0 0 10px}
+.pg-card p{font-size:17px;line-height:1.65;color:#57655d;margin:0 0 10px;text-wrap:pretty}
+.pg-card p:last-child,.pg-card ul:last-child{margin-bottom:0}
+.pg-card ul{list-style:none;padding:0;margin:4px 0 10px;display:flex;flex-direction:column;gap:9px}
+.pg-card li{position:relative;padding-left:22px;font-size:17px;line-height:1.55;color:#57655d}
+.pg-card li::before{content:"";position:absolute;left:3px;top:.62em;width:7px;height:7px;border-radius:50%;background:#5cae91}
+.pg-card a{color:#33705b;font-weight:600;text-decoration:underline;text-underline-offset:2px}
+.pg-card [data-line]{position:absolute;left:0;right:0;top:0;height:3px;background:linear-gradient(90deg,#33705b,#5cae91)}
+.pg-updated{font-family:'JetBrains Mono',monospace;font-size:13px;color:#8a968e;margin-top:10px}
+@media (max-width:520px){.pg-card{padding:22px}.pg-intro{font-size:18px}}
