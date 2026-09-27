@@ -51,6 +51,6 @@ We may update this page as the site or the product changes. The date at the top 
 
 ## Contact
 
-Questions about these terms: sales@vision-guard.org, or +20 100 253 5081 (also WhatsApp), Sunday to Thursday, 9:00 to 18:00.
+Questions about these terms: support@vision-guard.org, or +20 100 253 5081 (also WhatsApp), Sunday to Thursday, 9:00 to 18:00.
 
 *Last updated 27 September 2026*

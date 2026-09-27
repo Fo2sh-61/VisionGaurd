@@ -45,7 +45,7 @@ If the site includes people who are minors — for example, a school — the cus
 
 ## Questions or a request
 
-For anything about this policy, or about data this website holds, contact us at sales@vision-guard.org or +20 100 253 5081 (call or WhatsApp), Sunday–Thursday, 9:00–18:00.
+For anything about this policy, or about data this website holds, contact us at support@vision-guard.org or +20 100 253 5081 (call or WhatsApp), Sunday–Thursday, 9:00–18:00.
 
 If your data is held inside a VisionGuard installation — for example, you are an employee, student or visitor at a customer's site — that customer controls it, and is the right place to ask first.
 
