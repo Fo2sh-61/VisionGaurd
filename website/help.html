@@ -41,11 +41,31 @@
     <div class="pg-label">TRUST — HELP CENTRE</div>
     <h1 class="pg-title">Help Centre</h1>
     <p class="pg-intro">Answers to what people ask before they buy VisionGuard, and after. Everything below matches how the product works today, including the parts that are not finished yet.</p>
-    <a class="pg-ask" href="#ask">Can’t find your answer? Ask us a question →</a>
   </div>
 </section>
 <section class="pg-body">
   <div class="pg-wrap">
+      <div class="pg-card" id="ask" data-reveal="1"><div data-line="1"></div>
+        <h2>Ask us a question</h2>
+        <p>Write to the support team here and we’ll reply by email, Sunday to Thursday. Common questions are answered below.</p>
+        <form id="help-form" action="https://formsubmit.co/support@vision-guard.org" method="POST" style="display:flex;flex-direction:column;gap:16px;margin-top:6px">
+          <input type="text" name="_honey" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px">
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:16px">
+            <label style="display:flex;flex-direction:column;gap:8px;font-size:15px;font-weight:600;color:#1f2b26">Your name<input required type="text" name="name" placeholder="Your name" style="padding:14px 16px;border-radius:10px;border:1px solid #d5ddd6;background:#fff;font:inherit;font-size:16px;font-weight:400;color:#1f2b26;outline:none;transition:border-color .2s,box-shadow .2s;width:100%" class="f1"></label>
+            <label style="display:flex;flex-direction:column;gap:8px;font-size:15px;font-weight:600;color:#1f2b26">Email<input required type="email" name="email" placeholder="you@company.com" style="padding:14px 16px;border-radius:10px;border:1px solid #d5ddd6;background:#fff;font:inherit;font-size:16px;font-weight:400;color:#1f2b26;outline:none;transition:border-color .2s,box-shadow .2s;width:100%" class="f1"></label>
+          </div>
+          <label style="display:flex;flex-direction:column;gap:8px;font-size:15px;font-weight:600;color:#1f2b26">Topic<select name="topic" style="padding:14px 16px;border-radius:10px;border:1px solid #d5ddd6;background:#fff;font:inherit;font-size:16px;font-weight:400;color:#1f2b26;outline:none;transition:border-color .2s,box-shadow .2s;width:100%;appearance:auto;cursor:pointer" class="f1"><option>Using VisionGuard</option><option>Cameras and setup</option><option>Accounts and signing in</option><option>Alerts</option><option>Security or privacy</option><option>Something else</option></select></label>
+          <label style="display:flex;flex-direction:column;gap:8px;font-size:15px;font-weight:600;color:#1f2b26">Your question<textarea required rows="5" name="question" placeholder="Tell us what you need help with." style="padding:14px 16px;border-radius:10px;border:1px solid #d5ddd6;background:#fff;font:inherit;font-size:16px;font-weight:400;color:#1f2b26;outline:none;transition:border-color .2s,box-shadow .2s;width:100%;resize:vertical" class="f1"></textarea></label>
+          <button type="submit" style="position:relative;overflow:hidden;padding:17px 24px;border-radius:12px;border:none;background:#1f2b26;color:#fff;font:inherit;font-weight:700;font-size:17px;cursor:pointer;transition:transform .2s,box-shadow .2s" class="h11"><span style="position:absolute;top:0;bottom:0;left:0;width:35%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.22),transparent);animation:vg-shine 4s 1s ease-in-out infinite;pointer-events:none"></span><span data-label style="position:relative">Send question</span></button>
+          <div id="help-failed" hidden role="alert" style="font-size:14px;color:#a5372c;line-height:1.5">Your question was not sent. Please email <a href="mailto:support@vision-guard.org" style="color:inherit;font-weight:600;text-decoration:underline">support@vision-guard.org</a> or call <a href="tel:+201002535081" style="color:inherit;font-weight:600;text-decoration:underline">+20 100 253 5081</a>.</div>
+          <div style="font-size:14px;color:#8a968e;line-height:1.5">Your question goes to our support inbox through FormSubmit. We use it only to answer you.</div>
+        </form>
+        <div id="help-sent" hidden style="display:flex;flex-direction:column;align-items:flex-start;gap:12px;padding:6px 0">
+          <div style="width:48px;height:48px;border-radius:14px;background:#dfe9e0;display:grid;place-items:center;animation:vg-ring 2s ease-out infinite"><span style="width:14px;height:14px;border-radius:50%;background:#33705b"></span></div>
+          <div style="font-size:24px;font-weight:800;letter-spacing:-.02em">Thank you — question received.</div>
+          <p>We’ll reply to the email address you gave.</p>
+        </div>
+      </div>
       <div class="pg-card" data-reveal="1"><div data-line="1"></div>
         <h2>Which cameras work, and how do I add one?</h2>
         <p>VisionGuard works with the cameras and recorders you already have. An administrator adds a camera from the console by its address and turns on the features it needs — attendance, people counting, restricted zones, track a person, knife detection, lost bag, vehicle gate. It starts working without a restart.</p>
@@ -87,27 +107,6 @@
       <div class="pg-card" data-reveal="1"><div data-line="1"></div>
         <h2>What doesn't VisionGuard do yet?</h2>
         <p>People counting works today but is not accurate yet. On a recorded test, one person alone in view was read as anywhere from one to seven, averaging around two and a half. Making it accurate is planned work, and we say so rather than hide it. Lost bag outlines a bag of the colour you pick, live, on the cameras you are watching, but keeps no history: nothing is recorded, so a bag taken before you opened the page cannot be found afterwards, and no alert is sent. And VisionGuard does not search your network for cameras on its own — you add each one by its address.</p>
-      </div>
-      <div class="pg-card" id="ask" data-reveal="1"><div data-line="1"></div>
-        <h2>Ask us a question</h2>
-        <p>Can’t find your answer above? Write to the support team here and we’ll reply by email, Sunday to Thursday.</p>
-        <form id="help-form" action="https://formsubmit.co/support@vision-guard.org" method="POST" style="display:flex;flex-direction:column;gap:16px;margin-top:6px">
-          <input type="text" name="_honey" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px">
-          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:16px">
-            <label style="display:flex;flex-direction:column;gap:8px;font-size:15px;font-weight:600;color:#1f2b26">Your name<input required type="text" name="name" placeholder="Your name" style="padding:14px 16px;border-radius:10px;border:1px solid #d5ddd6;background:#fff;font:inherit;font-size:16px;font-weight:400;color:#1f2b26;outline:none;transition:border-color .2s,box-shadow .2s;width:100%" class="f1"></label>
-            <label style="display:flex;flex-direction:column;gap:8px;font-size:15px;font-weight:600;color:#1f2b26">Email<input required type="email" name="email" placeholder="you@company.com" style="padding:14px 16px;border-radius:10px;border:1px solid #d5ddd6;background:#fff;font:inherit;font-size:16px;font-weight:400;color:#1f2b26;outline:none;transition:border-color .2s,box-shadow .2s;width:100%" class="f1"></label>
-          </div>
-          <label style="display:flex;flex-direction:column;gap:8px;font-size:15px;font-weight:600;color:#1f2b26">Topic<select name="topic" style="padding:14px 16px;border-radius:10px;border:1px solid #d5ddd6;background:#fff;font:inherit;font-size:16px;font-weight:400;color:#1f2b26;outline:none;transition:border-color .2s,box-shadow .2s;width:100%;appearance:auto;cursor:pointer" class="f1"><option>Using VisionGuard</option><option>Cameras and setup</option><option>Accounts and signing in</option><option>Alerts</option><option>Security or privacy</option><option>Something else</option></select></label>
-          <label style="display:flex;flex-direction:column;gap:8px;font-size:15px;font-weight:600;color:#1f2b26">Your question<textarea required rows="5" name="question" placeholder="Tell us what you need help with." style="padding:14px 16px;border-radius:10px;border:1px solid #d5ddd6;background:#fff;font:inherit;font-size:16px;font-weight:400;color:#1f2b26;outline:none;transition:border-color .2s,box-shadow .2s;width:100%;resize:vertical" class="f1"></textarea></label>
-          <button type="submit" style="position:relative;overflow:hidden;padding:17px 24px;border-radius:12px;border:none;background:#1f2b26;color:#fff;font:inherit;font-weight:700;font-size:17px;cursor:pointer;transition:transform .2s,box-shadow .2s" class="h11"><span style="position:absolute;top:0;bottom:0;left:0;width:35%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.22),transparent);animation:vg-shine 4s 1s ease-in-out infinite;pointer-events:none"></span><span data-label style="position:relative">Send question</span></button>
-          <div id="help-failed" hidden role="alert" style="font-size:14px;color:#a5372c;line-height:1.5">Your question was not sent. Please email <a href="mailto:support@vision-guard.org" style="color:inherit;font-weight:600;text-decoration:underline">support@vision-guard.org</a> or call <a href="tel:+201002535081" style="color:inherit;font-weight:600;text-decoration:underline">+20 100 253 5081</a>.</div>
-          <div style="font-size:14px;color:#8a968e;line-height:1.5">Your question goes to our support inbox through FormSubmit. We use it only to answer you.</div>
-        </form>
-        <div id="help-sent" hidden style="display:flex;flex-direction:column;align-items:flex-start;gap:12px;padding:6px 0">
-          <div style="width:48px;height:48px;border-radius:14px;background:#dfe9e0;display:grid;place-items:center;animation:vg-ring 2s ease-out infinite"><span style="width:14px;height:14px;border-radius:50%;background:#33705b"></span></div>
-          <div style="font-size:24px;font-weight:800;letter-spacing:-.02em">Thank you — question received.</div>
-          <p>We’ll reply to the email address you gave.</p>
-        </div>
       </div>
       <div class="pg-card" data-reveal="1"><div data-line="1"></div>
         <h2>Still need help?</h2>
