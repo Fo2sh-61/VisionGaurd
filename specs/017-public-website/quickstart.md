@@ -84,12 +84,21 @@ domain www.vision-guard.org since 27 Sep 2026; vision-guard.org forwards to it).
 `CNAME` file holds `www.vision-guard.org`; GitHub manages it, so do not delete it. It holds only the site: `index.html`, `styles.css`, `main.js`,
 `assets/`, plus `CNAME` and `.nojekyll`. `website/` in this repo stays the source.
 
+Publish **from a commit**, never from the working folder: several sessions share this
+checkout, and a plain copy of `website\*` would carry out whatever another session has
+not committed yet (28 Sep 2026).
+
 ```powershell
 $d = Join-Path $env:TEMP "vg-site"; Remove-Item $d -Recurse -Force -ErrorAction SilentlyContinue
 gh repo clone Fo2sh-61/vision-guard-website $d
-Copy-Item website\* $d -Recurse -Force
+$src = Join-Path $env:TEMP "vg-src"; Remove-Item $src -Recurse -Force -ErrorAction SilentlyContinue; New-Item -ItemType Directory $src | Out-Null
+git archive HEAD website | tar -x -C $src          # or a named commit instead of HEAD
+Copy-Item "$src\website\*" $d -Recurse -Force
 git -C $d add -A; git -C $d commit -m "Update the website"; git -C $d push
 ```
+
+The copy adds and replaces files but never deletes one; a page that should disappear
+must be removed from the public repo by hand (or kept as a forwarding page).
 
 GitHub rebuilds in about a minute.
 
