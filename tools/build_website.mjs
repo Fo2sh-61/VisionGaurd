@@ -24,7 +24,7 @@ const DESIGNS = [
   { screen: 'phone', lang: 'en', file: 'VisionGuard Mobile.dc.html' },
   { screen: 'phone', lang: 'ar', file: 'VisionGuard Mobile AR.dc.html' },
 ];
-const INNER = ['about.html', 'security.html', 'help.html'];
+const INNER = ['about.html', 'security.html', 'help.html', 'privacy.html', 'terms.html'];
 
 // The whole handler vocabulary (contracts/page-hooks.md). A design that uses anything
 // else stops the build: main.js would not know what to do with it.
@@ -54,9 +54,13 @@ const T = {
 };
 
 // Footer items that now have a page (E5), by the label each design gives them.
+// [page, how many links with that label each design has]. The Arabic designs call both
+// the footer item and the contact form's note link "سياسة الخصوصية", hence 2.
 const PAGES = {
-  en: { 'About us': 'about.html', 'Security': 'security.html', 'Help centre': 'help.html' },
-  ar: { 'من نحن': 'about.html', 'الأمان': 'security.html', 'مركز المساعدة': 'help.html' },
+  en: { 'About us': ['about.html', 1], 'Security': ['security.html', 1], 'Help centre': ['help.html', 1],
+    'Privacy policy': ['privacy.html', 1], 'privacy policy': ['privacy.html', 1], 'Terms of service': ['terms.html', 1] },
+  ar: { 'من نحن': ['about.html', 1], 'الأمان': ['security.html', 1], 'مركز المساعدة': ['help.html', 1],
+    'سياسة الخصوصية': ['privacy.html', 2], 'شروط الخدمة': ['terms.html', 1] },
 };
 
 // The contact form's fields, in the order the design lays them out (E12).
@@ -259,13 +263,13 @@ function siteEdits(d, html, where) {
   const seen = {};
   html = html.replace(/<a href="#"([^>]*)>([\s\S]*?)<\/a>/g, (all, attrs, inner) => {
     const label = textOf(inner);
-    const page = PAGES[d.lang][label];
+    const page = PAGES[d.lang][label] && PAGES[d.lang][label][0];
     if (page) { seen[label] = (seen[label] || 0) + 1; return `<a href="${page}"${attrs}>${inner}</a>`; }
     attrs = attrs.replace(/\sclass="[^"]*"/, '');
     return `<span class="soon" aria-disabled="true"${attrs}>${inner} <small>${t.soon}</small></span>`;
   });
-  for (const label of Object.keys(PAGES[d.lang])) {
-    if (seen[label] !== 1) fail(f, `site edit E5 expected 1 footer link "${label}"`, `${seen[label] || 0}`);
+  for (const [label, [, want]] of Object.entries(PAGES[d.lang])) {
+    if (seen[label] !== want) fail(f, `site edit E5 expected ${want} link(s) "${label}"`, `${seen[label] || 0}`);
   }
 
   // E7: the language switch goes to the twin page (the page's own path is filled in later).
