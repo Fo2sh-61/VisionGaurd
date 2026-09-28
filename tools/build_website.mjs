@@ -280,6 +280,81 @@ function siteEdits(d, html, where) {
   return html;
 }
 
+// E18: the home page's product sentences in their checked wording (specs/017-public-website/
+// claims.md), put back on 28 Sep 2026 at Mohamed's request, because the design's own words
+// claim more than the product does. [design's words, site's words, matches in the PC copy,
+// in the phone copy]. Order matters: the Arabic track sentence also holds "الكاميرا التالية".
+const WORDS = {
+  en: [
+    ['With the clip attached.', 'With the clip when there is one.', 1, 1],
+    ['notices what matters and keeps the proof.', 'notices what matters and keeps a record.', 1, 1],
+    ['Any building, any layout.', 'Add each one by its address.', 1, 1],
+    ['Arrivals, alerts and sightings are kept with the video that proves them.', 'Arrivals and sightings are logged. Zone and knife alerts keep the video.', 1, 1],
+    ['cameras on a single site', 'cameras — the scale we’re building for', 1, 1],
+    ['guesses — every answer shows its footage', 'made-up figures — every answer is real data', 1, 1],
+    ['How many, anywhere', 'How many, right now', 1, 1],
+    ['Live headcounts per floor, hall or lobby,', 'Live headcounts for each area with a camera,', 1, 1],
+    ['Every detection is checked by a person before anyone is alerted.', 'Every alert says unconfirmed until a person reviews it.', 1, 1],
+    ['Describe the item and search the cameras you choose, live, on demand.', 'Pick a colour and see it outlined live on the cameras you choose.', 1, 1],
+    ['with the next likely camera highlighted.', 'with evidence at every stop.', 1, 1],
+    ['Next camera', 'Last seen', 1, 0],
+    ['— waiting for human review', '— not yet identified', 1, 1],
+    ['Arabic &amp; English', 'Ask in Arabic', 1, 1],
+    ['Full right-to-left layout', 'Arabic screens in review', 1, 1],
+    ['Every action is recorded, so you always know who looked at what, and when.', 'Searches and changes are logged, with who and when.', 1, 1],
+    ['Full audit trail', 'Audit trail', 1, 1],
+    ['Every search is recorded, so nothing happens unseen.', 'Every search is logged before results show.', 1, 1],
+    ['Your retention rules', 'Automatic retention', 1, 1],
+    ['Footage is deleted on the schedule you choose.', 'Footage is deleted after a set number of days.', 1, 1],
+    ['Right to be forgotten', 'Remove anyone', 1, 1],
+    ['Remove a person and every trace goes with them.', 'Their face data goes; recognition stops at once.', 1, 1],
+    ['Ask your cameras anything — in your own language — and get the answer with the footage.', 'Ask your cameras a question — in your own language — and get the answer, with footage when there is some.', 1, 1],
+  ],
+  ar: [
+    ['مع المقطع المصوَّر.', 'مع المقطع المصوَّر عندما يوجد.', 1, 1],
+    ['يلتقط ما يهم ويحتفظ بالدليل.', 'يلتقط ما يهم ويحتفظ بسجلّ له.', 1, 1],
+    ['أي مبنى، وأي تصميم.', 'أضف كل كاميرا بعنوانها.', 1, 1],
+    ['الوصول والتنبيهات والمشاهدات تُحفظ مع الفيديو الذي يثبتها.', 'الوصول والمشاهدات تُسجَّل، وتنبيهات المناطق والسكاكين تحتفظ بالفيديو.', 1, 1],
+    ['كاميرا في موقع واحد', 'كاميرا — الحجم الذي نسعى إليه', 1, 1],
+    ['تخمين — كل إجابة تعرض لقطاتها', 'أرقام مختلَقة — كل إجابة من بيانات حقيقية', 1, 1],
+    ['كم عددهم، في أي مكان', 'كم عددهم، الآن', 1, 1],
+    ['عدد مباشر لكل طابق أو قاعة أو لوبي،', 'عدد مباشر لكل منطقة فيها كاميرا،', 1, 1],
+    ['كل رصد يتحقق منه شخص قبل تنبيه أي أحد.', 'كل تنبيه يقول «غير مؤكَّد» حتى يراجعه شخص.', 1, 1],
+    ['صِف الغرض وابحث في الكاميرات التي تختارها، مباشرةً وعند الطلب.', 'اختر لونًا وشاهده محدَّدًا مباشرةً على الكاميرات التي تختارها.', 1, 1],
+    ['تتبّع شخصًا عبر الكاميرات مع إبراز الكاميرا التالية المحتملة.', 'تتبّع شخصًا عبر الكاميرات، مع دليل عند كل محطة.', 1, 1],
+    ['الكاميرا التالية', 'آخر ظهور', 1, 0],
+    ['— بانتظار مراجعة بشرية', '— لم يُتعرَّف عليه بعد', 1, 1],
+    ['العربية والإنجليزية', 'اسأل بالعربية', 1, 1],
+    ['دعم كامل للكتابة من اليمين لليسار', 'الشاشات العربية قيد المراجعة', 1, 1],
+    ['كل إجراء مُسجَّل، فتعرف دائمًا من اطّلع على ماذا، ومتى.', 'عمليات البحث والتغييرات مُسجَّلة، مع من قام بها ومتى.', 1, 1],
+    ['سجل تدقيق كامل', 'سجل تدقيق', 1, 1],
+    ['كل بحث مُسجَّل، فلا شيء يحدث دون علم.', 'كل بحث يُسجَّل قبل أن تظهر نتائجه.', 1, 1],
+    ['قواعد الاحتفاظ الخاصة بك', 'حذف تلقائي', 1, 1],
+    ['تُحذف اللقطات وفق الجدول الذي تختاره.', 'تُحذف اللقطات بعد عدد محدد من الأيام.', 1, 1],
+    ['الحق في النسيان', 'احذف أي شخص', 1, 1],
+    ['احذف شخصًا فيُحذف كل أثر له.', 'تُحذف بيانات وجهه، ويتوقف التعرّف عليه فورًا.', 1, 1],
+    ['اسأل كاميراتك أي شيء — بلغتك — واحصل على الإجابة مع اللقطات.', 'اسأل كاميراتك سؤالًا — بلغتك — واحصل على الإجابة، مع المقطع المصوَّر عندما يوجد.', 1, 1],
+  ],
+};
+
+// E19: "208 cameras on a single site" claimed a site that does not exist yet. At Mohamed's
+// choice (28 Sep 2026) the figure counts up to 500+ as it scrolls into view — the design's
+// own count, plus a "+" (data-plus, styles.css) — over a label that makes it a goal: nothing
+// that size has run. The console pictures lose their 208 so they do not claim it either.
+const CAMS = /data-count="1" style="([^"]*)--n:208;counter-reset:n var\(--n\)"/;
+const PICTURES = {
+  en: [['All 208 cameras up', 'All cameras up'], ['across 208 cameras', 'across all cameras']],
+  ar: [['208 كاميرا تعمل', 'كل الكاميرات تعمل'], ['عبر 208 كاميرا', 'عبر كل الكاميرات']],
+};
+
+function wordEdits(d, html) {
+  for (const [find, replace, pc, phone] of WORDS[d.lang]) {
+    html = edit(d.file, 'E18', html, find, replace, d.screen === 'pc' ? pc : phone);
+  }
+  for (const [find, replace] of PICTURES[d.lang]) html = edit(d.file, 'E19', html, find, replace, 1);
+  return edit(d.file, 'E19', html, CAMS, 'data-count="1" data-plus style="$1--n:500;counter-reset:n var(--n)"', 1);
+}
+
 // E8–E10: the outer wrapper keeps the sticky header sticky; the phone design fills the
 // screen instead of sitting in a 430 px frame.
 function wrapperEdits(d, html) {
@@ -389,6 +464,7 @@ for (const d of designs) {
   html = clipped.html;
   clips.push(`${d.screen}-${d.lang} ${clipped.count}`);
   html = siteEdits(d, html, 'page');
+  html = wordEdits(d, html);
   html = formEdits(d, html);
   if (d.screen === 'phone') html = prefixIds(d, html);
   copy[`${d.screen}-${d.lang}`] = html;

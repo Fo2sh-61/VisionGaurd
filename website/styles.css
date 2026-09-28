@@ -32,6 +32,8 @@
 .vg-offscreen [style*="infinite"]{animation-play-state:paused!important}
 /* "Send another message", after a confirmed send */
 .vg-again:hover{background:#f2f5f2!important}
+/* the home page's camera figure counts up to 500+ (converter E19) */
+[data-count][data-plus]::after{content:counter(n) "+"}
 
 /* ---- Scroll animations where the browser has no scroll timelines (Firefox).
    main.js adds .vg-io to <html> only there, and never under reduced motion; then .vg-in to

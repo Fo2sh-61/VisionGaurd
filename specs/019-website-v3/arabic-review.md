@@ -2,7 +2,7 @@
 
 Spec 019, P14-FR-023. Everything here was translated by Claude on 27 Sep 2026. **Nothing is published until you have read it.** Each Arabic line should say exactly what the English line says: no fact added, none dropped. Mark any line you want changed; the fix goes into `website/ar/…` (or `tools/build_website.mjs` / `website/main.js` for the short texts at the end).
 
-The Arabic home page is not in this list. Its words are your own design files (`VisionGuard Website v3 AR.dc.html` and `VisionGuard Mobile AR.dc.html`).
+The Arabic home page is not in this list, except the sentences in the last section. Its other words are your own design files (`VisionGuard Website v3 AR.dc.html` and `VisionGuard Mobile AR.dc.html`).
 
 ## About us (`website/ar/about.html`)
 
@@ -313,3 +313,69 @@ The Arabic home page is not in this list. Its words are your own design files (`
 | After a sent message | Send another message | أرسل رسالة أخرى |
 | Home page description (search results) | AI vision for workplaces. Ask your cameras a question — in your own language — and get the answer, with footage when there is some. | رؤية ذكية لأماكن العمل. اسأل كاميراتك سؤالًا — بلغتك — واحصل على الإجابة، مع المقطع المصوَّر عندما يوجد. |
 | Tab titles | About us / Security / Help Centre — VisionGuard | من نحن / الأمان / مركز المساعدة — VisionGuard |
+
+## Home page: sentences that replace untrue claims (added 28 Sep 2026)
+
+These replace sentences in your Arabic home page design (converter edit E18), so they are
+Claude's words, not yours. Each should say what the checked English says
+(`specs/017-public-website/claims.md`). They are on PC and phone.
+
+1. EN: With the clip when there is one.
+   AR: مع المقطع المصوَّر عندما يوجد.
+
+2. EN: …notices what matters and keeps a record.
+   AR: …يلتقط ما يهم ويحتفظ بسجلّ له.
+
+3. EN: Add each one by its address.
+   AR: أضف كل كاميرا بعنوانها.
+
+4. EN: Arrivals and sightings are logged. Zone and knife alerts keep the video.
+   AR: الوصول والمشاهدات تُسجَّل، وتنبيهات المناطق والسكاكين تحتفظ بالفيديو.
+
+5. EN: 500+ — cameras — the scale we're building for
+   AR: كاميرا — الحجم الذي نسعى إليه
+
+5a. EN: (console picture) All cameras up · across all cameras
+    AR: كل الكاميرات تعمل · عبر كل الكاميرات
+
+6. EN: 0 — made-up figures — every answer is real data
+   AR: أرقام مختلَقة — كل إجابة من بيانات حقيقية
+
+7. EN: How many, right now
+   AR: كم عددهم، الآن
+
+8. EN: Live headcounts for each area with a camera, …
+   AR: عدد مباشر لكل منطقة فيها كاميرا، …
+
+9. EN: Every alert says unconfirmed until a person reviews it.
+   AR: كل تنبيه يقول «غير مؤكَّد» حتى يراجعه شخص.
+
+10. EN: Pick a colour and see it outlined live on the cameras you choose.
+    AR: اختر لونًا وشاهده محدَّدًا مباشرةً على الكاميرات التي تختارها.
+
+11. EN: Follow someone across cameras, with evidence at every stop.
+    AR: تتبّع شخصًا عبر الكاميرات، مع دليل عند كل محطة.
+
+12. EN: Last seen (the hero's tracking card, PC only)
+    AR: آخر ظهور
+
+13. EN: Amber — not yet identified
+    AR: الكهرماني — لم يُتعرَّف عليه بعد
+
+14. EN: Ask in Arabic — Arabic screens in review
+    AR: اسأل بالعربية — الشاشات العربية قيد المراجعة
+
+15. EN: Searches and changes are logged, with who and when.
+    AR: عمليات البحث والتغييرات مُسجَّلة، مع من قام بها ومتى.
+
+16. EN: Audit trail — Every search is logged before results show.
+    AR: سجل تدقيق — كل بحث يُسجَّل قبل أن تظهر نتائجه.
+
+17. EN: Automatic retention — Footage is deleted after a set number of days.
+    AR: حذف تلقائي — تُحذف اللقطات بعد عدد محدد من الأيام.
+
+18. EN: Remove anyone — Their face data goes; recognition stops at once.
+    AR: احذف أي شخص — تُحذف بيانات وجهه، ويتوقف التعرّف عليه فورًا.
+
+19. EN: (footer) Ask your cameras a question — in your own language — and get the answer, with footage when there is some.
+    AR: اسأل كاميراتك سؤالًا — بلغتك — واحصل على الإجابة، مع المقطع المصوَّر عندما يوجد.

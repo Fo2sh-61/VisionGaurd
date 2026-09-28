@@ -83,3 +83,19 @@ backed by the product today; they are on the page by decision, not by check.
 
 About us, Security and Help centre keep their checked words, and their Arabic
 translations keep the same facts.
+
+## Checked wording back on the home page, 28 Sep 2026 (Mohamed's request)
+
+A council review of VisionGuard as a startup named these sentences as the first thing to
+fix, and Mohamed asked for it. The converter now puts the "Now" wording of the Changed
+table back over the design's words, on PC and phone, in English and Arabic (site edit E18
+in `tools/build_website.mjs`). Two differences from the table:
+
+- The 208 figure did not become "cameras planned for our first site", because nothing is
+  signed yet. At Mohamed's choice it counts up to 500+ as it scrolls into view, over
+  "cameras — the scale we're building for": a goal, since nothing that size has run (E19).
+  The console pictures' "All 208 cameras up" and "across 208 cameras" lost the number.
+- The Arabic wording is Claude's draft and waits for Mohamed's read
+  (`specs/019-website-v3/arabic-review.md`, last section).
+
+Still on the page: the hero card "Face match · verified", which was never checked.
