@@ -293,6 +293,23 @@ function wrapperEdits(d, html) {
   return html;
 }
 
+// E17: a box with overflow:hidden is a scroll container, and every view() timeline inside
+// it measures against that box, which never scrolls — so the counting numbers, reveals,
+// phone drift and card lines inside it sit frozen at their end state (found live, 28 Sep:
+// 23 of 45 scroll effects on the PC page). overflow:clip clips the same way without being
+// a scroll container; the spec 017 site used it on the stats strip for this reason.
+const SCROLL_HOOK = /\sdata-(?:reveal|count|line|tilt|par)="/;
+function clipNotHide(d, html) {
+  const edits = [];
+  for (const m of html.matchAll(/<([a-zA-Z][\w-]*)\b[^>]*\sstyle="[^"]*overflow(?:-[xy])?:\s*hidden[^"]*"[^>]*>/g)) {
+    const b = block(d.file, html, m.index, m[1]);
+    if (!SCROLL_HOOK.test(b.body)) continue;
+    edits.push([m.index, m[0], m[0].replace(/(overflow(?:-[xy])?):\s*hidden/g, '$1:clip')]);
+  }
+  for (const [at, from, to] of edits.reverse()) html = html.slice(0, at) + to + html.slice(at + from.length);
+  return { html, count: edits.length };
+}
+
 // E11: the phone copy's ids get an m- prefix so each id is in the page once.
 function prefixIds(d, html) {
   const ids = [...html.matchAll(/\sid="([\w-]+)"/g)].map(m => m[1]);
@@ -359,10 +376,14 @@ function guard(file, html) {
 const designs = DESIGNS.map(readDesign);
 const rules = { pc: new Map(), phone: new Map() };
 const copy = {};
+const clips = [];
 for (const d of designs) {
   let html = render(d, d.markup);
   html = hoverClasses(d, html, rules[d.screen]);
   html = wrapperEdits(d, html);
+  const clipped = clipNotHide(d, html);
+  html = clipped.html;
+  clips.push(`${d.screen}-${d.lang} ${clipped.count}`);
   html = siteEdits(d, html, 'page');
   html = formEdits(d, html);
   if (d.screen === 'phone') html = prefixIds(d, html);
@@ -486,4 +507,4 @@ for (const asset of ['mobile-2.png', 'visionguard.ico']) {
   console.log(`copied website/assets/${asset}`);
   written++;
 }
-console.log(`hover/focus classes: pc ${rules.pc.size}, phone ${rules.phone.size}. ${written ? `${written} file(s) changed.` : 'Nothing changed.'}`);
+console.log(`hover/focus classes: pc ${rules.pc.size}, phone ${rules.phone.size}. overflow:hidden → clip (E17): ${clips.join(', ')}. ${written ? `${written} file(s) changed.` : 'Nothing changed.'}`);

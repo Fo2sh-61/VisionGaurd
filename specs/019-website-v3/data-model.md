@@ -59,6 +59,7 @@ how many times it must match; any other count stops the build.
 | E14 | thank-you | no way back to the form | "Send another" button (built 27 Sep, commit c0b1720) | keeps today's behaviour | 1 per form |
 | E15 | form | no `action` | `action="https://formsubmit.co/sales@vision-guard.org" method="POST"` | still sends if the script fails | 1 per form |
 | E16 | Arabic pages | `./assets/` | `../assets/` | Arabic pages sit one folder down | ≥1 |
+| E17 | any box holding a scroll effect | `overflow:hidden` on a box that contains `data-reveal`, `data-count`, `data-line`, `data-tilt` or `data-par` | `overflow:clip` | a hidden-overflow box is a scroll container, so every scroll-linked effect inside it measured against a box that never scrolls and sat frozen (28 Sep: the counting numbers, the Honest zoom, the phone drift, the card lines — 23 of 45 effects on PC). Clip cuts the same way; layout measured identical | 13 per PC copy, 5 per phone copy |
 
 **After the edits, the output must contain none of**: `visionguard.ai`, `0000 0000`,
 `.dc.html`, `href="#"`, `{{`, `<sc-`, `style-hover`, `style-focus`, or an `on…=`
