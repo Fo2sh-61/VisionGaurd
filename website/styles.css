@@ -32,8 +32,11 @@
 .vg-offscreen [style*="infinite"]{animation-play-state:paused!important}
 /* "Send another message", after a confirmed send */
 .vg-again:hover{background:#f2f5f2!important}
-/* the home page's camera figure counts up to 500+ (converter E19) */
-[data-count][data-plus]::after{content:counter(n) "+"}
+/* the home page's camera figure counts up to 500 (converter E19) and gains its "+" only on
+   arriving: the style below writes 500 as "500+" and every other number as plain digits.
+   If the figure in build_website.mjs changes, change the 500s here with it */
+@counter-style vg-plus{system:additive;range:500 500;additive-symbols:500 "500+";fallback:decimal}
+[data-count][data-plus]::after{content:counter(n,vg-plus)}
 
 /* ---- Scroll animations where the browser has no scroll timelines (Firefox).
    main.js adds .vg-io to <html> only there, and never under reduced motion; then .vg-in to
