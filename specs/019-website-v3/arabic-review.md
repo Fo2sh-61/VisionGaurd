@@ -406,3 +406,6 @@ Everything else on `website/ar/trust.html` is the old pages' Arabic, shortened.
 
 7. EN: (footer, Trust column) Trust & privacy  
    AR: الثقة والخصوصية
+
+8. EN: (the Terms part's one-line introduction) The terms for using this site and its forms, what VisionGuard does and does not promise, and the law that applies.  
+   AR: شروط استخدام هذا الموقع ونماذجه، وما يفعله VisionGuard وما لا يَعِد به، والقانون الذي يحكمها.
