@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>الثقة والخصوصية — VisionGuard</title>
+<meta name="description" content="كيف يحمي VisionGuard ما يراه، وماذا نفعل ببياناتك، وشروط استخدام هذا الموقع.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&amp;family=Instrument+Serif:ital@0;1&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+<link rel="icon" href="../assets/visionguard.ico">
+<link rel="stylesheet" href="../design-pc.css" media="(width >= 600px)">
+<link rel="stylesheet" href="../design-phone.css" media="(width < 600px)">
+<link rel="stylesheet" href="../styles.css">
+<script src="../main.js" defer></script>
+</head>
+<body>
+
+<div style="min-height:100vh;overflow-x:clip">
+
+<!-- vg:header -->
+<header class="vg-pc" data-nav="1" style="position:sticky;top:0;z-index:50;background:rgba(251,252,250,.8);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)">
+  <div data-progress="1" style="position:absolute;left:0;right:0;bottom:0;height:2px;background:linear-gradient(90deg,#33705b,#5cae91);transform-origin:left;transform:scaleX(0)"></div>
+  <nav style="max-width:1200px;margin:0 auto;padding:16px 28px;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:24px">
+    <a href="./" style="display:flex;align-items:center;gap:10px;color:#1f2b26;justify-self:start">
+      <div style="width:32px;height:32px;border-radius:9px;background:#1f2b26;display:grid;place-items:center"><div style="width:14px;height:12px;border-radius:6px 7px 6px 7px;background:#5cae91"></div></div>
+      <span style="font-weight:800;font-size:20px;letter-spacing:-.02em">VisionGuard</span>
+    </a>
+    <div style="display:flex;gap:30px;font-size:16px;font-weight:500;flex-wrap:wrap;justify-content:center">
+      <a href="./#how" style="color:#1f2b26" class="hp1">كيف يعمل</a>
+      <a href="./#tools" style="color:#1f2b26" class="hp1">الأدوات</a>
+      <a href="./#honest" style="color:#1f2b26" class="hp1">شفاف بطبيعته</a>
+      <a href="./#mobile" style="color:#1f2b26" class="hp1">الموبايل</a>
+    </div>
+    <div style="justify-self:end;display:flex;align-items:center;gap:18px"><a href="../trust.html" style="color:#1f2b26;font-size:15px;font-weight:600;display:flex;align-items:center;gap:7px;white-space:nowrap;flex-shrink:0" class="hp1"><span style="width:18px;height:18px;border-radius:50%;border:1.5px solid currentColor;display:inline-block"></span>English</a><a href="./#contact" style="display:flex;align-items:center;gap:10px;white-space:nowrap;flex-shrink:0;background:#1f2b26;color:#fff;padding:12px 20px;border-radius:12px;font-weight:600;font-size:15px;box-shadow:0 6px 18px rgba(22,28,25,.18);transition:transform .2s,box-shadow .2s" class="hp2"><span style="width:7px;height:7px;border-radius:50%;background:#7cf0bf;animation:vg-pulse 2s infinite"></span>تواصل معنا</a></div>
+  </nav>
+</header>
+<header class="vg-ph" style="position:sticky;top:0;z-index:60;background:rgba(251,252,250,.88);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid rgba(30,42,36,.06)">
+  <div data-progress="1" style="position:absolute;left:0;right:0;bottom:-1px;height:2px;background:linear-gradient(90deg,#33705b,#5cae91);transform-origin:left;transform:scaleX(0)"></div>
+  <nav style="height:60px;padding:0 12px;display:flex;align-items:center;gap:10px">
+    <button data-on="click:toggleMenu" aria-label="Menu" style="flex-shrink:0;width:44px;height:44px;border:none;background:transparent;border-radius:11px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;cursor:pointer;padding:0">
+      <span style="width:20px;height:2px;border-radius:2px;background:#1f2b26;transition:transform .3s;transform:none"></span>
+      <span style="width:20px;height:2px;border-radius:2px;background:#1f2b26;transition:opacity .2s;opacity:1"></span>
+      <span style="width:20px;height:2px;border-radius:2px;background:#1f2b26;transition:transform .3s;transform:none"></span>
+    </button>
+    <a href="./#m-contact" data-on="click:closeMenu" style="flex-shrink:0;display:flex;align-items:center;gap:7px;background:#1f2b26;color:#fff;height:40px;padding:0 14px;border-radius:11px;font-weight:600;font-size:14px" class="hm1"><span style="width:6px;height:6px;border-radius:50%;background:#7cf0bf;animation:vg-pulse 2s infinite"></span>تواصل</a>
+    <a href="./" data-on="click:closeMenu" style="display:flex;align-items:center;gap:9px;color:#1f2b26;flex:1;justify-content:flex-end">
+      <div style="width:30px;height:30px;border-radius:9px;background:#1f2b26;display:grid;place-items:center"><div style="width:13px;height:11px;border-radius:6px 7px 6px 7px;background:#5cae91"></div></div>
+      <span style="font-weight:800;font-size:18px;letter-spacing:-.02em">VisionGuard</span>
+    </a>
+    
+  </nav>
+  <div data-if="menuOpen" style="display:contents" hidden>
+    <div style="position:absolute;left:0;right:0;top:60px;height:calc(100vh - 60px);background:#f2f5f2;padding:12px 20px 28px;display:flex;flex-direction:column;animation:vg-menu .3s cubic-bezier(.2,.8,.2,1) both">
+      
+        <a href="./#m-how" data-on="click:m.go" data-i="0" style="display:flex;align-items:center;justify-content:space-between;min-height:62px;border-bottom:1px solid #e0e7e1;color:#1f2b26;font-size:22px;font-weight:700;letter-spacing:-.01em"><span style="display:flex;align-items:baseline;gap:14px"><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#8a968e;font-weight:500">01</span>كيف يعمل</span><span style="color:#33705b;font-size:18px">←</span></a>
+      
+        <a href="./#m-tools" data-on="click:m.go" data-i="1" style="display:flex;align-items:center;justify-content:space-between;min-height:62px;border-bottom:1px solid #e0e7e1;color:#1f2b26;font-size:22px;font-weight:700;letter-spacing:-.01em"><span style="display:flex;align-items:baseline;gap:14px"><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#8a968e;font-weight:500">02</span>الأدوات</span><span style="color:#33705b;font-size:18px">←</span></a>
+      
+        <a href="./#m-honest" data-on="click:m.go" data-i="2" style="display:flex;align-items:center;justify-content:space-between;min-height:62px;border-bottom:1px solid #e0e7e1;color:#1f2b26;font-size:22px;font-weight:700;letter-spacing:-.01em"><span style="display:flex;align-items:baseline;gap:14px"><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#8a968e;font-weight:500">03</span>شفاف بطبيعته</span><span style="color:#33705b;font-size:18px">←</span></a>
+      
+        <a href="./#m-mobile" data-on="click:m.go" data-i="3" style="display:flex;align-items:center;justify-content:space-between;min-height:62px;border-bottom:1px solid #e0e7e1;color:#1f2b26;font-size:22px;font-weight:700;letter-spacing:-.01em"><span style="display:flex;align-items:baseline;gap:14px"><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#8a968e;font-weight:500">04</span>الموبايل</span><span style="color:#33705b;font-size:18px">←</span></a>
+      
+        <a href="./#m-contact" data-on="click:m.go" data-i="4" style="display:flex;align-items:center;justify-content:space-between;min-height:62px;border-bottom:1px solid #e0e7e1;color:#1f2b26;font-size:22px;font-weight:700;letter-spacing:-.01em"><span style="display:flex;align-items:baseline;gap:14px"><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#8a968e;font-weight:500">06</span>تواصل معنا</span><span style="color:#33705b;font-size:18px">←</span></a>
+      
+      <a href="./#m-contact" data-on="click:closeMenu" style="margin-top:24px;display:flex;align-items:center;justify-content:center;gap:10px;background:#1f2b26;color:#fff;min-height:54px;border-radius:14px;font-weight:700;font-size:17px" class="hm1">تحدّث مع فريقنا ←</a>
+      <div style="margin-top:auto;display:flex;gap:4px;padding:4px;border-radius:12px;background:#e4eae5;align-self:flex-start"><a href="../trust.html" style="padding:9px 16px;border-radius:9px;color:#57655d;font-size:15px">English</a><span style="padding:9px 16px;border-radius:9px;background:#fff;color:#1f2b26;font-weight:600;font-size:15px">العربية</span></div>
+    </div>
+  </div>
+</header>
+<!-- /vg:header -->
+
+<main>
+<section class="pg-hero">
+  <div class="pg-wrap" data-reveal="1">
+    <div class="pg-label">الثقة</div>
+    <h1 class="pg-title">الثقة والخصوصية</h1>
+    <p class="pg-intro">كيف نحمي ما يراه VisionGuard، وماذا نفعل ببياناتك، وشروط استخدام هذا الموقع: النسخة المختصرة، مع كل نقطة مهمة.</p>
+    <nav class="pg-toc" aria-label="في هذه الصفحة"><a href="#security">الأمان</a><a href="#privacy">الخصوصية</a><a href="#terms">الشروط</a></nav>
+  </div>
+</section>
+<section class="pg-body">
+  <div class="pg-wrap">
+    <div class="pg-part" id="security" data-reveal="1"><h2>الأمان</h2><p>يعمل VisionGuard على جهاز داخل مبناك لا في سحابة لدينا — وهذا ما يعنيه ذلك بالنسبة لمكان بياناتك، ومن يصل إليها، والأشياء القليلة التي قد تغادر الموقع.</p></div>
+    <div class="pg-card" data-reveal="1"><div data-line="1"></div>
+      <h3>أين تُحفظ البيانات</h3>
+      <p>تُخزَّن تسجيلات الكاميرات وبيانات الوجوه والحضور في ملفات محلية في موقعك، ويُدوَّن سجل البحث أيضًا لكن في ذاكرة الخادم فقط اليوم، لا في ملف. لا يُنسخ شيء منها إلى أي مكان آخر افتراضيًا.</p>
+      <ul><li>يُوصَل إلى لوحة التحكم اليوم عبر اتصال عادي على شبكة موقعك؛ وHTTPS مخطَّط له لكنه لم يُفعَّل بعد.</li></ul>
+    </div>
+    <div class="pg-card" data-reveal="1"><div data-line="1"></div>
+      <h3>تسجيل الدخول</h3>
+      <p>يسجّل كل حساب دخوله ببريد إلكتروني وكلمة مرور لا تقل عن 12 حرفًا، تُخزَّن عبر تجزئة أحادية الاتجاه لا كما كُتبت. وكلمة المرور الخاطئة والحساب غير الموجود يُرَدّ عليهما بالطريقة نفسها.</p>
+      <p>تسجيل الدخول مؤقت: يمكن إلغاؤه فورًا، وتنتهي صلاحيته تلقائيًا بعد 12 ساعة.</p>
+    </div>
+    <div class="pg-card" data-reveal="1"><div data-line="1"></div>
+      <h3>دوران، يحدّدهما الخادم</h3>
+      <p>كل حساب إمّا مسؤول أو IT، ويحدّد خادم VisionGuard دورك في كل طلب، لا الشاشة. يستطيع المسؤولون تسجيل الأشخاص وإدارة الكاميرات والحسابات والإعدادات، بينما تقوم حسابات IT بالعمل اليومي فقط.</p>
+      <ul><li>يمكن لأي شخص إنشاء حساب دون دعوة، لكنه يكون دائمًا حساب IT — وحساب المسؤول يُنشأ فقط بأمر على الجهاز نفسه، لا يمكن الوصول إليه عبر الشبكة.</li></ul>
+    </div>
+    <div class="pg-card" data-reveal="1"><div data-line="1"></div>
+      <h3>كل بحث يُدوَّن</h3>
+      <p>يُسجَّل البحث لتتبّع شخص قبل عرض نتيجته حتى لو لم يجد شيئًا، وتُسجَّل بالطريقة نفسها قرارات تنبيهات السكين، وتغييرات الكاميرات والمستلمين، وإزالة شخص: من فعل ذلك، وماذا، ومتى.</p>
+      <ul><li>هذا السجل موجود اليوم في ذاكرة الخادم فقط وتمحوه إعادة التشغيل؛ ويجري إعداد نسخة دائمة لا تُحذف إدخالاتها إلا بكتابة سبب.</li></ul>
+    </div>
+    <div class="pg-card" data-reveal="1"><div data-line="1"></div>
+      <h3>الاحتفاظ بالتسجيلات وإزالة شخص</h3>
+      <ul><li>تُحذف المقاطع المسجَّلة تلقائيًا بعد 30 يومًا افتراضيًا؛ وكاميرا المنطقة المحظورة تحتفظ بآخر ثلاثة مقاطع فقط.</li><li>يبقى السجل الذي يثبت أن شيئًا حدث — متى، وعلى أي كاميرا، ومن راجعه — حتى بعد حذف الفيديو.</li><li>لا يزيل شخصًا إلا المسؤول، ويُسجَّل ذلك قبل حدوثه؛ تُحذف بيانات وجهه وإدخاله فورًا، وتبقى مشاهداته السابقة موجودة لكن غير قابلة للوصول — ومحوها الكامل مخطَّط له.</li></ul>
+    </div>
+    <div class="pg-card" data-reveal="1"><div data-line="1"></div>
+      <h3>ما الذي يغادر الموقع</h3>
+      <p>أمران فقط يغادران موقعك: أسئلة «اسأل» بعد إخفاء الأسماء، وتنبيهات البريد الإلكتروني التي تحمل وقائع فقط.</p>
+      <ul><li>ترسل «اسأل» سؤالك إلى Gemini من Google بعد إخفاء الأسماء ولوحات السيارات على جهازك؛ والكلمة غير المعروفة تُرسَل كما كُتبت. باقة Gemini المجانية المستخدمة اليوم تسمح لـ Google باستخدام ما يُرسَل وبأن يقرأه مراجع بشري — والباقة المدفوعة توقف ذلك.</li><li>تُرسَل تنبيهات البريد عبر Gmail وتحمل وقائع فقط — ماذا، وأين، ومتى، وبأي يقين، ومن قرّر — ولا تحمل أبدًا اسمًا أو وجهًا أو صورة.</li><li>للإبلاغ عن مشكلة: <a href="mailto:support@vision-guard.org"><span dir="ltr">support@vision-guard.org</span></a>، أو اتصل/واتساب <a href="tel:+201002535081"><span dir="ltr">+20 100 253 5081</span></a>، من الأحد إلى الخميس، 9:00–18:00.</li></ul>
+    </div>
+    <div class="pg-part" id="privacy" data-reveal="1"><h2>الخصوصية</h2><p>كيف يتعامل VisionGuard مع بياناتك الشخصية في هذا الموقع الإلكتروني وفي برنامج VisionGuard بعد تثبيته في مقرّ العميل.</p></div>
+    <div class="pg-card" data-reveal="1"><div data-line="1"></div>
+      <h3>من نحن</h3>
+      <p>نحن VisionGuard، نصنع برنامج الكاميرات VisionGuard ونُدير هذا الموقع الإلكتروني، ومقرّنا في مصر.</p>
+      <ul><li>جهة الاتصال لحماية البيانات، لأسئلة الخصوصية والشروط وللطلبات الخاصة ببياناتك: <a href="mailto:support@vision-guard.org"><span dir="ltr">support@vision-guard.org</span></a></li><li>المبيعات: <a href="mailto:sales@vision-guard.org"><span dir="ltr">sales@vision-guard.org</span></a></li><li>الهاتف أو WhatsApp: <a href="tel:+201002535081"><span dir="ltr">+20 100 253 5081</span></a>، من الأحد إلى الخميس، من 9:00 إلى 18:00 بتوقيت مصر</li></ul>
+    </div>
+    <div class="pg-card" data-reveal="1"><div data-line="1"></div>
+      <h3>الموقع الإلكتروني</h3>
+      <p>هذا الموقع لا حسابات فيه ولا قاعدة بيانات، ولا نحتفظ بأي سجل لزيارتك — لكن GitHub Pages، التي تستضيفه، تسجّل عنوان IP لكل زائر، وGoogle Fonts ترى عنوان IP عند تحميل الخطوط. لا يضع الموقع ملفات تعريف ارتباط، ولا يستخدم تخزين المتصفح، ولا توجد فيه أدوات تحليل أو إعلانات.</p>
+      <p>لا نجمع إلا ما ترسله عبر نموذجينا: <b>«أرسل لنا رسالة»</b> (إلى <a href="mailto:sales@vision-guard.org"><span dir="ltr">sales@vision-guard.org</span></a>) يجمع اسمك وبريد العمل والشركة، وهاتفك ورسالتك إن أضفتهما، ونوع الموقع وعدد الكاميرات اللذين تختارهما؛ و<b>«اسألنا سؤالًا»</b> (إلى <a href="mailto:support@vision-guard.org"><span dir="ltr">support@vision-guard.org</span></a>) يجمع اسمك وبريدك والموضوع وسؤالك. نستخدم ذلك للرد فقط، ولا نبيعه ولا نرسل تسويقًا.</p>
+      <ul><li>تمرّ رسالتك عبر FormSubmit ثم ImprovMX إلى صندوق بريدنا لدى Google (Gmail)، وGitHub تستضيف الموقع. وتحتفظ كل جهة بنسختها وفق سياستها الخاصة.</li><li>ومقرّ هذه الجهات غالبًا في الولايات المتحدة (وImprovMX تستخدم خوادم في أوروبا أيضًا)، فتُعالَج بياناتك خارج مصر؛ وإن فضّلت غير ذلك فاتصل بنا على <a href="tel:+201002535081"><span dir="ltr">+20 100 253 5081</span></a>.</li><li>ونحتفظ برسالتك 12 شهرًا بعد آخر رد منا، ثم نحذفها — أو قبل ذلك إن طلبت.</li></ul>
+    </div>
+    <div class="pg-card" data-reveal="1"><div data-line="1"></div>
+      <h3>المنتج</h3>
+      <p>يعمل VisionGuard على جهاز في مقرّ العميل نفسه. وتقرّر الجهة التي تشغّله ما تغطيه الكاميرات، ومن تسجّله، وأي الميزات تفعّلها، وتتحكّم في تلك البيانات وهي المسؤولة عنها أمام القانون؛ ونحن نقدّم البرنامج فقط ولا نملك وسيلة لرؤيته أو الدخول إليه عن بُعد. وإذا ظهرت في مقرّ يستخدم VisionGuard وأردت رؤية بياناتك أو تصحيحها أو حذفها، فاسأل تلك الجهة.</p>
+      <p>وميزتان فقط ترسلان شيئًا إلى الخارج، عبر حسابات Google التي يضبطها النظام نفسه. «اسأل» يستبدل أسماء المسجَّلين ولوحات السيارات المسجَّلة بكلمات بديلة قبل إرسال سؤالك إلى Gemini من Google، وفي الباقة المجانية تسمح شروط Google باستخدام هذا النص لتحسين منتجاتها وبأن يقرأه موظفوها. وتنبيهات البريد الإلكتروني، المعطّلة حتى يفعّلها المسؤول، تُرسَل عبر Gmail نصًّا عاديًا ولا تضم أبدًا وجهًا أو صورة أو اسمًا تعرّف عليه النظام؛ كما تصل إحصاءات استخدام مجهولة إلى Google Analytics، وتحمّل لوحة التحكم والتطبيق خطوطًا من Google.</p>
+      <ul><li>الأشخاص المسجَّلون: يبقون حتى يزيلهم المسؤول. أما الحضور والتتبّع وعدّ الأشخاص فلا يوجد لها جدول حذف بعد.</li><li>فيديو تنبيهات السكين: يُحذف بعد 30 يومًا افتراضيًا، ويبقى سجل التنبيه نفسه بشكل دائم.</li><li>صور المركبات: تُحذف بعد 30 يومًا افتراضيًا، وتبقى سجلات العبور والمركبات حتى يحذفها المسؤول.</li><li>سجلات إرسال التنبيهات: تُحذف بعد 90 يومًا افتراضيًا.</li><li>لا يعمل الحذف التلقائي إلا أثناء تشغيل VisionGuard.</li></ul>
+    </div>
+    <div class="pg-card" data-reveal="1"><div data-line="1"></div>
+      <h3>حقوقك</h3>
+      <p>يمنحك قانون حماية البيانات الشخصية رقم 151 لسنة 2020 في مصر الحق في الاطلاع على بياناتك ونسخها، وسحب موافقتك، وتصحيحها أو حذفها، وقصر استخدامها، وإبلاغك بأي خرق يمسّها، والاعتراض على استخدامها إذا تعارض مع حقوقك وحرياتك.</p>
+      <ul><li>بالنسبة إلى بيانات هذا الموقع، راسل <a href="mailto:support@vision-guard.org"><span dir="ltr">support@vision-guard.org</span></a> أو اتصل بنا، وسنرد خلال المدة التي يحددها القانون. أما بيانات نظام مثبَّت، فاسأل الجهة التي تشغّله.</li><li>يمكنك تقديم شكوى في أي وقت إلى مركز حماية البيانات الشخصية في مصر (<span dir="ltr">www.pdpc.gov.eg</span>، <span dir="ltr">info@pdpc.gov.eg</span>)، دون أن يمسّ ذلك حقك في اللجوء إلى القضاء.</li></ul>
+    </div>
+    <div class="pg-card" data-reveal="1"><div data-line="1"></div>
+      <h3>الأطفال وبيانات الوجوه</h3>
+      <p>هذا الموقع ونموذجاه موجَّهان إلى البالغين الذين يتصرفون نيابةً عن جهة ما، ولا نجمع عن علم بيانات من الأطفال من خلالهما. وإذا كان عمرك أقل من 18 عامًا، فاطلب من أحد والديك أو وليّ أمرك أن يتواصل معنا نيابةً عنك.</p>
+      <p>وفق القانون المصري، بيانات الوجه وأي بيانات تخص طفلًا هي بيانات شخصية حساسة، ومعالجتها تتطلب ترخيصًا من مركز حماية البيانات الشخصية وموافقة كتابية صريحة — من أحد والدي الطفل أو وليّ أمره في حالته. وعلى أي جهة تستخدم VisionGuard أن ترتّب ذلك بنفسها قبل تسجيل أي شخص، فـVisionGuard لا يجمع الموافقات نيابةً عن أحد.</p>
+    </div>
+    <div class="pg-card" data-reveal="1"><div data-line="1"></div>
+      <h3>التغييرات والقانون</h3>
+      <p>إذا غيّرنا هذه السياسة، فسنحدّث هذه الصفحة والتاريخ المذكور فيها.</p>
+      <p>تخضع هذه السياسة للقانون المصري، بما في ذلك قانون حماية البيانات الشخصية رقم 151 لسنة 2020 ولائحته التنفيذية. وتُحال النزاعات إلى محاكم القاهرة المختصة، ما لم يجعل القانون الاختصاص لمحكمة أخرى، دون أن يحدّ ذلك من حقك في الشكوى إلى مركز حماية البيانات الشخصية. وإذا علمنا بخرق يمسّ بيانات شخصية نحتفظ بها، فسنبلغ المركز ونخبر المتأثرين، كما يقتضي القانون. مزيد من التفاصيل في <a href="#security">الأمان</a>.</p>
+    </div>
+    <div class="pg-part" id="terms" data-reveal="1"><h2>الشروط</h2><p>النسخة المُراجَعة من مجموعة بطاقات «الشروط» لصفحة «الثقة والخصوصية» المدمجة: ست بطاقات موجزة (نحو 753 كلمة، مقابل نحو 1940 كلمة اليوم) تحافظ على كل قاعدة ورقم وتاريخ وبريد إلكتروني وقانون ومحكمة وردت في صفحة شروط الخدمة الحالية؛ وقد أُصلحت ثماني ثغرات في الاكتمال أو الدقة وُجدت في المسودة الأولى (انظر `changes`).</p></div>
+    <div class="pg-card" data-reveal="1"><div data-line="1"></div>
+      <h3>من نحن، وهذا الموقع</h3>
+      <p>يدير VisionGuard هذا الموقع، ومقرّه مصر، وباستخدامه فإنك تقبل هذه الشروط.</p>
+      <p>وهو للمعلومات فقط، ولا يُعدّ عرضًا للبيع ولا وعدًا بتركيب بعينه، ولا ننشر الأسعار هنا؛ وقد تتغيّر صفحاته أو يتعذّر الوصول إليها أحيانًا دون إشعار. وحيثما اختلف أي شيء آخر في الموقع عن هذه الصفحة أو عن <a href="#privacy">سياسة الخصوصية</a>، فهما البيان الدقيق.</p>
+    </div>
+    <div class="pg-card" data-reveal="1"><div data-line="1"></div>
+      <h3>الاستخدام المقبول للموقع</h3>
+      <p>يمكنك قراءة الموقع، ووضع روابط إليه، واستخدام نماذجه. ولا يجوز لك:</p>
+      <ul><li>محاولة اختراق الموقع أو خدماته أو تعطيلها أو إثقالها</li><li>استخدام أدوات آلية لنسخ الموقع بكميات كبيرة، أو إرسال طلبات بسرعة تُبطئه</li><li>استخدام النماذج لإرسال رسائل مزعجة أو إعلانات أو روابط ضارة، أو رسائل غير قانونية أو فيها تهديد أو إساءة</li><li>إرسال بيانات شخص آخر دون إذنه، أو انتحال شخصية غيرك</li><li>مخالفة القانون المصري أو القانون في مكانك</li></ul>
+    </div>
+    <div class="pg-card" data-reveal="1"><div data-line="1"></div>
+      <h3>النماذج ورسائلك</h3>
+      <p>يرسل نموذج التواصل في الصفحة الرئيسية رسالتك إلى المبيعات على <a href="mailto:sales@vision-guard.org"><span dir="ltr">sales@vision-guard.org</span></a>، ويرسل نموذج مركز المساعدة سؤالك إلى الدعم على <a href="mailto:support@vision-guard.org"><span dir="ltr">support@vision-guard.org</span></a>، عبر FormSubmit. فإن لم يؤكّد الإرسال، تحتفظ الصفحة بما كتبته وتعطيك بريدنا وهاتفنا بدلًا من ذلك.</p>
+      <p>نستخدم رسالتك للرد فقط، ما لم يُلزمنا القانون بالإفصاح. ونحذفها بعد 12 شهرًا من آخر رد منا، أو 12 شهرًا من وصولها إن لم نرد، وأقرب من ذلك إن طلبت. لا تضع بيانات حساسة في النموذج، وهو للبالغين؛ ومن كان عمره أقل من 18 عامًا فليطلب من والديه أو وليّ أمره التواصل بدلًا منه.</p>
+    </div>
+    <div class="pg-card" data-reveal="1"><div data-line="1"></div>
+      <h3>محتوانا واسمنا، والخدمات الخارجية</h3>
+      <p>نصوص الموقع وتصميمه وصوره مملوكة لـ VisionGuard أو مستخدَمة بإذن، وشيفرته منشورة على GitHub بشروط GitHub نفسها. يمكنك قراءة الصفحات وطباعتها ومشاركة روابطها، لكن لا تنسخها أو تعدّلها أو تعيد نشرها، ولا تستخدم اسمنا أو شعارنا بما يوحي بأنك VisionGuard أو بأننا نزكّيك، دون إذن كتابي منا.</p>
+      <p>يعتمد الموقع على خدمات خارجية — GitHub Pages وGoogle Fonts وFormSubmit ومزوّدو بريدنا — قد تعالج بياناتك، بما فيها عنوان IP، خارج مصر؛ وتسمّي <a href="#privacy">سياسة الخصوصية</a> كل خدمة. روابط WhatsApp والبريد والهاتف تأخذك إلى خدمات لا نتحكّم فيها.</p>
+    </div>
+    <div class="pg-card" data-reveal="1"><div data-line="1"></div>
+      <h3>ما يفعله VisionGuard، وحدوده</h3>
+      <p>VisionGuard برنامج كاميرات يعمل في موقع العميل، يراقب الكاميرات للميزات المفعَّلة — الحضور بالوجه، وعدّ الأشخاص، والمناطق المحظورة، والتتبّع، واكتشاف السكاكين، والحقيبة المفقودة، وبوابة المركبات — ويحتفظ بسجل لمعظمها. يساعد على القرار، ولا يقرّر ولا يقوم بفعل مادي. من تلقاء نفسه يرسل تنبيهات البريد المفعَّلة فقط، وتُرسِل مكتبة Ultralytics إحصاءات استخدام — لا صور أو أسماء أو سجلات أبدًا — إلى Google Analytics افتراضيًا.</p>
+      <p>القرارات المتعلقة بسلامة شخص أو عمله أو وضعه القانوني يجب أن يتخذها إنسان دائمًا، مستعينًا بـVisionGuard كأحد المُدخلات لا الكلمة الأخيرة. ويقرّر العميل الكاميرات والميزات ومن يسجَّل، وعليه استخدام المنتج استخدامًا قانونيًا، بما في ذلك لافتات تنبيه بالكاميرات، وما يشترطه القانون من ترخيص وموافقة كتابية لبيانات الوجه والأطفال، ولا يجمعها VisionGuard نيابة عن العميل. وما يُحتفظ به وما يغادر الموقع مذكور في <a href="#privacy">سياسة الخصوصية</a>.</p>
+      <ul><li>أي اكتشاف قد يكون خاطئًا — تحقّق من كل تنبيه وعدد واسم ولوحة.</li><li>تنبيه السكين يظهر فورًا ويبقى غير مؤكَّد حتى المراجعة أو تصنيفه إنذارًا كاذبًا (يبقى في السجل)؛ لا يكتشف أسلحة نارية، ودقته الواقعية غير مقاسة.</li><li>عدّ الأشخاص يبالغ اليوم — شخص واحد قُرئ من واحد إلى سبعة، بمتوسط اثنين ونصفًا — وتُجمع أعداد الكاميرات دون خصم التكرار.</li><li>التعرّف على الوجوه قد يسمّي شخصًا خطأً أو يفوته؛ الاسم أقرب تطابق لا دليل هوية، ودقته الواقعية وقراءة اللوحات غير مقاستين.</li><li>«اسأل» قد تسيء فهم السؤال — تحقّق مما اختارته قبل الاعتماد عليه؛ وبمفتاح Gemini ترسل السؤال لـGoogle بعد استبدال الأسماء واللوحات المسجَّلة برموز. ولا تحتفظ «الحقيبة المفقودة» بسجل ولا ترسل تنبيهًا.</li></ul>
+    </div>
+    <div class="pg-card" data-reveal="1"><div data-line="1"></div>
+      <h3>الشراء، والضمان، والتعديلات، والقانون، والتواصل</h3>
+      <p>تغطي هذه الشروط الموقع فقط؛ شراء VisionGuard أو تركيبه أو استخدامه في موقع يُتَّفق عليه مباشرة مع كل عميل. نقدّم الموقع بحسن نية وكما هو، دون وعد بأنه كامل أو خالٍ من الأخطاء أو متاح دائمًا أو مناسب لغرض بعينه؛ وفي الحدود التي يسمح بها القانون المصري، لا يتحمّل VisionGuard مسؤولية أي خسارة من استخدامه، أو تعذّر استخدامه، أو الاعتماد على ما يقوله.</p>
+      <p>قد نعدّل هذه الشروط؛ والنسخة المنشورة وقت استخدامك هي المعتمدة، ويُعمل بالنص العربي إن اختلف عن الإنجليزي، ويبقى باقيها ساريًا إن بطل جزء منها بحكم قضائي. وتخضع لقوانين مصر، والاختصاص لمحاكم القاهرة ما لم يقضِ القانون بغير ذلك، ويخضع تعاملنا مع بياناتك الشخصية لقانون حماية البيانات رقم 151 لسنة 2020 — ويمكنك دائمًا الشكوى إلى مركز حماية البيانات الشخصية، <span dir="ltr">www.pdpc.gov.eg</span>.</p>
+      <p>للأسئلة عن هذه الشروط: <a href="mailto:support@vision-guard.org"><span dir="ltr">support@vision-guard.org</span></a>، أو الهاتف وWhatsApp على <a href="tel:+201002535081"><span dir="ltr">+20 100 253 5081</span></a>، من الأحد إلى الخميس، 9:00–18:00 بتوقيت القاهرة. وللأسعار أو عرض توضيحي: <a href="mailto:sales@vision-guard.org"><span dir="ltr">sales@vision-guard.org</span></a>.</p>
+    </div>
+    <div class="pg-updated">آخر تحديث: 28 سبتمبر 2026</div>
+  </div>
+</section>
+</main>
+
+<!-- vg:footer -->
+<footer class="vg-pc" style="background:#161c19;color:#a3b0a8;padding:96px 28px 0;position:relative;overflow:hidden">
+  <div style="position:absolute;left:0;right:0;top:0;height:1px;background:linear-gradient(90deg,transparent,rgba(92,174,145,.6),transparent)"></div>
+  <div style="position:absolute;width:700px;height:700px;left:50%;top:-420px;margin-left:-350px;border-radius:50%;background:radial-gradient(circle,rgba(92,174,145,.16),transparent 65%);animation:vg-glow 10s ease-in-out infinite;pointer-events:none"></div>
+  <div style="max-width:1200px;margin:0 auto;position:relative">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr));gap:48px 40px">
+      <div style="grid-column:span 2;min-width:0;display:flex;flex-direction:column;gap:22px;max-width:380px">
+        <a href="./" style="display:flex;align-items:center;gap:12px;color:#fff">
+          <div style="width:38px;height:38px;border-radius:10px;background:#5cae91;display:grid;place-items:center"><div style="width:16px;height:14px;border-radius:6px 7px 6px 7px;background:#161c19"></div></div>
+          <span style="font-weight:700;font-size:20px;letter-spacing:-.01em">VisionGuard</span>
+        </a>
+        <p style="margin:0;font-size:17px;line-height:1.6;color:#a3b0a8;text-wrap:pretty">رؤية بالذكاء الاصطناعي لبيئات العمل. اسأل كاميراتك سؤالًا — بلغتك — واحصل على الإجابة، مع المقطع المصوَّر عندما يوجد.</p>
+        
+        <a href="./#contact" style="align-self:flex-start;position:relative;overflow:hidden;background:#5cae91;color:#10201a;padding:14px 24px;border-radius:12px;font-weight:700;font-size:16px;transition:transform .2s" class="hp12"><span style="position:absolute;top:0;bottom:0;left:0;width:35%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.4),transparent);animation:vg-shine 4s 2s ease-in-out infinite;pointer-events:none"></span><span style="position:relative">تواصل معنا ←</span></a>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:14px"><div style="font-size:14px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#e4eae5">المنتج</div><a href="./#how" style="color:#a3b0a8;font-size:16px;transition:color .2s" class="hp13">كيف يعمل</a><a href="./#tools" style="color:#a3b0a8;font-size:16px;transition:color .2s" class="hp13">الأدوات</a><a href="./#honest" style="color:#a3b0a8;font-size:16px;transition:color .2s" class="hp13">شفاف بطبيعته</a><a href="./#mobile" style="color:#a3b0a8;font-size:16px;transition:color .2s" class="hp13">تطبيق الموبايل</a></div>
+      <div style="display:flex;flex-direction:column;gap:14px"><div style="font-size:14px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#e4eae5">الحلول</div><span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px;transition:color .2s">المكاتب <small>قريبًا</small></span><span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px;transition:color .2s">المدارس <small>قريبًا</small></span><span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px;transition:color .2s">السوبرماركت <small>قريبًا</small></span><span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px;transition:color .2s">المصانع <small>قريبًا</small></span><span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px;transition:color .2s">المستودعات <small>قريبًا</small></span><span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px;transition:color .2s">المستشفيات <small>قريبًا</small></span><span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px;transition:color .2s">تجزئة ومولات <small>قريبًا</small></span></div>
+      <div style="display:flex;flex-direction:column;gap:14px"><div style="font-size:14px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#e4eae5">الشركة</div><a href="about.html" style="color:#a3b0a8;font-size:16px;transition:color .2s" class="hp13">من نحن</a><span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px;transition:color .2s">الوظائف <small>قريبًا</small></span><span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px;transition:color .2s">الشركاء <small>قريبًا</small></span><a href="./#contact" style="color:#a3b0a8;font-size:16px;transition:color .2s" class="hp13">تواصل مع المبيعات</a></div>
+      <div style="display:flex;flex-direction:column;gap:14px"><div style="font-size:14px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#e4eae5">الثقة</div><a href="trust.html" style="color:#a3b0a8;font-size:16px;transition:color .2s" class="hp13">الثقة والخصوصية</a><a href="help.html" style="color:#a3b0a8;font-size:16px;transition:color .2s" class="hp13">مركز المساعدة</a></div>
+    </div>
+    <div style="margin-top:72px;padding:26px 0;border-top:1px solid #2e3933;display:flex;justify-content:space-between;align-items:center;gap:20px;flex-wrap:wrap;font-size:15px">
+      <div>© 2026 VisionGuard — جميع الحقوق محفوظة.</div>
+      <div style="display:flex;gap:24px;align-items:center;flex-wrap:wrap">
+        <div style="display:flex;gap:4px;padding:4px;border-radius:10px;background:#212a25"><a href="../trust.html" style="padding:6px 12px;border-radius:7px;color:#a3b0a8" class="hp13">English</a><span style="padding:6px 12px;border-radius:7px;background:#2a3d34;color:#e4eae5;font-weight:600">العربية</span></div>
+        <span class="soon" aria-disabled="true" style="color:#a3b0a8">LinkedIn <small>قريبًا</small></span>
+        <span class="soon" aria-disabled="true" style="color:#a3b0a8">X <small>قريبًا</small></span>
+        <span class="soon" aria-disabled="true" style="color:#a3b0a8">YouTube <small>قريبًا</small></span>
+      </div>
+    </div>
+  </div>
+  <div aria-hidden="true" dir="ltr" data-latin="1" style="position:relative;max-width:1300px;margin:0 auto;text-align:center;font-size:clamp(72px,16vw,230px);font-weight:800;letter-spacing:-.05em;line-height:.8;padding-top:10px;margin-bottom:-.12em;background:linear-gradient(90deg,#2a3d34,#5cae91 30%,#2a3d34 60%,#5cae91 85%,#2a3d34);background-size:300% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:vg-sheen 14s linear infinite;mask-image:linear-gradient(180deg,#000 30%,transparent 95%);-webkit-mask-image:linear-gradient(180deg,#000 30%,transparent 95%);user-select:none">VisionGuard</div>
+</footer>
+<footer class="vg-ph" style="background:#161c19;color:#a3b0a8;padding:56px 20px 96px;position:relative;overflow:hidden">
+  <div style="position:absolute;left:0;right:0;top:0;height:1px;background:linear-gradient(90deg,transparent,rgba(92,174,145,.6),transparent)"></div>
+  <div style="position:relative;display:flex;flex-direction:column;gap:18px">
+    <a href="./" style="display:flex;align-items:center;gap:10px;color:#fff">
+      <div style="width:34px;height:34px;border-radius:10px;background:#5cae91;display:grid;place-items:center"><div style="width:14px;height:12px;border-radius:6px 7px 6px 7px;background:#161c19"></div></div>
+      <span style="font-weight:700;font-size:19px">VisionGuard</span>
+    </a>
+    <p style="margin:0;font-size:15px;line-height:1.6">رؤية بالذكاء الاصطناعي لبيئات العمل. اسأل كاميراتك سؤالًا — بلغتك — واحصل على الإجابة، مع المقطع المصوَّر عندما يوجد.</p>
+    
+  </div>
+  <div style="position:relative;margin-top:28px;border-top:1px solid #2e3933">
+    
+      <div style="border-bottom:1px solid #2e3933">
+        <button data-on="click:c.toggle" data-i="0" style="width:100%;min-height:56px;display:flex;align-items:center;justify-content:space-between;background:none;border:none;padding:0;cursor:pointer;color:#e4eae5;font:inherit;font-size:14px;font-weight:700;letter-spacing:.08em;text-transform:uppercase">المنتج<span style="font-size:20px;font-weight:400;color:#5cae91;transition:transform .3s;transform:none">+</span></button>
+        <div data-if="c.open" data-i="0" style="display:contents" hidden>
+          <div style="display:flex;flex-direction:column;padding:0 0 12px;animation:vg-menu .3s ease both">
+            
+              <a href="./#m-how" style="color:#a3b0a8;font-size:16px;min-height:44px;display:flex;align-items:center" class="hm1">كيف يعمل</a>
+            
+              <a href="./#m-tools" style="color:#a3b0a8;font-size:16px;min-height:44px;display:flex;align-items:center" class="hm1">الأدوات</a>
+            
+              <a href="./#m-honest" style="color:#a3b0a8;font-size:16px;min-height:44px;display:flex;align-items:center" class="hm1">شفاف بطبيعته</a>
+            
+              <a href="./#m-mobile" style="color:#a3b0a8;font-size:16px;min-height:44px;display:flex;align-items:center" class="hm1">تطبيق الموبايل</a>
+            
+          </div>
+        </div>
+      </div>
+    
+      <div style="border-bottom:1px solid #2e3933">
+        <button data-on="click:c.toggle" data-i="1" style="width:100%;min-height:56px;display:flex;align-items:center;justify-content:space-between;background:none;border:none;padding:0;cursor:pointer;color:#e4eae5;font:inherit;font-size:14px;font-weight:700;letter-spacing:.08em;text-transform:uppercase">الحلول<span style="font-size:20px;font-weight:400;color:#5cae91;transition:transform .3s;transform:none">+</span></button>
+        <div data-if="c.open" data-i="1" style="display:contents" hidden>
+          <div style="display:flex;flex-direction:column;padding:0 0 12px;animation:vg-menu .3s ease both">
+            
+              <span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px;min-height:44px;display:flex;align-items:center">المكاتب <small>قريبًا</small></span>
+            
+              <span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px;min-height:44px;display:flex;align-items:center">المدارس <small>قريبًا</small></span>
+            
+              <span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px;min-height:44px;display:flex;align-items:center">السوبرماركت <small>قريبًا</small></span>
+            
+              <span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px;min-height:44px;display:flex;align-items:center">المصانع <small>قريبًا</small></span>
+            
+              <span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px;min-height:44px;display:flex;align-items:center">المستودعات <small>قريبًا</small></span>
+            
+              <span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px;min-height:44px;display:flex;align-items:center">المستشفيات <small>قريبًا</small></span>
+            
+              <span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px;min-height:44px;display:flex;align-items:center">تجزئة ومولات <small>قريبًا</small></span>
+            
+          </div>
+        </div>
+      </div>
+    
+      <div style="border-bottom:1px solid #2e3933">
+        <button data-on="click:c.toggle" data-i="2" style="width:100%;min-height:56px;display:flex;align-items:center;justify-content:space-between;background:none;border:none;padding:0;cursor:pointer;color:#e4eae5;font:inherit;font-size:14px;font-weight:700;letter-spacing:.08em;text-transform:uppercase">الشركة<span style="font-size:20px;font-weight:400;color:#5cae91;transition:transform .3s;transform:none">+</span></button>
+        <div data-if="c.open" data-i="2" style="display:contents" hidden>
+          <div style="display:flex;flex-direction:column;padding:0 0 12px;animation:vg-menu .3s ease both">
+            
+              <a href="about.html" style="color:#a3b0a8;font-size:16px;min-height:44px;display:flex;align-items:center" class="hm1">من نحن</a>
+            
+              <span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px;min-height:44px;display:flex;align-items:center">الوظائف <small>قريبًا</small></span>
+            
+              <span class="soon" aria-disabled="true" style="color:#a3b0a8;font-size:16px;min-height:44px;display:flex;align-items:center">الشركاء <small>قريبًا</small></span>
+            
+              <a href="./#m-contact" style="color:#a3b0a8;font-size:16px;min-height:44px;display:flex;align-items:center" class="hm1">تواصل مع المبيعات</a>
+            
+          </div>
+        </div>
+      </div>
+    
+      <div style="border-bottom:1px solid #2e3933">
+        <button data-on="click:c.toggle" data-i="3" style="width:100%;min-height:56px;display:flex;align-items:center;justify-content:space-between;background:none;border:none;padding:0;cursor:pointer;color:#e4eae5;font:inherit;font-size:14px;font-weight:700;letter-spacing:.08em;text-transform:uppercase">الثقة<span style="font-size:20px;font-weight:400;color:#5cae91;transition:transform .3s;transform:none">+</span></button>
+        <div data-if="c.open" data-i="3" style="display:contents" hidden>
+          <div style="display:flex;flex-direction:column;padding:0 0 12px;animation:vg-menu .3s ease both">
+            
+              <a href="trust.html" style="color:#a3b0a8;font-size:16px;min-height:44px;display:flex;align-items:center" class="hm1">الثقة والخصوصية</a>
+            
+              
+            
+              
+            
+              <a href="help.html" style="color:#a3b0a8;font-size:16px;min-height:44px;display:flex;align-items:center" class="hm1">مركز المساعدة</a>
+            
+          </div>
+        </div>
+      </div>
+    
+  </div>
+  <div style="position:relative;margin-top:24px;display:flex;flex-direction:column;gap:18px;font-size:14px">
+    <div style="display:flex;gap:4px;padding:4px;border-radius:10px;background:#212a25;align-self:flex-start"><a href="../trust.html" style="padding:8px 14px;border-radius:7px;color:#a3b0a8">English</a><span style="padding:8px 14px;border-radius:7px;background:#2a3d34;color:#e4eae5;font-weight:600">العربية</span></div>
+    <div style="display:flex;gap:22px"><span class="soon" aria-disabled="true" style="color:#a3b0a8">LinkedIn <small>قريبًا</small></span><span class="soon" aria-disabled="true" style="color:#a3b0a8">X <small>قريبًا</small></span><span class="soon" aria-disabled="true" style="color:#a3b0a8">YouTube <small>قريبًا</small></span></div>
+    <div>© 2026 VisionGuard — جميع الحقوق محفوظة.</div>
+  </div>
+  <div aria-hidden="true" dir="ltr" data-latin="1" style="position:relative;text-align:center;font-size:min(62px,calc((100vw - 40px) / 5.9));font-weight:800;letter-spacing:-.05em;line-height:1;padding:0 .06em .08em;white-space:nowrap;margin-top:36px;background:linear-gradient(90deg,#2a3d34,#5cae91 30%,#2a3d34 60%,#5cae91 85%,#2a3d34);background-size:300% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:vg-sheen 14s linear infinite;mask-image:linear-gradient(180deg,#000 55%,rgba(0,0,0,.35) 100%);-webkit-mask-image:linear-gradient(180deg,#000 55%,rgba(0,0,0,.35) 100%);user-select:none">VisionGuard</div>
+</footer>
+<!-- /vg:footer -->
+
+</div>
+
+</body>
+</html>

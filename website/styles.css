@@ -93,3 +93,15 @@
 .pg-send:hover{transform:translateY(-2px)!important;box-shadow:0 14px 30px rgba(22,28,25,.25)!important}
 /* Arabic: the design turns letter-spacing off for Arabic script; the inner pages do too */
 [dir="rtl"] .pg-title,[dir="rtl"] .pg-card h2,[dir="rtl"] .pg-label{letter-spacing:0}
+
+/* ---- Trust & privacy (28 Sep 2026): one page for Security, Privacy and Terms. Jump
+   buttons under the title, a heading per part, cards with h3 headings. ---- */
+.pg-toc{display:flex;flex-wrap:wrap;gap:10px;margin-top:24px}
+.pg-toc a{display:inline-flex;align-items:center;min-height:44px;padding:0 18px;border-radius:999px;background:#dfe9e0;color:#285948;font-weight:600;font-size:15px;transition:background .2s}
+.pg-toc a:hover{background:#cfe0d3;color:#1f2b26}
+.pg-part{margin:30px 0 2px;scroll-margin-top:88px}
+.pg-part:first-child{margin-top:0}
+.pg-part h2{font-size:clamp(26px,3.4vw,34px);font-weight:800;letter-spacing:-.02em;line-height:1.15;margin:0 0 8px}
+.pg-part p{font-size:17px;line-height:1.6;color:#57655d;margin:0;text-wrap:pretty}
+.pg-card h3{font-size:21px;font-weight:700;letter-spacing:-.015em;line-height:1.25;margin:0 0 10px}
+[dir="rtl"] .pg-part h2,[dir="rtl"] .pg-card h3{letter-spacing:0}

@@ -7,7 +7,7 @@
 // list of site edits (specs/019-website-v3/data-model.md §3) and writes:
 //   website/index.html, website/ar/index.html          whole
 //   website/design-pc.css, website/design-phone.css    whole
-//   the vg:header / vg:footer blocks of the six inner pages
+//   the vg:header / vg:footer blocks of the inner pages (INNER)
 //   website/assets/                                     byte copy
 // Anything unexpected stops the build before a single file is written.
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
@@ -24,7 +24,9 @@ const DESIGNS = [
   { screen: 'phone', lang: 'en', file: 'VisionGuard Mobile.dc.html' },
   { screen: 'phone', lang: 'ar', file: 'VisionGuard Mobile AR.dc.html' },
 ];
-const INNER = ['about.html', 'security.html', 'help.html', 'privacy.html', 'terms.html'];
+// security.html, privacy.html and terms.html are forwarding pages to trust.html since
+// 28 Sep 2026, so they carry no chrome.
+const INNER = ['about.html', 'help.html', 'trust.html'];
 
 // The whole handler vocabulary (contracts/page-hooks.md). A design that uses anything
 // else stops the build: main.js would not know what to do with it.
@@ -54,14 +56,19 @@ const T = {
 };
 
 // Footer items that now have a page (E5), by the label each design gives them.
-// [page, how many links with that label each design has]. The Arabic designs call both
-// the footer item and the contact form's note link "سياسة الخصوصية", hence 2.
+// [page, how many links with that label each design has, the label the site shows instead].
+// Trust column (28 Sep 2026, Mohamed): Security, Privacy policy and Terms of service are one
+// page, "Trust & privacy" (trust.html). The design's "Security" link becomes that page; its
+// Privacy and Terms footer links go (DROP, footer links only: they carry a hover class). The
+// contact form's note keeps its link, to the privacy part. In Arabic both the footer item and
+// the note are called "سياسة الخصوصية": the footer one is dropped, the note one kept.
 const PAGES = {
-  en: { 'About us': ['about.html', 1], 'Security': ['security.html', 1], 'Help centre': ['help.html', 1],
-    'Privacy policy': ['privacy.html', 1], 'privacy policy': ['privacy.html', 1], 'Terms of service': ['terms.html', 1] },
-  ar: { 'من نحن': ['about.html', 1], 'الأمان': ['security.html', 1], 'مركز المساعدة': ['help.html', 1],
-    'سياسة الخصوصية': ['privacy.html', 2], 'شروط الخدمة': ['terms.html', 1] },
+  en: { 'About us': ['about.html', 1], 'Help centre': ['help.html', 1],
+    'Security': ['trust.html', 1, 'Trust & privacy'], 'privacy policy': ['trust.html#privacy', 1] },
+  ar: { 'من نحن': ['about.html', 1], 'مركز المساعدة': ['help.html', 1],
+    'الأمان': ['trust.html', 1, 'الثقة والخصوصية'], 'سياسة الخصوصية': ['trust.html#privacy', 1] },
 };
+const DROP = { en: { 'Privacy policy': 1, 'Terms of service': 1 }, ar: { 'سياسة الخصوصية': 1, 'شروط الخدمة': 1 } };
 
 // The contact form's fields, in the order the design lays them out (E12).
 const FIELDS = ['name', 'email', 'company', 'phone', 'site_type', 'message'];
@@ -260,16 +267,20 @@ function siteEdits(d, html, where) {
 
   // E5: footer items that now have a page. E6: everything else with nowhere to go is
   // marked Soon and stops being a link.
-  const seen = {};
+  const seen = {}, dropped = {};
   html = html.replace(/<a href="#"([^>]*)>([\s\S]*?)<\/a>/g, (all, attrs, inner) => {
     const label = textOf(inner);
-    const page = PAGES[d.lang][label] && PAGES[d.lang][label][0];
-    if (page) { seen[label] = (seen[label] || 0) + 1; return `<a href="${page}"${attrs}>${inner}</a>`; }
+    if (DROP[d.lang][label] && /\sclass="/.test(attrs)) { dropped[label] = (dropped[label] || 0) + 1; return ''; }
+    const entry = PAGES[d.lang][label];
+    if (entry) { seen[label] = (seen[label] || 0) + 1; return `<a href="${entry[0]}"${attrs}>${entry[2] ? esc(entry[2]) : inner}</a>`; }
     attrs = attrs.replace(/\sclass="[^"]*"/, '');
     return `<span class="soon" aria-disabled="true"${attrs}>${inner} <small>${t.soon}</small></span>`;
   });
   for (const [label, [, want]] of Object.entries(PAGES[d.lang])) {
     if (seen[label] !== want) fail(f, `site edit E5 expected ${want} link(s) "${label}"`, `${seen[label] || 0}`);
+  }
+  for (const [label, want] of Object.entries(DROP[d.lang])) {
+    if (dropped[label] !== want) fail(f, `site edit E5 expected to drop ${want} footer link(s) "${label}"`, `${dropped[label] || 0}`);
   }
 
   // E7: the language switch goes to the twin page (the page's own path is filled in later).

@@ -71,6 +71,8 @@ The Arabic home page is not in this list, except the sentences in the last secti
 
 ## Security (`website/ar/security.html`)
 
+> 28 Sep 2026: Security, Privacy policy and Terms of service are now one page, **Trust & privacy** (`website/ar/trust.html`). Its Arabic is the Arabic of the three old pages, shortened; the new sentences are listed at the end of this file. The old page below now forwards there.
+
 1. EN: TRUST — SECURITY
    AR: الثقة — الأمان
 
@@ -379,3 +381,28 @@ Claude's words, not yours. Each should say what the checked English says
 
 19. EN: (footer) Ask your cameras a question — in your own language — and get the answer, with footage when there is some.
     AR: اسأل كاميراتك سؤالًا — بلغتك — واحصل على الإجابة، مع المقطع المصوَّر عندما يوجد.
+
+## Trust & privacy: new sentences (added 28 Sep 2026)
+
+Everything else on `website/ar/trust.html` is the old pages' Arabic, shortened.
+
+1. EN: Trust & privacy  
+   AR: الثقة والخصوصية
+
+2. EN: TRUST (the small label above the title)  
+   AR: الثقة
+
+3. EN: How we protect what VisionGuard sees, what we do with your details, and the terms for using this site: the short version, with every point that matters.  
+   AR: كيف نحمي ما يراه VisionGuard، وماذا نفعل ببياناتك، وشروط استخدام هذا الموقع: النسخة المختصرة، مع كل نقطة مهمة.
+
+4. EN: (jump buttons) Security · Privacy · Terms  
+   AR: الأمان · الخصوصية · الشروط
+
+5. EN: On this page (read aloud by screen readers)  
+   AR: في هذه الصفحة
+
+6. EN: (the old addresses) This page is now part of Trust & privacy.  
+   AR: أصبحت هذه الصفحة جزءًا من الثقة والخصوصية.
+
+7. EN: (footer, Trust column) Trust & privacy  
+   AR: الثقة والخصوصية

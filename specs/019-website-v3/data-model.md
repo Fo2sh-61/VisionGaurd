@@ -5,15 +5,17 @@ the fixed list of places where the site differs from the design.
 
 ## 1. Pages
 
-Eight pages, four in each language. Each holds the PC and phone copies of the header and
+Eight pages, four in each language, plus three forwarding pages in each. Each holds the PC and phone copies of the header and
 footer. The home pages hold the PC and phone copies of the whole page.
 
 | Page | English | Arabic | Middle comes from | Header and footer come from |
 |---|---|---|---|---|
 | Home | `website/index.html` | `website/ar/index.html` | `Website v3` (+`AR`) and `Mobile` (+`AR`), whole | same (generated) |
 | About us | `website/about.html` | `website/ar/about.html` | hand-written, `.pg-*` | stamped by the converter |
-| Security | `website/security.html` | `website/ar/security.html` | hand-written | stamped |
+| Trust & privacy | `website/trust.html` | `website/ar/trust.html` | hand-written: Security, Privacy and Terms in short, one part each (`#security`, `#privacy`, `#terms`) | stamped |
 | Help centre | `website/help.html` | `website/ar/help.html` | hand-written, with the question form | stamped |
+
+Forwarding pages (28 Sep 2026, when Security, Privacy policy and Terms of service became one page): `security.html`, `privacy.html` and `terms.html` in each language send the visitor to the matching part of `trust.html`. They carry no header or footer and are not in the converter's `INNER` list. The footer's Trust column has two links, Trust & privacy and Help centre (site edit E5, `DROP`).
 
 Shared files: `styles.css` (the site's own rules, always loaded), `design-pc.css`
 (`media="(width >= 600px)"`), `design-phone.css` (`media="(width < 600px)"`),
