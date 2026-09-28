@@ -1,5 +1,9 @@
 # Message for GitHub Support: the HTTPS certificate is stuck
 
+> **Resolved 28 Sep 2026 without sending it.** Mohamed opened the Pages settings page, GitHub
+> re-checked and issued the certificate (approved, valid to 27 Dec 2026), and "Enforce HTTPS"
+> was switched on. Kept in case the certificate ever sticks again.
+
 **Where to send it:** https://support.github.com → Contact support → GitHub Pages. If the
 account has no support plan, post it in https://github.com/orgs/community/discussions
 under the "Pages" category.
