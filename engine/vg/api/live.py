@@ -30,6 +30,7 @@ from vg.api import schemas as S
 from vg.api.notes import note
 from vg.api.store import (
     AlreadyBusy,
+    FallRefused,
     MockStore,
     NotAffordable,
     NothingThere,
@@ -208,6 +209,8 @@ class LiveStore(MockStore):
         zones=None,
         weapons=None,
         weapon_scenes=None,
+        falls=None,
+        fall_scenes=None,
         lost=None,
         vehicles=None,
         vehicle_store=None,
@@ -271,6 +274,10 @@ class LiveStore(MockStore):
         # once broke the People page.
         self.weapons_worker = weapons
         self.weapon_scenes = weapon_scenes
+        # Fall detection. `fall_scenes` is the history; `falls_worker` is what
+        # watches. NOT `self.falls` - that is the name of the Store method.
+        self.falls_worker = falls
+        self.fall_scenes = fall_scenes
         # Bag detection, on whichever cameras somebody is looking at.
         self.lost_watch = lost
         # Vehicle gate. `vehicle_store` is the register and the pass log;
@@ -304,6 +311,7 @@ class LiveStore(MockStore):
         self.tracking_error: str | None = None
         self.zones_error: str | None = None
         self.weapons_error: str | None = None
+        self.falls_error: str | None = None
         self.lost_error: str | None = None
         self.vehicles_error: str | None = None
         self.alerts_error: str | None = None
@@ -324,7 +332,7 @@ class LiveStore(MockStore):
     def _rated_workers(self) -> tuple:
         return (self.people_worker, self.recogniser, self.patrol,
                 self.zones_worker, self.tracking, self.vehicles_worker,
-                self.weapons_worker)
+                self.weapons_worker, self.falls_worker)
 
     def _seed_rates(self) -> None:
         """Give every camera in the roster its configured rate, at startup."""
@@ -459,6 +467,11 @@ class LiveStore(MockStore):
             # recogniser never associated with them. Rule 1, and the worst
             # sentence in the product to get wrong.
             return self._knife_boxes(camera_id)
+        if feature == "falls":
+            # Above the face default, for the reason every branch here gives:
+            # a person on the floor is a body this feature found, and a name
+            # beside them would be a claim it never made (rule 1).
+            return self._fall_boxes(camera_id)
         if feature == "lost":
             # Above the face default for the same reason as weapons, and the
             # reason is not hypothetical: knife detection shipped with this
@@ -638,6 +651,31 @@ class LiveStore(MockStore):
             for k in self.weapons_worker.knives_on(camera_id)
         ]
 
+    def _fall_boxes(self, camera_id: str) -> list[S.Box]:
+        """People down on this camera. No identity, ever.
+
+        Red (`CRITICAL`) once they have been down long enough to count, amber
+        (`WARN`) before that - the same two colours, for the same two
+        meanings, as everywhere else. Only people who are DOWN are drawn: a
+        Falls tile covered in boxes round everyone standing would bury the
+        one that matters.
+        """
+        if self.falls_worker is None:
+            return []
+        return [
+            S.Box(
+                x=max(0.0, min(1.0, d.x)),
+                y=max(0.0, min(1.0, d.y)),
+                w=max(0.0, min(1.0, d.w)),
+                h=max(0.0, min(1.0, d.h)),
+                label="Down",
+                confidence=max(0.0, min(1.0, d.confidence)),
+                kind="person",
+                severity=S.Severity.CRITICAL if d.alerted else S.Severity.WARN,
+            )
+            for d in self.falls_worker.down_on(camera_id)
+        ]
+
     def _face_boxes(self, camera_id: str) -> list[S.Box]:
         """Recognition boxes: who the camera can identify.
 
@@ -809,6 +847,10 @@ class LiveStore(MockStore):
         )
         if restarted:
             self.registry.add(config)
+        else:
+            # Same stream, new settings: recorded where the console reads the
+            # camera back from, with nothing reopened.
+            self.registry.update(config)
 
         notes = self._apply_features(config, previous=current)
         return S.EditCameraResult(
@@ -910,6 +952,7 @@ class LiveStore(MockStore):
             ("vehicles", self.vehicles_worker,
              config.enabled and config.is_gate, self.vehicles_error),
             ("weapons", self.weapons_worker, "weapons" in wanted, self.weapons_error),
+            ("falls", self.falls_worker, "falls" in wanted, self.falls_error),
             ("lostitems", self.lost_watch, "lostitems" in wanted, self.lost_error),
         ):
             if feature not in ("counting", "attendance"):
@@ -934,7 +977,7 @@ class LiveStore(MockStore):
         """
         for worker in (self.people_worker, self.recogniser, self.patrol,
                        self.zones_worker, self.tracking, self.vehicles_worker,
-                       self.weapons_worker, self.lost_watch):
+                       self.weapons_worker, self.falls_worker, self.lost_watch):
             self._set_watch(worker, camera_id, False)
 
     @staticmethod
@@ -1435,6 +1478,183 @@ class LiveStore(MockStore):
             if view is not None:
                 out.append(view)
         return out
+
+    # -- fall detection -----------------------------------------------------
+
+    def falls(self, since: datetime | None,
+              until: datetime | None = None) -> list[S.FallEntry]:
+        """The fall history: one entry per fall, newest first.
+
+        **Nobody is named here.** The model sees a body on the floor; it never
+        runs a face against it (rule 1).
+
+        **Nothing is ever removed from this list.** "Not a fall" stays, with
+        who said so; only the video goes with age, and the entry then says so.
+        """
+        if self.fall_scenes is None:
+            return []
+        self._expire_fall_clips()
+        names = {c.id: c.name for c in self.registry.configs()}
+        return [self._fall_entry(scene, names) for scene in
+                self.fall_scenes.recent(since, until)]
+
+    def _fall_entry(self, scene, names: dict | None = None) -> S.FallEntry:
+        if names is None:
+            names = {c.id: c.name for c in self.registry.configs()}
+
+        def instant(when):
+            return _instant(when, self.clock) if when else None
+
+        return S.FallEntry(
+            id=scene.id,
+            at=_instant(scene.started_at, self.clock),
+            camera_id=scene.camera_id,
+            camera_name=names.get(scene.camera_id) or scene.camera_id,
+            location=self._area_of(scene.camera_id),
+            detected_at=_instant(scene.detected_at, self.clock),
+            alerted_at=instant(scene.alerted_at),
+            ended_at=instant(scene.ended_at),
+            seconds=round(scene.seconds, 1),
+            end_reason=scene.end_reason,
+            # Validated 0..1; a stored float from a model is clamped rather
+            # than allowed to 500 the list.
+            confidence=max(0.0, min(1.0, scene.peak_confidence)),
+            verdict=scene.verdict if scene.verdict in ("none", "not_a_fall") else "none",
+            reviewed_by=scene.reviewed_by,
+            reviewed_at=instant(scene.reviewed_at),
+            responder=scene.responder,
+            responded_at=instant(scene.responded_at),
+            clip=self._fall_clip(scene),
+            clip_state=scene.clip_state,
+            clip_reason=scene.clip_reason or self._no_fall_clip_reason(scene),
+            model_version=scene.model_version or None,
+        )
+
+    def falls_status(self) -> S.FallsStatus:
+        """The rule the page quotes, and how many cameras it applies to.
+
+        The rule is the worker's own number when one is running, so the page
+        can never quote a different one from the rule actually applied.
+        """
+        from vg.features.falls import DOWN_SECONDS
+
+        worker = self.falls_worker
+        if worker is None:
+            return S.FallsStatus(down_seconds=DOWN_SECONDS, cameras_checked=0)
+        return S.FallsStatus(
+            down_seconds=float(worker.down_seconds),
+            cameras_checked=len(worker.cameras),
+        )
+
+    def _fall_write(self, fall_id: str):
+        """The entry a button is about to change, or why it cannot be."""
+        if self.fall_scenes is None:
+            raise SubsystemUnavailable(
+                "The fall history is not available, so nothing can be recorded.")
+        return self.fall_scenes.get(fall_id)
+
+    def respond_to_fall(self, fall_id: str, who: str) -> S.FallEntry | None:
+        """"I'm on my way". The audit entry goes first, as with every write."""
+        self._log(who, "fall.respond", fall_id, None)
+        scene = self._fall_write(fall_id)
+        if scene is None:
+            return None
+        if not self.fall_scenes.respond(fall_id, who, datetime.now(timezone.utc)):
+            current = self.fall_scenes.get(fall_id)
+            if current.ended_at is not None:
+                raise FallRefused("They are no longer down, so nobody needs to go.")
+            raise FallRefused(f"{current.responder} is already on the way.")
+        return self._fall_entry(self.fall_scenes.get(fall_id))
+
+    def undo_fall_response(self, fall_id: str, who: str) -> S.FallEntry | None:
+        """Take back "I'm on my way". Audited first, naming whose name went."""
+        scene = self._fall_write(fall_id)
+        self._log(who, "fall.respond.undo", fall_id,
+                  scene.responder if scene is not None else None)
+        if scene is None:
+            return None
+        if self.fall_scenes.undo_response(fall_id) is None:
+            raise FallRefused("Nobody is recorded as on the way.")
+        return self._fall_entry(self.fall_scenes.get(fall_id))
+
+    def mark_not_a_fall(self, fall_id: str, who: str) -> S.FallEntry | None:
+        """"Not a fall". Once, by one person, never back; audited first."""
+        self._log(who, "fall.not_a_fall", fall_id, None)
+        scene = self._fall_write(fall_id)
+        if scene is None:
+            return None
+        if not self.fall_scenes.mark_not_a_fall(fall_id, who, datetime.now(timezone.utc)):
+            current = self.fall_scenes.get(fall_id)
+            raise FallRefused(f"{current.reviewed_by} already marked this not a fall.")
+        return self._fall_entry(self.fall_scenes.get(fall_id))
+
+    def fall_cameras(self) -> list[S.CameraView]:
+        """The cameras actually being checked for falls, with the falls overlay."""
+        if self.falls_worker is None:
+            return []
+        out: list[S.CameraView] = []
+        for camera in self.registry.configs():
+            if not self.falls_worker.serves(camera.id):
+                continue
+            view = self.camera_view(camera.id, feature="falls")
+            if view is not None:
+                out.append(view)
+        return out
+
+    def _expire_fall_clips(self) -> int:
+        if self.fall_scenes is None:
+            return 0
+        days = self.config.storage.clip_retention_days
+        return self.fall_scenes.expire(datetime.now(timezone.utc) - timedelta(days=days))
+
+    def clip_for_fall(self, fall_id: str):
+        """The video for one fall, or why there is not one. `(path, reason)`.
+
+        The path is never taken from the request: the id is looked up and the
+        stored path must sit inside the fall clip folder, the check
+        `clip_for_weapon` makes.
+        """
+        if self.fall_scenes is None:
+            return None, "The fall history is not available."
+        scene = self.fall_scenes.get(fall_id)
+        if scene is None:
+            return None, f"no fall {fall_id!r}"
+        if scene.clip_state != "saved" or scene.clip_path is None:
+            return None, (scene.clip_reason or self._no_fall_clip_reason(scene)
+                          or "There is no video for this fall.")
+        root = self.config.storage.fall_clips_dir
+        try:
+            path = scene.clip_path.resolve()
+            path.relative_to(root.resolve())
+        except (OSError, ValueError):
+            log.error("fall %s names a clip outside %s: %s", fall_id, root, scene.clip_path)
+            return None, "That video is not where it should be, so it was not served."
+        if not path.is_file():
+            return None, "The video is no longer on disk."
+        return path, ""
+
+    @staticmethod
+    def _no_fall_clip_reason(scene) -> str | None:
+        if scene.clip_state == "saved":
+            return None
+        if scene.clip_state == "recording":
+            return "Still recording — the video is saved when they get up or leave the camera."
+        if scene.clip_state == "expired":
+            return "Video no longer kept."
+        if scene.clip_state == "none":
+            return "No video was recorded for this fall."
+        return None
+
+    def _fall_clip(self, scene) -> S.Clip | None:
+        """Same-origin and relative, for the reason `_weapon_clip` gives."""
+        if not scene.playable:
+            return None
+        return S.Clip(
+            id=scene.id,
+            url=f"/falls/{scene.id}/clip",
+            duration_seconds=round(scene.seconds, 1),
+            starts_at=_instant(scene.started_at, self.clock),
+        )
 
     # -- vehicle gate -------------------------------------------------------
 
@@ -2593,6 +2813,23 @@ class LiveStore(MockStore):
                               confidence=round(scene.peak_confidence * 100)),
                 ))
 
+        # Somebody down long enough to count, and still down. Not behind an
+        # alert rule: a fall is never SENT anywhere - the owner's design says
+        # so - and the one place it is announced is here, on the console, at
+        # once. Taken off the list by getting up, or by "not a fall".
+        if self.fall_scenes is not None:
+            for scene in self.fall_scenes.running():
+                if not scene.alerted or scene.verdict == "not_a_fall":
+                    continue
+                items.append(S.AttentionItem(
+                    id=f"fall:{scene.id}", kind="fall",
+                    at=_instant(scene.started_at, self.clock),
+                    severity=S.Severity.CRITICAL,
+                    title=self._roster_name(scene.camera_id) or scene.camera_id,
+                    detail="", target="falls", target_id=scene.id,
+                    note=note("attention.fall"),
+                ))
+
         if shown("intrusion") and self.scenes is not None:
             since = self._start_of_day()
             for scene in self.scenes.recent(since_days=1):
@@ -2968,6 +3205,7 @@ class LiveStore(MockStore):
             # from "broken" — an operator should not be waiting for these to
             # come back.
             "weapons": self._weapons_state(),
+            "falls": self._falls_state(),
             "search_lost": self._lost_state(),
             "users": live(
                 self.users_store is not None,
@@ -3070,6 +3308,62 @@ class LiveStore(MockStore):
                     "even though the cameras are being checked.")
         return S.DataState.LIVE, None
 
+    def _falls_state(self) -> tuple[S.DataState, str | None]:
+        """Whether anything is actually watching for falls, and why not.
+
+        "No camera is checked" is its own sentence: the worker can be running
+        with nothing to watch, which is the state of every site the day this
+        feature arrives, and an empty history must not read as "nobody fell".
+        """
+        if self.falls_worker is None:
+            if self.falls_error:
+                return S.DataState.UNAVAILABLE, self.falls_error
+            return (S.DataState.UNAVAILABLE,
+                    "Fall detection is not running, so no camera is being checked.")
+        if self.fall_scenes is None:
+            return (S.DataState.UNAVAILABLE,
+                    "The fall history is not available, so nothing can be shown "
+                    "even though the cameras are being checked.")
+        if not self.falls_worker.cameras:
+            return (S.DataState.UNAVAILABLE,
+                    "No camera is checked for falls. Turn checking on per camera "
+                    "in System health.")
+        return S.DataState.LIVE, None
+
+    def _falls_stage(self) -> S.PipelineStage:
+        """Rule 8: said on the page, in the same words as the capability."""
+        state, reason = self._falls_state()
+        if state is not S.DataState.LIVE:
+            # Off because nobody switched it on is a choice, not a fault, but
+            # it is still not watching anything - a warning, never green.
+            return S.PipelineStage(
+                key="falls", name="Fall detection",
+                detail=reason or "Not running.",
+                healthy=False, severity=S.Severity.WARN, restartable=False,
+            )
+        stats = self._stats_of(self.falls_worker)
+        if stats is None:
+            return S.PipelineStage(
+                key="falls", name="Fall detection",
+                detail="Running, but it could not report its counters.",
+                healthy=False, severity=S.Severity.WARN, restartable=False,
+            )
+        stopped = self._stopped_stage("falls", "Fall detection", stats,
+                                      "nobody is watched for falls")
+        if stopped is not None:
+            return stopped
+        detector = getattr(self.falls_worker, "detector", None)
+        pose = getattr(detector, "pose_version", None)
+        return S.PipelineStage(
+            key="falls", name="Fall detection",
+            detail=(f"{self._running_on(detector)}"
+                    + (f", pose {pose}" if pose else "")
+                    + f" - {stats['cameras']} camera(s), "
+                      f"{stats['last_inference_ms']}ms last frame"),
+            healthy=True, severity=S.Severity.INFO, restartable=False,
+            model_version=getattr(detector, "version", None),
+        )
+
     def _clock_stage(self) -> S.PipelineStage:
         """Rule 8: a subsystem that failed to start says so in the UI.
 
@@ -3113,7 +3407,7 @@ class LiveStore(MockStore):
         candidates = [
             getattr(self, name, None) for name in (
                 "recogniser", "patrol", "people_worker", "tracking",
-                "weapons_worker", "vehicles_worker", "lost_watch",
+                "weapons_worker", "falls_worker", "vehicles_worker", "lost_watch",
             )
         ]
 
@@ -3231,6 +3525,10 @@ class LiveStore(MockStore):
         "recognition": 44.0,  # YuNet + SFace
         "patrol": 44.0,       # the same pair, run slower on the other cameras
         "weapons": 17.0,      # knife model, only on frames with a person
+        # Pose model (the size of the person pass) plus the owner's LSTM
+        # stepped through the frames filled in between two real ones. Not
+        # measured on the deployment GPU yet - hence an estimate.
+        "falls": 30.0,
         "vehicles": 6.0,      # the plate pair
         "lostitems": 29.0,    # bag model, only while somebody is watching
     }
@@ -3355,7 +3653,7 @@ class LiveStore(MockStore):
         candidates = [
             getattr(self, name, None) for name in (
                 "recogniser", "patrol", "people_worker", "tracking",
-                "weapons_worker", "vehicles_worker", "lost_watch",
+                "weapons_worker", "falls_worker", "vehicles_worker", "lost_watch",
             )
         ]
 
@@ -3533,6 +3831,7 @@ class LiveStore(MockStore):
             self._people_stage(),
             self._clock_stage(),
             self._weapons_stage(),
+            self._falls_stage(),
             self._vehicles_stage(),
             self._lost_stage(),
             self._alerts_stage(),

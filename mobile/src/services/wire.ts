@@ -206,6 +206,39 @@ export interface WeaponDetection {
   endReason?: string | null;
 }
 
+/* ---------- falls ---------- */
+
+/** One fall. `at` is when they went down; `alertedAt` null means they got up
+ *  before it counted and nothing was raised; `endedAt` null means they are
+ *  still down. `endReason` and `verdict` are enums the console words. */
+export interface FallEntry {
+  id: string;
+  at: Instant;
+  cameraId: string;
+  cameraName: string;
+  location: string;
+  detectedAt: Instant;
+  alertedAt?: Instant | null;
+  endedAt?: Instant | null;
+  seconds?: number;
+  endReason?: 'got_up' | 'left_view' | 'switched_off' | 'shutdown' | string | null;
+  confidence: number;
+  verdict: 'none' | 'not_a_fall';
+  reviewedBy?: string | null;
+  reviewedAt?: Instant | null;
+  responder?: string | null;
+  respondedAt?: Instant | null;
+  clip?: Clip | null;
+  clipState?: string;
+  clipReason?: string | null;
+  modelVersion?: string | null;
+}
+
+export interface FallsStatus {
+  downSeconds: number;
+  camerasChecked: number;
+}
+
 /* ---------- attendance ---------- */
 
 export interface AttendanceRecord {
@@ -654,7 +687,7 @@ export interface User {
  *  or a plate), `detail` is empty, and `note` says what happened, worded here. */
 export interface AttentionItem {
   id: string;
-  kind: 'weapon' | 'intrusion' | 'vehicles' | 'camera' | 'attendance' | 'system';
+  kind: 'weapon' | 'intrusion' | 'vehicles' | 'camera' | 'attendance' | 'system' | 'fall';
   at: Instant;
   severity: Severity;
   title: string;

@@ -386,12 +386,31 @@ models:
     accelerate: false          # the .pt, not the TensorRT plan
     version: aclpr-chars-2026-08-24
 
+  # Body pose, 17 keypoints a person. Used by fall detection (the `falls`
+  # model below reads its keypoints) and nothing else. 0.30 and 640 are the
+  # owner's fall pipeline's own settings (models/falling/core__pose.py) - the
+  # temporal model was trained on poses found with them, so they are not
+  # free to tune here. A `yolov8s-pose-640.engine` beside the .pt is used
+  # when it loads; build it on the target machine.
   pose:
     task: pose
     weights: models/yolov8s-pose.pt
     imgsz: 640
-    conf: 0.35
+    conf: 0.30
     version: coco-pose-yolov8s
+
+  # Fall detection: the owner's learned temporal model (LSTM, 70k parameters)
+  # over the last 30 poses of each person. The one `train.compare --install`
+  # chose and installed - runs/lstm_cctv, trained with CCTV viewpoint
+  # augmentation - byte-identical to models/falling/runs__lstm_cctv__best.pt.
+  # Its fallen threshold and alert rules are calibrated by the owner's
+  # training and stored inside the checkpoint; nothing here overrides them.
+  # Measured on the held-out Le2i / UR Fall test split: event F1 0.85.
+  # Not measured on a school camera. See models/README.md.
+  falls:
+    task: classify
+    weights: models/falling/checkpoints__temporal_model.pt
+    version: lstm_cctv
 
   # Face recognition. SETTLED — SFace stays; see DEV_PLAN.md §0.2. Recorded
   # here so the Model Manager (Phase 3b) has a row to bind to and so every

@@ -211,13 +211,47 @@ population, not a Western benchmark set.
 
 ---
 
+## The fall model: `falling/checkpoints__temporal_model.pt`
+
+**Trained by the owner, supplied in October 2026, kept in git** (286 KB - the only
+weights in this repository rather than out of band, so the test that holds the
+engine's copy of his code to his own runs on every checkout).
+
+What it is, read from the checkpoint: a **2-layer LSTM, 64 hidden, ~70k parameters**,
+classifying each tracked person as `normal / falling / fallen` from their **last 30
+poses** (17 COCO keypoints each, from `yolov8s-pose`), normalised to the hip centre
+and torso length. Trained on Le2i and UR Fall with CCTV viewpoint augmentation
+(tilt, squash, shear, hidden legs). It is `runs/lstm_cctv` - byte-identical to
+`runs__lstm_cctv__best.pt` - the run the owner's `train.compare --install` picked
+on validation event-F1 and fewest false alarms on fall-free CCTV footage. Its alert
+rules were calibrated on the validation videos and are stored **inside** the
+checkpoint: fallen threshold 0.8, a fall raised after 0.2 s fallen within 2 s of
+being upright, a 1 s long-fall rule, and a 0.5 s rule for somebody the pose model
+loses mid-fall. The engine uses them as stored.
+
+**Measured** (the owner's `runs/logs/`): on the held-out test split, 30 videos with
+19 falls, event F1 0.85 (precision 0.81, recall 0.89, 4 false alarms); 1 false alarm
+in 1.4 minutes of fall-free CCTV footage. **Not measured**: anything on a school
+camera, and anything below the 25-30 frames a second it was trained at. The engine
+analyses a camera at its own rate (usually 5 a second) and fills in the poses between
+two real frames; on synthetic falls the real model still raises the fall at 5 and at
+3 frames a second, which is a smoke test, not a measurement.
+
+**What else is in `models/falling/`**: the owner's whole project as handed over -
+the code the engine's `infer/falls.py` was copied from (`core__*`, `detectors__*`,
+`train__*`), the other four trained runs (`cnn`, `cnn_cctv`, `lstm`,
+`urfd_only_cnn`), their configs and logs, a rule-based detector the engine does not
+use, his tests, an attendance demo, and the Le2i annotation text files. File names
+are flattened (`core/features.py` became `core__features.py`); `test_falls_model.py`
+puts them back to run them.
+
 ## Everything else
 
 | File | What it is | Use |
 |---|---|---|
 | `yolov8s.pt` | Stock COCO YOLOv8s, 80 classes, 11.2M params, 500 epochs | **The workhorse.** Person detection for intrusion, counting, tracking |
 | `yolo11m.pt` | Stock COCO YOLO11m, 80 classes | Bigger/slower alternative to the above |
-| `yolov8s-pose.pt` | COCO pose, 1 class + 17 keypoints, 11.6M params | **Nothing uses it.** It was bought as the foundation for fight detection, which is now out of scope. Still configured in `engine.yaml` and loaded by nothing — keep it or drop it, but it is not pending work |
+| `yolov8s-pose.pt` | COCO pose, 1 class + 17 keypoints, 11.6M params | **Fall detection** (since Oct 2026): the body pose the fall model reads. Bought for fight detection, which is out of scope; now `models.pose` in `engine.yaml`, at the owner's fall pipeline's 0.30 confidence. Keep it |
 | `yolov8n-oiv7.pt` | Open Images V7, 601 classes, 3.5M params | Weapons cross-check; broad object vocabulary for lost items |
 | `yolov8m-worldv2.pt` | Stock YOLO-World v2, un-prompted (COCO 80) | The base the two custom variants were made from. Re-prompt it for new open-vocab tasks |
 | `face_detection_yunet_2023mar.onnx` | OpenCV Zoo YuNet, 227 KB | Face **detection** for attendance. Runs via `cv2.FaceDetectorYN`, no extra dependency |

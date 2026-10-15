@@ -97,6 +97,11 @@ class Track:
     x2: int
     y2: int
     confidence: float
+    #: Which of the detections handed to `update` this track was matched to
+    #: on this frame, or -1 when ByteTrack did not say. Fall detection reads
+    #: it to keep each body's keypoints with that body: a pose model returns
+    #: keypoints in detection order, and ByteTrack returns tracks in its own.
+    index: int = -1
 
     @property
     def box(self) -> tuple[int, int, int, int]:
@@ -175,6 +180,8 @@ class PersonTracker:
                 track_id=int(track_id),
                 x1=int(x1), y1=int(y1), x2=int(x2), y2=int(y2),
                 confidence=float(score),
+                # ultralytics' rows are x1 y1 x2 y2 id score cls idx.
+                index=int(row[7]) if len(row) >= 8 else -1,
             ))
         return out
 

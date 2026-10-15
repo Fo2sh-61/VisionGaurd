@@ -33,6 +33,7 @@ from vg.clock import clock_for
 from vg.api.store import (
     TZ_OFFSET_MINUTES,
     AlreadyBusy,
+    FallRefused,
     MockStore,
     NotAffordable,
     NothingThere,
@@ -324,6 +325,9 @@ async def lifespan(app: FastAPI):
     app.state.weapons_error: str | None = None
     app.state.weapons = None
     app.state.weapon_scenes = None
+    app.state.falls_error: str | None = None
+    app.state.falls = None
+    app.state.fall_scenes = None
     app.state.lost_error: str | None = None
     app.state.lost = None
     app.state.vehicles_error: str | None = None
@@ -362,6 +366,7 @@ async def lifespan(app: FastAPI):
         # says so; it is never silence.
         for feature, chosen in (
             ("knife detection", _weapons_cameras(roster)),
+            ("fall detection", _falls_cameras(roster)),
             ("restricted areas", _zone_cameras(roster)),
             ("lost items", _lost_cameras(roster)),
         ):
@@ -445,6 +450,15 @@ async def lifespan(app: FastAPI):
         # after the store exists, so no entry can open unheard.
         if app.state.alerts is not None and app.state.weapon_scenes is not None:
             app.state.weapon_scenes.on_open = app.state.alerts.on_weapon_open
+        # Fall detection. Its own two models - body pose and the owner's
+        # temporal model - shared with nothing, and no other feature needs
+        # to be switched on. No alert hook: a fall is shown on the console
+        # and sent to nobody, by design.
+        (
+            app.state.falls,
+            app.state.fall_scenes,
+            app.state.falls_error,
+        ) = _start_falls(cfg, registry, roster)
         # Bag detection. The thread starts but sleeps: work happens only
         # for cameras somebody is actually looking at.
         app.state.lost, app.state.lost_error = _start_lost(cfg, registry, roster)
@@ -525,6 +539,8 @@ async def lifespan(app: FastAPI):
             zones=app.state.zones,
             weapons=app.state.weapons,
             weapon_scenes=app.state.weapon_scenes,
+            falls=app.state.falls,
+            fall_scenes=app.state.fall_scenes,
             lost=app.state.lost,
             vehicles=app.state.vehicles,
             vehicle_store=app.state.vehicle_store,
@@ -536,6 +552,7 @@ async def lifespan(app: FastAPI):
         store.people_error = app.state.people_error
         store.zones_error = app.state.zones_error
         store.weapons_error = app.state.weapons_error
+        store.falls_error = app.state.falls_error
         store.lost_error = app.state.lost_error
         store.vehicles_error = app.state.vehicles_error
         store.alerts_error = app.state.alerts_error
@@ -602,6 +619,9 @@ async def lifespan(app: FastAPI):
             # can play. Knives lead because that is the row an operator is
             # most likely to be looking at when the engine goes down.
             getattr(app.state, "weapons", None),
+            # Falls next, for the same reason: nobody may be left showing as
+            # still on the floor, and the clip of a fall must be playable.
+            getattr(app.state, "falls", None),
             getattr(app.state, "zones", None),
             getattr(app.state, "people", None),
             getattr(app.state, "recogniser", None),
@@ -656,6 +676,10 @@ def _feature_cameras(roster, feature: str) -> list[str]:
 
 def _weapons_cameras(roster) -> list[str]:
     return _feature_cameras(roster, "weapons")
+
+
+def _falls_cameras(roster) -> list[str]:
+    return _feature_cameras(roster, "falls")
 
 
 def _zone_cameras(roster) -> list[str]:
@@ -1379,6 +1403,94 @@ def _start_weapons(cfg, registry, roster, detector):
         log.exception("knife detection failed to start")
         _reraise_if_strict(exc, "knife detection")
         return None, None, f"Knife detection failed to start ({_reason(exc)})"
+
+
+def _start_falls(cfg, registry, roster):
+    """Fall detection, on the cameras with `falls` in their features.
+
+    **Loaded whenever a camera is enabled, even if none is checked yet.** The
+    Falls feature is switched on per camera from System Health, and a switch
+    there must take effect on the next frame - the design says so, and every
+    other toggle on that page does. Starting the worker only when some
+    camera already had `falls` would make the first switch on a site do
+    nothing until somebody restarted the engine. With no camera checked the
+    worker runs no threads; the models wait, loaded.
+
+    Takes no person detector: the pose model finds the people itself, and a
+    second person pass in front of it would cost a model run to save one.
+
+    Returns `(worker, scenes, error)`. Every failure is a sentence for the
+    page, never an exception (rule 8) - most commonly a machine without the
+    pose weights.
+    """
+    if not any(c.enabled for c in roster):
+        log.info("no camera is enabled; not loading fall detection")
+        return None, None, None
+
+    watched = _falls_cameras(roster)
+    try:
+        from vg.events.falls import FallSceneStore
+        from vg.features.falls import MAX_CLIP_SECONDS, FallsWorker
+        from vg.infer.falls import FallDetector
+        from vg.ingest.recorder import Recorder
+
+        pose = cfg.models.get("pose")
+        model = cfg.models.get("falls")
+        if pose is None:
+            return None, None, "No 'pose' model is configured in engine.yaml."
+        if model is None:
+            return None, None, "No 'falls' model is configured in engine.yaml."
+
+        detector = FallDetector(
+            weights=pose.weights,
+            classifier=model.weights,
+            device=pose.device,
+            imgsz=pose.imgsz,
+            conf=pose.conf,
+            half=pose.half,
+            accelerate=pose.accelerate,
+        )
+
+        scenes = FallSceneStore(_database(cfg))
+        # A fall left open by a killed process would show somebody on the
+        # floor for ever, with a half-written file offered as its video.
+        scenes.close_orphans()
+        scenes.expire(
+            datetime.now(timezone.utc)
+            - timedelta(days=cfg.storage.clip_retention_days))
+
+        rate = min((c.fps for c in roster if c.id in watched), default=5.0)
+        worker = FallsWorker(
+            registry.bus,
+            detector,
+            watched,
+            scenes,
+            # Its OWN recorder, into `clips_dir/falls/`, for the reason the
+            # knife one has its own: features must never fight over a camera.
+            recorder=Recorder(
+                registry.bus, cfg.storage.fall_clips_dir, clock=cfg.timezone,
+                max_seconds=MAX_CLIP_SECONDS),
+            retention_days=cfg.storage.clip_retention_days,
+            rate_hz=rate,
+            boost_hz=12.0,
+        )
+        worker.start()
+        log.info(
+            "fall detection on %d camera(s)%s - %s on %s",
+            len(watched), "" if watched else " (none checked yet)",
+            detector.version, detector.device,
+        )
+        return worker, scenes, None
+    except FileNotFoundError as exc:
+        # The commonest case: a machine without the pose weights. Say which
+        # file, and keep every other feature up.
+        log.warning("fall detection is off: %s", exc)
+        _reraise_if_strict(exc, "fall detection")
+        return None, None, f"Fall detection failed to start ({exc})"
+    except Exception as exc:
+        log.exception("fall detection failed to start")
+        _reraise_if_strict(exc, "fall detection")
+        return None, None, f"Fall detection failed to start ({_reason(exc)})"
 
 
 def _start_vehicles(cfg, registry, roster):
@@ -2408,6 +2520,86 @@ def _mount(app: FastAPI) -> None:
     @app.get("/weapons/cameras", response_model=list[S.CameraView], tags=["weapons"])
     async def get_weapon_cameras(store: StoreDep) -> list[S.CameraView]:
         return store.weapon_cameras()
+
+    # ----------------------------------------------------------------- falls
+    @app.get("/falls/entries", response_model=list[S.FallEntry], tags=["falls"])
+    async def get_falls(
+        store: StoreDep,
+        window: Annotated[WeaponWindowToken, Query()] = "last7",
+    ) -> list[S.FallEntry]:
+        """Fall history, people still down included. Nothing is ever removed.
+
+        The same periods as the knife log, worked out on the site's calendar.
+        """
+        clock = getattr(store, "clock", None) or clock_for(TZ_OFFSET_MINUTES)
+        hours = getattr(getattr(store, "config", None), "hours", None)
+        since, until = weapon_window(window, clock, getattr(hours, "term_from", ""))
+        return store.falls(since, until)
+
+    @app.get("/falls/status", response_model=S.FallsStatus, tags=["falls"])
+    async def get_falls_status(store: StoreDep) -> S.FallsStatus:
+        return store.falls_status()
+
+    def _fall_answer(result, fall_id: str) -> S.FallEntry:
+        if result is None:
+            raise HTTPException(404, f"no fall {fall_id!r}")
+        return result
+
+    @app.post("/falls/{fall_id}/respond", response_model=S.FallEntry, tags=["falls"])
+    async def respond_to_fall(
+        fall_id: str, store: StoreDep, user: auth_deps.CurrentUser,
+    ) -> S.FallEntry:
+        """"I'm on my way" - optional, and signed with the signed-in account.
+
+        Not admin-only: going to somebody on the floor is anybody's job.
+        A 409 with the reason when it cannot be done - they already got up,
+        or somebody else is already going.
+        """
+        try:
+            return _fall_answer(store.respond_to_fall(fall_id, user.name), fall_id)
+        except FallRefused as refused:
+            raise HTTPException(409, str(refused)) from refused
+        except SubsystemUnavailable as exc:
+            raise HTTPException(503, str(exc)) from exc
+
+    @app.delete("/falls/{fall_id}/respond", response_model=S.FallEntry, tags=["falls"])
+    async def undo_fall_response(
+        fall_id: str, store: StoreDep, user: auth_deps.CurrentUser,
+    ) -> S.FallEntry:
+        """Undo "I'm on my way". The audit keeps whose name was taken off."""
+        try:
+            return _fall_answer(store.undo_fall_response(fall_id, user.name), fall_id)
+        except FallRefused as refused:
+            raise HTTPException(409, str(refused)) from refused
+        except SubsystemUnavailable as exc:
+            raise HTTPException(503, str(exc)) from exc
+
+    @app.post("/falls/{fall_id}/not-a-fall", response_model=S.FallEntry, tags=["falls"])
+    async def mark_not_a_fall(
+        fall_id: str, store: StoreDep, user: auth_deps.CurrentUser,
+    ) -> S.FallEntry:
+        """"Not a fall" - optional, signed, once, and never taken back.
+
+        The entry stays in the history, saying so. There is no delete.
+        """
+        try:
+            return _fall_answer(store.mark_not_a_fall(fall_id, user.name), fall_id)
+        except FallRefused as refused:
+            raise HTTPException(409, str(refused)) from refused
+        except SubsystemUnavailable as exc:
+            raise HTTPException(503, str(exc)) from exc
+
+    @app.get("/falls/{fall_id}/clip", tags=["falls"], response_class=FileResponse)
+    async def get_fall_clip(fall_id: str, store: StoreDep):
+        """Play the video of one fall. Same-origin, every refusal a 404 in words."""
+        path, reason = store.clip_for_fall(fall_id)
+        if path is None:
+            raise HTTPException(404, reason)
+        return FileResponse(path, media_type="video/mp4")
+
+    @app.get("/falls/cameras", response_model=list[S.CameraView], tags=["falls"])
+    async def get_fall_cameras(store: StoreDep) -> list[S.CameraView]:
+        return store.fall_cameras()
 
     # ------------------------------------------------------------ attendance
     @app.get("/attendance", response_model=S.AttendanceResult, tags=["attendance"])

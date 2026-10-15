@@ -54,6 +54,9 @@ from vg.infer.shared import engine_path_for, tensorrt_available  # noqa: E402
 #: report says "skipped, and why" rather than silently covering four of six.
 NOT_ULTRALYTICS = {
     "face": "OpenCV DNN, not ultralytics - SFace is settled, see AGENTS.md",
+    # The owner's 70k-parameter LSTM over poses. Plain torch, nothing to
+    # compile; the pose model it reads is built under its own name, `pose`.
+    "falls": "the owner's temporal model, plain torch - the pose model it reads is `pose`",
 }
 
 

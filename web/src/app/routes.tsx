@@ -8,6 +8,7 @@ import { Counting } from '@/pages/Counting';
 import { Intrusion } from '@/pages/Intrusion';
 import { VehicleGate } from '@/pages/VehicleGate';
 import { Weapons } from '@/pages/Weapons';
+import { Falls } from '@/pages/Falls';
 import { LostItems } from '@/pages/LostItems';
 import { TrackPerson } from '@/pages/TrackPerson';
 import { SystemHealth } from '@/pages/SystemHealth';
@@ -75,6 +76,7 @@ export function AppRoutes() {
         <Route path="counting" element={<Counting />} />
         <Route path="intrusion" element={<Intrusion />} />
         <Route path="weapons" element={<Weapons />} />
+        <Route path="falls" element={<Falls />} />
         <Route path="vehicles" element={<VehicleGate />} />
         <Route path="lost-items" element={<LostItems />} />
         <Route path="track" element={<TrackPerson />} />

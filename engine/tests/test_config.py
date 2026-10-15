@@ -214,6 +214,12 @@ def loaded():
     return cfg.load()
 
 
+
+#: Models whose weights are committed with the code rather than supplied out
+#: of band. The fall model is 286 KB and the parity test in
+#: `test_falls_model.py` needs it on every checkout.
+IN_REPO = frozenset({"falls"})
+
 class TestShippedConfig:
     """The committed engine.yaml must actually load."""
 
@@ -243,13 +249,20 @@ class TestShippedConfig:
         others are not, that is a half-finished local install and still a real
         failure — which is the case this test was written to catch.
         """
-        present = [m.name for m in loaded.models.values() if m.exists()]
+        # Weights kept IN the repository are on every checkout, so finding
+        # them says nothing about whether the out-of-band ones were
+        # installed. They are checked on their own, and must always be there.
+        in_repo = [m for m in loaded.models.values() if m.name in IN_REPO]
+        assert all(m.exists() for m in in_repo), [m.name for m in in_repo]
+        out_of_band = [m for m in loaded.models.values() if m.name not in IN_REPO]
+
+        present = [m.name for m in out_of_band if m.exists()]
         if not present:
             pytest.skip(
                 "no model weights on this machine (1.2 GB, tracked out of "
                 "band) - nothing to check"
             )
-        missing = [m.name for m in loaded.models.values() if not m.exists()]
+        missing = [m.name for m in out_of_band if not m.exists()]
         assert not missing, f"engine.yaml points at missing weights: {missing}"
 
     def test_no_engine_files_are_referenced(self, loaded):
