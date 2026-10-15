@@ -3,7 +3,6 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useCameras } from '@/app/CameraContext';
 import { useLanguage } from '@/app/LanguageContext';
 import { usePageTitle } from '@/app/PageChrome';
-import { tileRefreshMs } from '@/components/CamGrid';
 import { CameraFrame } from '@/components/CameraFrame';
 import { RecordButton } from '@/components/RecordButton';
 import { ApiError } from '@/services/http';
@@ -217,7 +216,7 @@ export function CameraView() {
                   { replace: true },
                 )}
               >
-                <CameraFrame camera={cam} detections={false} refreshMs={tileRefreshMs(others.length)} />
+                <CameraFrame camera={cam} detections={false} />
                 <span className="camtile__name" style={{ display: 'block', paddingTop: 6 }}>{cam.name}</span>
               </button>
             ))}

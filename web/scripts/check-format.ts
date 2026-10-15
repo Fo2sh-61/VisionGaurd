@@ -15,7 +15,7 @@ import {
   formatMetric, toDetectionBox, toCameraZone, severityToTone, boxColor, formatLongDate,
   identifiedByFace, formatCapacityRow, formatEngineBusy, capacityShare,
 } from '../src/services/format';
-import { pictureRect } from '../src/services/frame';
+import { pictureRect, tileBoxRefreshMs, tileRefreshMs } from '../src/services/frame';
 import type { CapacityRowItem } from '../src/types';
 
 let pass = 0, fail = 0;
@@ -158,6 +158,22 @@ const shot = pictureRect(400, 400, 2);
 eq('a box lands on the picture, not on the tile',
    shot.top + (20 / 100) * shot.height, 140);
 eq('reading it against the tile gets it wrong', (20 / 100) * 400, 80);
+
+/* ---------- a camera on screen moves; one off screen asks for nothing ----------
+ *
+ *  The phone's Home camera, alone on its screen, sat at one picture a second:
+ *  it was given no rate and fell back to the component's default. A tile's
+ *  rate is now the screen's budget shared by the tiles on screen, so a lone
+ *  tile runs at the full 15 and a phone screen of them stays smooth. */
+const fps = (onScreen: number) => Math.round((1_000 / tileRefreshMs(onScreen)) * 10) / 10;
+eq('a camera alone on its screen runs at 15 a second', fps(1), 15);
+eq('before it is counted it is not held to 1 a second', fps(0), 15);
+eq('a phone screen of tiles all run at 15', fps(8), 15);
+eq('a desktop wall shares the budget', fps(12), 10);
+eq('a screen of twenty-four gets 5 each', fps(24), 5);
+eq('however many, every tile still moves', fps(500), 2);
+eq('the overlay stays slower than the picture', tileBoxRefreshMs(1), 200);
+eq('a wall of overlays backs off', tileBoxRefreshMs(13), 1_500);
 
 /* ---------- one camera is not "1 cameras" ----------
  *

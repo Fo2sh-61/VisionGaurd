@@ -31,14 +31,20 @@ import pytest
 from vg.ingest import source as vgsource
 from vg.ingest.source import CameraSource
 
-WEB = Path(__file__).resolve().parents[2] / "web" / "src"
-CAMERA_FRAME = WEB / "components" / "CameraFrame.tsx"
+ROOT = Path(__file__).resolve().parents[2]
+#: Both apps' copies. The phone had this leak too; checking only the console
+#: left the phone's copy free to regress unnoticed.
+CAMERA_FRAMES = {
+    app: ROOT / app / "src" / "components" / "CameraFrame.tsx"
+    for app in ("web", "mobile")
+}
 
 
 # ---------------------------------------------------------------------------
 # the console lets go of a stream it has stopped showing
 # ---------------------------------------------------------------------------
 
+@pytest.mark.parametrize("app", sorted(CAMERA_FRAMES))
 class TestTheConsoleLetsGoOfTheStream:
     """A source check, because there is no runtime state that reveals it.
 
@@ -50,16 +56,16 @@ class TestTheConsoleLetsGoOfTheStream:
     """
 
     @staticmethod
-    def _source() -> str:
-        return CAMERA_FRAME.read_text(encoding="utf-8")
+    def _source(app: str) -> str:
+        return CAMERA_FRAMES[app].read_text(encoding="utf-8")
 
-    def _stream_image(self) -> str:
-        source = self._source()
+    def _stream_image(self, app: str) -> str:
+        source = self._source(app)
         start = source.index("function StreamImage(")
         return source[start:source.index("export function CameraFrame(", start)]
 
-    def test_the_stream_element_removes_its_address_when_it_stops(self):
-        body = self._stream_image()
+    def test_the_stream_element_removes_its_address_when_it_stops(self, app):
+        body = self._stream_image(app)
         assert "useLayoutEffect(" in body
         assert "img.src = src;" in body, (
             "the stream element must set its own src, so React never owns it")
@@ -67,16 +73,16 @@ class TestTheConsoleLetsGoOfTheStream:
             "removing the element does not close an MJPEG connection; "
             "removing its src does")
 
-    def test_the_live_view_draws_the_stream_through_it(self):
-        source = self._source()
+    def test_the_live_view_draws_the_stream_through_it(self, app):
+        source = self._source(app)
         assert re.search(r"useStream\s*\?\s*\(\s*<StreamImage src=\{frameSrc\}", source), (
             "the stream must be drawn by StreamImage, not a plain <img>")
         assert "src={camera.streamUrl}" not in source
 
-    def test_letting_go_never_reads_as_a_failed_camera(self):
+    def test_letting_go_never_reads_as_a_failed_camera(self, app):
         """`src = ''` closes the stream too, but fires `error`, and
         CameraFrame's error handler marks the camera's picture as failed."""
-        source = self._source()
+        source = self._source(app)
         assert not re.search(r"""\.src\s*=\s*(''|"")""", source)
         assert not re.search(r"""setAttribute\(\s*['"]src['"]\s*,\s*(''|"")""", source)
 

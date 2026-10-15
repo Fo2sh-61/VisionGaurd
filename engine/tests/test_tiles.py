@@ -180,7 +180,7 @@ def picture_width(response) -> int:
 
 class TestSnapshotEndpoint:
     def test_left_alone_it_is_the_full_picture_as_before(self, snapshot_app, authed):
-        """The phone app sends neither parameter and must see no change."""
+        """A caller that sends neither parameter sees no change."""
         client = authed(snapshot_app)
         assert picture_width(client.get("/cameras/c1/snapshot?t=1")) == 1280
         source = snapshot_app.state.registry.worker("c1").source

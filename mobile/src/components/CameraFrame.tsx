@@ -1,12 +1,12 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { ImgHTMLAttributes } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+import type { ImgHTMLAttributes, RefObject } from 'react';
 import { useT } from '@/app/LanguageContext';
 import { useSite } from '@/app/SiteContext';
 import type { CameraFeature } from '@/services/api';
 import { getCameraDetections } from '@/services/api';
 import { plateWidthTone, siteClock } from '@/services/format';
 import type { PictureRect } from '@/services/frame';
-import { pictureRect } from '@/services/frame';
+import { pictureRect, tileBoxRefreshMs, tileRefreshMs } from '@/services/frame';
 import type { BoxColor, Camera, DetectionBox } from '@/types';
 
 const BOX_COLOR: Record<BoxColor, string> = {
@@ -46,10 +46,6 @@ const SCALE = {
   },
 } as const satisfies Record<Size, object>;
 
-/** Default tile refresh. `CamGrid` overrides it based on how many tiles are on
- *  screen — see `tileRefreshMs` there. */
-const SNAPSHOT_REFRESH_MS = 1_000;
-
 /** How long a tile waits for a picture before asking again anyway.
  *
  *  A tile asks for its next picture only once the last one has arrived, so a
@@ -70,6 +66,82 @@ const CLOCK_TICK_MS = 1_000;
  *  watching is what pays for the higher rate. The payload is a few hundred
  *  bytes and the response is ~4 ms. */
 const DETECTION_REFRESH_MS = 100;
+
+/** How often a view re-fetches its boxes while its picture is scrolled off
+ *  screen but the page still shows what they report - the phone's camera
+ *  screen lists who is in view under the picture. There is no moving box to
+ *  keep up with then, only a list to keep current. */
+const OFF_SCREEN_REPORT_MS = 1_000;
+
+/** Every polled tile on screen right now, across the whole page.
+ *
+ *  Page-wide rather than per grid, because what runs out is the browser's
+ *  handful of connections to the engine, and those are shared by every tile
+ *  on the screen whichever grid drew it. A tile joins while it is on screen
+ *  and asking for pictures, and leaves when it scrolls away, is covered, or
+ *  goes. Its rate is `tileRefreshMs` of how many are here. */
+const tilesOnScreen = new Set<object>();
+const tilesOnScreenListeners = new Set<() => void>();
+
+function subscribeTilesOnScreen(listener: () => void): () => void {
+  tilesOnScreenListeners.add(listener);
+  return () => {
+    tilesOnScreenListeners.delete(listener);
+  };
+}
+
+function countTilesOnScreen(): number {
+  return tilesOnScreen.size;
+}
+
+function markTileOnScreen(tile: object, on: boolean): void {
+  if (on === tilesOnScreen.has(tile)) return;
+  if (on) tilesOnScreen.add(tile);
+  else tilesOnScreen.delete(tile);
+  tilesOnScreenListeners.forEach((listener) => listener());
+}
+
+/** Whether this browser tab is in front: false while the tab is in the
+ *  background, the window is minimised, or the phone's screen is off.
+ *
+ *  Exported for the grids' headcount polls, which have the same reason to
+ *  stop. Every camera picture stops with it and starts again the moment the
+ *  tab comes back. */
+export function usePageVisible(): boolean {
+  const [visible, setVisible] = useState(() => document.visibilityState !== 'hidden');
+
+  useEffect(() => {
+    const update = () => setVisible(document.visibilityState !== 'hidden');
+    update();
+    document.addEventListener('visibilitychange', update);
+    return () => document.removeEventListener('visibilitychange', update);
+  }, []);
+
+  return visible;
+}
+
+/** Whether any of `element` is inside the visible part of the screen.
+ *
+ *  The browser's own viewport is the root, which also clips by every
+ *  scrolling box on the way up: the phone scrolls a `<main>` rather than the
+ *  window, and its "other cameras" strip scrolls sideways inside that, and a
+ *  tile scrolled out of either is reported as off screen. Starts false, so a
+ *  tile that is never scrolled to never asks for anything. */
+function useOnScreen(ref: RefObject<HTMLElement | null>): boolean {
+  const [onScreen, setOnScreen] = useState(false);
+
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const observer = new IntersectionObserver((entries) => {
+      setOnScreen(entries[entries.length - 1].isIntersecting);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [ref]);
+
+  return onScreen;
+}
 
 /** The live stream's picture, which lets go of the stream when it stops
  *  showing it.
@@ -122,8 +194,7 @@ export function CameraFrame({
   camera,
   size = 'sm',
   live = false,
-  refreshMs = SNAPSHOT_REFRESH_MS,
-  boxRefreshMs: tileBoxMs,
+  paused = false,
   onCount,
   onBoxes,
   badge = 'LIVE',
@@ -137,11 +208,16 @@ export function CameraFrame({
   size?: Size;
   /** Use the MJPEG stream instead of polled snapshots. Enlarged view only. */
   live?: boolean;
-  /** Snapshot poll interval. `CamGrid` scales this to the grid size. */
-  refreshMs?: number;
-  /** How often a `tileOverlay` tile re-fetches its boxes. Defaults to
-   *  `refreshMs`; `CamGrid` keeps it slower than the picture. */
-  boxRefreshMs?: number;
+  /** Stop asking for anything, although the tile is on screen: the page has
+   *  covered it. `CamGrid` sets it while its enlarged view is open over the
+   *  grid. Scrolled away and a tab in the background need no prop; the tile
+   *  notices those itself.
+   *
+   *  There is no rate to pass. Every tile's rate comes from how many tiles
+   *  are on screen (`tileRefreshMs`), so a page cannot hand one a rate worked
+   *  out from a count that has since changed - which is how the phone's Home
+   *  camera sat at one picture a second. */
+  paused?: boolean;
   /** Called with each live headcount, so the enlarged view can show it
    *  without running a second poll of its own. */
   onCount?: (count: number | null) => void;
@@ -174,8 +250,9 @@ export function CameraFrame({
    *  question it answers is "is that a knife" and you should not have to open
    *  a camera to ask it.
    *
-   *  It is affordable there for two reasons. The poll runs at the tile's own
-   *  `boxRefreshMs`, not the enlarged view's 100 ms. And the server no longer
+   *  It is affordable there for two reasons. The poll runs at the tiles'
+   *  overlay rate (`tileBoxRefreshMs`), not the enlarged view's 100 ms, and
+   *  only while the tile is on screen. And the server no longer
    *  wakes face recognition for a weapons poll, so a grid of tiles costs the
    *  knife worker's boost and nothing else. */
   tileOverlay?: boolean;
@@ -209,6 +286,34 @@ export function CameraFrame({
   const useStream = live && !!camera.streamUrl && !camera.offline;
   const usePolling = !useStream && !!camera.snapshotUrl && !imageFailed;
 
+  // On screen, in a tab that is in front, and not covered by the page.
+  //
+  // The pictures and the stream run only while this is true, and stop the
+  // moment it is not: scrolled away, the tab in the background, the phone's
+  // screen off. Nobody can see a picture then, so nobody should be paying
+  // for one. They start again as soon as the tile is back. (The boxes follow
+  // the same rule, with one exception explained at `wantLiveBoxes`.)
+  const onScreen = useOnScreen(frameRef);
+  const pageVisible = usePageVisible();
+  const showing = onScreen && pageVisible && !paused;
+
+  // Counted among the tiles on screen while it is asking for pictures, and
+  // its rate is the screen's budget shared by that many. A live stream is
+  // not counted: it is one connection, however many frames it carries.
+  const polling = usePolling && showing;
+  const tile = useRef({}).current;
+  useEffect(() => {
+    markTileOnScreen(tile, polling);
+    return () => markTileOnScreen(tile, false);
+  }, [tile, polling]);
+  // A tile that is not asking reads nothing, so a scroll that changes the
+  // count does not re-render the hundred tiles off screen.
+  const tilesShowing = useSyncExternalStore(
+    subscribeTilesOnScreen,
+    () => (polling ? countTilesOnScreen() : 0),
+  );
+  const refreshMs = tileRefreshMs(tilesShowing);
+
   // Measured, not assumed. A tile is sized by the page's grid and changes
   // with the window, and a box drawn against a stale size is a box on nobody.
   useEffect(() => {
@@ -235,20 +340,38 @@ export function CameraFrame({
   // one. Now a tick is skipped while the last picture is still on its way,
   // so the tile runs at `refreshMs` on a fast link and as fast as the link
   // allows on a slow one. Refs, not state: nothing here should re-render.
+  //
+  // Only while the tile is showing. A paused tile keeps its last picture;
+  // nobody can see it, and it is replaced within one tick of coming back.
   const requested = useRef({ tick: 0, at: performance.now() });
   const loadedTick = useRef(-1);
+  const wasPolling = useRef(false);
 
   useEffect(() => {
-    if (!usePolling) return;
-    const timer = setInterval(() => {
+    if (!polling) {
+      wasPolling.current = false;
+      return;
+    }
+    const resumed = !wasPolling.current;
+    wasPolling.current = true;
+    const step = () => {
       const now = performance.now();
       const last = requested.current;
       if (loadedTick.current < last.tick && now - last.at < STALLED_MS) return;
       requested.current = { tick: last.tick + 1, at: now };
       setTick(last.tick + 1);
-    }, refreshMs);
+    };
+    // Back from a pause, the picture held is as old as the pause was, so the
+    // next one is asked for now rather than a tick from now. Only on coming
+    // back: a new share of the budget, when another tile scrolls in or out,
+    // just restarts the timer at the new rate. And not on a tile's first
+    // picture, which its first render has already asked for.
+    if (resumed && loadedTick.current >= 0 && performance.now() - requested.current.at > refreshMs) {
+      step();
+    }
+    const timer = setInterval(step, refreshMs);
     return () => clearInterval(timer);
-  }, [usePolling, refreshMs]);
+  }, [polling, refreshMs]);
 
   // The enlarged view polls detections, and so does a tile that explicitly
   // asked to (`tileOverlay`). Nothing else does.
@@ -262,13 +385,34 @@ export function CameraFrame({
   //
   // Recognition still runs in the background at the idle rate either way, so
   // attendance is unaffected by any of this.
-  const wantLiveBoxes = (useStream || tileOverlay) && detections;
+  //
+  // And only while somebody can see what it reports. Never with the tab in
+  // the background or under the enlarged view. A tile's boxes are drawn on
+  // its picture and nowhere else, so they stop with the picture when it
+  // scrolls away. A view whose page also shows what the poll reports
+  // (`onCount`, `onBoxes`) keeps asking while that page is in front: the
+  // phone's camera screen lists who is in view under the picture, and that
+  // list is exactly what you scroll down to read. It asks once a second
+  // then, not ten times; there is no moving box to keep up with.
+  //
+  // Stopping costs no analysis. Recognition, tracking, the knife and the
+  // plate readers all keep working at their own background rate; the poll
+  // only ever sped them up. The lost-bag search is different - it looks only
+  // at cameras somebody is watching and keeps nothing - and a tile nobody can
+  // see is exactly a camera nobody is watching, so it stops there too, by
+  // its own rule.
+  const reported = !!(onCount || onBoxes);
+  const wantLiveBoxes =
+    (useStream || tileOverlay) && detections && pageVisible && !paused && (onScreen || reported);
   // The enlarged view tracks a moving box at 100 ms. A tile is small and there
   // may be a screenful of them, so it polls at the grid's overlay rate, which
   // stayed where it was when the pictures sped up.
   const boxRefreshMs = useStream
-    ? DETECTION_REFRESH_MS
-    : (tileBoxMs ?? refreshMs);
+    ? (onScreen ? DETECTION_REFRESH_MS : OFF_SCREEN_REPORT_MS)
+    : tileBoxRefreshMs(tilesShowing);
+
+  // When the last poll went out, and what it asked about.
+  const lastBoxPoll = useRef({ question: '', at: 0 });
 
   useEffect(() => {
     if (!wantLiveBoxes) {
@@ -276,8 +420,10 @@ export function CameraFrame({
       return;
     }
 
+    const question = `${camera.id}|${feature ?? ''}|${colour ?? ''}`;
     let cancelled = false;
     const poll = () => {
+      lastBoxPoll.current = { question, at: performance.now() };
       void getCameraDetections(camera.id, feature, colour)
         .then((result) => {
           if (cancelled) return;
@@ -292,13 +438,18 @@ export function CameraFrame({
         });
     };
 
-    poll();
+    // Straight away for a new question - another camera, feature or colour -
+    // or when the last answer is older than one interval, as after a pause.
+    // A new rate alone, when another tile scrolls in or out, waits for its
+    // own interval rather than sending an extra request from every tile.
+    const last = lastBoxPoll.current;
+    if (last.question !== question || performance.now() - last.at >= boxRefreshMs) poll();
     const timer = setInterval(poll, boxRefreshMs);
     return () => {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [wantLiveBoxes, boxRefreshMs, camera.id, onCount, onBoxes, feature]);
+  }, [wantLiveBoxes, boxRefreshMs, camera.id, onCount, onBoxes, feature, colour]);
 
   // Boxes come from live polling and from nowhere else — never from
   // `camera.boxes`.
@@ -335,18 +486,19 @@ export function CameraFrame({
   // A running clock over a frozen frame would be the exact lie the NO SIGNAL
   // rule exists to prevent — it would say "this is happening now" about a
   // picture that might be an hour old. An offline tile keeps the timestamp of
-  // the last frame actually received.
+  // the last frame actually received. A paused tile stops too, so its time
+  // stays with the picture it is still holding.
   const [clock, setClock] = useState(() => siteClock(tzOffsetMinutes));
 
   useEffect(() => {
-    if (camera.offline) return;
+    if (camera.offline || !showing) return;
     setClock(siteClock(tzOffsetMinutes));
     const timer = setInterval(
       () => setClock(siteClock(tzOffsetMinutes)),
       CLOCK_TICK_MS,
     );
     return () => clearInterval(timer);
-  }, [camera.offline, tzOffsetMinutes]);
+  }, [camera.offline, tzOffsetMinutes, showing]);
 
   const timestamp = camera.offline ? (camera.time ?? '—') : clock;
 
@@ -367,10 +519,39 @@ export function CameraFrame({
     `t=${tick}` +
     (requestWidth > 0 ? `&width=${requestWidth}` : '') +
     `&fps=${Math.max(1, Math.round(1_000 / refreshMs))}`;
+
+  // The picture's address moves once per tick, and only while the tile is
+  // showing.
+  //
+  // A new address is a new request, and the rest of the address changes
+  // between ticks: the tile's share of the budget whenever another tile
+  // scrolls in or out, its width when the window is resized. Rebuilt on every
+  // render, a scroll across a grid re-asked every tile on screen for a
+  // picture at each edge it crossed, and a tile paused off screen asked
+  // again every time its share changed. Held to the tick, a paused tile asks
+  // for nothing. A tile that has never been on screen has no address yet, so
+  // the cameras at the bottom of a long list cost nothing until they are
+  // scrolled to. Set during render, so the first picture is asked for in the
+  // same render that finds the tile on screen.
+  //
+  // Held to the camera as well as the tick. Home and the Track page hand one
+  // tile a different camera without remounting it, and an address kept only
+  // by tick would show the last camera's picture under the new camera's name
+  // until the next tick.
+  const snapshotUrl = camera.snapshotUrl ?? '';
+  const [asked, setAsked] = useState<{ tick: number; from: string; src: string } | null>(null);
+  const asking =
+    polling && (asked === null || asked.tick !== tick || asked.from !== snapshotUrl)
+      ? { tick, from: snapshotUrl, src: `${snapshotUrl}?${snapshotQuery}` }
+      : asked;
+  if (asking !== asked) setAsked(asking);
+
+  // A stream is let go while it is not showing, which is the only way its
+  // connection closes (see `StreamImage`), and opened again when it is.
   const frameSrc = useStream
-    ? camera.streamUrl
-    : usePolling
-      ? `${camera.snapshotUrl}?${snapshotQuery}`
+    ? (showing ? camera.streamUrl : undefined)
+    : usePolling && asking?.from === snapshotUrl
+      ? asking.src
       : undefined;
 
   // Shared by both pictures. The stream is a separate element (`StreamImage`)
@@ -560,7 +741,9 @@ export function CameraFrame({
         ))}
       </div>
 
-      {!camera.offline && badge !== null && (
+      {/* LIVE only while the picture really is moving: a paused tile held
+          under the enlarged view is a still, and must not be badged live. */}
+      {!camera.offline && badge !== null && showing && (
         <div
           className="camframe__live"
           style={{ top: s.inset, left: s.insetX, fontSize: s.chrome }}

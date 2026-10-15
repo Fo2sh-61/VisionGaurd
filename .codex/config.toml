@@ -1,0 +1,12 @@
+[mcp_servers.figma]
+url = "https://mcp.figma.com/mcp"
+
+[mcp_servers.pollinations]
+command = "npx"
+args = [
+    "-y",
+    "@pollinations_ai/mcp",
+]
+
+[mcp_servers.pollinations.env]
+POLLINATIONS_API_KEY = "sk_ltiOeiZk7ZBHlCXSJOYGlYiiCRU9GL9G"

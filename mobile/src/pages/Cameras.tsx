@@ -2,8 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useCameras } from '@/app/CameraContext';
 import { useLanguage } from '@/app/LanguageContext';
-import { tileRefreshMs } from '@/components/CamGrid';
-import { CameraFrame } from '@/components/CameraFrame';
+import { CameraFrame, usePageVisible } from '@/components/CameraFrame';
 import { getCameraCounts } from '@/services/api';
 import { describeCount, formatCount } from '@/services/format';
 import type { Camera } from '@/types';
@@ -36,8 +35,13 @@ export function Cameras() {
   const { cameras, degraded, loading } = useCameras();
   const [filter, setFilter] = useState<Filter>('all');
   const [counts, setCounts] = useState<Record<string, number | null>>({});
+  const pageVisible = usePageVisible();
 
+  // Not while the phone's screen is off or the app is in the background:
+  // nobody can read a number then, and the first poll back brings it up to
+  // date.
   useEffect(() => {
+    if (!pageVisible) return;
     let cancelled = false;
     const poll = () => {
       getCameraCounts()
@@ -54,7 +58,7 @@ export function Cameras() {
       cancelled = true;
       clearInterval(timer);
     };
-  }, []);
+  }, [pageVisible]);
 
   const liveCount = cameras.filter((c) => !c.offline).length;
   const offlineCount = cameras.length - liveCount;
@@ -122,7 +126,6 @@ export function Cameras() {
               <Tile
                 key={cam.id}
                 camera={cam}
-                refreshMs={tileRefreshMs(shown.length)}
                 detail={cam.offline
                   ? t('phone.camera.lastPicture', { time: cam.time ?? '—' })
                   : describeCount(counts[cam.id], cam.status, language)}
@@ -136,17 +139,18 @@ export function Cameras() {
   );
 }
 
-function Tile({ camera, detail, refreshMs, onOpen }: {
+/** One camera. Only the tiles on screen move - a long roster scrolled
+ *  past costs nothing - and they share the screen's picture budget
+ *  (`tileRefreshMs`), so however many cameras the site has, this page costs
+ *  what the few in view cost. */
+function Tile({ camera, detail, onOpen }: {
   camera: Camera;
   detail: string;
-  /** CamGrid's picture rate for this many tiles, so a long roster costs what
-   *  the console's grids cost. */
-  refreshMs: number;
   onOpen: () => void;
 }) {
   return (
     <button type="button" className="camtile" onClick={onOpen}>
-      <CameraFrame camera={camera} detections={false} refreshMs={refreshMs} />
+      <CameraFrame camera={camera} detections={false} />
       <span className="stack stack--tight" style={{ gap: 1, padding: '6px 2px 0' }}>
         <span className="camtile__name">{camera.name}</span>
         <span

@@ -2025,8 +2025,9 @@ def _mount(app: FastAPI) -> None:
         `fps` is how often the tile will ask again. The camera then decodes
         at that rate for the next two seconds (`CameraSource.note_tile`), so
         a faster tile gets new pictures rather than the same one twice. Left
-        out, the camera's decode rate is untouched - the phone app does not
-        send it.
+        out, the camera's decode rate is untouched. Both apps send it, and
+        only from tiles on screen: one scrolled away or in a background tab
+        stops asking, and the rate lapses two seconds later.
 
         A plain `def`, not `async`: FastAPI runs it on a worker thread. The
         encode is processor work, and inside `async def` it held up every

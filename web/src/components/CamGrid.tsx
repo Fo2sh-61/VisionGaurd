@@ -6,55 +6,13 @@ import { getCameraCounts } from '@/services/api';
 import { describeCount } from '@/services/format';
 import type { Camera } from '@/types';
 import { Badge } from './ui';
-import { CameraFrame } from './CameraFrame';
+import { CameraFrame, usePageVisible } from './CameraFrame';
 import { CameraModal } from './CameraModal';
 
-/** How fast tiles should refresh, given how many are on screen.
- *
- *  A few tiles can be near-live; a wall of them cannot. Every tile is an
- *  independent request, so the cost scales with the grid and the browser only
- *  runs a handful of requests to one host at a time — push it too far and the
- *  tiles start starving the page's actual API calls.
- *
- *  MJPEG would be smoother per tile but is worse here for the same reason: it
- *  holds a connection open for as long as the tile is on screen, so more than
- *  a few would exhaust the browser's connection pool and stall everything
- *  else. Polling releases the connection between frames, and the engine caches
- *  the encoded JPEG per frame, so a repeat poll of an unchanged frame is
- *  almost free. MJPEG stays where it belongs: the enlarged view, one at a time.
- *
- *  Paging feeds this the number of tiles ACTUALLY rendered, not the roster
- *  size. That is the whole reason the two belong in one component: a page of
- *  eight tiles out of two hundred should refresh like eight, and it only can
- *  if whatever does the paging is also what computes this.
- *
- *  Raised on 11 Sep 2026 from 5 / 2 / 0.67 a second, which read as a slide
- *  show next to the enlarged view. Two things make it affordable. Each tile
- *  asks for a picture sized to the tile — it used to be sent 1280 px to show
- *  at 128 px tall, and compressing that was most of what a tile cost. And
- *  the tile tells the engine its rate, so the camera decodes that fast while
- *  the tile is on screen instead of at its analytics rate (5 a second or
- *  less), which used to cap every tile whatever it asked for. Measured at
- *  1080p on the dev laptop, one tile at 15 a second now costs about what one
- *  at 5 did. The AI does not run any faster for it: models keep their own
- *  rate. */
-function tileRefreshMs(count: number): number {
-  if (count <= 4) return 1_000 / 15; // 15 a second — reads as video
-  if (count <= 12) return 200; // 5 a second
-  return 500; // 2 a second
-}
-
-/** How often a tile's OVERLAY re-fetches, on the pages that draw one.
- *
- *  Deliberately left at the old picture rates. An overlay poll is its own
- *  request and renews a worker's boost, its boxes only change when the model
- *  runs, and tripling the knife page's polls was never the point of making
- *  the picture smoother. */
-function tileBoxRefreshMs(count: number): number {
-  if (count <= 4) return 200;
-  if (count <= 12) return 500;
-  return 1_500;
-}
+// How fast the tiles refresh is no longer decided here. It was, from the
+// number of tiles this grid drew; it now comes from how many tiles are on
+// screen, page-wide, and each tile works it out for itself - see
+// `tileRefreshMs` in services/frame.ts.
 
 /** How often the grid refreshes headcounts. One request for all tiles. */
 const COUNT_REFRESH_MS = 1_000;
@@ -179,15 +137,16 @@ export function CamGrid({
     ? ranked.slice(current * pageSize, current * pageSize + pageSize)
     : ranked;
 
-  const refreshMs = tileRefreshMs(ordered.length);
-  const boxRefreshMs = tileBoxRefreshMs(ordered.length);
   const [counts, setCounts] = useState<Record<string, number | null>>({});
+  const pageVisible = usePageVisible();
 
   // The camera payload is fetched once when the page runs its query, so the
   // count baked into it freezes at that instant. Polling one small endpoint
   // for the whole grid keeps every tile's number live without adding a
-  // request per tile.
+  // request per tile. Not while the tab is in the background, where nobody
+  // can read a number; the first poll on coming back brings it up to date.
   useEffect(() => {
+    if (!pageVisible) return;
     let cancelled = false;
     const poll = () => {
       void getCameraCounts()
@@ -204,7 +163,7 @@ export function CamGrid({
       cancelled = true;
       clearInterval(timer);
     };
-  }, []);
+  }, [pageVisible]);
 
   const pick = (cam: Camera) => (onPick ? onPick(cam) : setOpen(cam));
 
@@ -221,10 +180,11 @@ export function CamGrid({
           : undefined
       }
     >
+      {/* Paused while the enlarged view is open over the grid: the operator
+          is watching that camera, not these. */}
       <CameraFrame
         camera={cam}
-        refreshMs={refreshMs}
-        boxRefreshMs={boxRefreshMs}
+        paused={open !== null}
         feature={tileOverlay ? feature : undefined}
         colour={colour}
         tileOverlay={tileOverlay}
