@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Albert+Sans:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#f2f5f2;color:#1f2b26;font-family:'Albert Sans',system-ui,sans-serif;font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+*{box-sizing:border-box}
+a{color:#33705b;text-decoration:none}a:hover{color:#285948;text-decoration:underline}
+input,button,select{font-family:inherit}
+</style>
+</helmet>
+<div style="display:flex;min-height:100vh;">
+  <nav style="width:222px;flex-shrink:0;background:#e9efe9;padding:22px 14px 16px;display:flex;flex-direction:column;gap:2px;position:sticky;top:0;height:100vh;">
+    <div style="display:flex;align-items:center;gap:9px;padding:0 10px 20px;">
+      <div style="width:28px;height:28px;border-radius:9px;background:#33705b;display:flex;align-items:center;justify-content:center;"><div style="width:12px;height:12px;border-radius:50% 50% 50% 4px;background:#e9efe9;"></div></div>
+      <div style="font-weight:700;font-size:15px;letter-spacing:-.01em;">VisionGuard AI</div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:2px;">
+      <a style="display:flex;align-items:center;gap:11px;padding:8px 12px;border-radius:10px;font-size:14px;color:#57655d;" style-hover="background:rgba(255,255,255,.55);color:#1f2b26;text-decoration:none;"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><path d="M3 8 L9 3 L15 8 V15 H3 Z" stroke="#8a968e" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg><span>Home</span></a>
+      <div style="padding:16px 12px 6px;font-size:10.5px;font-weight:700;letter-spacing:.1em;color:#8a968e;">ASK</div>
+      <a style="display:flex;align-items:center;gap:11px;padding:8px 12px;border-radius:10px;font-size:14px;color:#57655d;" style-hover="background:rgba(255,255,255,.55);color:#1f2b26;text-decoration:none;"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><path d="M3.5 9.5 L7.5 13.5 L14.5 5" stroke="#8a968e" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg><span>Attendance</span></a>
+      <a style="display:flex;align-items:center;gap:11px;padding:8px 12px;border-radius:10px;font-size:14px;color:#57655d;" style-hover="background:rgba(255,255,255,.55);color:#1f2b26;text-decoration:none;"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><path d="M4 14 V8 M9 14 V4.5 M14 14 V10.5" stroke="#8a968e" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg><span>People counting</span></a>
+      <a style="display:flex;align-items:center;gap:11px;padding:8px 12px;border-radius:10px;font-size:14px;color:#57655d;" style-hover="background:rgba(255,255,255,.55);color:#1f2b26;text-decoration:none;"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><path d="M7.5 3 a4.2 4.2 0 1 0 0.01 0 M11.2 11.2 L15.5 15.5" stroke="#8a968e" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg><span>Lost bag</span></a>
+      <a style="display:flex;align-items:center;gap:11px;padding:8px 12px;border-radius:10px;font-size:14px;color:#57655d;" style-hover="background:rgba(255,255,255,.55);color:#1f2b26;text-decoration:none;"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><path d="M3.5 14.5 C7 6.5 11 12.5 14.5 4" stroke="#8a968e" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg><span>Track a person</span></a>
+      <div style="padding:16px 12px 6px;font-size:10.5px;font-weight:700;letter-spacing:.1em;color:#8a968e;">WATCH</div>
+      <a style="display:flex;align-items:center;gap:11px;padding:8px 12px;border-radius:10px;font-size:14px;color:#57655d;" style-hover="background:rgba(255,255,255,.55);color:#1f2b26;text-decoration:none;"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><path d="M3.5 4.5 H14.5 V13.5 H3.5 Z M9 7.8 a1.2 1.2 0 1 0 .01 0" stroke="#8a968e" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg><span>Restricted zones</span></a>
+      <a style="display:flex;align-items:center;gap:11px;padding:8px 12px;border-radius:10px;font-size:14px;color:#57655d;" style-hover="background:rgba(255,255,255,.55);color:#1f2b26;text-decoration:none;"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><path d="M5 15.5 V3 H13.5 L11 6 L13.5 9 H5" stroke="#8a968e" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg><span>Knife detection</span></a>
+      <a onClick="{{ goFalls }}" style="cursor:pointer;display:flex;align-items:center;gap:11px;padding:8px 12px;border-radius:10px;font-size:14px;color:#33705b;font-weight:600;background:#ffffff;box-shadow:0 1px 3px rgba(30,42,36,.07);"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><path d="M2.5 14.5 H15.5 M5 10.6 a1.4 1.4 0 1 0 .01 0 M7.6 11.6 L14 9.8" stroke="#33705b" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg><span style="flex:1;">Falls</span><sc-if value="{{ alertActive }}" hint-placeholder-val="{{ true }}"><span style="min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:#a5372c;color:#fff;font-size:10.5px;font-weight:800;display:inline-flex;align-items:center;justify-content:center;">1</span></sc-if></a>
+      <a style="display:flex;align-items:center;gap:11px;padding:8px 12px;border-radius:10px;font-size:14px;color:#57655d;" style-hover="background:rgba(255,255,255,.55);color:#1f2b26;text-decoration:none;"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><path d="M2.5 11 H15.5 M3.5 11 V8.5 L5.5 5.5 H12 L14.5 8.5 V11 M6 13 a1.3 1.3 0 1 0 .01 0 M12 13 a1.3 1.3 0 1 0 .01 0" stroke="#8a968e" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg><span>Vehicle gate</span></a>
+      <div style="padding:16px 12px 6px;font-size:10.5px;font-weight:700;letter-spacing:.1em;color:#8a968e;">MANAGE</div>
+      <a style="display:flex;align-items:center;gap:11px;padding:8px 12px;border-radius:10px;font-size:14px;color:#57655d;" style-hover="background:rgba(255,255,255,.55);color:#1f2b26;text-decoration:none;"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><path d="M6.2 3.5 a2.3 2.3 0 1 0 0.01 0 M2.8 14.5 c0-2.6 1.7-4 3.4-4 s3.4 1.4 3.4 4 M12.3 5.5 a2 2 0 1 0 0.01 0 M11.5 11.3 c1.9 .3 3.4 1.5 3.4 3.2" stroke="#8a968e" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg><span>People</span></a>
+      <a onClick="{{ goHealth }}" style="cursor:pointer;display:flex;align-items:center;gap:11px;padding:8px 12px;border-radius:10px;font-size:14px;color:#57655d;" style-hover="background:rgba(255,255,255,.55);color:#1f2b26;text-decoration:none;"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><path d="M2.5 9.5 H6 L8 5 L10.5 13 L12.5 9.5 H15.5" stroke="#8a968e" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg><span>System health &amp; configuration</span></a>
+      <a style="display:flex;align-items:center;gap:11px;padding:8px 12px;border-radius:10px;font-size:14px;color:#57655d;" style-hover="background:rgba(255,255,255,.55);color:#1f2b26;text-decoration:none;"><svg width="17" height="17" viewBox="0 0 18 18" fill="none"><path d="M3 6.2 H15 M3 11.8 H15 M7 4.6 a1.6 1.6 0 1 0 0.01 0 M11.5 10.2 a1.6 1.6 0 1 0 0.01 0" stroke="#8a968e" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg><span>Settings</span></a>
+    </div>
+    <div style="flex:1;"></div>
+    <sc-if value="{{ alertActive }}" hint-placeholder-val="{{ true }}">
+      <div style="background:#f7e3e0;border-radius:12px;padding:13px 14px;margin-bottom:10px;">
+        <div style="display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:700;color:#a5372c;"><span style="width:14px;height:14px;border-radius:50%;background:#a5372c;color:#f7e3e0;display:inline-flex;align-items:center;justify-content:center;font-size:9.5px;font-weight:800;">!</span>Person down</div>
+        <div style="font-size:12px;color:#a5372c;margin-top:3px;">Playground · {{ downClock }}</div>
+      </div>
+    </sc-if>
+    <sc-if value="{{ alertIdle }}" hint-placeholder-val="{{ false }}">
+      <div style="background:#ffffff;border-radius:12px;padding:13px 14px;margin-bottom:10px;">
+        <div style="display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;color:#33705b;"><span style="width:14px;height:14px;border-radius:50%;background:#33705b;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:9.5px;font-weight:800;">✓</span>Campus is calm</div>
+        <div style="font-size:12px;color:#8a968e;margin-top:3px;">Nothing urgent right now</div>
+      </div>
+    </sc-if>
+    <button style="background:none;border:none;border-top:1px solid #e0e7e1;padding:8px 10px;text-align:start;color:#8a968e;font-size:13px;cursor:pointer;">Sign out</button>
+  </nav>
+
+  <div style="flex:1;min-width:0;display:flex;flex-direction:column;">
+    <header style="display:flex;align-items:center;justify-content:space-between;padding:15px 40px;border-bottom:1px solid #e0e7e1;gap:16px;">
+      <div style="font-size:13px;color:#8a968e;">Thursday, 15 October</div>
+      <div style="display:flex;align-items:center;gap:16px;">
+        <span style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:#33705b;white-space:nowrap;"><span style="width:14px;height:14px;border-radius:50%;background:#33705b;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:9.5px;font-weight:800;">✓</span>All 6 cameras up</span>
+        <div style="display:flex;align-items:center;gap:9px;">
+          <div style="text-align:end;"><div style="font-size:13px;font-weight:600;line-height:1.2;">Mona Adel</div><div style="font-size:11.5px;color:#8a968e;">Administrator</div></div>
+          <div style="width:32px;height:32px;border-radius:50%;background:#dfe9e0;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:12px;color:#285948;">MA</div>
+        </div>
+      </div>
+    </header>
+
+    <main style="flex:1;">
+      <div style="max-width:960px;margin:0 auto;padding:40px 40px 90px;">
+        <h1 style="font-weight:700;font-size:26px;letter-spacing:-.02em;margin:0;">Falls</h1>
+        <p style="font-size:14.5px;color:#57655d;margin:4px 0 22px;text-wrap:pretty;">Someone who goes down and stays down shows here at once, with the camera on them.</p>
+
+        <sc-if value="{{ isDown }}" hint-placeholder-val="{{ true }}">
+          <div style="background:#ffffff;border-radius:14px;box-shadow:0 1px 3px rgba(30,42,36,.07);border:1.5px solid #a5372c;overflow:hidden;margin-bottom:14px;">
+            <div style="background:#f7e3e0;color:#a5372c;padding:10px 20px;display:flex;align-items:center;gap:9px;font-size:13.5px;font-weight:700;">
+              <span style="width:16px;height:16px;border-radius:50%;background:#a5372c;color:#f7e3e0;display:inline-flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:800;">!</span>
+              Person down — on the ground now
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:22px;padding:20px;">
+              <div style="position:relative;height:300px;border-radius:10px;overflow:hidden;background:#242b27;">
+                <div style="position:absolute;inset:0;background-image:linear-gradient(#2d3530 1px,transparent 1px),linear-gradient(90deg,#2d3530 1px,transparent 1px);background-size:34px 34px;opacity:.6;"></div>
+                <div style="position:absolute;left:0;right:0;bottom:0;height:42%;background:#2a322d;"></div>
+                <div style="position:absolute;left:31%;top:70%;width:40%;height:15%;border:2.5px solid #e5564a;border-radius:3px;">
+                  <span style="position:absolute;left:-2px;bottom:100%;margin-bottom:3px;background:#e5564a;color:#fff;font-size:12px;font-weight:700;padding:2px 8px;border-radius:3px;white-space:nowrap;">On the ground · {{ downClock }}</span>
+                </div>
+                <div style="position:absolute;top:12px;left:14px;display:flex;align-items:center;gap:5px;color:#fff;font-size:12px;font-weight:600;letter-spacing:.05em;"><span style="width:6px;height:6px;border-radius:50%;background:#e5564a;"></span>LIVE</div>
+                <div style="position:absolute;top:12px;right:14px;color:#c3cdc5;font-size:12px;font-family:ui-monospace,Menlo,monospace;">{{ nowClock }}</div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:14px;min-width:0;">
+                <div>
+                  <div style="font-size:12.5px;font-weight:600;color:#57655d;">Playground · Camera 4</div>
+                  <div style="font-size:44px;font-weight:700;letter-spacing:-.02em;line-height:1.05;margin-top:4px;font-variant-numeric:tabular-nums;color:#a5372c;">{{ downClock }}</div>
+                  <div style="font-size:13.5px;color:#57655d;">on the ground, since {{ sinceClock }}</div>
+                </div>
+                <div style="display:grid;gap:0;">
+                  <div style="display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid #e0e7e1;font-size:13.5px;"><span style="color:#57655d;">Moving now</span><span style="font-weight:600;white-space:nowrap;">Very little</span></div>
+                  <div style="display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid #e0e7e1;font-size:13.5px;"><span style="color:#57655d;">Who</span><span style="font-weight:600;color:#57655d;white-space:nowrap;">Not identified</span></div>
+                  <div style="display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid #e0e7e1;font-size:13.5px;"><span style="color:#57655d;">Confidence</span><span style="font-weight:600;white-space:nowrap;">0.82</span></div>
+                </div>
+                <div style="font-size:12.5px;color:#57655d;text-wrap:pretty;">Nothing is sent to anyone. The entry closes by itself when they get up or leave the camera.</div>
+                <div style="border-top:1px solid #e0e7e1;padding-top:12px;display:flex;flex-direction:column;gap:8px;">
+                  <div style="font-size:12px;font-weight:600;color:#8a968e;letter-spacing:.03em;">OPTIONAL</div>
+                  <sc-if value="{{ noResponder }}" hint-placeholder-val="{{ true }}">
+                    <div style="display:flex;flex-wrap:wrap;gap:8px;">
+                      <button onClick="{{ onGoing }}" style="height:38px;padding:0 16px;border:1px solid #e0e7e1;border-radius:10px;background:#ffffff;color:#1f2b26;font-weight:600;font-size:13.5px;cursor:pointer;white-space:nowrap;" style-hover="background:#f2f5f2;">I'm on my way</button>
+                      <button onClick="{{ onFalse }}" style="height:38px;padding:0 16px;border:1px solid #e0e7e1;border-radius:10px;background:#ffffff;color:#1f2b26;font-weight:600;font-size:13.5px;cursor:pointer;white-space:nowrap;" style-hover="background:#f2f5f2;">Not a fall</button>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ hasResponder }}" hint-placeholder-val="{{ false }}">
+                    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:13.5px;">
+                      <span style="display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:8px;font-size:12px;font-weight:600;background:#dfe9e0;color:#285948;white-space:nowrap;">✓ {{ responderLine }}</span>
+                      <button onClick="{{ onUndo }}" style="background:none;border:none;padding:0;color:#8a968e;font-size:13px;cursor:pointer;" style-hover="color:#57655d;text-decoration:underline;">Undo</button>
+                    </div>
+                  </sc-if>
+                  <div style="font-size:12px;color:#8a968e;">Pressing one records your name in the history. Skipping it changes nothing.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </sc-if>
+
+        
+        <sc-if value="{{ alertIdle }}" hint-placeholder-val="{{ false }}">
+          <div style="background:#ffffff;border-radius:14px;box-shadow:0 1px 3px rgba(30,42,36,.07);padding:18px 22px;margin-bottom:14px;display:flex;align-items:center;gap:12px;">
+            <span style="width:22px;height:22px;border-radius:50%;background:#33705b;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;flex-shrink:0;">✓</span>
+            <div><div style="font-weight:600;font-size:15px;">Nobody is on the ground right now</div><div style="font-size:13px;color:#57655d;">Checking 6 cameras. A person counts as down after {{ threshold }} seconds without getting up.</div></div>
+          </div>
+        </sc-if>
+
+        <div style="background:#ffffff;border-radius:14px;padding:24px;box-shadow:0 1px 3px rgba(30,42,36,.07);margin-bottom:14px;">
+          <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:14px;">
+            <div style="flex:1 1 320px;min-width:0;">
+              <div style="font-weight:700;font-size:19px;letter-spacing:-.01em;">{{ logHeading }}</div>
+              <div style="font-size:13.5px;color:#57655d;margin-top:2px;max-width:520px;text-wrap:pretty;">Down shorter than {{ threshold }} seconds is listed as "got up" and never raises an alert.</div>
+            </div>
+            <label style="display:flex;flex-direction:column;gap:6px;">
+              <span style="font-size:12.5px;font-weight:600;color:#57655d;">Period</span>
+              <select style="height:42px;border:1px solid #e0e7e1;border-radius:10px;padding:0 12px;font-size:14px;background:#ffffff;color:#1f2b26;min-width:150px;"><option>Last 7 days</option><option>Today</option><option>Last 30 days</option><option>School year</option></select>
+            </label>
+          </div>
+          <div style="display:grid;grid-template-columns:1.1fr .9fr 1fr .7fr 1.5fr .5fr;gap:10px;padding:8px 0;color:#8a968e;font-size:12px;font-weight:600;letter-spacing:.03em;">
+            <span>CAMERA</span><span>AREA</span><span>WHEN</span><span>DOWN FOR</span><span>WHAT THE CAMERA SAW</span><span></span>
+          </div>
+          <sc-for list="{{ log }}" as="r" hint-placeholder-count="5">
+            <div style="display:grid;grid-template-columns:1.1fr .9fr 1fr .7fr 1.5fr .5fr;gap:10px;align-items:center;padding:11px 0;border-bottom:1px solid #e0e7e1;font-size:14px;">
+              <span style="font-weight:600;">{{ r.camera }}</span>
+              <span style="color:#57655d;">{{ r.area }}</span>
+              <span style="color:#57655d;">{{ r.when }}</span>
+              <span style="color:#57655d;font-variant-numeric:tabular-nums;">{{ r.dur }}</span>
+              <span style="display:flex;flex-direction:column;align-items:flex-start;gap:2px;"><span style="display:inline-block;padding:3px 10px;border-radius:8px;font-size:12px;font-weight:600;white-space:nowrap;background:{{ r.bg }};color:{{ r.fg }};">{{ r.glyph }} {{ r.outcome }}</span><span style="font-size:12px;color:#8a968e;">{{ r.by }}</span></span>
+              <button style="background:none;border:none;padding:0;color:#33705b;font-weight:600;font-size:13.5px;cursor:pointer;text-align:start;" style-hover="color:#285948;text-decoration:underline;">Watch</button>
+            </div>
+          </sc-for>
+          <div style="font-size:12.5px;color:#57655d;margin-top:12px;">Videos are kept for 30 days. Entries are never removed.</div>
+        </div>
+
+        <div style="margin-top:22px;">
+          <div style="font-weight:700;font-size:15px;">Cameras checked for falls</div>
+          <div style="font-size:13px;color:#57655d;">Turn checking on or off per camera in <a onClick="{{ goHealth }}" style="cursor:pointer;font-weight:600;">System health → Fall checking</a>.</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:12px;margin-top:14px;">
+            <sc-for list="{{ cams }}" as="c" hint-placeholder-count="6">
+              <div style="border-radius:12px;overflow:hidden;background:#1d2420;border:1px solid #e0e7e1;cursor:pointer;">
+                <div style="position:relative;height:128px;background:#242b27;overflow:hidden;">
+                  <div style="position:absolute;inset:0;background-image:linear-gradient(#2d3530 1px,transparent 1px),linear-gradient(90deg,#2d3530 1px,transparent 1px);background-size:26px 26px;opacity:.6;"></div>
+                  <div style="position:absolute;left:0;right:0;bottom:0;height:42%;background:#2a322d;"></div>
+                  <sc-if value="{{ c.down }}" hint-placeholder-val="{{ false }}">
+                    <div style="position:absolute;left:31%;top:70%;width:40%;height:15%;border:2px solid #e5564a;border-radius:3px;"><span style="position:absolute;left:-2px;bottom:100%;margin-bottom:2px;background:#e5564a;color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:3px;white-space:nowrap;">Down · {{ downClock }}</span></div>
+                  </sc-if>
+                  <div style="position:absolute;top:8px;left:9px;display:flex;align-items:center;gap:5px;color:#fff;font-size:10.5px;font-weight:600;letter-spacing:.05em;"><span style="width:6px;height:6px;border-radius:50%;background:#e5564a;"></span>LIVE</div>
+                  <div style="position:absolute;top:8px;right:9px;color:#c3cdc5;font-size:10.5px;font-family:ui-monospace,Menlo,monospace;">{{ nowClock }}</div>
+                </div>
+                <div style="padding:9px 12px;background:#ffffff;">
+                  <div style="font-weight:600;font-size:13.5px;color:#1f2b26;">{{ c.name }}</div>
+                  <div style="font-size:12px;color:#8a968e;">{{ c.area }}</div>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;alertState&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;down&quot;,&quot;none&quot;],&quot;default&quot;:&quot;down&quot;,&quot;tsType&quot;:&quot;'down'|'none'&quot;,&quot;section&quot;:&quot;Demo state&quot;},&quot;threshold&quot;:{&quot;editor&quot;:&quot;int&quot;,&quot;default&quot;:10,&quot;min&quot;:3,&quot;max&quot;:60,&quot;unit&quot;:&quot;s&quot;,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Detection&quot;}}">
+const pad = n => String(n).padStart(2, '0');
+const mmss = s => `${Math.floor(s / 60)}:${pad(s % 60)}`;
+const hms = d => `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+const TONE = {
+  good: { bg: '#dfe9e0', fg: '#285948', glyph: '✓' },
+  warn: { bg: '#f3ecd9', fg: '#8a6a14', glyph: '!' },
+  bad: { bg: '#f7e3e0', fg: '#a5372c', glyph: '✕' },
+  neutral: { bg: '#f2f5f2', fg: '#57655d', glyph: '·' },
+};
+const LOG = [
+  { camera: 'Stairwell B', area: 'Block B', when: 'Today 09:12', dur: '0:46', o: 'Got up', tone: 'good' },
+  { camera: 'Gym floor', area: 'Sports hall', when: 'Yesterday 13:40', dur: '0:06', o: 'Got up quickly — no alert', tone: 'neutral' },
+  { camera: 'Main corridor', area: 'Block A', when: 'Mon 11:05', dur: '1:58', o: 'Helped up by someone', tone: 'good', by: 'Karim S. went' },
+  { camera: 'Playground', area: 'Outside', when: 'Mon 10:22', dur: '0:31', o: 'Left the camera view', tone: 'warn' },
+  { camera: 'Canteen', area: 'Ground floor', when: 'Sun 12:51', dur: '0:04', o: 'Got up quickly — no alert', tone: 'neutral' },
+];
+const CAMS = [
+  { name: 'Camera 4', area: 'Playground', down: true },
+  { name: 'Stairwell B', area: 'Block B' },
+  { name: 'Gym floor', area: 'Sports hall' },
+  { name: 'Main corridor', area: 'Block A' },
+  { name: 'Canteen', area: 'Ground floor' },
+  { name: 'Library', area: 'Block C' },
+];
+class Component extends DCLogic {
+  state = { down: 72, now: new Date(), resp: null, respAt: 0, dismissed: false };
+  componentDidMount() {
+    this.t = setInterval(() => this.setState(s => ({ now: new Date(), down: s.down + 1 })), 1000);
+  }
+  componentWillUnmount() { clearInterval(this.t); }
+  componentDidUpdate(p) { if (p.alertState !== this.props.alertState) this.setState({ down: 72, resp: null, dismissed: false }); }
+  renderVals() {
+    const nav = n => () => { window.location.href = encodeURI(n + '.dc' + '.html'); };
+    const { down, now } = this.state;
+    const { resp, respAt, dismissed } = this.state;
+    const active = (this.props.alertState ?? 'down') !== 'none' && !dismissed;
+    const extra = dismissed ? [{ camera: 'Camera 4', area: 'Playground', when: `Today ${pad(now.getHours())}:${pad(now.getMinutes())}`, dur: mmss(down), o: 'Marked not a fall', tone: 'neutral', by: 'by Mona A.' }] : [];
+    const rows = [...extra, ...LOG].map(r => ({ by: '', ...r, outcome: r.o, ...TONE[r.tone] }));
+    return {
+      goFalls: nav('Falls'),
+      goHealth: nav('System Health'),
+      noResponder: !resp,
+      hasResponder: !!resp,
+      responderLine: resp ? `Mona Adel on the way · ${mmss(Math.max(0, down - respAt))} ago` : '',
+      onGoing: () => this.setState(s => ({ resp: 'Mona Adel', respAt: s.down })),
+      onUndo: () => this.setState({ resp: null }),
+      onFalse: () => this.setState({ dismissed: true }),
+      isDown: active,
+      alertActive: active,
+      alertIdle: !active,
+      threshold: this.props.threshold ?? 10,
+      downClock: mmss(down),
+      sinceClock: hms(new Date(now - down * 1000)),
+      nowClock: hms(now),
+      logHeading: `${rows.length} entries in the last 7 days`,
+      log: rows,
+      cams: CAMS.map(c => ({ ...c, down: !!c.down && active })),
+    };
+  }
+}
+</script>
+</body>
+</html>

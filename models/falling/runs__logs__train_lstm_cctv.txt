@@ -1,0 +1,59 @@
+output: runs\lstm_cctv
+using split runs\split.json
+train  137 groups    15473 windows  normal=11851  falling=1004  fallen=2618
+val     30 groups     6172 windows  normal=4562  falling=532  fallen=1078
+test    30 groups     9502 windows  normal=7970  falling=480  fallen=1052
+class weights: normal=0.17  falling=2.04  fallen=0.78
+model lstm: 70,083 parameters on cuda
+epoch   1  train_loss 0.7637  val_loss 0.5564  val_macro_f1 0.7901  4.6s  *
+epoch   2  train_loss 0.5073  val_loss 0.4771  val_macro_f1 0.8217  5.1s  *
+epoch   3  train_loss 0.4386  val_loss 0.4478  val_macro_f1 0.7947  5.2s
+epoch   4  train_loss 0.4126  val_loss 0.5161  val_macro_f1 0.8123  5.1s
+epoch   5  train_loss 0.4028  val_loss 0.3899  val_macro_f1 0.8391  5.2s  *
+epoch   6  train_loss 0.3832  val_loss 0.3936  val_macro_f1 0.8599  5.2s  *
+epoch   7  train_loss 0.3568  val_loss 0.3979  val_macro_f1 0.8493  5.2s
+epoch   8  train_loss 0.3426  val_loss 0.4289  val_macro_f1 0.8095  5.2s
+epoch   9  train_loss 0.3398  val_loss 0.3940  val_macro_f1 0.8538  5.1s
+epoch  10  train_loss 0.3262  val_loss 0.5039  val_macro_f1 0.8295  5.2s
+epoch  11  train_loss 0.3060  val_loss 0.4450  val_macro_f1 0.8428  5.2s
+epoch  12  train_loss 0.2908  val_loss 0.4327  val_macro_f1 0.8539  5.2s
+epoch  13  train_loss 0.2879  val_loss 0.4887  val_macro_f1 0.8329  5.1s
+epoch  14  train_loss 0.2765  val_loss 0.3840  val_macro_f1 0.8556  5.2s
+epoch  15  train_loss 0.2711  val_loss 0.3919  val_macro_f1 0.8574  5.2s
+epoch  16  train_loss 0.2582  val_loss 0.4493  val_macro_f1 0.8378  5.2s
+early stopping: no val macro-F1 improvement for 10 epochs
+
+best epoch 6  ->  runs\lstm_cctv\best.pt
+
+[validation]
+confusion matrix (rows = true, columns = predicted)
+            normal  falling   fallen
+normal        4381       93       88
+falling         92      411       29
+fallen          43       89      946
+  normal   precision 0.970  recall 0.960  F1 0.965  (n=4562)
+  falling  precision 0.693  recall 0.773  F1 0.731  (n=532)
+  fallen   precision 0.890  recall 0.878  F1 0.884  (n=1078)
+  macro F1 0.860   accuracy 0.930
+
+[test]
+confusion matrix (rows = true, columns = predicted)
+            normal  falling   fallen
+normal        7459       86      425
+falling        118      360        2
+fallen         134      114      804
+  normal   precision 0.967  recall 0.936  F1 0.951  (n=7970)
+  falling  precision 0.643  recall 0.750  F1 0.692  (n=480)
+  fallen   precision 0.653  recall 0.764  F1 0.704  (n=1052)
+  macro F1 0.783   accuracy 0.907
+
+[alert settings on validation videos]
+threshold  gate   F1     precision  recall  false alarms
+   argmax     0  0.727   0.857     0.632      2
+   argmax     6  0.727   0.857     0.632      2
+     0.60     0  0.727   0.857     0.632      2
+     0.60     6  0.727   0.857     0.632      2
+     0.70     0  0.750   0.923     0.632      1   <- chosen
+     0.70     6  0.750   0.923     0.632      1
+     0.80     0  0.733   1.000     0.579      0
+     0.80     6  0.733   1.000     0.579      0

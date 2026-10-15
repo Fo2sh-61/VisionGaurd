@@ -1,0 +1,8 @@
+numpy
+opencv-python
+torch
+ultralytics      # YOLOv8-pose + ByteTrack (not needed by the tests)
+pyyaml
+pillow           # GUI frame display
+tqdm
+pytest

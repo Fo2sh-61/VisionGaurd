@@ -1,0 +1,14 @@
+setting                                F1     precision  recall  false alarms
+threshold=argmax gate=0                0.750   0.923     0.632      1
+threshold=argmax gate=6                0.750   0.923     0.632      1
+threshold=0.6 gate=0                   0.667   0.909     0.526      1
+threshold=0.6 gate=6                   0.667   0.909     0.526      1
+threshold=0.8 gate=0                   0.667   0.909     0.526      1
+threshold=0.8 gate=6                   0.667   0.909     0.526      1
+long_fall=None lost_while_falling=None 0.750   0.923     0.632      1
+long_fall=None lost_while_falling=0.5  0.800   0.875     0.737      2
+long_fall=1.0 lost_while_falling=None  0.824   0.933     0.737      1
+long_fall=1.0 lost_while_falling=0.5   0.833   0.882     0.789      2
+long_fall=1.5 lost_while_falling=None  0.750   0.923     0.632      1
+long_fall=1.5 lost_while_falling=0.5   0.800   0.875     0.737      2
+chosen: threshold=None gate=0 long_fall=1.0 lost_while_falling=0.5  ->  F1 0.833

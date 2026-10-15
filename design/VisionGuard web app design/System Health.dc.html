@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Albert+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#f2f5f2;color:#1f2b26;font-family:'Albert Sans',system-ui,-apple-system,sans-serif;font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+*{box-sizing:border-box}
+a{color:#33705b;text-decoration:none}a:hover{color:#285948;text-decoration:underline}
+input,button,select{font-family:inherit}
+@keyframes vg-pulse{0%,100%{opacity:1}50%{opacity:.3}}
+</style>
+</helmet>
+<div style="display:flex;min-height:100vh;">
+  <nav style="width:222px;flex-shrink:0;background:#e9efe9;padding:22px 14px 16px;display:flex;flex-direction:column;gap:2px;position:sticky;top:0;height:100vh;">
+    <div style="display:flex;align-items:center;gap:9px;padding:0 10px 20px;">
+      <div style="width:28px;height:28px;border-radius:9px;background:#33705b;display:flex;align-items:center;justify-content:center;flex-shrink:0;"><div style="width:12px;height:12px;border-radius:50% 50% 50% 4px;background:#e9efe9;"></div></div>
+      <div style="font-weight:700;font-size:15px;letter-spacing:-.01em;">VisionGuard AI</div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:2px;">
+      <a style="display:flex;align-items:center;gap:11px;padding:8px 12px;border-radius:10px;font-size:14px;color:#57655d;" style-hover="background:rgba(255,255,255,.55);color:#1f2b26;text-decoration:none;"><svg width="17" height="17" viewBox="0 0 18 18" fill="none" style="flex-shrink:0;"><path d="M3 8 L9 3 L15 8 V15 H3 Z" stroke="#8a968e" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg><span>Home</span></a>
+      <div style="padding:16px 12px 6px;font-size:10.5px;font-weight:700;letter-spacing:.1em;color:#8a968e;">ASK</div>
+      <a style="display:flex;align-items:center;gap:11px;padding:8px 12px;border-radius:10px;font-size:14px;color:#57655d;" style-hover="background:rgba(255,255,255,.55);color:#1f2b26;text-decoration:none;"><svg width="17" height="17" viewBox="0 0 18 18" fill="none" style="flex-shrink:0;"><path d="M3.5 9.5 L7.5 13.5 L14.5 5" stroke="#8a968e" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg><span>Attendance</span></a>
+      <a style="display:flex;align-items:center;gap:11px;padding:8px 12px;border-radius:10px;font-size:14px;color:#57655d;" style-hover="background:rgba(255,255,255,.55);color:#1f2b26;text-decoration:none;"><svg width="17" height="17" viewBox="0 0 18 18" fill="none" style="flex-shrink:0;"><path d="M4 14 V8 M9 14 V4.5 M14 14 V10.5" stroke="#8a968e" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg><span>People counting</span></a>
+      <a style="display:flex;align-items:center;gap:11px;padding:8px 12px;border-radius:10px;font-size:14px;color:#57655d;" style-hover="background:rgba(255,255,255,.55);color:#1f2b26;text-decoration:none;"><svg width="17" height="17" viewBox="0 0 18 18" fill="none" style="flex-shrink:0;"><path d="M7.5 3 a4.2 4.2 0 1 0 0.01 0 M11.2 11.2 L15.5 15.5" stroke="#8a968e" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg><span>Lost bag</span></a>
+      <a style="display:flex;align-items:center;gap:11px;padding:8px 12px;border-radius:10px;font-size:14px;color:#57655d;" style-hover="background:rgba(255,255,255,.55);color:#1f2b26;text-decoration:none;"><svg width="17" height="17" viewBox="0 0 18 18" fill="none" style="flex-shrink:0;"><path d="M3.5 14.5 C7 6.5 11 12.5 14.5 4" stroke="#8a968e" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg><span>Track a person</span></a>
+      <div style="padding:16px 12px 6px;font-size:10.5px;font-weight:700;letter-spacing:.1em;color:#8a968e;">WATCH</div>
+      <a style="display:flex;align-items:center;gap:11px;padding:8px 12px;border-radius:10px;font-size:14px;color:#57655d;" style-hover="background:rgba(255,255,255,.55);color:#1f2b26;text-decoration:none;"><svg width="17" height="17" viewBox="0 0 18 18" fill="none" style="flex-shrink:0;"><path d="M3.5 4.5 H14.5 V13.5 H3.5 Z M9 7.8 a1.2 1.2 0 1 0 .01 0" stroke="#8a968e" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg><span>Restricted zones</span></a>
+      <a style="display:flex;align-items:center;gap:11px;padding:8px 12px;border-radius:10px;font-size:14px;color:#57655d;" style-hover="background:rgba(255,255,255,.55);color:#1f2b26;text-decoration:none;"><svg width="17" height="17" viewBox="0 0 18 18" fill="none" style="flex-shrink:0;"><path d="M5 15.5 V3 H13.5 L11 6 L13.5 9 H5" stroke="#8a968e" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg><span>Knife detection</span></a>
+      <a onClick="{{ goFalls }}" style="cursor:pointer;display:flex;align-items:center;gap:11px;padding:8px 12px;border-radius:10px;font-size:14px;color:#57655d;" style-hover="background:rgba(255,255,255,.55);color:#1f2b26;text-decoration:none;"><svg width="17" height="17" viewBox="0 0 18 18" fill="none" style="flex-shrink:0;"><path d="M2.5 14.5 H15.5 M5 10.6 a1.4 1.4 0 1 0 .01 0 M7.6 11.6 L14 9.8" stroke="#8a968e" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg><span>Falls</span></a>
+      <a style="display:flex;align-items:center;gap:11px;padding:8px 12px;border-radius:10px;font-size:14px;color:#57655d;" style-hover="background:rgba(255,255,255,.55);color:#1f2b26;text-decoration:none;"><svg width="17" height="17" viewBox="0 0 18 18" fill="none" style="flex-shrink:0;"><path d="M2.5 11 H15.5 M3.5 11 V8.5 L5.5 5.5 H12 L14.5 8.5 V11 M6 13 a1.3 1.3 0 1 0 .01 0 M12 13 a1.3 1.3 0 1 0 .01 0" stroke="#8a968e" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg><span>Vehicle gate</span></a>
+      <div style="padding:16px 12px 6px;font-size:10.5px;font-weight:700;letter-spacing:.1em;color:#8a968e;">MANAGE</div>
+      <a style="display:flex;align-items:center;gap:11px;padding:8px 12px;border-radius:10px;font-size:14px;color:#57655d;" style-hover="background:rgba(255,255,255,.55);color:#1f2b26;text-decoration:none;"><svg width="17" height="17" viewBox="0 0 18 18" fill="none" style="flex-shrink:0;"><path d="M6.2 3.5 a2.3 2.3 0 1 0 0.01 0 M2.8 14.5 c0-2.6 1.7-4 3.4-4 s3.4 1.4 3.4 4 M12.3 5.5 a2 2 0 1 0 0.01 0 M11.5 11.3 c1.9 .3 3.4 1.5 3.4 3.2" stroke="#8a968e" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg><span>People</span></a>
+      <a onClick="{{ goHealth }}" style="cursor:pointer;display:flex;align-items:center;gap:11px;padding:8px 12px;border-radius:10px;font-size:14px;color:#33705b;font-weight:600;background:#ffffff;box-shadow:0 1px 3px rgba(30,42,36,.07);"><svg width="17" height="17" viewBox="0 0 18 18" fill="none" style="flex-shrink:0;"><path d="M2.5 9.5 H6 L8 5 L10.5 13 L12.5 9.5 H15.5" stroke="#33705b" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg><span>System health &amp; configuration</span></a>
+      <a style="display:flex;align-items:center;gap:11px;padding:8px 12px;border-radius:10px;font-size:14px;color:#57655d;" style-hover="background:rgba(255,255,255,.55);color:#1f2b26;text-decoration:none;"><svg width="17" height="17" viewBox="0 0 18 18" fill="none" style="flex-shrink:0;"><path d="M3 6.2 H15 M3 11.8 H15 M7 4.6 a1.6 1.6 0 1 0 0.01 0 M11.5 10.2 a1.6 1.6 0 1 0 0.01 0" stroke="#8a968e" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg><span>Settings</span></a>
+    </div>
+    <div style="flex:1;"></div>
+    <div style="background:#ffffff;border-radius:12px;padding:13px 14px;margin-bottom:10px;">
+      <div style="display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;color:#33705b;white-space:nowrap;"><span style="width:14px;height:14px;border-radius:50%;background:#33705b;color:#ffffff;display:inline-flex;align-items:center;justify-content:center;font-size:9.5px;font-weight:800;line-height:1;">✓</span>Campus is calm</div>
+      <div style="font-size:12px;color:#8a968e;margin-top:3px;">Nothing urgent right now</div>
+    </div>
+    <button style="background:none;border:none;border-top:1px solid #e0e7e1;padding:8px 10px;text-align:start;color:#8a968e;font-size:13px;cursor:pointer;" style-hover="color:#285948;text-decoration:underline;">Sign out</button>
+  </nav>
+
+  <div style="flex:1;min-width:0;display:flex;flex-direction:column;">
+    <header style="display:flex;align-items:center;justify-content:space-between;padding:15px 40px;border-bottom:1px solid #e0e7e1;gap:16px;">
+      <div style="font-size:13px;color:#8a968e;">Thursday, 15 October</div>
+      <div style="display:flex;align-items:center;gap:16px;">
+        <span style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:#33705b;white-space:nowrap;"><span style="width:14px;height:14px;border-radius:50%;background:#33705b;color:#ffffff;display:inline-flex;align-items:center;justify-content:center;font-size:9.5px;font-weight:800;line-height:1;">✓</span>All 6 cameras up</span>
+        <div style="display:flex;align-items:center;gap:9px;">
+          <div style="text-align:end;"><div style="font-size:13px;font-weight:600;line-height:1.2;">Mona Adel</div><div style="font-size:11.5px;color:#8a968e;">Administrator</div></div>
+          <div style="width:32px;height:32px;border-radius:50%;background:#dfe9e0;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:12px;color:#285948;">MA</div>
+        </div>
+      </div>
+    </header>
+
+    <main style="flex:1;">
+      <div style="max-width:960px;margin:0 auto;padding:40px 40px 90px;">
+        <h1 style="font-weight:700;font-size:26px;letter-spacing:-.02em;margin:0;">System health</h1>
+        <p style="font-size:14.5px;color:#57655d;margin:4px 0 22px;">Cameras, recorders and the AI server.</p>
+
+        <div style="background:#ffffff;border-radius:14px;padding:24px;box-shadow:0 1px 3px rgba(30,42,36,.07);margin-bottom:14px;">
+          <div style="font-weight:700;font-size:21px;letter-spacing:-.01em;">6 of 6 cameras online</div>
+          <div style="font-size:13.5px;color:#57655d;margin:2px 0 18px;">{{ summary }}</div>
+          <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:22px;">
+            <sc-for list="{{ stats }}" as="s" hint-placeholder-count="5">
+              <div style="background:#f2f5f2;border-radius:10px;padding:13px 15px;">
+                <div style="font-size:12.5px;color:#57655d;">{{ s.label }}</div>
+                <div style="font-size:22px;font-weight:700;">{{ s.value }}</div>
+              </div>
+            </sc-for>
+          </div>
+          <div style="font-weight:700;font-size:15px;margin-bottom:8px;">Pipeline</div>
+          <sc-for list="{{ pipeline }}" as="p" hint-placeholder-count="8">
+            <div style="display:grid;grid-template-columns:1.2fr 1.6fr 1fr .8fr;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid #e0e7e1;font-size:14px;">
+              <span style="font-weight:600;display:flex;align-items:center;gap:8px;">{{ p.name }}<sc-if value="{{ p.isNew }}" hint-placeholder-val="{{ false }}"><span style="padding:1px 7px;border-radius:6px;font-size:10.5px;font-weight:700;letter-spacing:.04em;background:#dfe9e0;color:#285948;">NEW</span></sc-if></span>
+              <span style="color:#57655d;">{{ p.detail }}</span>
+              <span><span style="display:inline-block;padding:3px 10px;border-radius:8px;font-size:12px;font-weight:600;white-space:nowrap;background:{{ p.bg }};color:{{ p.fg }};">{{ p.glyph }} {{ p.status }}</span></span>
+              <span><sc-if value="{{ p.restartable }}" hint-placeholder-val="{{ false }}"><button style="background:none;border:none;padding:0;color:#33705b;font-weight:600;font-size:13.5px;cursor:pointer;" style-hover="color:#285948;text-decoration:underline;">Restart</button></sc-if></span>
+              <sc-if value="{{ p.hasWorkers }}" hint-placeholder-val="{{ false }}">
+                <div style="grid-column:1 / -1;">
+                  <sc-for list="{{ p.workers }}" as="w" hint-placeholder-count="5">
+                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid #e0e7e1;font-size:14px;">
+                      <span style="color:#57655d;display:flex;align-items:center;gap:8px;">{{ w.name }}<sc-if value="{{ w.isNew }}" hint-placeholder-val="{{ false }}"><span style="padding:1px 7px;border-radius:6px;font-size:10.5px;font-weight:700;letter-spacing:.04em;background:#dfe9e0;color:#285948;">NEW</span></sc-if></span>
+                      <span style="color:#57655d;">{{ w.throughput }}</span>
+                      <span style="color:#57655d;">{{ w.queue }}</span>
+                      <span style="color:#57655d;">Keeping up</span>
+                    </div>
+                  </sc-for>
+                </div>
+              </sc-if>
+            </div>
+          </sc-for>
+        </div>
+
+        <div style="background:#ffffff;border-radius:14px;padding:24px;box-shadow:0 1px 3px rgba(30,42,36,.07);margin-bottom:14px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+            <div style="flex:1 1 360px;min-width:0;">
+              <div style="display:flex;align-items:center;gap:8px;"><span style="font-weight:700;font-size:19px;letter-spacing:-.01em;">Fall checking</span><span style="padding:1px 7px;border-radius:6px;font-size:10.5px;font-weight:700;letter-spacing:.04em;background:#dfe9e0;color:#285948;">NEW</span></div>
+              <div style="font-size:13.5px;color:#57655d;margin-top:2px;text-wrap:pretty;">{{ fallSub }}</div>
+            </div>
+            <div style="display:flex;gap:8px;">
+              <button onClick="{{ allOn }}" style="padding:0 16px;height:38px;border-radius:9px;font-size:12.5px;font-weight:600;border:none;cursor:pointer;white-space:nowrap;background:#f2f5f2;color:#57655d;" style-hover="background:#dfe9e0;color:#285948;">Check every camera</button>
+              <button onClick="{{ allOff }}" style="padding:0 16px;height:38px;border-radius:9px;font-size:12.5px;font-weight:600;border:none;cursor:pointer;white-space:nowrap;background:#f2f5f2;color:#57655d;" style-hover="background:#dfe9e0;color:#285948;">Stop all</button>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1.3fr 1fr 1.6fr 44px;gap:10px;padding:14px 0 8px;color:#8a968e;font-size:12px;font-weight:600;letter-spacing:.03em;">
+            <span>CAMERA</span><span>AREA</span><span>FALLS</span><span></span>
+          </div>
+          <sc-for list="{{ fallCams }}" as="c" hint-placeholder-count="6">
+            <div style="display:grid;grid-template-columns:1.3fr 1fr 1.6fr 44px;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid #e0e7e1;font-size:14px;">
+              <span style="font-weight:600;">{{ c.name }}</span>
+              <span style="color:#57655d;">{{ c.area }}</span>
+              <span><span style="display:inline-block;padding:3px 10px;border-radius:8px;font-size:12px;font-weight:600;white-space:nowrap;background:{{ c.bg }};color:{{ c.fg }};">{{ c.glyph }} {{ c.state }}</span></span>
+              <button onClick="{{ c.toggle }}" role="switch" aria-checked="{{ c.on }}" aria-label="Check this camera for falls" style="width:36px;height:20px;border-radius:12px;position:relative;cursor:pointer;flex-shrink:0;border:none;padding:0;background:{{ c.track }};">
+                <span style="width:16px;height:16px;border-radius:50%;background:#ffffff;position:absolute;top:2px;left:{{ c.knob }};transition:left .15s;"></span>
+              </button>
+            </div>
+          </sc-for>
+          <div style="font-size:12.5px;color:#57655d;margin-top:12px;text-wrap:pretty;">Shares the person detector, so it adds little load. A change takes effect on the next frame and is written to the audit log with your name.</div>
+        </div>
+
+        <div style="background:#ffffff;border-radius:14px;padding:24px;box-shadow:0 1px 3px rgba(30,42,36,.07);margin-bottom:14px;">
+          <div style="font-weight:700;font-size:19px;letter-spacing:-.01em;">Camera sources</div>
+          <div style="font-size:13.5px;color:#57655d;margin-top:2px;">6 cameras across 2 sources · works with any DVR, NVR or IP camera that speaks ONVIF or RTSP.</div>
+          <div style="display:flex;align-items:center;gap:10px;background:#f2f5f2;border-radius:11px;padding:12px 14px;margin:14px 0;">
+            <span style="width:15px;height:15px;border-radius:50%;background:#33705b;color:#f2f5f2;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;flex-shrink:0;">✓</span>
+            <span style="font-size:13px;color:#57655d;"><b style="color:#1f2b26;">Capture service — running on this server</b> · 192.168.1.10 · same network as the cameras, published at your school domain for remote access.</span>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid #e0e7e1;">
+            <div style="flex:1;min-width:0;"><div style="font-weight:600;font-size:14px;">DVR — 192.168.1.50</div><div style="font-size:12.5px;color:#8a968e;">DVR · 192.168.1.50 · 5 channels</div></div>
+            <span style="display:inline-block;padding:3px 10px;border-radius:8px;font-size:12px;font-weight:600;white-space:nowrap;background:#dfe9e0;color:#285948;">✓ Connected</span>
+            <button style="background:none;border:none;padding:0;color:#8a968e;font-size:13px;cursor:pointer;" style-hover="color:#285948;text-decoration:underline;">Remove</button>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid #e0e7e1;">
+            <div style="flex:1;min-width:0;"><div style="font-weight:600;font-size:14px;">Main entrance</div><div style="font-size:12.5px;color:#8a968e;">IP camera · 192.168.1.150 · 1 channel</div></div>
+            <span style="display:inline-block;padding:3px 10px;border-radius:8px;font-size:12px;font-weight:600;white-space:nowrap;background:#dfe9e0;color:#285948;">✓ Connected</span>
+            <button style="background:none;border:none;padding:0;color:#8a968e;font-size:13px;cursor:pointer;" style-hover="color:#285948;text-decoration:underline;">Remove</button>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;">
+            <sc-for list="{{ modes }}" as="m" hint-placeholder-count="4">
+              <button onClick="{{ m.pick }}" style="height:38px;padding:0 16px;border-radius:9px;font-size:12.5px;font-weight:600;border:none;cursor:pointer;white-space:nowrap;background:{{ m.bg }};color:{{ m.fg }};">{{ m.label }}</button>
+            </sc-for>
+          </div>
+          <sc-if value="{{ ipOpen }}" hint-placeholder-val="{{ false }}">
+            <div style="background:#f2f5f2;border-radius:12px;padding:16px 18px;margin-top:14px;display:flex;flex-direction:column;gap:12px;">
+              <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+                <div style="display:flex;flex-direction:column;gap:5px;"><label style="font-size:12px;font-weight:600;color:#57655d;">Camera name</label><input placeholder="Main entrance" style="height:42px;border:1px solid #e0e7e1;border-radius:10px;padding:0 12px;font-size:14px;background:#ffffff;color:#1f2b26;width:220px;outline:none;" style-focus="border-color:#33705b;"></div>
+                <div style="display:flex;flex-direction:column;gap:5px;"><label style="font-size:12px;font-weight:600;color:#57655d;">IP address</label><input value="192.168.1.50" style="height:42px;border:1px solid #e0e7e1;border-radius:10px;padding:0 12px;font-size:14px;background:#ffffff;color:#1f2b26;width:150px;font-family:ui-monospace,Menlo,monospace;outline:none;" style-focus="border-color:#33705b;"></div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:5px;">
+                <label style="font-size:12px;font-weight:600;color:#57655d;">Watch this camera for</label>
+                <div style="display:flex;flex-direction:column;gap:6px;padding-top:2px;">
+                  <sc-for list="{{ features }}" as="f" hint-placeholder-count="4">
+                    <label style="display:flex;gap:8px;align-items:baseline;font-size:13px;cursor:pointer;">
+                      <input type="checkbox" checked="{{ f.on }}" onChange="{{ f.toggle }}">
+                      <span>{{ f.label }}<span style="color:#8a968e;"> · {{ f.cost }}</span></span>
+                    </label>
+                  </sc-for>
+                </div>
+              </div>
+              <button style="align-self:flex-start;height:42px;padding:0 24px;border:none;border-radius:10px;background:#33705b;color:#ffffff;font-weight:600;font-size:14px;cursor:pointer;" style-hover="background:#285948;">Test connection</button>
+            </div>
+          </sc-if>
+          <sc-if value="{{ otherOpen }}" hint-placeholder-val="{{ false }}">
+            <div style="background:#f2f5f2;border-radius:12px;padding:16px 18px;margin-top:14px;">
+              <div style="font-size:13.5px;color:#57655d;margin-bottom:12px;">{{ otherLead }}</div>
+              <button style="height:42px;padding:0 24px;border:none;border-radius:10px;background:#33705b;color:#ffffff;font-weight:600;font-size:14px;cursor:pointer;" style-hover="background:#285948;">{{ otherCta }}</button>
+            </div>
+          </sc-if>
+        </div>
+
+        <div style="border:1.5px dashed #e0e7e1;border-radius:14px;padding:18px 22px;margin-bottom:14px;">
+          <div style="font-weight:600;font-size:14.5px;color:#57655d;">Live video streaming — not connected yet</div>
+          <div style="font-size:13px;color:#8a968e;margin-top:2px;">This prototype shows detection frames, not real streams. The RTSP gateway is planned for the next build; nothing here pretends otherwise.</div>
+        </div>
+
+        <div style="background:#ffffff;border-radius:14px;padding:20px;box-shadow:0 1px 3px rgba(30,42,36,.07);margin-top:14px;">
+          <div style="font-weight:700;font-size:15.5px;">Cameras needing attention</div>
+          <div style="font-size:13px;color:#8a968e;margin-top:2px;">Offline cameras show their last received frame, clearly labelled — never a frozen picture passed off as live.</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:12px;margin-top:14px;">
+            <sc-for list="{{ tiles }}" as="t" hint-placeholder-count="6">
+              <div style="border-radius:12px;overflow:hidden;background:#1d2420;border:1px solid #e0e7e1;cursor:pointer;">
+                <div style="position:relative;height:128px;background:#242b27;overflow:hidden;">
+                  <div style="position:absolute;inset:0;background-image:linear-gradient(#2d3530 1px,transparent 1px),linear-gradient(90deg,#2d3530 1px,transparent 1px);background-size:26px 26px;opacity:.6;"></div>
+                  <div style="position:absolute;left:0;right:0;bottom:0;height:42%;background:#2a322d;"></div>
+                  <div style="position:absolute;top:8px;left:9px;display:flex;align-items:center;gap:5px;color:#ffffff;font-size:10.5px;font-weight:600;letter-spacing:.05em;"><span style="width:6px;height:6px;border-radius:50%;background:#e5564a;animation:vg-pulse 1.6s infinite;"></span>LIVE</div>
+                  <div style="position:absolute;top:8px;right:9px;color:#c3cdc5;font-size:10.5px;font-family:ui-monospace,Menlo,monospace;">{{ clock }}</div>
+                </div>
+                <div style="padding:9px 12px;background:#ffffff;">
+                  <div style="font-size:12.5px;font-weight:600;color:#1f2b26;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ t.name }}</div>
+                  <div style="font-size:11.5px;color:#57655d;margin-top:1px;">{{ t.status }}</div>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+const pad = n => String(n).padStart(2, '0');
+const TONE = {
+  good: { bg: '#dfe9e0', fg: '#285948', glyph: '✓' },
+  warn: { bg: '#f3ecd9', fg: '#8a6a14', glyph: '!' },
+  neutral: { bg: '#f2f5f2', fg: '#57655d', glyph: '·' },
+};
+const CAMS = [
+  ['cam-laptop', 'Main entrance', 'Entrance', true],
+  ['cam-2', 'Playground', 'Outside', true],
+  ['cam-3', 'Stairwell B', 'Block B', true],
+  ['cam-4', 'Gym floor', 'Sports hall', true],
+  ['cam-5', 'Main corridor', 'Block A', false],
+  ['cam-6', 'Canteen', 'Ground floor', false],
+];
+const MODES = [
+  ['scan', 'Scan network', 'Looks for ONVIF cameras and recorders on the school network. Takes about a minute.', 'Start scan'],
+  ['dvr', 'Add DVR / NVR', 'Connect a recorder and every camera plugged into it comes along — including old analog ones.', 'Connect & pull channels'],
+  ['ip', 'Add IP camera'],
+  ['rtsp', 'Paste RTSP URL', 'The escape hatch — works with anything that produces a video stream, whatever the brand.', 'Test stream'],
+];
+const FEATURES = [
+  ['counting', 'People counting', 'person detector'],
+  ['intrusion', 'Restricted areas', 'shares the person detector'],
+  ['attendance', 'Face recognition', 'needs faces ~80px wide'],
+  ['falls', 'Falls', 'shares the person detector'],
+];
+class Component extends DCLogic {
+  state = { on: Object.fromEntries(CAMS.map(c => [c[0], c[3]])), mode: null, feats: { counting: true }, now: new Date() };
+  componentDidMount() { this.t = setInterval(() => this.setState({ now: new Date() }), 1000); }
+  componentWillUnmount() { clearInterval(this.t); }
+  renderVals() {
+    const nav = n => () => { window.location.href = encodeURI(n + '.dc' + '.html'); };
+    const { on, mode, feats, now } = this.state;
+    const n = CAMS.filter(c => on[c[0]]).length;
+    const fallsStage = n
+      ? { name: 'Fall detection', isNew: true, detail: `yolo11n-pose on cuda:0 - ${n} camera${n === 1 ? '' : 's'}, shares the person pass`, tone: 'good', status: 'Healthy' }
+      : { name: 'Fall detection', isNew: true, detail: 'Off - no camera is checked for falls', tone: 'warn', status: 'Needs attention' };
+    const stages = [
+      { name: 'Camera ingest', detail: '6 of 6 streams decoding', tone: 'good', status: 'Healthy', restartable: true },
+      { name: 'Feature workers', detail: '5 running, none behind', tone: 'good', status: 'Healthy', workers: [
+        { name: 'counting', throughput: '41,208 frames · 17 ms', queue: 'queue 0/4 · 0 dropped' },
+        { name: 'attendance', throughput: '8,930 frames · 22 ms', queue: 'queue 0/4 · 0 dropped' },
+        { name: 'weapons', throughput: '12,644 frames · 24 ms', queue: 'queue 1/4 · 0 dropped' },
+        ...(n ? [{ name: 'falls', isNew: true, throughput: '9,312 frames · 11 ms', queue: 'queue 0/4 · 0 dropped' }] : []),
+        { name: 'vehicles', throughput: '3,102 frames · 31 ms', queue: 'queue 0/4 · 0 dropped' },
+      ] },
+      { name: 'Person detection', detail: 'yolo11s on cuda:0 (TensorRT) - 6 camera(s), p95 18 ms', tone: 'good', status: 'Healthy' },
+      { name: 'Face recognition', detail: '142 enrolled, 731 faces, entrance cameras only', tone: 'good', status: 'Healthy' },
+      { name: 'Knife detection', detail: 'knife-v3 on cuda:0 - 6 camera(s)', tone: 'good', status: 'Healthy' },
+      fallsStage,
+      { name: 'Bag detection', detail: 'bagsearch on cuda:0 - idle - nobody is looking', tone: 'good', status: 'Healthy' },
+      { name: 'Plate reading', detail: '1 gate camera - gate 1 entry', tone: 'good', status: 'Healthy' },
+      { name: 'Site clock', detail: 'Africa/Cairo, currently UTC+3', tone: 'good', status: 'Healthy' },
+    ];
+    const clock = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+    const other = MODES.find(m => m[0] === mode && m[0] !== 'ip');
+    return {
+      goFalls: nav('Falls'),
+      goHealth: nav('System Health'),
+      summary: n ? 'Everything is recording and being analysed.' : 'Fall detection: off - no camera is checked for falls.',
+      stats: [
+        { label: 'Cameras up', value: '6 / 6' },
+        { label: 'Frames read', value: '412,880' },
+        { label: 'Reconnects', value: '2' },
+        { label: 'Frames dropped', value: '0' },
+        { label: 'Frames not decoded', value: '298,416' },
+      ],
+      pipeline: stages.map(s => ({ isNew: false, restartable: false, ...s, ...TONE[s.tone], hasWorkers: !!s.workers, workers: (s.workers || []).map(w => ({ isNew: false, ...w })) })),
+      fallSub: n
+        ? `${n} of ${CAMS.length} cameras are checked for someone on the ground. Only these appear on the Falls page.`
+        : 'No camera is checked, so the Falls page cannot show anything.',
+      allOn: () => this.setState({ on: Object.fromEntries(CAMS.map(c => [c[0], true])) }),
+      allOff: () => this.setState({ on: Object.fromEntries(CAMS.map(c => [c[0], false])) }),
+      fallCams: CAMS.map(([id, name, area]) => {
+        const v = !!on[id];
+        return {
+          name, area, on: v,
+          state: v ? 'Checked' : 'Not checked',
+          ...(v ? TONE.good : TONE.neutral),
+          track: v ? '#33705b' : '#c3ccc4',
+          knob: v ? '18px' : '2px',
+          toggle: () => this.setState(s => ({ on: { ...s.on, [id]: !s.on[id] } })),
+        };
+      }),
+      modes: MODES.map(([id, label]) => ({
+        label,
+        bg: mode === id ? '#33705b' : '#f2f5f2',
+        fg: mode === id ? '#ffffff' : '#8a968e',
+        pick: () => this.setState(s => ({ mode: s.mode === id ? null : id })),
+      })),
+      ipOpen: mode === 'ip',
+      otherOpen: !!other,
+      otherLead: other ? other[2] : '',
+      otherCta: other ? other[3] : '',
+      features: FEATURES.map(([k, label, cost]) => ({
+        label, cost, on: !!feats[k],
+        toggle: () => this.setState(s => ({ feats: { ...s.feats, [k]: !s.feats[k] } })),
+      })),
+      clock,
+      tiles: CAMS.map(([, name]) => ({ name, status: name === 'Main entrance' ? '1 person in view' : 'Nobody in view' })),
+    };
+  }
+}
+</script>
+</body>
+</html>

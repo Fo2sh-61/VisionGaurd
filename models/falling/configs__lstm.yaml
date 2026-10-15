@@ -1,0 +1,9 @@
+# python -m train.train --config configs/lstm.yaml   (same data and split as cnn.yaml)
+data:
+  caches: [data/cache/le2i, data/cache/urfd]
+split:
+  file: runs/split.json
+model:
+  arch: lstm
+  lstm: {hidden: 64, num_layers: 2, dropout: 0.2}
+out: runs/lstm

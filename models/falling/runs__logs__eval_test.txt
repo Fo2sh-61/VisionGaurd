@@ -1,0 +1,39 @@
+
+30 videos (test split of runs/split.json)
+metric                                rule_based  temporal_model
+videos                                        30              30
+falls                                         19              19
+true positives                                12              12
+false alarms                                   5               3
+missed falls                                   7               7
+precision                                  0.706           0.800
+recall                                     0.632           0.632
+F1                                         0.667           0.706
+false alarms / min                         0.758           0.455
+mean latency after impact (s)              -0.39           +0.64
+frame macro-F1 (subject)                   0.527           0.720
+frame accuracy (subject)                   0.791           0.896
+frames with a prediction                   95.5%           93.7%
+detector ms / frame                         0.01            1.56
+
+[rule_based] frame level, subject track
+confusion matrix (rows = true, columns = predicted)
+            normal  falling   fallen
+normal        7003     1023      101
+falling        158      145      168
+fallen         297      261      467
+  normal   precision 0.939  recall 0.862  F1 0.899  (n=8127)
+  falling  precision 0.101  recall 0.308  F1 0.153  (n=471)
+  fallen   precision 0.635  recall 0.456  F1 0.530  (n=1025)
+  macro F1 0.527   accuracy 0.791
+
+[temporal_model] frame level, subject track
+confusion matrix (rows = true, columns = predicted)
+            normal  falling   fallen
+normal        7466      418       53
+falling        129      340        0
+fallen         133      254      656
+  normal   precision 0.966  recall 0.941  F1 0.953  (n=7937)
+  falling  precision 0.336  recall 0.725  F1 0.459  (n=469)
+  fallen   precision 0.925  recall 0.629  F1 0.749  (n=1043)
+  macro F1 0.720   accuracy 0.896

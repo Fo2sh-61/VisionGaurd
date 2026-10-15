@@ -1,0 +1,36 @@
+# python -m train.train --config configs/cnn.yaml
+# Any key left out falls back to DEFAULT_CONFIG in train/train.py.
+data:
+  caches: [data/cache/le2i, data/cache/urfd]
+  window: 30
+  stride: 2
+  eval_stride: 1
+  max_gap: 5
+  min_frames: 10      # warm-up: predict once 10 poses are buffered (window left-padded)
+  conf_min: 0.30
+
+split:
+  file: runs/split.json   # shared by every config, created on the first run and reused after
+  val_frac: 0.15
+  test_frac: 0.15
+  seed: 0
+
+model:
+  arch: cnn           # cnn | lstm
+  cnn: {channels: 64, num_layers: 3, kernel_size: 5, dropout: 0.2}
+  lstm: {hidden: 64, num_layers: 2, dropout: 0.2}
+
+train:
+  epochs: 100
+  batch_size: 256
+  lr: 1.0e-3
+  weight_decay: 1.0e-4
+  patience: 10
+  class_weighting: inverse    # inverse | sqrt_inverse | none
+  grad_clip: 1.0
+  device: auto
+  seed: 0
+  augment: {flip_p: 0.5, scale: [0.9, 1.1], jitter_std: 0.02, kp_dropout: 0.05}
+  calibrate: true             # choose the alert threshold on the validation videos
+
+out: runs/cnn
