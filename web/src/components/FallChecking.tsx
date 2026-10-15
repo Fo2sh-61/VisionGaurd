@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { Badge, Card, Empty, LoadError, Toggle, toneGlyph } from '@/components/ui';
 import { editCamera, getCameraSources } from '@/services/api';
 import type { CameraSource } from '@/types';
@@ -29,6 +30,17 @@ export function FallChecking() {
   const { data: sources, error, loading, reload } = useAsync(
     () => (admin ? getCameraSources() : Promise.resolve(NO_SOURCES)),
     [admin], NO_SOURCES, REFRESH_MS);
+  const location = useLocation();
+  // The Falls page links here as `/system#fall-checking`. A router link does
+  // not scroll to a fragment, and the shell scrolls every new page to the top
+  // after this effect has run - so this waits a moment and goes after it.
+  useEffect(() => {
+    if (location.hash !== '#fall-checking') return undefined;
+    const id = window.setTimeout(() => {
+      document.getElementById('fall-checking')?.scrollIntoView({ block: 'start' });
+    }, 120);
+    return () => window.clearTimeout(id);
+  }, [location.hash]);
   const [saving, setSaving] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   // Saved, but not running: not a failure, and not drawn as one.

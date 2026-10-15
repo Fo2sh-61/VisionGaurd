@@ -7,6 +7,7 @@ import { Badge, Card, DataNotice, Empty, Field, LoadError, PageHeader, Select, t
 import {
   getFallCameras,
   getFalls,
+  getFallsNow,
   getFallsStatus,
   markNotAFall,
   respondToFall,
@@ -30,7 +31,8 @@ const WINDOWS: FallWindow[] = ['today', 'yesterday', 'last7', 'last30', 'last90'
 
 /** Somebody on the floor is the most time-critical thing this console shows,
  *  so the list is read often. One small indexed query. */
-const LOG_REFRESH_MS = 2_000;
+const NOW_REFRESH_MS = 2_000;
+const LOG_REFRESH_MS = 3_000;
 const CAMERA_REFRESH_MS = 15_000;
 const STATUS_REFRESH_MS = 15_000;
 
@@ -82,6 +84,12 @@ export function Falls() {
     () => getFalls(when, language).then((entries) => ({ entries, readAt: Date.now() })),
     [when, language], NO_LOG, LOG_REFRESH_MS);
   const entries = log.entries;
+  // Who is down NOW, read on its own and never from the history above: the
+  // period picker is for reading back, and "Yesterday" must not hide - or
+  // print the all-clear over - somebody on the floor at this moment.
+  const { data: current, error: nowError, loading: nowLoading } = useAsync(
+    () => getFallsNow(language).then((entries) => ({ entries, readAt: Date.now() })),
+    [language], NO_LOG, NOW_REFRESH_MS);
 
   const [playing, setPlaying] = useState<FallEntry | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -96,14 +104,20 @@ export function Falls() {
   const downSeconds = status?.downSeconds ?? null;
   const checking = status?.camerasChecked ?? cameras.length;
   const stillListed = playing !== null && entries.some((e) => e.id === playing.id);
-  const linkedMissing = linked.id !== null && counted && !entries.some((e) => e.id === linked.id);
+  // Somebody down now has a live card whatever the period, so a link to
+  // them is never "not in this list".
+  const linkedMissing = linked.id !== null && counted && !entries.some((e) => e.id === linked.id)
+    && !current.entries.some((e) => e.id === linked.id);
 
   // The live cards: down long enough to count, still down, and nobody has
   // said it was not a fall. Longest down first.
-  const down = entries
-    .filter((e) => e.running && e.alerted && !e.notAFall)
+  const down = current.entries
+    .filter((e) => e.alerted && !e.notAFall)
     .sort((a, b) => b.seconds - a.seconds);
+  // Seconds since each list was read, for the clocks that count on between
+  // polls. One per list: they are read at different moments.
   const elapsed = Math.max(0, (now - log.readAt) / 1000);
+  const elapsedNow = Math.max(0, (now - current.readAt) / 1000);
 
   async function act(entry: FallEntry, action: (id: string, lang: typeof language) => Promise<FallEntry>) {
     setActionError(null);
@@ -129,7 +143,7 @@ export function Falls() {
 
       {down.map((entry) => {
         const camera = cameras.find((c) => c.id === entry.cameraId);
-        const downFor = entry.seconds + elapsed;
+        const downFor = entry.seconds + elapsedNow;
         const agoSeconds = entry.respondedAtMs !== undefined
           // The engine's moment of pressing, against the engine's own clock
           // as the list carried it - never this computer's clock.
@@ -266,7 +280,8 @@ export function Falls() {
       })}
 
       {/* Only ever said when something is actually watching. */}
-      {running && counted && down.length === 0 && (
+      <LoadError error={nowError} what="load.detectionLog" />
+      {running && !nowLoading && !nowError && current.readAt > 0 && down.length === 0 && (
         <Card>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <span className="glyph" style={{ width: 22, height: 22, fontSize: 12, background: 'var(--ac)', color: 'var(--on-ac)', flexShrink: 0 }}>✓</span>

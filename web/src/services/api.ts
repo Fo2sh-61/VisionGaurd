@@ -519,6 +519,14 @@ export async function getFalls(window: FallWindow, lang: Language): Promise<Fall
   return entries.map((d) => toFall(d, lang));
 }
 
+/** Everybody down right now, whatever period the history shows. The live
+ *  cards and the all-clear are built from this and never from the history:
+ *  a period picked for reading back must not hide somebody on the floor now. */
+export async function getFallsNow(lang: Language): Promise<FallEntry[]> {
+  const entries = await get<W.FallEntry[]>('/falls/now');
+  return entries.map((d) => toFall(d, lang));
+}
+
 export async function getFallsStatus(): Promise<FallsStatus> {
   return get<W.FallsStatus>('/falls/status');
 }

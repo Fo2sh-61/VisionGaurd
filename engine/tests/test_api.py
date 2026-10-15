@@ -289,6 +289,7 @@ class TestCoverage:
         ("GET", "/weapons/cameras"),     # getWeaponCameras
         ("GET", "/falls/entries"),       # getFalls
         ("GET", "/falls/status"),        # getFallsStatus
+        ("GET", "/falls/now"),           # getFallsNow
         ("POST", "/falls/{id}/respond"),     # respondToFall
         ("DELETE", "/falls/{id}/respond"),   # undoFallResponse
         ("POST", "/falls/{id}/not-a-fall"),  # markNotAFall

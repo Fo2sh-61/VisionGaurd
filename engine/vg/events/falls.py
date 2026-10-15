@@ -60,6 +60,7 @@ CREATE TABLE IF NOT EXISTS fall_scene (
     detected_at     TEXT NOT NULL,          -- the model decided it was a fall
     alerted_at      TEXT,                   -- down long enough to count; NULL = never
     ended_at        TEXT,                   -- NULL while still down
+    last_seen_at    TEXT,                   -- last frame they were seen in
     end_reason      TEXT,
     peak_confidence REAL NOT NULL DEFAULT 0.0,
     model_version   TEXT NOT NULL DEFAULT '',
@@ -144,6 +145,13 @@ class FallSceneStore:
         self._lock = threading.RLock()
         self._conn = db.connect(self.path)
         self._conn.executescript(SCHEMA)
+        # `last_seen_at` arrived after the first version of this table. A
+        # database made by that version has the table already, so CREATE IF
+        # NOT EXISTS leaves it as it was; the column is added in place.
+        columns = {row["name"] for row in
+                   self._conn.execute("PRAGMA table_info(fall_scene)").fetchall()}
+        if "last_seen_at" not in columns:
+            self._conn.execute("ALTER TABLE fall_scene ADD COLUMN last_seen_at TEXT")
         self._conn.commit()
 
     # -- writing: the worker ------------------------------------------------
@@ -194,6 +202,15 @@ class FallSceneStore:
                 "UPDATE fall_scene SET box_x = ?, box_y = ?, box_w = ?, box_h = ? "
                 "WHERE id = ?",
                 (*[float(v) for v in box], scene_id),
+            )
+            self._conn.commit()
+
+    def note_seen(self, scene_id: str, at: datetime) -> None:
+        """The person was seen at `at`. What a crash leaves the entry ending at."""
+        with self._lock:
+            self._conn.execute(
+                "UPDATE fall_scene SET last_seen_at = ? WHERE id = ? AND ended_at IS NULL",
+                (_iso(at), scene_id),
             )
             self._conn.commit()
 
@@ -304,10 +321,19 @@ class FallSceneStore:
 
         Without it a fall from a killed process shows as somebody still on
         the floor, for ever.
+
+        It ends at the latest moment the row can prove - the last time the
+        person was seen, or the alert, or the decision - never at the moment
+        they went down. "Down for" is the headline of this log, and an entry
+        that raised an alert must not read as down for no time at all. (All
+        three are UTC ISO strings, which order correctly as text; SQLite's
+        two-argument `max` returns NULL if either is, hence the COALESCEs.)
         """
         with self._lock:
             cursor = self._conn.execute(
-                "UPDATE fall_scene SET ended_at = COALESCE(ended_at, started_at), "
+                "UPDATE fall_scene SET ended_at = COALESCE(ended_at, max("
+                "  COALESCE(last_seen_at, detected_at), "
+                "  max(COALESCE(alerted_at, detected_at), detected_at))), "
                 "end_reason = ?, "
                 "clip_state = CASE WHEN clip_state = 'recording' THEN 'failed' "
                 "                  ELSE clip_state END, "

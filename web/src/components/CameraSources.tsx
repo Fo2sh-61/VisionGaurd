@@ -150,7 +150,7 @@ const FEATURES: {
   { key: 'vehicles', label: 'source.feature.vehicles', cost: 'source.feature.vehicles.cost', fast: true },
   { key: 'weapons', label: 'source.feature.weapons', cost: 'source.feature.weapons.cost', fast: true },
   // Fast: the fall model reads movement over a second, and the engine
-  // refuses it below three frames a second (MIN_ANALYTICS_HZ in config.py).
+  // refuses it below five frames a second (MIN_ANALYTICS_HZ in config.py).
   { key: 'falls', label: 'source.feature.falls', cost: 'source.feature.falls.cost', fast: true },
   { key: 'lostitems', label: 'source.feature.lostitems', cost: 'source.feature.lostitems.cost' },
 ];

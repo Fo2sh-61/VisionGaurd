@@ -106,6 +106,11 @@ POSE_IMGSZ = 640
 #: `TrackLinker` already re-joins a person whose id changed within a second.
 TRACK_LOST_SECONDS = 1.0
 
+#: How many recent gaps between real frames `FallTimeline.starved` looks at,
+#: and how many it needs before it says anything.
+STARVED_WINDOW = 30
+STARVED_MIN_GAPS = 10
+
 
 # ===========================================================================
 # The owner's code, from models/falling/. Copied, not rewritten.
@@ -852,6 +857,24 @@ class FallTimeline:
         self.last_people: dict[int, Person] = {}
         self.width = 1
         self.height = 1
+        # Seconds between the last real frames. What says the camera is
+        # delivering too slowly for the model to judge anybody - see
+        # `starved` - which would otherwise look exactly like nobody falling.
+        self.gaps: deque = deque(maxlen=STARVED_WINDOW)
+
+    @property
+    def starved(self) -> bool:
+        """Real frames arrive too far apart for the model to judge anyone.
+
+        Half or more of the recent gaps are longer than the timeline fills
+        in, so the owner's window keeps starting again and never fills. Not
+        a guess about accuracy: on those frames the model makes no decision
+        at all.
+        """
+        if len(self.gaps) < STARVED_MIN_GAPS:
+            return False
+        too_long = sum(1 for g in self.gaps if g > MAX_INTERPOLATE_SECONDS)
+        return too_long * 2 >= len(self.gaps)
 
     def step(self, captured_at: datetime, people: dict[int, Person],
              width: int | None = None, height: int | None = None) -> FallReading:
@@ -869,6 +892,7 @@ class FallTimeline:
             # before its own last one.
             self.tracker.reset(MODEL_FPS)
             self.origin, self.last_index, self.last_people = captured_at, None, {}
+            self.gaps.clear()
             index = 0
         if self.last_index is not None and index == self.last_index:
             # Two real frames inside one thirtieth of a second: the timeline
@@ -878,6 +902,7 @@ class FallTimeline:
 
         events: list[FallEvent] = []
         if self.last_index is not None:
+            self.gaps.append((index - self.last_index) / MODEL_FPS)
             missing = index - self.last_index - 1
             if 0 < missing <= MAX_INTERPOLATE_SECONDS * MODEL_FPS:
                 for step in range(1, missing + 1):
@@ -1042,6 +1067,12 @@ class FallDetector:
         """Drop everything kept about one camera's people."""
         with self._cameras_lock:
             self._cameras.pop(camera_id, None)
+
+    def starved_cameras(self) -> list[str]:
+        """Cameras whose frames arrive too far apart for the model to judge."""
+        with self._cameras_lock:
+            return sorted(cid for cid, (timeline, _) in self._cameras.items()
+                          if timeline.starved)
 
     def observe(self, camera_id: str, image: np.ndarray, captured_at: datetime,
                 frame_rate: float = 5.0) -> FallReading:

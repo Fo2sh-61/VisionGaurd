@@ -1530,6 +1530,19 @@ class LiveStore(MockStore):
             model_version=scene.model_version or None,
         )
 
+    def falls_now(self) -> list[S.FallEntry]:
+        """Everybody down right now, whenever they went down. Longest first.
+
+        Separate from `falls(since, until)` on purpose: the live cards and the
+        "nobody is on the ground" line must never depend on which history
+        period somebody picked. Built from the period list, choosing
+        Yesterday hid a person on the floor now and printed the all-clear.
+        """
+        if self.fall_scenes is None:
+            return []
+        names = {c.id: c.name for c in self.registry.configs()}
+        return [self._fall_entry(scene, names) for scene in self.fall_scenes.running()]
+
     def falls_status(self) -> S.FallsStatus:
         """The rule the page quotes, and how many cameras it applies to.
 
@@ -1649,10 +1662,13 @@ class LiveStore(MockStore):
         """Same-origin and relative, for the reason `_weapon_clip` gives."""
         if not scene.playable:
             return None
+        from vg.features.falls import MAX_CLIP_SECONDS
+
         return S.Clip(
             id=scene.id,
             url=f"/falls/{scene.id}/clip",
-            duration_seconds=round(scene.seconds, 1),
+            # The video stops at two minutes; the entry may run far longer.
+            duration_seconds=round(min(scene.seconds, MAX_CLIP_SECONDS), 1),
             starts_at=_instant(scene.started_at, self.clock),
         )
 
@@ -3352,6 +3368,18 @@ class LiveStore(MockStore):
                                       "nobody is watched for falls")
         if stopped is not None:
             return stopped
+        # Running and silent is not the same as running and judging. A camera
+        # whose frames arrive too far apart never fills the model's window,
+        # and that looks exactly like a camera where nobody fell.
+        starved = getattr(self.falls_worker, "starved", lambda: [])()
+        if starved:
+            return S.PipelineStage(
+                key="falls", name="Fall detection",
+                detail=(f"Frames from {self._camera_names(starved)} arrive more than "
+                        f"half a second apart, so the fall model cannot judge anybody "
+                        f"there. Raise that camera's analytics rate."),
+                healthy=False, severity=S.Severity.WARN, restartable=False,
+            )
         detector = getattr(self.falls_worker, "detector", None)
         pose = getattr(detector, "pose_version", None)
         return S.PipelineStage(

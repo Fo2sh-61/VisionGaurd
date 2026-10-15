@@ -474,3 +474,16 @@ class TestFramesToAnEntry:
             assert 0.0 <= box.x <= 1.0 and box.w > box.h, "a person lying down is wide"
         finally:
             scenes.close_db()
+
+
+class TestStarved:
+    """A camera too slow for the model is said, not mistaken for a quiet one."""
+
+    def test_two_frames_a_second_is_starved_and_five_is_not(self, classifier):
+        for every, starved in ((15 + 3, True), (6, False)):
+            timeline = F.FallTimeline(classifier)
+            kps = walk_sequence(n=600)
+            for i in range(0, len(kps), every):
+                timeline.step(T0 + timedelta(seconds=i / 30),
+                              {1: F.Person(1, bbox_of(kps[i]), 0.9, kps[i])})
+            assert timeline.starved is starved, every

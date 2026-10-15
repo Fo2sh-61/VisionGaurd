@@ -79,6 +79,11 @@ SAME_PLACE = 0.6
 #: are down.
 MAX_CLIP_SECONDS = 120.0
 
+#: How often the time a person down was last seen is written to their entry.
+#: It is what a crash leaves behind: an entry closed at the next start ends at
+#: the last moment anybody saw them, not at the moment they went down.
+SEEN_WRITE_SECONDS = 5.0
+
 #: Who the recorder logs as having asked. Never a person's name.
 ACTOR = "fall-detection"
 
@@ -98,6 +103,11 @@ class DownState:
     alerted: bool = False
     upright_since: datetime | None = None
     recording: bool = False
+    #: The recording this entry started - kept, because the recorder stops
+    #: itself at `MAX_CLIP_SECONDS` and then no longer lists it, while the
+    #: person may stay down far longer. See `_stop_recording`.
+    clip: object | None = None
+    seen_written_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -171,20 +181,25 @@ class FallsWorker(FeatureWorker[FallsResult]):
 
         # Who is in this frame, and which of them already belongs to an entry.
         here = {p.person_id: p for p in reading.people}
+        known = reading.known or {}
         owned = {s.person_id for s in live.values()}
+        opened: set[str] = set()
 
         for alert in reading.alerts:
             if alert.person_id in owned:
                 continue
             # The model raised a fall for an id an entry already follows under
             # another number - the linker lost them and ByteTrack renamed them.
-            # Same person, same fall: the entry adopts the new number.
-            twin = self._entry_near(live, _box(alert))
+            # Same person, same fall: the entry adopts the new number. Only an
+            # entry whose person is really gone qualifies: one still in view,
+            # or still followed by the model, is somebody else, and two
+            # children falling side by side are two entries.
+            twin = self._entry_near(live, _box(alert), here, known, opened)
             if twin is not None:
                 twin.person_id = alert.person_id
                 owned.add(alert.person_id)
                 continue
-            self._open(camera_id, alert, now)
+            opened.add(self._open(camera_id, alert, now))
             owned.add(alert.person_id)
 
         for state in list(live.values()):
@@ -206,6 +221,10 @@ class FallsWorker(FeatureWorker[FallsResult]):
 
     def _seen(self, state: DownState, person: FallingPerson, now: datetime) -> None:
         state.last_seen_at = now
+        if (state.seen_written_at is None
+                or (now - state.seen_written_at).total_seconds() >= SEEN_WRITE_SECONDS):
+            self.scenes.note_seen(state.scene_id, now)
+            state.seen_written_at = now
         box = (person.x, person.y, person.w, person.h)
         if person.state == "normal":
             if state.upright_since is None:
@@ -241,9 +260,14 @@ class FallsWorker(FeatureWorker[FallsResult]):
             log.info("fall %s on %s: still down after %.0f s",
                      state.scene_id[:8], camera_id, self.down_seconds)
 
-    def _entry_near(self, live: dict[str, DownState], box) -> DownState | None:
+    def _entry_near(self, live: dict[str, DownState], box, here, known,
+                    opened: set[str]) -> DownState | None:
+        """An entry whose person is gone, lying where this new fall is."""
         best, best_d = None, SAME_PLACE
         for state in live.values():
+            if (state.scene_id in opened or state.person_id in here
+                    or state.person_id in known):
+                continue
             d = _distance(state.box, box)
             if d <= best_d:
                 best, best_d = state, d
@@ -251,10 +275,17 @@ class FallsWorker(FeatureWorker[FallsResult]):
 
     def _stand_in(self, state: DownState, here: dict[int, FallingPerson],
                   owned: set[int]) -> FallingPerson | None:
-        """Somebody not upright, where this entry's person was, nobody else's."""
+        """Somebody the model calls down, where this entry's person was.
+
+        Down, not merely "not upright": a newcomer's first frames read
+        `unknown` while the model fills its window, and a child who walks up
+        to help would otherwise take the entry over and close it as "got up"
+        the moment the model saw them standing - leaving the child on the
+        floor with no entry at all.
+        """
         best, best_d = None, SAME_PLACE
         for person in here.values():
-            if person.person_id in owned or person.state == "normal":
+            if person.person_id in owned or person.state not in ("fallen", "falling"):
                 continue
             d = _distance(state.box, (person.x, person.y, person.w, person.h))
             if d <= best_d:
@@ -282,7 +313,8 @@ class FallsWorker(FeatureWorker[FallsResult]):
             peak=alert.confidence,
         )
         self._live.setdefault(camera_id, {})[scene_id] = state
-        state.recording = self._start_recording(camera_id, scene_id)
+        state.clip = self._start_recording(camera_id, scene_id)
+        state.recording = state.clip is not None
         log.info("fall %s opened on %s", scene_id[:8], camera_id)
         return scene_id
 
@@ -292,14 +324,20 @@ class FallsWorker(FeatureWorker[FallsResult]):
             return
         self.scenes.close(scene_id, at, reason)
         if state.recording:
-            self._stop_recording(camera_id, scene_id)
+            self._stop_recording(camera_id, scene_id, state.clip)
         log.info("fall %s closed on %s (%s)", scene_id[:8], camera_id, reason)
 
     def _closing(self, camera_id: str) -> None:
-        """This camera is leaving the worker. Close its entries, on its thread."""
+        """This camera is leaving the worker. Close its entries, on its thread.
+
+        The engine stopping runs this too - every camera thread leaves its
+        loop and comes here before `stop()` reaches `close_all` - so the
+        reason is read from why the thread is ending, not assumed.
+        """
         now = datetime.now(timezone.utc)
+        reason = "shutdown" if self._stop.is_set() else "switched_off"
         for scene_id in list(self._live.get(camera_id, {})):
-            self._close(camera_id, scene_id, now, "switched_off")
+            self._close(camera_id, scene_id, now, reason)
         self._live.pop(camera_id, None)
         self._last_frame_at.pop(camera_id, None)
         forget = getattr(self.detector, "forget", None)
@@ -324,28 +362,46 @@ class FallsWorker(FeatureWorker[FallsResult]):
 
     # -- recording ----------------------------------------------------------
 
-    def _start_recording(self, camera_id: str, scene_id: str) -> bool:
-        """Begin a clip. Every failure is a reason on the entry, never raised."""
+    def _start_recording(self, camera_id: str, scene_id: str):
+        """Begin a clip; the recording, or None. Failures are reasons, never raised."""
         if self.recorder is None:
             self.scenes.fail_clip(
                 scene_id, "No clip: recording is not running on this engine.")
-            return False
+            return None
         try:
-            self.recorder.start(camera_id, actor=ACTOR)
+            recording = self.recorder.start(camera_id, actor=ACTOR)
         except AlreadyRecording:
             self.scenes.fail_clip(scene_id, BUSY_REASON)
-            return False
+            return None
         except Exception as exc:  # noqa: BLE001 - reported, never raised
             log.exception("could not start recording %s", camera_id)
             self.scenes.fail_clip(
                 scene_id, f"No clip: recording failed to start ({exc}).")
-            return False
+            return None
         self.scenes.start_clip(scene_id)
-        return True
+        return recording
 
-    def _stop_recording(self, camera_id: str, scene_id: str) -> None:
+    def _stop_recording(self, camera_id: str, scene_id: str, mine=None) -> None:
+        """End this entry's clip and attach it - its OWN clip, and only that.
+
+        Two things the recorder does on its own decide the shape of this. It
+        stops by itself at `MAX_CLIP_SECONDS` and then no longer lists the
+        recording, so `stop()` comes back with nothing although the file was
+        saved; the recording this entry started is kept for exactly that, and
+        attached as it stands. And once it has stopped, another fall on the
+        same camera can start a new one - stopping "whatever is running"
+        then would end that other entry's video and claim it as this one's.
+        So the recorder is stopped only while the running recording is ours.
+        """
         try:
-            recording = self.recorder.stop(camera_id, actor=ACTOR)
+            current = getattr(self.recorder, "current", None)
+            ours_running = (
+                mine is None
+                or ((current is None or current(camera_id) is mine)
+                    and getattr(mine, "state", None) == "recording"))
+            recording = self.recorder.stop(camera_id, actor=ACTOR) if ours_running else None
+            if recording is None:
+                recording = mine
         except Exception as exc:  # noqa: BLE001 - reported, never raised
             log.exception("could not stop recording %s", camera_id)
             self.scenes.fail_clip(scene_id, f"No clip: recording failed ({exc}).")
@@ -397,6 +453,13 @@ class FallsWorker(FeatureWorker[FallsResult]):
             )
             for s in states
         ]
+
+    def starved(self) -> list[str]:
+        """Served cameras whose frames arrive too far apart for the model."""
+        ask = getattr(self.detector, "starved_cameras", None)
+        if ask is None:
+            return []
+        return [c for c in ask() if self.serves(c)]
 
     def scenes_on(self, camera_id: str) -> list[str]:
         """The entries running on a camera right now."""

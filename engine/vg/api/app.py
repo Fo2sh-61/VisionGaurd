@@ -2536,6 +2536,11 @@ def _mount(app: FastAPI) -> None:
         since, until = weapon_window(window, clock, getattr(hours, "term_from", ""))
         return store.falls(since, until)
 
+    @app.get("/falls/now", response_model=list[S.FallEntry], tags=["falls"])
+    async def get_falls_now(store: StoreDep) -> list[S.FallEntry]:
+        """Everybody down right now, whatever history period the page shows."""
+        return store.falls_now()
+
     @app.get("/falls/status", response_model=S.FallsStatus, tags=["falls"])
     async def get_falls_status(store: StoreDep) -> S.FallsStatus:
         return store.falls_status()

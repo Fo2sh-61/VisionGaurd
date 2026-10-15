@@ -232,11 +232,17 @@ FEATURES: frozenset[str] = frozenset({
 #: window of 30 poses at 30 a second; `infer/falls.py` fills in the poses
 #: between two real frames up to `MAX_INTERPOLATE_SECONDS` (half a second)
 #: apart and invents nothing beyond that, so a slower camera never fills a
-#: window and the model never gets to say anything. Three a second leaves
-#: room for a late frame inside that half second, and is the slowest rate the
-#: model has been shown to see a fall at (on synthetic skeletons - nothing at
-#: any rate has been measured on a school camera). `test_config.py` pins it.
-MIN_ANALYTICS_HZ: dict[str, float] = {"weapons": 3.0, "falls": 3.0}
+#: window and the model never gets to say anything.
+#:
+#: **Five, not three, and the difference was measured.** The configured rate
+#: is not the rate the model sees: the camera paces its frames and the worker
+#: then skips any frame that arrives a little early, so a camera set to 3 a
+#: second delivered 1.75 to the worker, most gaps over half a second, and the
+#: real model raised nothing. At 5 the longest gap was 0.41 s and it raised
+#: the fall. `features/falls.py` also says so on System Health when frames
+#: still arrive too far apart. Nothing at any rate has been measured on a
+#: school camera. `test_falls_live.py` pins this against the interpolation.
+MIN_ANALYTICS_HZ: dict[str, float] = {"weapons": 3.0, "falls": 5.0}
 
 
 @dataclass(frozen=True)

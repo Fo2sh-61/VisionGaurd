@@ -213,9 +213,10 @@ population, not a Western benchmark set.
 
 ## The fall model: `falling/checkpoints__temporal_model.pt`
 
-**Trained by the owner, supplied in October 2026, kept in git** (286 KB - the only
-weights in this repository rather than out of band, so the test that holds the
-engine's copy of his code to his own runs on every checkout).
+**Trained by the owner, supplied in October 2026, kept in git** (286 KB, with the
+four other runs beside it - unlike the weights listed below, which are supplied out
+of band - so the test that holds the engine's copy of his code to his own runs on
+every checkout).
 
 What it is, read from the checkpoint: a **2-layer LSTM, 64 hidden, ~70k parameters**,
 classifying each tracked person as `normal / falling / fallen` from their **last 30

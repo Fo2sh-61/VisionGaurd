@@ -676,3 +676,141 @@ class TestTheRateFloor:
             cfg.CameraConfig.parse({"id": "c", "name": "c", "source": "webcam:0",
                                     "fps": 2, "features": ["falls"]}, "c")
         assert "falls" in str(raised.value) and "raise the rate" in str(raised.value).lower()
+
+
+# ---------------------------------------------------------------------------
+# found by review, 15 Oct 2026 - each with the scenario that broke it
+# ---------------------------------------------------------------------------
+
+class AutoStoppingRecorder(FakeRecorder):
+    """The real recorder's habit: it stops itself, then no longer lists the job.
+
+    `stop()` then returns None although the file was saved, and `current()`
+    still holds the finished recording - exactly `Recorder` at MAX_SECONDS.
+    """
+
+    def __init__(self, directory: Path) -> None:
+        super().__init__(directory)
+        self._finished: dict[str, FakeRecording] = {}
+
+    def current(self, camera_id: str):
+        return self._running.get(camera_id) or self._finished.get(camera_id)
+
+    def cap(self, camera_id: str) -> None:
+        """Two minutes are up."""
+        recording = self._running.pop(camera_id)
+        recording.state = "saved"
+        recording.path.write_bytes(b"two minutes of somebody on the floor")
+        self._finished[camera_id] = recording
+
+
+class TestFoundByReview:
+    def test_a_helper_who_walks_up_does_not_take_over_the_entry(self, scenes):
+        """The person down is lost by the pose model; a child walks over.
+
+        The newcomer reads `unknown` while the model fills its window, then
+        `normal`. Neither is somebody down, so neither may take the entry over
+        and close it as "got up" while the child is still on the floor.
+        """
+        w = worker(scenes)
+        script = down_for(DOWN_SECONDS + 1)            # alerted, then lost
+        t = DOWN_SECONDS + 3.2
+        helper = dict(pid=5, x=0.32, y=0.35, w=0.15, h=0.45)
+        script += [(t + i * 0.2, reading(person(state="unknown", seconds=t + i * 0.2, **helper)))
+                   for i in range(5)]
+        script += [(t + 1 + i * 0.2, reading(person(state="normal", seconds=t + 1 + i * 0.2, **helper)))
+                   for i in range(8)]
+        play(w, script)
+        [scene] = scenes.recent(None)
+        assert scene.end_reason != "got_up", "the helper standing closed the fall"
+        assert scene.alerted
+
+    def test_two_children_falling_side_by_side_are_two_entries(self, scenes):
+        w = worker(scenes)
+        play(w, down_for(2.0))
+        play(w, [(4.2, reading(person(1, seconds=4.2), person(2, x=0.35, seconds=4.2),
+                               alerts=[fell(2, seconds=4.2, fell_at=3.5, x=0.35)]))])
+        assert len(scenes.running()) == 2
+        play(w, stands_up(4.4, pid=2) )
+        # The second child getting up closes the second entry, not the first.
+        assert [s.camera_id for s in scenes.running()] == ["cam-a"]
+        [first] = scenes.running()
+        assert first.started_at == at(1.0)
+
+    def test_a_fall_longer_than_the_clip_keeps_its_video(self, scenes, tmp_path):
+        recorder = AutoStoppingRecorder(tmp_path / "clips")
+        w = worker(scenes, recorder)
+        play(w, down_for(3.0))
+        recorder.cap("cam-a")                           # the 2-minute limit
+        play(w, stands_up(5.2))
+        [scene] = scenes.recent(None)
+        assert scene.playable, scene.clip_reason
+        assert scene.clip_path.read_bytes().startswith(b"two minutes")
+
+    def test_a_later_fall_keeps_its_own_video(self, scenes, tmp_path):
+        """After the first clip stopped itself, a second fall starts its own.
+        Closing the first must neither stop nor claim the second's."""
+        recorder = AutoStoppingRecorder(tmp_path / "clips")
+        w = worker(scenes, recorder)
+        play(w, down_for(2.0))
+        recorder.cap("cam-a")
+        play(w, [(4.2, reading(person(1, seconds=4.2), person(2, x=0.0, y=0.0, seconds=4.2),
+                               alerts=[fell(2, seconds=4.2, fell_at=4.0, x=0.0, y=0.0)]))])
+        second = next(s for s in scenes.running() if s.started_at == at(4.0))
+        assert second.clip_state == "recording"
+        play(w, stands_up(4.4, pid=1))
+        assert scenes.get(second.id).clip_state == "recording", "the first fall stopped it"
+        assert recorder.stopped == []
+
+    def test_an_engine_stop_says_engine_stopped(self, scenes):
+        w = worker(scenes)
+        play(w, down_for(2.0))
+        w._stop.set()                                   # what stop() does first
+        w._closing("cam-a")
+        [scene] = scenes.recent(None)
+        assert scene.end_reason == "shutdown"
+
+    def test_a_crash_ends_the_entry_at_the_last_sighting(self, tmp_path):
+        database = tmp_path / "falls.db"
+        store = FallSceneStore(database)
+        w = worker(store)
+        play(w, down_for(DOWN_SECONDS + 20))
+        store.close_db()                                # killed: nothing closed it
+
+        restarted = FallSceneStore(database)
+        restarted.close_orphans()
+        [scene] = restarted.recent(None)
+        assert scene.seconds >= DOWN_SECONDS + 15, "a long fall read as no time at all"
+        assert scene.ended_at >= scene.alerted_at
+        restarted.close_db()
+
+    def test_an_older_table_gains_the_new_column(self, tmp_path):
+        import sqlite3
+
+        database = tmp_path / "falls.db"
+        conn = sqlite3.connect(database)
+        conn.executescript(
+            __import__("vg.events.falls", fromlist=["SCHEMA"]).SCHEMA
+            .replace("    last_seen_at    TEXT,                   -- last frame they were seen in\n", ""))
+        conn.close()
+        store = FallSceneStore(database)
+        scene_id = store.open("cam-a", at(0), at(1), 0.8, "lstm_cctv")
+        store.note_seen(scene_id, at(4))
+        store.close_db()
+
+    def test_who_is_down_now_does_not_depend_on_the_period(self, tmp_path, scenes):
+        """A fall that began three days ago and is still going is down now."""
+        went = datetime.now(timezone.utc) - timedelta(days=3)
+        scene_id = scenes.open("cam-a", went, went, 0.8, "lstm_cctv")
+        store = live_store(tmp_path, scenes, FakeWorker())
+        today = datetime.now(timezone.utc) - timedelta(hours=1)
+        assert store.falls(today) == []
+        assert [e.id for e in store.falls_now()] == [scene_id]
+
+    def test_frames_too_far_apart_are_said_on_system_health(self, tmp_path, scenes):
+        worker_ = FakeWorker()
+        worker_.starved = lambda: ["cam-a"]
+        store = live_store(tmp_path, scenes, worker_)
+        stage = next(s for s in store.health().pipeline if s.key == "falls")
+        assert stage.healthy is False
+        assert "half a second" in stage.detail and "Playground" in stage.detail
