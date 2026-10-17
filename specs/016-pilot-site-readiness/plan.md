@@ -5,8 +5,14 @@
 
 **Input**: [spec.md](spec.md), spec 020's [plan.md](../020-private-remote-access/plan.md)
 sections C and D (carried in below as requirements), and a read of the code at `2c85ebe`.
-Mohamed's choices of 17 Oct 2026: **Caddy** in front, **our own certificate script**,
-**WinSW** for the services, console on **443** and phone app on **8443**.
+Mohamed's decisions of 17 Oct 2026:
+- the workstation runs VisionGuard as a hidden Windows service (**WinSW**). It starts at
+  boot and stays up when the window closes;
+- one installer, and **one icon**, which only opens the console window;
+- remote PCs and Android phones use the **installable app** (020 section K). There is no
+  native APK or exe, and the app updates from the workstation by itself;
+- console on **443**, phone app on **8443**;
+- **Caddy** in front, and **our own certificate script**.
 
 ## Summary
 
@@ -14,8 +20,10 @@ One install puts VisionGuard on the workstation. Two hidden Windows services sta
 with nobody signed in: the **engine** (unchanged, still on `127.0.0.1:8000`) and **Caddy**,
 which serves the two built apps over HTTPS and passes API calls to the engine. People open
 the console at `https://<address>/` and the phone app at `https://<address>:8443/`, once, then
-install it as an app. After that nobody types an address. The workstation's desktop icon
-opens the console in its own window, and closing that window no longer stops anything. The
+install it as an app. After that nobody types an address. There is no native app to build
+or hand out, and each installed app picks up a new version from the workstation the next
+time it opens. The workstation's one desktop icon opens the console in its own window, and
+closing that window no longer stops anything. The
 site certificate comes from our own small script. Devices trust a fixed root, and the root's
 private key stays on the owner's USB stick.
 
@@ -144,10 +152,11 @@ password-free developer sign-in is deleted.
     a camera;
   - the installer checks that every model an enabled feature needs is present before it
     starts the service, so a missing model stops the install, not the site.
-- **Workstation icons**: the installer makes two desktop shortcuts.
-  - "VisionGuard" runs `msedge.exe --app=https://localhost/`, and "VisionGuard Mobile" runs
-    the same with `:8443`. Each opens its app in its own window.
-  - The developer launcher (`launch.ps1`) stays for development only.
+- **Workstation icon**: the installer makes one desktop shortcut, "VisionGuard". It runs
+  `msedge.exe --app=https://localhost/`, which opens the console in its own window. It
+  starts nothing and stops nothing.
+  - There is no phone-app icon on the workstation; the phone app is for phones.
+  - The developer launcher (`launch.ps1`) and its two shortcuts stay for development only.
 
 ### D. Install and update (P10-FR-001…004, -010)
 
@@ -168,7 +177,7 @@ password-free developer sign-in is deleted.
   5. the two services and the folder rights;
   6. `create_user.py --role admin`: the installer types the name, email and password. There
      is no default password (P10-FR-004);
-  7. the desktop shortcuts;
+  7. the one desktop shortcut;
   8. waits for `https://localhost/healthz`.
 - `deploy/update.ps1` (P10-FR-010):
   1. stop both services;
@@ -297,6 +306,10 @@ password-free developer sign-in is deleted.
   512-maskable PNG icons (from `tools/make_icon.py`) and the `index.html` link in both
   apps. This is 020 K's first half, brought forward so pilot devices can install the apps.
   020 keeps `sw.js`.
+  - No native APK or exe is made.
+  - The installed app updates itself: the front sends `index.html` and the manifest with
+    `no-cache` (A), so the next open after an update loads the new version from the
+    workstation.
 - **P10-FR-019**: `docs/ON-SITE-GUIDE.md`, short, covering each heading the requirement
   lists.
 
