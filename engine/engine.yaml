@@ -521,7 +521,7 @@ cameras:
     # `track` follows one person across cameras. On the webcam only for
     # now: it costs ~2 ms of CPU per frame on top of the person detector it
     # shares, and its rows are dense.
-    features: [attendance, counting, intrusion, track, vehicles]
+    features: [attendance, counting, intrusion, track, vehicles, falls]
     # Gate 1, entry. One camera cannot honestly claim both directions - the
     # Gate project's own docs call inferring direction from plate size
     # "noticeably less reliable" - so a camera states what it watches and
@@ -561,7 +561,7 @@ cameras:
     # `track` here so the tracking work has a deterministic camera to run
     # against: same frames every run, no device locked, and 21 hand-marked
     # ground-truth points in the sidecar json to check against.
-    features: [attendance, counting, intrusion, track]
+    features: [attendance, counting, intrusion, track, falls]
     # Deliberately NOT `faces: true`. With two cameras running this is the one
     # in the patrol tier, so both bars get exercised on a normal `-Clip` start.
 
