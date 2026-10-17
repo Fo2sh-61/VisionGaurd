@@ -72,7 +72,7 @@ every UI task.
 **Independent test**: `test_site_cert.py` and `test_front.py` pass. Quickstart Q1–Q3 work on
 the recorded clip with a certificate from `site_cert.py`.
 
-- [ ] T005 [P] [US1] Write `engine/tests/test_site_cert.py`:
+- [x] T005 [P] [US1] Write `engine/tests/test_site_cert.py`:
   - the root is a CA with path length 0, ECDSA P-256, 10 years;
   - its name constraints permit exactly 10/8, 172.16/12, 192.168/16, 100.64/10, 127/8 and
     the name `localhost`;
@@ -83,7 +83,7 @@ the recorded clip with a certificate from `site_cert.py`.
   - `root --out` inside the install folder or the backup folder is refused (both passed in
     as parameters so the test uses temporary paths);
   - the root key is never written to `cert_dir`
-- [ ] T006 [US1] Create `engine/tools/site_cert.py` with `root --out <usb> [--no-limits]` and
+- [x] T006 [US1] Create `engine/tools/site_cert.py` with `root --out <usb> [--no-limits]` and
       `site --root <usb>` (plan B), using `cryptography`. It reads `tls.names` and
       `tls.cert_dir` through `vg.config.load()`. T005 passes
 - [ ] T007 [P] [US1] Write `engine/tests/test_front.py`, which reads `deploy/Caddyfile` as
