@@ -2764,10 +2764,44 @@ class LiveStore(MockStore):
         if self.users_store is None:
             return []
         return [
-            S.User(id=u.id, name=u.name, email=u.email, role=u.role)
+            S.User(id=u.id, name=u.name, email=u.email, role=u.role,
+                   disabled=u.disabled)
             for u in self.users_store.users()
-            if not u.disabled
         ]
+
+    def update_user(self, user_id: str, body: S.UserEdit,
+                    actor: str) -> S.User | None:
+        """Change an account. Audited first; the last administrator is kept.
+
+        `LastAdminError` passes through for the route to answer 409. The
+        entry is written before the store is touched, so a refused or failed
+        change is still a logged attempt.
+        """
+        if self.users_store is None:
+            raise SubsystemUnavailable(
+                "sign-in is not running, so there are no accounts to change")
+        before = next((u for u in self.users_store.users() if u.id == user_id), None)
+        if before is None:
+            return None
+        changes = [
+            f"{field} {old!r} → {new!r}"
+            for field, old, new in (
+                ("name", before.name, body.name),
+                ("role", before.role, body.role.value if body.role else None),
+                ("disabled", before.disabled, body.disabled),
+            )
+            if new is not None and new != old
+        ]
+        self._log(actor, "user.edit", before.email,
+                  "; ".join(changes) or "no change")
+        u = self.users_store.update_user(
+            user_id, name=body.name,
+            role=body.role.value if body.role else None,
+            disabled=body.disabled)
+        if u is None:
+            return None
+        return S.User(id=u.id, name=u.name, email=u.email, role=u.role,
+                      disabled=u.disabled)
 
     def audit(self, limit: int) -> list[S.AuditEntry]:
         # Real entries, from this process. They are lost on restart and
@@ -3147,6 +3181,61 @@ class LiveStore(MockStore):
                          "only the Home list is used.", True)
         return stage(f"Running - {counts.get('sent', 0)} sent, "
                      f"{counts.get('failed', 0)} failed in the last 24 hours.", True)
+
+    #: How soon before the end the certificate row turns amber.
+    CERT_WARN_DAYS = 30
+
+    def _certificate_stage(self) -> S.PipelineStage:
+        """The site certificate: which names it covers and when it ends.
+
+        Every phone and PC stops trusting the site on the morning it expires,
+        so the row warns a month ahead and says the one command that fixes it.
+        The file is re-read only when it changes, so a renewal shows without a
+        restart and a health poll does not parse a certificate every time.
+        """
+        def stage(detail: str, severity: S.Severity) -> S.PipelineStage:
+            return S.PipelineStage(
+                key="certificate", name="Site certificate", detail=detail,
+                healthy=severity is S.Severity.INFO, severity=severity,
+                restartable=False)
+
+        tls = self.config.tls
+        if tls is None:
+            return stage("Not set up - this machine has no HTTPS front (no tls "
+                         "block in engine.yaml).", S.Severity.INFO)
+        path = tls.cert_dir / "site.crt"
+        renew = "Run engine/tools/site_cert.py site with the USB stick in."
+        try:
+            st = path.stat()
+        except OSError:
+            return stage(f"No certificate at {path} - phones and PCs cannot open "
+                         f"the site over HTTPS. {renew}", S.Severity.CRITICAL)
+
+        key = (st.st_mtime_ns, st.st_size)
+        cached = getattr(self, "_cert_cache", None)
+        if cached is None or cached[0] != key:
+            try:
+                from cryptography import x509
+                crt = x509.load_pem_x509_certificate(path.read_bytes())
+                cached = (key, crt.not_valid_after_utc, None)
+            except (OSError, ValueError) as exc:
+                cached = (key, None, f"{path} is not a certificate this engine can "
+                                     f"read ({exc}). {renew}")
+            self._cert_cache = cached
+        _, ends, problem = cached
+        if problem:
+            return stage(problem, S.Severity.CRITICAL)
+
+        names = ", ".join(tls.names)
+        when = f"{ends.day} {ends:%b %Y}"
+        left = ends - datetime.now(timezone.utc)
+        if left <= timedelta(0):
+            return stage(f"Expired on {when} - phones and PCs no longer trust the "
+                         f"site. {renew}", S.Severity.CRITICAL)
+        if left <= timedelta(days=self.CERT_WARN_DAYS):
+            return stage(f"Ends on {when}, in {left.days} days. {renew}",
+                         S.Severity.WARN)
+        return stage(f"Valid until {when} for {names}.", S.Severity.INFO)
 
     def _attendance_counts(self, day: str):
         """The noon report's figures: one count per group, from the register.
@@ -3863,6 +3952,7 @@ class LiveStore(MockStore):
             self._vehicles_stage(),
             self._lost_stage(),
             self._alerts_stage(),
+            self._certificate_stage(),
             self._workers_stage(),
         ]
 

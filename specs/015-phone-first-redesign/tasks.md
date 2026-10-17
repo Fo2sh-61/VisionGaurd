@@ -98,7 +98,7 @@ description: "Tasks for 015 — the phone is built for a phone, and still does e
 
 **Goal**: the directory, a person, a group, enrolment, More, System health, Settings, Accounts and Sign-in, built for a phone.
 
-**Independent test**: the contract's Keep lists for these screens hold; admin-only controls are hidden for `-DevSignIn it` and work for `admin`.
+**Independent test**: the contract's Keep lists for these screens hold; admin-only controls are hidden for `-DevSign* it` and work for `admin`.
 
 - [X] T033 [P] [US4] Rebuild `mobile/src/pages/People.tsx` from `web/src/pages/People.tsx` + `People.dc.html`: search (`?query`), type chips with counts, person cards (initials, name, type badge, `p.sub || p.enrolled`, recognition line, last seen), Track today, Remove (admin, two-step, error), Enrol button (admin) in header action slot, groups rows, all loading/error/empty variants
 - [X] T034 [P] [US4] Rebuild `mobile/src/pages/PersonHistory.tsx` from `web/src/pages/PersonHistory.tsx` + `Person.dc.html`: big initials, name, badges, Track today + Remove (admin, two-step) actions, the console's summary and day-by-day history as cards, back target from navigation state, every state; no camera picture. Record G7/G8 in `gaps.md`

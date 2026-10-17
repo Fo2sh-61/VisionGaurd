@@ -1,0 +1,50 @@
+<!--
+  VisionGuard engine, as a Windows service (spec 016, plan C). Read by WinSW
+  2.12: app\service\visionguard-engine.exe, installed by deploy\install.ps1.
+  %BASE% is the folder this file is in, C:\VisionGuard\app\service.
+
+  VG_STRICT=1: a subsystem that fails to start stops the engine, so a site
+  never runs on fixtures. The reason is written to logs\start-failure.txt
+  and the console says the engine is not running. An offline camera is
+  never a start failure.
+
+  Checked by engine/tests/test_deploy.py.
+-->
+<service>
+  <id>visionguard-engine</id>
+  <name>VisionGuard engine</name>
+  <description>VisionGuard's cameras, models and API, on 127.0.0.1:8000. The console reaches it through visionguard-front.</description>
+
+  <executable>%BASE%\..\.venv\Scripts\python.exe</executable>
+  <arguments>"%BASE%\..\engine\tools\serve.py"</arguments>
+  <workingdirectory>%BASE%\..</workingdirectory>
+
+  <env name="VG_STRICT" value="1"/>
+  <env name="VG_HOME" value="C:\VisionGuard\data"/>
+  <env name="VG_LOGS" value="C:\VisionGuard\logs"/>
+
+  <startmode>Automatic</startmode>
+  <!-- Three tries, ten seconds apart, then it stays stopped: a fault that
+       survives three restarts needs a person, not a fourth try. -->
+  <onfailure action="restart" delay="10 sec"/>
+  <onfailure action="restart" delay="10 sec"/>
+  <onfailure action="restart" delay="10 sec"/>
+  <onfailure action="none"/>
+  <resetfailure>1 hour</resetfailure>
+  <!-- serve.py closes open video streams within 5 s of being asked. -->
+  <stoptimeout>20 sec</stoptimeout>
+
+  <logpath>C:\VisionGuard\logs</logpath>
+  <log mode="roll-by-size">
+    <sizeThreshold>10240</sizeThreshold>
+    <keepFiles>10</keepFiles>
+  </log>
+
+  <!-- Least privilege. install.ps1 gives this account write access to
+       data\ and logs\ only. Drill D3 checks the GPU and a network camera
+       work under it; if not, the waiver to LocalSystem is recorded there. -->
+  <serviceaccount>
+    <domain>NT AUTHORITY</domain>
+    <user>LocalService</user>
+  </serviceaccount>
+</service>

@@ -17,9 +17,9 @@ Expected: every command exits 0. Parity reports the shared file count, now 28.
 ## 2. Run the phone against the mock engine
 
 `.claude/launch.json` already has `mock-mobile`: `dev.ps1 up -Mobile -Mock
--AllowSystemPython -DevSignIn admin`, with the phone on 5174, signed in as admin.
+-AllowSystemPython -DevSign* admin`, with the phone on 5174, signed in as admin.
 Start it with `preview_start {name: "mock-mobile"}`. For the guard's view, use
-`-DevSignIn it`. For live pictures and real boxes, swap `-Mock` for `-Clip`. Load
+`-DevSign* it`. For live pictures and real boxes, swap `-Mock` for `-Clip`. Load
 `http://localhost:5174/` and move by tapping. A deep URL like `/weapons` hits the
 proxy and returns JSON (see memory `dev-deep-link-hits-proxy`). To reach a page
 directly, run
@@ -43,7 +43,7 @@ its text). It returns:
 Record the four numbers per route in `gaps.md`'s appendix. Anything above zero is
 fixed or explained there.
 
-## 4. By-eye walk (dev sign-in, clip engine)
+## 4. By-eye walk (developer sign-in, clip engine)
 
 1. The top bar shows the logo, "VisionGuard", camera status and bell. Stop the
    engine: within 30 s it says "Engine unreachable", and Home shows no figure.

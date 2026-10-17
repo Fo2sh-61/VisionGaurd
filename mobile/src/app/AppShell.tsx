@@ -1,6 +1,5 @@
 import { useEffect } from 'react';
 import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { DevSignInBanner } from '@/components/DevSignInBanner'; // DEV-SIGNIN
 import { Icon } from '@/components/Icon';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { TopBar } from '@/components/TopBar';
@@ -49,7 +48,6 @@ function Frame() {
 
   return (
     <div className="app">
-      <DevSignInBanner /> {/* DEV-SIGNIN */}
 
       {root ? (
         <TopBar />

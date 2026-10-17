@@ -203,6 +203,8 @@ class Store(Protocol):
     def group(self, name: str) -> S.GroupDetail | None: ...
     def history(self, person: str) -> S.PersonHistory | None: ...
     def users(self) -> list[S.User]: ...
+    def update_user(self, user_id: str, body: S.UserEdit,
+                    actor: str) -> S.User | None: ...
 
     # -- vehicle gate --
     def vehicle_summary(self) -> S.GateSummary: ...
@@ -1322,6 +1324,10 @@ class MockStore:
                                     detail="Absent, no guardian contact",
                                     kind="absence", severity=S.Severity.WARN)],
         )
+
+    def update_user(self, user_id: str, body, actor: str):
+        raise SubsystemUnavailable(
+            "Accounts cannot be changed in this demo store.")
 
     def users(self) -> list[S.User]:
         return [

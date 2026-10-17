@@ -1,9 +1,13 @@
-import { Badge, Card, CardHeader, DataNotice, Empty, LoadError, PageHeader } from '@/components/ui';
-import { getUsers } from '@/services/api';
+import { useState } from 'react';
+import {
+  Badge, Card, CardHeader, DataNotice, Empty, Field, LoadError, PageHeader, Select, Toggle,
+} from '@/components/ui';
+import { getUsers, updateUser } from '@/services/api';
+import { ApiError } from '@/services/http';
 import { useLanguage, useT } from '@/app/LanguageContext';
 import { CAPABILITIES } from '@/services/content';
 import type { MessageKey } from '@/i18n';
-import type { User } from '@/types';
+import type { Role, User, UserChanges } from '@/types';
 import { useCapability } from '@/app/CapabilityContext';
 import { useAsync } from '@/app/useAsync';
 
@@ -15,11 +19,9 @@ const NO_USERS: User[] = [];
  *  Built from `web/src/pages/Users.tsx`: the same call, the same "0 people
  *  can sign in" rule (a claim only made once the engine has actually
  *  answered), and the same role/capability matrix. Rearranged as a card of
- *  list rows instead of a five-column table row, because a table row is
- *  exactly the shape the inventory found broken here: the console's per-row
- *  "Edit" button has no click handler at all (research R10). That is left
- *  out rather than copied — a button that does nothing is a fact this app
- *  does not get to invent. */
+ *  list rows instead of a five-column table row. Each row has an Edit that
+ *  opens the same form the console has (spec 016, US4): name, role, and
+ *  whether the account can sign in. */
 function initialsOf(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return '?';
@@ -33,6 +35,7 @@ export function Users() {
   const { language } = useLanguage();
   const capability = useCapability('users');
   const { data: users, error, loading, reload } = useAsync(() => getUsers(language), [language], NO_USERS);
+  const [editing, setEditing] = useState<string | null>(null);
 
   // "0 people can sign in" is a claim, and we can only make it when the
   // engine actually answered with none. While loading, or after a failure,
@@ -48,7 +51,7 @@ export function Users() {
       <Card>
         <CardHeader
           title={counted
-            ? t('users.canSignIn', { count: users.length })
+            ? t('users.canSignIn', { count: users.filter((u) => !u.disabled).length })
             : t('users.whoCanSignIn')}
           sub={t('users.adminsOnly')}
         />
@@ -61,16 +64,39 @@ export function Users() {
         {users.length > 0 && (
           <div className="list" style={{ marginTop: 10 }}>
             {users.map((user) => (
-              <div key={user.id} className="li">
-                <span className="avatar" aria-hidden="true">{initialsOf(user.name)}</span>
-                <span className="li__main">
-                  <span className="li__title">{user.name}</span>
-                  <span className="li__sub">{user.email}</span>
-                  <span className="li__sub">{user.lastActive}</span>
-                </span>
-                <Badge tone={user.role === 'admin' ? 'good' : 'neutral'}>
-                  {t(user.role === 'admin' ? 'role.admin' : 'role.it')}
-                </Badge>
+              <div key={user.id}>
+                <div className="li">
+                  <span className="avatar" aria-hidden="true">{initialsOf(user.name)}</span>
+                  <span className="li__main">
+                    <span className="li__title">{user.name}</span>
+                    <span className="li__sub">{user.email}</span>
+                    <span className="li__sub">{user.lastActive}</span>
+                  </span>
+                  <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
+                    <Badge tone={user.role === 'admin' ? 'good' : 'neutral'}>
+                      {t(user.role === 'admin' ? 'role.admin' : 'role.it')}
+                    </Badge>
+                    {user.disabled && <Badge tone="warn">{t('users.disabled')}</Badge>}
+                    <button
+                      type="button"
+                      className="btn btn--ghost btn--sm"
+                      aria-expanded={editing === user.id}
+                      onClick={() => setEditing(editing === user.id ? null : user.id)}
+                    >
+                      {t('users.edit')}
+                    </button>
+                  </span>
+                </div>
+                {editing === user.id && (
+                  <EditAccount
+                    user={user}
+                    onDone={() => {
+                      setEditing(null);
+                      reload();
+                    }}
+                    onCancel={() => setEditing(null)}
+                  />
+                )}
               </div>
             ))}
           </div>
@@ -86,6 +112,83 @@ export function Users() {
         </div>
       </Card>
     </>
+  );
+}
+
+const ROLES: readonly Role[] = ['admin', 'it'];
+
+/** The console's edit form, stacked for a phone. Only what changed is sent;
+ *  a 409 (it would leave no active administrator) shows the engine's reason. */
+function EditAccount({
+  user,
+  onDone,
+  onCancel,
+}: {
+  user: User;
+  onDone: () => void;
+  onCancel: () => void;
+}) {
+  const t = useT();
+  const { language } = useLanguage();
+  const [name, setName] = useState(user.name);
+  const [role, setRole] = useState<Role>(user.role);
+  const [active, setActive] = useState(!user.disabled);
+  const [saving, setSaving] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+
+  const changes: UserChanges = {};
+  if (name.trim() !== user.name) changes.name = name.trim();
+  if (role !== user.role) changes.role = role;
+  if (active === user.disabled) changes.disabled = !active;
+  const ready = Object.keys(changes).length > 0 && name.trim() !== '';
+
+  async function save() {
+    setSaving(true);
+    setProblem(null);
+    try {
+      await updateUser(user.id, changes, language);
+      onDone();
+    } catch (err) {
+      setProblem(
+        err instanceof ApiError && err.offline
+          ? t('users.notSavedOffline')
+          : t('users.notSaved', { reason: err instanceof Error ? err.message : String(err) }),
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div style={{ display: 'grid', gap: 12, padding: '12px 14px 16px' }}>
+      <div style={{ fontSize: 14, fontWeight: 700 }}>{t('users.editTitle', { name: user.name })}</div>
+      <Field label={t('users.name')}>
+        <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
+      </Field>
+      <Field label={t('users.role')}>
+        <Select
+          value={role}
+          onChange={(v) => setRole(v as Role)}
+          options={ROLES}
+          label={(o) => t(o === 'admin' ? 'role.admin' : 'role.it')}
+        />
+      </Field>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+        <span style={{ fontSize: 14 }}>{t('users.canSignInToggle')}</span>
+        <Toggle on={active} onToggle={() => setActive(!active)} label={t('users.canSignInToggle')} />
+      </div>
+      {problem && (
+        <div role="alert" style={{ color: 'var(--rd)', fontSize: 13.5 }}>{problem}</div>
+      )}
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button type="button" className="btn" disabled={!ready || saving} onClick={() => void save()}>
+          {saving ? t('users.saving') : t('users.save')}
+        </button>
+        <button type="button" className="btn btn--ghost" onClick={onCancel}>
+          {t('action.cancel')}
+        </button>
+      </div>
+    </div>
   );
 }
 

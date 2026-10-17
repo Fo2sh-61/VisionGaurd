@@ -78,6 +78,15 @@ CREATE INDEX IF NOT EXISTS idx_session_user ON session(user_id);
 """
 
 
+class LastAdminError(ValueError):
+    """The change would leave no active administrator.
+
+    Refused whoever asks, including an administrator about themselves.
+    Without one, nobody can make or fix accounts from the console, and the
+    only way back is a shell on the workstation. The message is safe to show.
+    """
+
+
 class EmailTaken(ValueError):
     """That address already has an account.
 
@@ -224,6 +233,64 @@ class UserStore:
             if disabled:
                 self._conn.execute("DELETE FROM session WHERE user_id = ?", (user_id,))
             self._conn.commit()
+
+    def update_user(self, user_id: str, *, name: str | None = None,
+                    role: str | None = None,
+                    disabled: bool | None = None) -> User | None:
+        """Change an account's name, role or whether it can sign in.
+
+        None for an unknown id. One `BEGIN IMMEDIATE`, so the last-administrator
+        check and the write cannot be interleaved by a second request doing the
+        same to the other administrator: both would pass a check made first and
+        written second, and the site would have none.
+
+        Disabling also ends the account's sessions, for the reason
+        `set_disabled` gives. Role changes need nothing more: `user_for_token`
+        reads the row on every request.
+        """
+        if role is not None and role not in ROLES:
+            raise ValueError(f"unknown role: {role!r}; expected one of {ROLES}")
+        if name is not None:
+            name = name.strip()
+            if not name:
+                raise ValueError("a name cannot be empty")
+
+        with self._lock:
+            self._conn.execute("BEGIN IMMEDIATE")
+            try:
+                row = self._conn.execute(
+                    "SELECT id, email, name, role, disabled, language FROM app_user"
+                    " WHERE id = ?", (user_id,)).fetchone()
+                if row is None:
+                    self._conn.rollback()
+                    return None
+                after = User(
+                    id=row["id"], email=row["email"],
+                    name=row["name"] if name is None else name,
+                    role=row["role"] if role is None else role,
+                    disabled=bool(row["disabled"]) if disabled is None else disabled,
+                    language=row["language"],
+                )
+                if row["role"] == "admin" and not row["disabled"] and (
+                        after.role != "admin" or after.disabled):
+                    others = self._conn.execute(
+                        "SELECT COUNT(*) AS n FROM app_user WHERE role = 'admin'"
+                        " AND disabled = 0 AND id != ?", (user_id,)).fetchone()["n"]
+                    if not others:
+                        raise LastAdminError(
+                            "This is the only active administrator. Make another "
+                            "account an administrator first, then change this one.")
+                self._conn.execute(
+                    "UPDATE app_user SET name = ?, role = ?, disabled = ? WHERE id = ?",
+                    (after.name, after.role, 1 if after.disabled else 0, user_id))
+                if after.disabled:
+                    self._conn.execute("DELETE FROM session WHERE user_id = ?",
+                                       (user_id,))
+                self._conn.commit()
+            except BaseException:
+                self._conn.rollback()
+                raise
+        return after
 
     # -- authentication -----------------------------------------------------
 

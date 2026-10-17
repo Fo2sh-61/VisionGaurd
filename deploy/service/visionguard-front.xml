@@ -1,0 +1,39 @@
+<!--
+  VisionGuard's HTTPS front (Caddy), as a Windows service (spec 016, plan A
+  and C). Read by WinSW 2.12: app\service\visionguard-front.exe, installed by
+  deploy\install.ps1. %BASE% is C:\VisionGuard\app\service.
+
+  It serves the console on 443 and the phone app on 8443, and passes API
+  calls to the engine on 127.0.0.1:8000. When the engine is stopped it keeps
+  serving the apps, which then say the engine is not running.
+
+  Checked by engine/tests/test_deploy.py.
+-->
+<service>
+  <id>visionguard-front</id>
+  <name>VisionGuard front</name>
+  <description>VisionGuard's HTTPS front: the console on port 443 and the phone app on port 8443.</description>
+
+  <executable>%BASE%\..\bin\caddy.exe</executable>
+  <arguments>run --config "%BASE%\..\deploy\Caddyfile"</arguments>
+  <workingdirectory>%BASE%\..</workingdirectory>
+
+  <startmode>Automatic</startmode>
+  <onfailure action="restart" delay="10 sec"/>
+  <onfailure action="restart" delay="10 sec"/>
+  <onfailure action="restart" delay="10 sec"/>
+  <onfailure action="none"/>
+  <resetfailure>1 hour</resetfailure>
+  <stoptimeout>10 sec</stoptimeout>
+
+  <logpath>C:\VisionGuard\logs</logpath>
+  <log mode="roll-by-size">
+    <sizeThreshold>10240</sizeThreshold>
+    <keepFiles>10</keepFiles>
+  </log>
+
+  <serviceaccount>
+    <domain>NT AUTHORITY</domain>
+    <user>LocalService</user>
+  </serviceaccount>
+</service>

@@ -15,7 +15,7 @@ Four other jobs must have landed on `Fo2sh` first (research R14):
 | System Health brought level with the console | it edits `SystemHealth.tsx`, `format.ts`, `i18n` and `check_parity.py` |
 | The console's "Campus is calm" line fixed | it edits `i18n` |
 | Undefined colour tokens fixed | it edits `Attendance.tsx` and `CameraSources.tsx` |
-| Dev sign-in merged, phone included | the by-eye checks below need it |
+| Developer sign-in merged, phone included | the by-eye checks below need it |
 
 Check with:
 
@@ -23,7 +23,7 @@ Check with:
 git log --oneline -15 Fo2sh
 ```
 
-Look for all four. If the dev sign-in has not merged, sections 3–7 are
+Look for all four. If the developer sign-in has not merged, sections 3–7 are
 Mohamed's to run.
 
 **Before the first change, take the console "before" screenshots (§8).** They
@@ -56,7 +56,7 @@ The pytest does the same thing on every run.
 ## 2. Start it
 
 ```powershell
-.\dev.ps1 up -Mock -Mobile -AllowSystemPython -DevSignIn admin
+.\dev.ps1 up -Mock -Mobile -AllowSystemPython -DevSign* admin
 ```
 
 - The console runs on 5173 and the phone on 5174, both against the mock engine,

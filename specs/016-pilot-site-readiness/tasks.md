@@ -66,6 +66,9 @@ every UI task.
       and **WinSW 2.12.0** (`WinSW-x64.exe`) from their GitHub release pages into
       `deploy/bin/`. Add `deploy/bin/` to `.gitignore`. Write `deploy/versions.txt` with
       each file's version and SHA-256 (`Get-FileHash`). Never download them yourself
+  - Done here: `deploy/bin/` (and `release/`) added to `.gitignore`. Left for Mohamed:
+    the two downloads and `deploy/versions.txt` (`<file> <version> <sha256>` per line,
+    the format `tools/make_release.ps1` reads)
 
 ### 1b. US1: HTTPS front and site certificate
 
@@ -86,7 +89,7 @@ the recorded clip with a certificate from `site_cert.py`.
 - [x] T006 [US1] Create `engine/tools/site_cert.py` with `root --out <usb> [--no-limits]` and
       `site --root <usb>` (plan B), using `cryptography`. It reads `tls.names` and
       `tls.cert_dir` through `vg.config.load()`. T005 passes
-- [ ] T007 [P] [US1] Write `engine/tests/test_front.py`, which reads `deploy/Caddyfile` as
+- [x] T007 [P] [US1] Write `engine/tests/test_front.py`, which reads `deploy/Caddyfile` as
       text and checks:
   - every page path in `web/src/app/routes.tsx` and `mobile/src/app/routes.tsx` is not a
     media address;
@@ -101,12 +104,12 @@ the recorded clip with a certificate from `site_cert.py`.
   - `no-cache` applies to `index.html` answers, `manifest.webmanifest` and `sw.js`, and
     `/assets/*` is cached for a year;
   - Caddy logs to `C:\VisionGuard\logs\front.log`, 10 MB × 10
-- [ ] T008 [US1] Write `deploy/Caddyfile` (plan A, rules in `contracts/api.md`). T007 passes
-- [ ] T009 [US1] In `engine/tools/serve.py`, pass `proxy_headers=True` and
+- [x] T008 [US1] Write `deploy/Caddyfile` (plan A, rules in `contracts/api.md`). T007 passes
+- [x] T009 [US1] In `engine/tools/serve.py`, pass `proxy_headers=True` and
       `forwarded_allow_ips="127.0.0.1"` to `uvicorn.run`. Add a test to
       `engine/tests/test_front.py` that captures the call's arguments with a fake
       `uvicorn.run`. This is the first half of 020's T006
-- [ ] T010 [US1] Add a `certificate` row to `LiveStore.health()` in `engine/vg/api/live.py`,
+- [x] T010 [US1] Add a `certificate` row to `LiveStore.health()` in `engine/vg/api/live.py`,
       copying `_alerts_stage`:
   - it reads `site.crt` from `tls.cert_dir`, re-read when the file changes;
   - "not set up" when there is no `tls` block;
@@ -114,11 +117,14 @@ the recorded clip with a certificate from `site_cert.py`.
   - it lists the names;
   - add the note codes to `engine/vg/api/notes.py` and the keys to `i18n/` in both apps;
   - tests in `engine/tests/test_health_rows.py` for each state, health still 200
-- [ ] T011 [P] [US1] Add the "engine is not running" sentence (plan A) to `i18n/keys.ts`,
+  - Note: no note codes. Every other health row sends English `detail`, and
+    `schemas.Note` says converting them is one coordinated change, not half-done.
+    The row follows the existing rows
+- [x] T011 [P] [US1] Add the "engine is not running" sentence (plan A) to `i18n/keys.ts`,
       `en.ts` and `ar.draft.ts`. Show it from `services/http.ts` when the front answers
       502, 503 or 504. These are shared files, so make the change in `web/` and copy the
       bytes to `mobile/`. Run `python tools/check_parity.py`
-- [ ] T012 [P] [US1] Make both apps installable (plan K):
+- [x] T012 [P] [US1] Make both apps installable (plan K):
   - `web/public/manifest.webmanifest` and `mobile/public/manifest.webmanifest`: name,
     `short_name`, `start_url` and `scope` "/", `display` "standalone", theme and
     background colours, icons;
@@ -137,19 +143,22 @@ the recorded clip with a certificate from `site_cert.py`.
 **Independent test**: `test_logging.py`, `test_check_models.py` and `test_deploy.py` pass.
 On the workstation, drills D1, D3, D4 and D5 pass (Mohamed checks by eye).
 
-- [ ] T014 [P] [US2] Write `engine/tests/test_logging.py`:
+- [x] T014 [P] [US2] Write `engine/tests/test_logging.py`:
   - with `VG_LOGS` set, `serve.py`'s log set-up adds exactly one rotating file handler,
     `engine.log`, 10 MB × 10;
   - unset, it adds none;
   - an exception during startup writes `start-failure.txt` in `VG_LOGS`: one line naming
     what failed and why
-- [ ] T015 [US2] Implement T014 in `engine/tools/serve.py`. T014 passes
-- [ ] T016 [P] [US2] Write `engine/tests/test_check_models.py`, then create
+- [x] T015 [US2] Implement T014 in `engine/tools/serve.py`. T014 passes
+- [x] T016 [P] [US2] Write `engine/tests/test_check_models.py`, then create
       `engine/tools/check_models.py`:
   - it lists every model file an enabled feature in the loaded config needs;
   - each missing one prints `missing: <file> → <where it goes>`, and the tool exits 1;
   - it never downloads anything
-- [ ] T017 [P] [US2] Create `deploy/service/visionguard-engine.xml` and
+  - Note: enrolment always starts, so the two face models are always needed; any
+    enabled camera loads person and fall detection. `track` also needs the
+    loiterwatch package (`pip install models/reid/loiterwatch`)
+- [x] T017 [P] [US2] Create `deploy/service/visionguard-engine.xml` and
       `deploy/service/visionguard-front.xml` (plan C).
   - Engine: runs `app\.venv\Scripts\python.exe engine\tools\serve.py` with environment
     `VG_STRICT=1`, `VG_HOME=C:\VisionGuard\data`, `VG_LOGS=C:\VisionGuard\logs`.
@@ -158,10 +167,13 @@ On the workstation, drills D1, D3, D4 and D5 pass (Mohamed checks by eye).
     `resetfailure` 1 hour; logs roll by size into `C:\VisionGuard\logs`; account
     `LocalService`.
   - `engine/tests/test_deploy.py` parses both files and checks those values
-- [ ] T018 [US2] Write `engine/tests/test_strict.py`. Start the app under `VG_STRICT=1` with a
+- [x] T018 [US2] Write `engine/tests/test_strict.py`. Start the app under `VG_STRICT=1` with a
       camera whose source cannot be opened (copy how `test_sources.py` builds one) and
       assert startup succeeds: an offline camera is never a start failure. If the full
       startup is too heavy for a test, say so in the task and leave it to drill D5
+  - Done as far as a machine without models allows: the camera stage is passed and
+    the first stop is a model, never the camera. Also found and fixed: a config that
+    failed to load served fixtures even under `VG_STRICT=1`. Full start is drill D5
 - [ ] T019 [US2] Create `deploy/install.ps1 -Models <folder> -Root <usb>` with plan D's steps
       1–8:
   - Python 3.14 from the kit if missing;
@@ -175,6 +187,9 @@ On the workstation, drills D1, D3, D4 and D5 pass (Mohamed checks by eye).
     `msedge.exe --app=https://localhost/`, with the existing icon;
   - wait for `https://localhost/healthz`.
   - It stops at the first failed step with a plain message, and is safe to run twice
+  - Drafted (`deploy/install.ps1`), **not yet run**: no Windows here. Adds `-Site <folder>`
+    for the first `engine.yaml` (storage under `data\`, cameras, `tls.names`), the
+    loiterwatch install, and a firewall rule for TCP 443/8443. Proven by drill D1–D5
 - [ ] T020 [US2] Create `tools/make_release.ps1 <tag>`:
   - `git archive` of `engine/` and `deploy/` at the tag;
   - `npm run build` in `web/` and `mobile/`, copying both `dist/` folders;
@@ -183,6 +198,8 @@ On the workstation, drills D1, D3, D4 and D5 pass (Mohamed checks by eye).
   - the python.org installer from a folder Mohamed names;
   - a kit folder and a zip;
   - **no model files**
+  - Drafted (`tools/make_release.ps1`), **not yet run**: no Windows here. Also packs
+    `models/reid/loiterwatch` (code only) and `assets/visionguard.ico`
 - [ ] T021 [US2] Drills on the workstation, Mohamed by eye:
   - D1: an address with no server name gets the padlock; if not, add `default_sni` to the
     Caddyfile;
@@ -197,15 +214,16 @@ On the workstation, drills D1, D3, D4 and D5 pass (Mohamed checks by eye).
 **Independent test**: `git grep -niE "dev.?sign.?in"` prints nothing. All checks are
 green.
 
-- [ ] T022 [US3] Engine: delete `engine/vg/auth/dev_sign*.py` and
+- [x] T022 [US3] Engine: delete `engine/vg/auth/dev_sign*.py` and
       `engine/tests/test_dev_sign*.py`, and their uses in `engine/vg/api/app.py` and
       `engine/vg/api/schemas.py`. pytest is green. Say in the commit how many tests left
       with the file
-- [ ] T023 [P] [US3] Apps: delete `web/src/components/DevSign*Banner.tsx` and
+  - 20 tests left with `test_dev_sign*.py`
+- [x] T023 [P] [US3] Apps: delete `web/src/components/DevSign*Banner.tsx` and
       `mobile/src/components/DevSign*Banner.tsx`. Remove their uses in both `AppShell.tsx`,
       and in the shared `AuthContext.tsx`, `services/api.ts` and `services/wire.ts` (copy
       the bytes, parity check). Both `tsc` are clean
-- [ ] T024 [US3] The rest:
+- [x] T024 [US3] The rest:
   - the launcher flag in `dev.ps1`;
   - the "Temporary — seeing a page yourself" section of `AGENTS.md`, replaced by one line:
     sign in with a local account made by `engine/tools/create_user.py`;
@@ -221,7 +239,7 @@ green.
 changes the role of, and disables an account; the disabled account is signed out on its
 next click.
 
-- [ ] T025 [P] [US4] Write `engine/tests/test_users_edit.py`:
+- [x] T025 [P] [US4] Write `engine/tests/test_users_edit.py`:
   - `PATCH /users/{id}` saves name, role and disabled;
   - the audit entry is written before the write (make the write fail: the entry exists);
   - an `it` caller gets 403; unknown id 404; empty name or unknown role 422;
@@ -232,18 +250,18 @@ next click.
     next request;
   - `GET /users` shows `disabled`;
   - `MockStore` answers 503, never a fake save
-- [ ] T026 [US4] Add `UserStore.update_user(id, name=None, role=None, disabled=None)` to
+- [x] T026 [US4] Add `UserStore.update_user(id, name=None, role=None, disabled=None)` to
       `engine/vg/auth/store.py`:
   - in one `BEGIN IMMEDIATE`;
   - raises `LastAdminError` when no active administrator would remain;
   - disabling calls `end_all_sessions`
-- [ ] T027 [US4] Add `PATCH /users/{id}` to `engine/vg/api/app.py` (409 on
+- [x] T027 [US4] Add `PATCH /users/{id}` to `engine/vg/api/app.py` (409 on
       `LastAdminError`), `disabled: bool` to `User` in `engine/vg/api/schemas.py`, the fill
       in `LiveStore.users()`, and `SubsystemUnavailable` in `MockStore`. T025 passes
-- [ ] T028 [US4] Shared: add `updateUser()` to `services/api.ts`, `disabled` to `types.ts`
+- [x] T028 [US4] Shared: add `updateUser()` to `services/api.ts`, `disabled` to `types.ts`
       and `services/wire.ts`, and the words to `i18n/`. Write them in `web/`, copy the
       bytes to `mobile/`, and run the parity check
-- [ ] T029 [US4] Edit form (name, role, active) in `web/src/pages/Users.tsx` (the dead
+- [x] T029 [US4] Edit form (name, role, active) in `web/src/pages/Users.tsx` (the dead
       Edit button gets its handler) and `mobile/src/pages/Users.tsx` (a new Edit per row):
   - a 409 shows the engine's reason;
   - an unreachable engine says "not saved";

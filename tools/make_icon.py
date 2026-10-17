@@ -4,7 +4,9 @@
 accent colour, with a single "lens" cut out of it - a circle whose bottom-left
 corner is square. This redraws exactly that, at the sizes Windows asks for,
 into `assets/visionguard.ico` - and a phone-shaped variant of it into
-`assets/visionguard-mobile.ico`, for the phone app's shortcut.
+`assets/visionguard-mobile.ico`, for the phone app's shortcut. It also writes
+the PNG icons that make both apps installable (spec 016): 192 and 512 px, and a
+512 px "maskable" one, into `web/public/` and `mobile/public/`.
 
 Redrawn rather than exported because the mark is CSS, not a file: it is two
 divs and a border-radius. The numbers below are lifted straight from that
@@ -31,6 +33,10 @@ OUT = REPO / "assets" / "visionguard.ico"
 #: The phone app draws the very same logo, so a second square icon would
 #: leave the label as the only way to tell the two desktop shortcuts apart.
 OUT_MOBILE = REPO / "assets" / "visionguard-mobile.ico"
+
+#: Where each app's installable icons go. Both get the square mark: on a
+#: phone's home screen the phone-shaped variant would be a phone in a phone.
+PUBLIC = (REPO / "web" / "public", REPO / "mobile" / "public")
 
 #: From `web/src/styles/tokens.css`. The LIGHT theme's values: an icon sits on
 #: a taskbar, not inside the app, so it cannot follow the viewer's theme and
@@ -98,16 +104,7 @@ def _draw(size: int, phone: bool = False) -> Image.Image:
     # corners, so a per-corner shape has to be built rather than asked for.
     lens = square * LENS_SIZE * (PHONE_LENS if phone else 1)
     cx = cy = big / 2
-    left, top = cx - lens / 2, cy - lens / 2
-    draw.ellipse([left, top, left + lens, top + lens], fill=PANEL)
-    draw.rounded_rectangle(
-        [left, cy, cx, cy + lens / 2],
-        radius=lens * LENS_CORNER,
-        fill=PANEL,
-        # (top-left, top-right, bottom-right, bottom-left) - only the corner
-        # the CSS squares off keeps any rounding at all.
-        corners=(False, False, False, True),
-    )
+    _lens(draw, cx, cy, lens)
 
     if phone and size >= PHONE_SLOT_FROM:
         slot_width, slot_height = body * 0.26, square * 0.04
@@ -120,6 +117,46 @@ def _draw(size: int, phone: bool = False) -> Image.Image:
         )
 
     return image.resize((size, size), Image.LANCZOS)
+
+
+def _lens(draw: ImageDraw.ImageDraw, cx: float, cy: float, lens: float) -> None:
+    left, top = cx - lens / 2, cy - lens / 2
+    draw.ellipse([left, top, left + lens, top + lens], fill=PANEL)
+    draw.rounded_rectangle(
+        [left, cy, cx, cy + lens / 2],
+        radius=lens * LENS_CORNER,
+        fill=PANEL,
+        # (top-left, top-right, bottom-right, bottom-left) - only the corner
+        # the CSS squares off keeps any rounding at all.
+        corners=(False, False, False, True),
+    )
+
+
+def _draw_maskable(size: int) -> Image.Image:
+    """The mark for a launcher that crops icons to its own shape.
+
+    Android cuts a circle, squircle or teardrop out of a maskable icon, so the
+    accent fills the whole canvas and only the lens carries the shape. The
+    lens is the same share of the canvas as on the plain icon, well inside the
+    safe zone (the middle 80%) that every launcher keeps.
+    """
+    big = size * SUPERSAMPLE
+    image = Image.new("RGBA", (big, big), ACCENT)
+    _lens(ImageDraw.Draw(image), big / 2, big / 2, big * (1 - 2 * MARGIN) * LENS_SIZE)
+    return image.resize((size, size), Image.LANCZOS)
+
+
+def write_pngs() -> None:
+    for folder in PUBLIC:
+        folder.mkdir(parents=True, exist_ok=True)
+        for name, image in (
+            ("icon-192.png", _draw(192)),
+            ("icon-512.png", _draw(512)),
+            ("icon-maskable-512.png", _draw_maskable(512)),
+        ):
+            image.save(folder / name, format="PNG", optimize=True)
+        print(f"wrote {folder.relative_to(REPO)} - icon-192, icon-512, "
+              f"icon-maskable-512")
 
 
 def main() -> int:
@@ -135,6 +172,7 @@ def main() -> int:
                         append_images=frames[:-1])
         print(f"wrote {out.relative_to(REPO)} - "
               f"{', '.join(str(s) for s in SIZES)}px")
+    write_pngs()
     return 0
 
 

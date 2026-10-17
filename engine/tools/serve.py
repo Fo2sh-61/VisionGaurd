@@ -19,16 +19,101 @@ it makes the browser call the engine directly and every live view goes black.
 
 http://127.0.0.1:8000/docs is the generated OpenAPI page. That page is the
 frozen contract — if the front end and the engine ever disagree, it decides.
+
+**Under the Windows service** nobody reads the console. `VG_LOGS` names the
+logs folder: every line also goes to `engine.log` there (10 MB x 10 files),
+and a start that fails leaves one plain line in `start-failure.txt` saying
+what failed and why. Unset, nothing is written anywhere.
 """
 
 from __future__ import annotations
 
 import argparse
+import copy
+import logging
+import os
 import sys
+from datetime import datetime
 from pathlib import Path
 
 ENGINE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ENGINE_DIR))
+
+
+LOG_BYTES = 10 * 1024 * 1024
+LOG_FILES = 10          # the live file plus nine rolled ones
+START_FAILURE = "start-failure.txt"
+
+
+def logs_dir() -> Path | None:
+    """`VG_LOGS`, set by the service. None for development."""
+    raw = os.environ.get("VG_LOGS", "").strip()
+    return Path(raw) if raw else None
+
+
+class FirstError(logging.Handler):
+    """Remembers the first error uvicorn logs, which is why it stopped.
+
+    uvicorn never lets a startup exception reach this file: it logs the
+    traceback, then "Application startup failed. Exiting.", then exits. The
+    first line is the one that says what failed; the second never does.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(logging.ERROR)
+        self.reason: str | None = None
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if self.reason is not None:
+            return
+        if record.exc_info and record.exc_info[1] is not None:
+            exc = record.exc_info[1]
+            self.reason = f"{type(exc).__name__}: {exc}"
+            return
+        lines = [ln.strip() for ln in record.getMessage().splitlines() if ln.strip()]
+        self.reason = lines[-1] if lines else None
+
+
+def log_config(logs: Path | None, watch: FirstError) -> dict:
+    """uvicorn's own logging set-up, plus the file and the failure watch.
+
+    Passed to uvicorn rather than added afterwards, because uvicorn applies
+    its config inside `run()` and would drop a handler added before.
+    """
+    from uvicorn.config import LOGGING_CONFIG
+
+    cfg = copy.deepcopy(LOGGING_CONFIG)
+    cfg["handlers"]["first_error"] = {"()": lambda: watch}
+    cfg["loggers"]["uvicorn.error"]["handlers"] = ["first_error"]
+    if logs is None:
+        return cfg
+
+    logs.mkdir(parents=True, exist_ok=True)
+    cfg["formatters"]["file"] = {
+        "format": "%(asctime)s %(levelname)s %(name)s: %(message)s",
+    }
+    cfg["handlers"]["file"] = {
+        "class": "logging.handlers.RotatingFileHandler",
+        "filename": str(logs / "engine.log"),
+        "maxBytes": LOG_BYTES,
+        "backupCount": LOG_FILES - 1,
+        "encoding": "utf-8",
+        "formatter": "file",
+    }
+    # uvicorn's loggers do not propagate to the root, so each carries it.
+    cfg["loggers"]["uvicorn"]["handlers"].append("file")
+    cfg["loggers"]["uvicorn.access"]["handlers"].append("file")
+    # The engine's own lines (`vg.*`) go to the root logger.
+    cfg["root"] = {"handlers": ["file"], "level": "INFO"}
+    return cfg
+
+
+def write_start_failure(logs: Path, reason: str) -> None:
+    """One line: when, what failed and why. Overwritten by the next try."""
+    reason = " ".join(reason.split())
+    stamp = datetime.now().astimezone().isoformat(timespec="seconds")
+    logs.mkdir(parents=True, exist_ok=True)
+    (logs / START_FAILURE).write_text(f"{stamp} {reason}\n", encoding="utf-8")
 
 
 def warn_if_cpu_only() -> None:
@@ -97,6 +182,12 @@ def main(argv: list[str] | None = None) -> int:
         print("  note  --reload runs a child process; if Ctrl-C leaves it")
         print("        behind, see the cleanup command in engine/README.md\n")
 
+    logs = logs_dir()
+    watch = FirstError()
+    if logs is not None:
+        # A line from an earlier try would describe a start that is over.
+        (logs / START_FAILURE).unlink(missing_ok=True)
+
     try:
         uvicorn.run(
             "vg.api.app:app",
@@ -105,17 +196,33 @@ def main(argv: list[str] | None = None) -> int:
             reload=reload,
             reload_dirs=[str(ENGINE_DIR / "vg")] if reload else None,
             log_level=args.log_level,
+            log_config=log_config(logs, watch),
             app_dir=str(ENGINE_DIR),
             # Belt and braces with the SHUTTING_DOWN event in app.py. That
             # releases open MJPEG streams cooperatively; this force-closes
             # anything still holding on after 5s. Ctrl-C must always mean
             # "stopped", never "stopped unless a tab is open".
             timeout_graceful_shutdown=5,
+            # Behind the HTTPS front, the client's address arrives in
+            # X-Forwarded-For. Only the front, on this machine, is believed:
+            # anything else that sends the header is ignored.
+            proxy_headers=True,
+            forwarded_allow_ips="127.0.0.1",
         )
     except KeyboardInterrupt:
         # uvicorn normally handles this, but a Ctrl-C arriving during startup
         # (while models load) escapes it and would print a bare traceback.
         pass
+    except SystemExit as exc:
+        # uvicorn exits this way when the app's startup fails.
+        if logs is not None and exc.code not in (0, None):
+            write_start_failure(
+                logs, watch.reason or f"the engine stopped with code {exc.code}")
+        raise
+    except Exception as exc:
+        if logs is not None:
+            write_start_failure(logs, f"{type(exc).__name__}: {exc}")
+        raise
     finally:
         _release_children()
 

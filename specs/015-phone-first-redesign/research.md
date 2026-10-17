@@ -227,8 +227,8 @@ phone header has no room for it.
 
 ## R14. Verification without a real phone
 
-**Decision.** Use the in-app browser at 360×780, the temporary dev sign-in, and
-the side-port engine on the recorded clip (see memory: `dev-signin-temporary`).
+**Decision.** Use the in-app browser at 360×780, the temporary developer sign-in, and
+the side-port engine on the recorded clip (see memory: `dev-sign*-temporary`).
 The audit script from quickstart §3 is run on every route in 4 variants and
 reports sideways overflow, targets under 44 px, contrast under the limit and
 text under 12 px. Only things a hand or a real camera can judge go to Mohamed.

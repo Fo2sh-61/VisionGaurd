@@ -94,7 +94,7 @@ Each can become its own task. The phone does not copy any of them.
 ## Appendix: 360-px audit
 
 The audit script is `tools/phone_audit.js`. It ran in the in-app browser at
-360 × 780 against the mock engine (`mock-mobile`, dev sign-in as admin) on
+360 × 780 against the mock engine (`mock-mobile`, developer sign-in as admin) on
 17 September 2026, after the fixes listed below. It counts four things per
 route: sideways overflow, targets under 44 px, text under 4.5:1 (3:1 at 24 px
 or larger), and text under 12 px.

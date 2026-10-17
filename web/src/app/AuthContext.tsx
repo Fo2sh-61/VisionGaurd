@@ -41,9 +41,6 @@ export interface Account {
    *  because the gate station is shared and a browser-wide setting would
    *  hand the next guard the previous guard's language. */
   language: Language;
-  /** DEV-SIGNIN: temporary. The built-in account `VG_DEV_SIGNIN` signs in -
-   *  no password, this computer only. Every page says so while it is true. */
-  devSignIn: boolean;
 }
 
 interface AuthValue {

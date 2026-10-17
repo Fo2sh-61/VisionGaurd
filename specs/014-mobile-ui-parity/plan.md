@@ -163,7 +163,7 @@ list of files held byte-identical.
 See research R14. In short:
 
 1. **Wait.** The System Health, "Campus is calm" and colour-token jobs must merge
-   first, and the dev sign-in merge before the by-eye checks.
+   first, and the developer sign-in merge before the by-eye checks.
 2. **Console "before" screenshots** (quickstart §8), before any change.
 3. **The phone look:** the `app.css` copy, `phone.css` and the `main.tsx` import.
    It touches nothing the parallel jobs touch.

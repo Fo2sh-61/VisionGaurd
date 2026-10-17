@@ -1349,6 +1349,24 @@ class User(Wire):
     email: str
     role: Role
     last_active: Instant | None = None
+    #: A disabled account cannot sign in. Listed all the same, so an
+    #: administrator can see it and turn it back on.
+    disabled: bool = False
+
+
+class UserEdit(Wire):
+    """`PATCH /users/{id}`: any subset. The email is not editable here."""
+
+    name: str | None = None
+    role: Role | None = None
+    disabled: bool | None = None
+
+    @field_validator("name")
+    @classmethod
+    def _name_not_blank(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError("a name cannot be empty")
+        return value.strip() if value is not None else None
 
 
 class SchoolProfile(Wire):
@@ -1992,9 +2010,6 @@ class Account(Wire):
     #: Which language this person reads the console in. A preference, not a
     #: permission - `auth/deps.py` decides access by path and never reads this.
     language: Literal["en", "ar"] = "en"
-    #: DEV-SIGNIN: temporary. True only for the built-in account that
-    #: `VG_DEV_SIGNIN` signs in, so the console can say so on every page.
-    dev_sign_in: bool = False
 
 
 class LoginResult(Wire):

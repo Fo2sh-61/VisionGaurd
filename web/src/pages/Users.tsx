@@ -1,9 +1,13 @@
-import { Badge, Card, CardHeader, DataNotice, Empty, LoadError, PageHeader } from '@/components/ui';
-import { getUsers } from '@/services/api';
+import { useState } from 'react';
+import {
+  Badge, Card, CardHeader, DataNotice, Empty, Field, LoadError, PageHeader, Select, Toggle,
+} from '@/components/ui';
+import { getUsers, updateUser } from '@/services/api';
+import { ApiError } from '@/services/http';
 import { useLanguage, useT } from '@/app/LanguageContext';
 import { CAPABILITIES } from '@/services/content';
 import type { MessageKey } from '@/i18n';
-import type { User } from '@/types';
+import type { Role, User, UserChanges } from '@/types';
 import { useCapability } from '@/app/CapabilityContext';
 import { useAsync } from '@/app/useAsync';
 
@@ -14,6 +18,7 @@ export function Users() {
   const { language } = useLanguage();
   const capability = useCapability('users');
   const { data: users, error, loading, reload } = useAsync(() => getUsers(language), [language], NO_USERS);
+  const [editing, setEditing] = useState<string | null>(null);
 
   // "0 people can sign in" is a claim, and we can only make it when the
   // engine actually answered with none. While loading, or after a failure,
@@ -29,7 +34,7 @@ export function Users() {
       <Card>
         <CardHeader
           title={counted
-            ? t('users.canSignIn', { count: users.length })
+            ? t('users.canSignIn', { count: users.filter((u) => !u.disabled).length })
             : t('users.whoCanSignIn')}
           sub={t('users.adminsOnly')}
         />
@@ -40,27 +45,44 @@ export function Users() {
         )}
 
         {users.map((user) => (
-          <div
-            key={user.id}
-            className="row"
-            style={{ gridTemplateColumns: '1.2fr .7fr 1.6fr .9fr .5fr' }}
-          >
-            <span className="row__name">{user.name}</span>
-            <span>
-              <Badge tone={user.role === 'admin' ? 'good' : 'neutral'}>
-                {t(user.role === 'admin' ? 'role.admin' : 'role.it')}
-              </Badge>
-            </span>
-            <span
-              className="row__muted"
-              style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}
+          <div key={user.id}>
+            <div
+              className="row"
+              style={{ gridTemplateColumns: '1.2fr .7fr 1.6fr .9fr .5fr' }}
             >
-              {user.email}
-            </span>
-            <span className="row__muted">{user.lastActive}</span>
-            <button type="button" className="linkbtn">
-              Edit
-            </button>
+              <span className="row__name">{user.name}</span>
+              <span style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                <Badge tone={user.role === 'admin' ? 'good' : 'neutral'}>
+                  {t(user.role === 'admin' ? 'role.admin' : 'role.it')}
+                </Badge>
+                {user.disabled && <Badge tone="warn">{t('users.disabled')}</Badge>}
+              </span>
+              <span
+                className="row__muted"
+                style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}
+              >
+                {user.email}
+              </span>
+              <span className="row__muted">{user.lastActive}</span>
+              <button
+                type="button"
+                className="linkbtn"
+                aria-expanded={editing === user.id}
+                onClick={() => setEditing(editing === user.id ? null : user.id)}
+              >
+                {t('users.edit')}
+              </button>
+            </div>
+            {editing === user.id && (
+              <EditAccount
+                user={user}
+                onDone={() => {
+                  setEditing(null);
+                  reload();
+                }}
+                onCancel={() => setEditing(null)}
+              />
+            )}
           </div>
         ))}
 
@@ -78,6 +100,94 @@ export function Users() {
         </div>
       </Card>
     </>
+  );
+}
+
+const ROLES: readonly Role[] = ['admin', 'it'];
+
+/** Name, role and whether the account can sign in. Only what changed is sent.
+ *
+ *  The engine decides: a change that would leave no active administrator
+ *  comes back 409 with its reason, which is shown as it is. Nothing here
+ *  claims a save the engine did not make. */
+function EditAccount({
+  user,
+  onDone,
+  onCancel,
+}: {
+  user: User;
+  onDone: () => void;
+  onCancel: () => void;
+}) {
+  const t = useT();
+  const { language } = useLanguage();
+  const [name, setName] = useState(user.name);
+  const [role, setRole] = useState<Role>(user.role);
+  const [active, setActive] = useState(!user.disabled);
+  const [saving, setSaving] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+
+  const changes: UserChanges = {};
+  if (name.trim() !== user.name) changes.name = name.trim();
+  if (role !== user.role) changes.role = role;
+  if (active === user.disabled) changes.disabled = !active;
+  const changed = Object.keys(changes).length > 0;
+
+  async function save() {
+    setSaving(true);
+    setProblem(null);
+    try {
+      await updateUser(user.id, changes, language);
+      onDone();
+    } catch (err) {
+      setProblem(
+        err instanceof ApiError && err.offline
+          ? t('users.notSavedOffline')
+          : t('users.notSaved', { reason: err instanceof Error ? err.message : String(err) }),
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div style={{ padding: '14px 0 18px', borderTop: '1px solid var(--line)' }}>
+      <div className="section-title" style={{ marginBottom: 10 }}>
+        {t('users.editTitle', { name: user.name })}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1.4fr .8fr .8fr', gap: 14, alignItems: 'end' }}>
+        <Field label={t('users.name')}>
+          <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
+        </Field>
+        <Field label={t('users.role')}>
+          <Select
+            value={role}
+            onChange={(v) => setRole(v as Role)}
+            options={ROLES}
+            label={(o) => t(o === 'admin' ? 'role.admin' : 'role.it')}
+          />
+        </Field>
+        <Field label={t('users.canSignInToggle')}>
+          <Toggle on={active} onToggle={() => setActive(!active)} label={t('users.canSignInToggle')} />
+        </Field>
+      </div>
+      {problem && (
+        <div role="alert" style={{ color: 'var(--rd)', fontSize: 13.5, marginTop: 10 }}>{problem}</div>
+      )}
+      <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+        <button
+          type="button"
+          className={`chip-btn ${changed && name.trim() ? 'chip-btn--on' : 'chip-btn--off'}`}
+          disabled={!changed || !name.trim() || saving}
+          onClick={() => void save()}
+        >
+          {saving ? t('users.saving') : t('users.save')}
+        </button>
+        <button type="button" className="chip-btn chip-btn--off" onClick={onCancel}>
+          {t('action.cancel')}
+        </button>
+      </div>
+    </div>
   );
 }
 

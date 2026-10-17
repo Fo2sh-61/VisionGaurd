@@ -162,7 +162,7 @@ If a test fails and you did not cause it, say so plainly rather than fixing it q
 
 Ask Mohamed for a manual check when something can only be confirmed by eye: camera latency, overlay correctness, a real face being recognised, or anything needing a live webcam.
 
-**Temporary — seeing a page yourself:** add `-DevSignIn admin` (or `it`) to any `.\dev.ps1 up` and the console opens signed in, no password (so does the phone app, with `-Mobile`). Development only; Mohamed removes it before deployment. Fences: `engine/vg/auth/dev_signin.py`.
+**Seeing a page yourself:** sign in with a local account made by `engine/tools/create_user.py`.
 
 ## Working with Mohamed
 

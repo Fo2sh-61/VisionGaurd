@@ -679,6 +679,7 @@ export interface User {
   email: string;
   role: 'admin' | 'it';
   lastActive?: Instant | null;
+  disabled?: boolean;
 }
 
 /* ---------- home / live ---------- */
@@ -1147,8 +1148,6 @@ export interface Account {
   role: string;
   initials: string;
   language: 'en' | 'ar';
-  /** DEV-SIGNIN: temporary. True only for the built-in developer account. */
-  devSignIn?: boolean;
 }
 
 export interface LoginResult {

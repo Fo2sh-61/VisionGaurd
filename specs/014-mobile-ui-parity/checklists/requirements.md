@@ -68,4 +68,4 @@
     `tools/check_parity.py` flags the System Health drift, then stops with a
     `UnicodeEncodeError` on this Windows machine while printing the difference.
   - **The by-eye checks need a sign-in Claude may use.** The temporary developer
-    sign-in exists only on branch `claude/dev-signin`, not on `Fo2sh`.
+    sign-in exists only on branch `claude/dev-sign*`, not on `Fo2sh`.

@@ -12,6 +12,15 @@ export interface User {
   role: Role;
   email: string;
   lastActive: string;
+  /** A disabled account cannot sign in. Still listed, so it can be turned back on. */
+  disabled: boolean;
+}
+
+/** What an administrator may change on an account. Any subset. */
+export interface UserChanges {
+  name?: string;
+  role?: Role;
+  disabled?: boolean;
 }
 
 export type Tone = 'good' | 'warn' | 'bad' | 'neutral';

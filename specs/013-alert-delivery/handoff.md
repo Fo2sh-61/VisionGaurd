@@ -46,7 +46,7 @@ fresh-install defaults: every external channel off, In-app on, the attendance ru
 In-app NULL, zero deliveries. The engine was stopped afterwards.
 
 **Not done**: the by-eye walk of the console (quickstart "Half two"). The dev
-sign-in is not on this branch (it lives on `claude/dev-signin`), and nobody types
+sign-in is not on this branch (it lives on `claude/dev-sign*`), and nobody types
 Mohamed's password, so that walk is his.
 
 ## In flight: the adversarial review

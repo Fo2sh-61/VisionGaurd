@@ -27,7 +27,6 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 
 from vg import config as vgconfig
 from vg.auth import deps as auth_deps
-from vg.auth import dev_signin  # DEV-SIGNIN: temporary, development only
 from vg.api import schemas as S
 from vg.clock import clock_for
 from vg.api.store import (
@@ -41,7 +40,7 @@ from vg.api.store import (
     SubsystemUnavailable,
 )
 from vg.auth.passwords import WeakPassword
-from vg.auth.store import SELF_SIGNUP_ROLE, EmailTaken
+from vg.auth.store import SELF_SIGNUP_ROLE, EmailTaken, LastAdminError
 
 log = logging.getLogger(__name__)
 
@@ -268,6 +267,10 @@ async def lifespan(app: FastAPI):
         # page an operator opens to find out what is broken; it cannot be the
         # page that fails to load because something is broken.
         log.error("config failed to load, serving fixtures: %s", exc)
+        # Except under the service: fixtures on a site are invented numbers
+        # on a console that looks healthy. Strict stops instead, and the
+        # reason lands in logs\start-failure.txt.
+        _reraise_if_strict(exc, "config")
         app.state.config = None
         cfg = None
 
@@ -1764,11 +1767,6 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # DEV-SIGNIN: temporary, development only - see vg/auth/dev_signin.py.
-    # Read while the app is built, so a setting that is not safe stops the
-    # engine before it has served a single request.
-    app.state.dev_signin = dev_signin.role_from_env()
-
     origins = ["http://localhost:5173", "http://localhost:5174",
                "http://127.0.0.1:5173", "http://127.0.0.1:5174"]
     try:
@@ -1797,7 +1795,6 @@ def create_app() -> FastAPI:
         "allowed to do this" are different questions. This answers the first.
         """
         request.state.user = auth_deps.user_from(request)
-        request.state.user = request.state.user or dev_signin.user_for(request)  # DEV-SIGNIN
 
         # CORS preflight carries no credentials by design; blocking it would
         # break the browser before it ever gets to send the real request.
@@ -2067,8 +2064,7 @@ def _mount(app: FastAPI) -> None:
         """
         return S.Account(id=user.id, name=user.name, email=user.email,
                          role=user.role, initials=user.initials,
-                         language=user.language,
-                         dev_sign_in=dev_signin.is_dev(user))  # DEV-SIGNIN
+                         language=user.language)
 
     @app.post("/auth/language", tags=["auth"], summary="Set your language")
     async def set_language(
@@ -2093,11 +2089,9 @@ def _mount(app: FastAPI) -> None:
                 detail="Sign-in is unavailable. See System Health.",
             )
         store.set_language(user.id, body.language)
-        dev_signin.remember_language(request, user, body.language)  # DEV-SIGNIN
         return S.Account(id=user.id, name=user.name, email=user.email,
                          role=user.role, initials=user.initials,
-                         language=body.language,
-                         dev_sign_in=dev_signin.is_dev(user))  # DEV-SIGNIN
+                         language=body.language)
 
     @app.get("/site", response_model=S.SiteInfo, tags=["meta"])
     async def get_site(store: StoreDep) -> S.SiteInfo:
@@ -3517,6 +3511,26 @@ def _mount(app: FastAPI) -> None:
     @app.get("/users", response_model=list[S.User], tags=["people"])
     async def get_users(store: StoreDep) -> list[S.User]:
         return store.users()
+
+    @app.patch("/users/{user_id}", response_model=S.User, tags=["people"])
+    async def update_user(
+        user_id: str, body: S.UserEdit, store: StoreDep, user: auth_deps.AdminUser,
+    ) -> S.User:
+        """Change an account's name, role or whether it can sign in.
+
+        Administrator-only by path (`/users` is in `ADMIN_PREFIXES`). 409
+        when it would leave no active administrator, whoever asks. A
+        disabled account is signed out on its next request.
+        """
+        try:
+            changed = store.update_user(user_id, body, user.name)
+        except SubsystemUnavailable as exc:
+            raise HTTPException(503, str(exc)) from exc
+        except LastAdminError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        if changed is None:
+            raise HTTPException(404, "No such account.")
+        return changed
 
     # --------------------------------------------------------- vehicle gate
     #

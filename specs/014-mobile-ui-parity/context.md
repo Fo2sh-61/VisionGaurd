@@ -18,7 +18,7 @@ only — not the files around them.
 > - System Health brought level with the console
 > - "Campus is calm"
 > - the undefined colour tokens
-> - the dev sign-in merge
+> - the developer sign-in merge
 >
 > Line numbers below are from **before** them. Re-find each anchor by its
 > symbol.
@@ -52,7 +52,7 @@ only — not the files around them.
 | `mobile/src/styles/app.css` | whole file | 1,003 lines. The phone's own styles, 37 of ~106 selectors identical to the console's. It holds two blanket rules to lose: the `.row` fold (~377–417: first child 100%, the rest muted 12.5 px with `·` separators) and `.app__content [style*='grid-template-columns'] { display: flex !important }` (~812–821). `.mob-header`, `.mob-avatar` and `.tool-header*` are dead | **Replace** with a byte copy of `web/src/styles/app.css`, which starts with `@import './tokens.css';` like this one. Carry the phone-only parts into `phone.css` first (next row) |
 | `mobile/src/styles/phone.css` | new | — | The phone layer, built with the `frontend-design` skill under the brief "the console's look, arranged for one hand at 360 px". Carry over from the old file: `.app` (100dvh), `.app__content` (`env(safe-area-inset-top)` padding), `.screen`, `.tabbar*` (`env(safe-area-inset-bottom)`), `.list-row` min-height 48, `.edit-row` stacked, `.edit-input` 16 px, `.filters` as a column, `.grid-2/3/4` and `.plan` in one column, `.stats { grid-template-columns: repeat(var(--cols, 2), 1fr) }`, `.row__sub`, `.row__chevron`, the inputs `min-width: 0 !important` rule, and `.modal__panel` as a sheet. New: the `.row` card (R3), the `.row--head` hide except in `.vg-capability-grid`, the `vg-*` hooks (R4), the 44 px minimums (R9), 16 px inputs (R10), `@media (max-height: 500px)` (R11), `.hint`, the status line and the back row |
 | `mobile/src/main.tsx` | the imports (~1–11) | same providers and order as the console. `import '@/styles/app.css'` at ~11 | Add `import '@/styles/phone.css';` on the line after it |
-| `mobile/src/app/AppShell.tsx` | `AppShell()` | 75 lines. It redirects to `/login` when there is no `account`. A `useEffect` scrolls `.app__content` to the top on a `pathname` change. `active = tabFor(pathname)`. It renders `.app` → `.app__content` → `<Outlet/>` → `nav.tabbar` (the `TABS` map, inline SVG icons, `aria-current`) | Put `<StatusLine/>` **before** `.app__content`, since the scroll reset targets `.app__content`. Put the back row first inside `.app__content` when the path is not a tab's top (`TABS.map(t => t.path)`). The back action is `location.key !== 'default' ? navigate(-1) : navigate(TABS.find(t => t.id === tabFor(pathname))!.path)`. After the dev sign-in merge this file may also render `DevSignInBanner`; keep it |
+| `mobile/src/app/AppShell.tsx` | `AppShell()` | 75 lines. It redirects to `/login` when there is no `account`. A `useEffect` scrolls `.app__content` to the top on a `pathname` change. `active = tabFor(pathname)`. It renders `.app` → `.app__content` → `<Outlet/>` → `nav.tabbar` (the `TABS` map, inline SVG icons, `aria-current`) | Put `<StatusLine/>` **before** `.app__content`, since the scroll reset targets `.app__content`. Put the back row first inside `.app__content` when the path is not a tab's top (`TABS.map(t => t.path)`). The back action is `location.key !== 'default' ? navigate(-1) : navigate(TABS.find(t => t.id === tabFor(pathname))!.path)`. After the developer sign-in merge this file may also render `DevSign*Banner`; keep it |
 | `mobile/src/components/StatusLine.tsx` | new, phone only | — | Reads `useSite()` (`site`, `error`, `todayLabel`), `useSiteName()`, `useAccount()` (`name`, `initials`, `role`), `useT()` and `cameraStatus()`. Pinned line plus tap panel, per `contracts/phone-shell.md` |
 
 ### Shared screens (edit `web/src`, copy the bytes; every change inert on the console)
@@ -130,6 +130,6 @@ only — not the files around them.
 - **`VehicleRegister` delete confirmation.** Is it a child of the row (so it needs `row__full`) or a sibling after it?
 - **`action.edit`.** Whether it already exists.
 - **Whether the System Health job added a pytest** for `check_parity.py`.
-- **Whether the dev sign-in merge renders `DevSignInBanner` in the phone shell,** and where. The status line must sit consistently with it.
+- **Whether the developer sign-in merge renders `DevSign*Banner` in the phone shell,** and where. The status line must sit consistently with it.
 - **The Arabic status line at 360 px.** How much of the school's name survives. Settle it by eye.
 - **The traffic chart's per-hour counts at 360 px.** Whether a wrapped text line or a figure per bar reads better. Settle it by eye.

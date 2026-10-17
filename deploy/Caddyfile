@@ -1,0 +1,101 @@
+# VisionGuard's HTTPS front (spec 016, plan A). Run by the visionguard-front
+# service:  app\bin\caddy.exe run --config app\deploy\Caddyfile
+#
+#   https://<address>/       the console    (web/dist)
+#   https://<address>:8443/  the phone app  (mobile/dist)
+#   127.0.0.1:8000           the engine, plain HTTP, this machine only
+#
+# There is no plain-HTTP listener at all: nothing on port 80, and plain HTTP
+# sent to 443 or 8443 gets Caddy's refusal, never a page or data.
+#
+# engine/tests/test_front.py reads this file. A new page in either app, or a
+# new engine route, that this file gets wrong fails that test.
+#
+# Paths use forward slashes: Windows accepts them, and the Caddyfile reader
+# treats a backslash as an escape.
+
+{
+	auto_https off
+	admin off
+	servers {
+		# HTTP/3 is off: the firewall opens TCP only.
+		protocols h1 h2
+	}
+	# Caddy's own messages: start, stop, certificate and proxy errors. There
+	# is deliberately no access log. Page addresses carry people's names
+	# (/people/history/<name>), and a log of them is a second record of who
+	# was looked up, outside the audit and outside every retention rule.
+	log {
+		output file C:/VisionGuard/logs/front.log {
+			roll_size 10MiB
+			roll_keep 10
+		}
+	}
+}
+
+(visionguard) {
+	tls C:/VisionGuard/data/tls/site.crt C:/VisionGuard/data/tls/site.key
+
+	# A page load: the browser asks for HTML, and the address is not one the
+	# engine answers with media. Both apps use browser routing, and about ten
+	# page paths are also API paths (/people, /weapons, ...), so this is what
+	# makes a reload on /people show the page while a knife clip opened in a
+	# new tab (Weapons.tsx clipUrl) still plays. /healthz is here so a person
+	# checking the engine in a browser sees its answer, not the console.
+	@page {
+		header Accept *text/html*
+		not path */clip */snapshot */stream /path/legs/* /docs /docs/* /redoc /openapi.json /healthz
+	}
+
+	# Everything the engine answers: the first part of every engine route,
+	# plus /connection and /push for spec 020.
+	@api path /ask /ask/* /attendance /attendance/* /attention /attention/* /audit /audit/* /auth /auth/* /breaches /breaches/* /cameras /cameras/* /count /count/* /docs /docs/* /enrolment /enrolment/* /falls /falls/* /groups /groups/* /healthz /intrusion /intrusion/* /lost-items /lost-items/* /openapi.json /path /path/* /people /people/* /redoc /settings /settings/* /site /site/* /sources /sources/* /system /system/* /track /track/* /tracking /tracking/* /users /users/* /vehicles /vehicles/* /weapons /weapons/* /zones /zones/* /connection /connection/* /push /push/*
+
+	# Vite names these by their content, so a year is safe.
+	@assets path /assets/*
+
+	# Named matchers keep the order they are written in; the bare handle at
+	# the end always comes last.
+	handle @page {
+		root * {args[0]}
+		header Cache-Control no-cache
+		rewrite * /index.html
+		file_server
+	}
+
+	handle @api {
+		reverse_proxy 127.0.0.1:8000 {
+			# Replaces whatever the client sent. serve.py believes this
+			# header only from 127.0.0.1, so a forged one never reaches the
+			# engine's log or its rate limits.
+			header_up X-Forwarded-For {remote_host}
+			# Live video is MJPEG: one answer that never ends. Buffering it
+			# would show nothing at all.
+			flush_interval -1
+		}
+	}
+
+	handle @assets {
+		root * {args[0]}
+		header Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+
+	# Every other file from the build, else index.html. manifest.webmanifest,
+	# sw.js and index.html are among them: `no-cache` here is what lets an
+	# installed app load a new version on its next open after an update.
+	handle {
+		root * {args[0]}
+		header Cache-Control no-cache
+		try_files {path} /index.html
+		file_server
+	}
+}
+
+:443 {
+	import visionguard C:/VisionGuard/app/web/dist
+}
+
+:8443 {
+	import visionguard C:/VisionGuard/app/mobile/dist
+}

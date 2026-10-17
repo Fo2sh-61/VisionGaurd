@@ -49,7 +49,7 @@ with query parameters. Keep every parameter the console reads:
   and the screen title.
 - **TabBar**: five tabs, 44 px or more each, `aria-current` on the active one,
   above the safe-area inset.
-- `DevSignInBanner` stays pinned above everything.
+- `DevSign*Banner` stays pinned above everything.
 
 ## Screens
 

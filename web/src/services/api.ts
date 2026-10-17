@@ -41,6 +41,7 @@ import type {
   RecordingResult,
   SystemHealth,
   User,
+  UserChanges,
   WeaponDetection,
   WeaponWindow,
   Zone,
@@ -928,7 +929,22 @@ export async function getUsers(lang: Language): Promise<User[]> {
     role: u.role,
     email: u.email,
     lastActive: u.lastActive ? formatEventTime(u.lastActive, lang) : '—',
+    disabled: u.disabled === true,
   }));
+}
+
+/** Change an account (admin). A 409 carries the engine's reason: it would
+ *  leave no active administrator. */
+export async function updateUser(id: string, changes: UserChanges, lang: Language): Promise<User> {
+  const u = await patch<W.User>(`/users/${encodeURIComponent(id)}`, changes);
+  return {
+    id: u.id,
+    name: u.name,
+    role: u.role,
+    email: u.email,
+    lastActive: u.lastActive ? formatEventTime(u.lastActive, lang) : '—',
+    disabled: u.disabled === true,
+  };
 }
 
 /* ---------- people directory ---------- */
@@ -1575,7 +1591,6 @@ function toAccount(wire: W.Account): Account {
     role: wire.role as Role,
     initials: wire.initials,
     language: wire.language,
-    devSignIn: wire.devSignIn === true, // DEV-SIGNIN
   };
 }
 

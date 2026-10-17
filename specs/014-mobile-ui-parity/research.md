@@ -11,7 +11,7 @@ Mohamed's answers on 11 Sep 2026 settle four of the choices:
   phone layer (R1).
 - **Table rows:** small cards (R3).
 - **Status bar:** pinned, one slim line (R5).
-- **By-eye checks:** merge the dev sign-in first, as a separate job (R12).
+- **By-eye checks:** merge the developer sign-in first, as a separate job (R12).
 
 ---
 
@@ -458,13 +458,13 @@ normally.
   (`min-width: 0 !important`) is kept. It is the second `!important` in
   Complexity Tracking.
 
-## R12 — How the work is checked (Mohamed: merge the dev sign-in first)
+## R12 — How the work is checked (Mohamed: merge the developer sign-in first)
 
 **Decision.** Every by-eye check runs against the mock engine with the
 developer sign-in:
 
 ```
-.\dev.ps1 up -Mock -Mobile -AllowSystemPython -DevSignIn admin
+.\dev.ps1 up -Mock -Mobile -AllowSystemPython -DevSign* admin
 ```
 
 It runs in the in-app browser, sized to 360 × 780 and then 780 × 360, then
@@ -473,7 +473,7 @@ and small tap targets on each screen, so those two checks are numbers rather tha
 opinions. The console is compared at 1440 × 900 against screenshots taken before
 the first change.
 
-The dev sign-in lives on `claude/dev-signin`. Merging it into `Fo2sh`, with the
+The developer sign-in lives on `claude/dev-sign*`. Merging it into `Fo2sh`, with the
 phone's copies of the files it touches, is its own task, and it runs only after
 the System Health task has landed. Until it merges, the checks are Mohamed's.
 Mohamed does the final pass on a real phone either way.
@@ -504,7 +504,7 @@ Three other jobs touch the same files, and each runs in its own worktree:
 2. **"Campus is calm"** (`Sidebar.tsx`, `i18n`). Must land before any `i18n`
    edit here (R6's `action.back` and the translated back links). Otherwise the
    two jobs conflict in `en.ts`, `keys.ts` and `ar.draft.ts`.
-3. **Dev sign-in merge.** Must land before R12's checks, and after job 1.
+3. **Developer sign-in merge.** Must land before R12's checks, and after job 1.
 4. **Undefined colour tokens** (`TopBar.tsx`, `Attendance.tsx`,
    `CameraSources.tsx`, `TrackPerson.tsx`, and a new pytest). Must land before
    this feature edits `Attendance.tsx` and `CameraSources.tsx`.

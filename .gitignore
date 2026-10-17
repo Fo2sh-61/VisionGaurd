@@ -115,3 +115,8 @@ models/Gate/**/*.pt
 /[0-9]
 /[0-9][0-9]
 /[0-9][0-9][0-9]
+
+# spec 016: the owner-downloaded Caddy and WinSW (hashes in deploy/versions.txt),
+# and the kits tools/make_release.ps1 builds.
+deploy/bin/
+release/

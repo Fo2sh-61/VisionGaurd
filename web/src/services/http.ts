@@ -9,6 +9,8 @@
  *
  *  and start the engine with `python engine/tools/serve.py`. */
 
+import { translate } from '@/i18n';
+
 /** Where the engine is, from the browser's point of view.
  *
  *  **Empty by default, and that is deliberate.** An empty base means every
@@ -26,6 +28,14 @@
  *  Set `VITE_API_BASE` only if you deliberately want to talk to an engine on
  *  another origin, and expect the live views to be blank if you do. */
 const BASE = (import.meta.env.VITE_API_BASE ?? '').replace(/\/$/, '');
+
+/** The one sentence for "the front is up, the engine is not". In the reader's
+ *  language: http.ts has no React context, but LanguageContext keeps the
+ *  page's `lang` attribute current. */
+function engineNotRunning(): string {
+  const lang = document.documentElement.lang === 'ar' ? 'ar' : 'en';
+  return translate(lang, 'state.engineNotRunning');
+}
 
 /** How long before we give up. Everything should be quick or is broken:
  *  the lost-bag search that once needed ninety seconds now starts a job and
@@ -156,6 +166,13 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
       if (response.status === 401 && !path.startsWith('/auth/login')) {
         sessionToken = null;
         onUnauthorised?.();
+      }
+
+      // The HTTPS front answered for an engine that is not there: stopped,
+      // or refused to start under strict mode. The engine's own 503s carry a
+      // reason in `detail` and keep it; this is only the bare gateway answer.
+      if ([502, 503, 504].includes(response.status) && detail === undefined) {
+        message = engineNotRunning();
       }
 
       // 5xx and 429 are worth retrying; a 404 or a validation error is not.

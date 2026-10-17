@@ -107,7 +107,7 @@ Pass on investing today — not the idea, the state. A public website carrying c
 Monday morning, in order:
 1. Fix the website. It's a text file. Do it before lunch.
 2. Get a lawyer moving on child-face consent this week — the only blocker you can't code your way around.
-3. Finish the specified productionization checklist (service install, backups, retention, erasure, HTTPS, kill dev sign-in). It's already scoped — just execute it.
+3. Finish the specified productionization checklist (service install, backups, retention, erasure, HTTPS, kill developer sign-in). It's already scoped — just execute it.
 4. Pitch the 16-camera pilot, not 208. Sell only what has numbers behind it: attendance, gate, tracking. Leave counting and knife detection out of any customer conversation until they're measured.
 5. Get one signature. Everything else is theory until then.
 
