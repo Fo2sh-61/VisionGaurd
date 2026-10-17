@@ -49,17 +49,17 @@ every UI task.
 
 ### 1a. Setup
 
-- [ ] T001 Add `cryptography>=50` as a named line under a new `# --- site ---` heading in
+- [x] T001 Add `cryptography>=50` as a named line under a new `# --- site ---` heading in
       `engine/requirements.txt`. It is already installed through `google-auth`; this stops
       it vanishing
-- [ ] T002 Add the `tls` block (`names`, `cert_dir`) to `engine/vg/config.py` next to
+- [x] T002 Add the `tls` block (`names`, `cert_dir`) to `engine/vg/config.py` next to
       `ApiConfig`:
   - each name must be an IP address or `localhost`; anything else is refused with its
     position;
   - an absent block gives `tls=None`;
   - add a commented example to `engine/engine.yaml`;
   - tests in `engine/tests/test_config.py` for both
-- [ ] T003 Make `config.load()` in `engine/vg/config.py` read `engine.yaml` and `.env` from
+- [x] T003 Make `config.load()` in `engine/vg/config.py` read `engine.yaml` and `.env` from
       `VG_HOME` when that is set; unset changes nothing. Test in
       `engine/tests/test_config.py` with a temporary folder
 - [ ] T004 Owner step: ask Mohamed to download **Caddy 2.11.7** (`caddy_2.11.7_windows_amd64.zip`)

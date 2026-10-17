@@ -13,6 +13,7 @@ repo while the rest of the camera definition stays readable.
 
 from __future__ import annotations
 
+import ipaddress
 import os
 import re
 from dataclasses import dataclass, field, replace
@@ -693,6 +694,55 @@ class ApiConfig:
 
 
 @dataclass(frozen=True)
+class TlsConfig:
+    """The names the site certificate is made for, and where it is kept.
+
+    Only what `tools/site_cert.py` and the System Health row read. The root
+    key is never here: it lives on a USB stick, so a copy of the data folder
+    can never mint a certificate.
+
+    Every name is an IP address or `localhost`. The site root is limited to
+    private addresses, so a domain name here could never be signed anyway;
+    refusing it now says so at start-up instead of at install time.
+    """
+
+    names: tuple[str, ...] = ()
+    cert_dir: Path = ENGINE_DIR / "data" / "tls"
+
+    @classmethod
+    def parse(cls, raw: dict[str, Any] | None, where: str,
+              default_dir: Path) -> "TlsConfig":
+        raw = raw or {}
+        unknown = sorted(set(raw) - {"names", "cert_dir"})
+        if unknown:
+            raise ConfigError(f"{where}: unknown key(s) {unknown}")
+        names = raw.get("names") or []
+        if not isinstance(names, list) or not names:
+            raise ConfigError(
+                f"{where}.names: expected a list of addresses, such as "
+                f"[192.168.1.20, 127.0.0.1, localhost]")
+        out: list[str] = []
+        for i, name in enumerate(names):
+            text = str(name).strip()
+            if text.lower() == "localhost":
+                text = "localhost"
+            else:
+                try:
+                    text = str(ipaddress.ip_address(text))
+                except ValueError:
+                    raise ConfigError(
+                        f"{where}.names[{i}]: {text!r} is not an IP address "
+                        f"or localhost. The site certificate only covers "
+                        f"addresses, never a domain name") from None
+            if text not in out:
+                out.append(text)
+        return cls(
+            names=tuple(out),
+            cert_dir=_resolve(raw.get("cert_dir"), default_dir),
+        )
+
+
+@dataclass(frozen=True)
 class StorageConfig:
     database_url: str = "sqlite:///engine/data/visionguard.db"
     clips_dir: Path = ENGINE_DIR / "data" / "clips"
@@ -1281,6 +1331,9 @@ class EngineConfig:
     ask: AskConfig = field(default_factory=AskConfig)
     # How alerts leave the building. Who receives them lives in the database.
     alerts: AlertsConfig = field(default_factory=AlertsConfig)
+    # The site certificate's names. None on a development machine, where
+    # there is no HTTPS front and System Health says "not set up".
+    tls: TlsConfig | None = None
 
     def camera(self, camera_id: str) -> CameraConfig | None:
         return next((c for c in self.cameras if c.id == camera_id), None)
@@ -1319,13 +1372,26 @@ def _apply_camera_override(cameras: tuple[CameraConfig, ...]) -> tuple[CameraCon
     )
 
 
+def site_home() -> Path | None:
+    """`VG_HOME`, the site's data folder, or None on a development machine.
+
+    Set by the Windows service (`C:\\VisionGuard\\data`). It holds the site's
+    `engine.yaml` and `.env`, so replacing the program folder on an update
+    never touches a site's settings or camera passwords.
+    """
+    raw = os.environ.get("VG_HOME", "").strip()
+    return Path(raw) if raw else None
+
+
 def load(path: Path | str | None = None) -> EngineConfig:
     """Read engine.yaml, expand env vars, validate, return a frozen config."""
-    cfg_path = Path(path) if path else ENGINE_DIR / "engine.yaml"
+    home = site_home()
+    base = home if home is not None else ENGINE_DIR
+    cfg_path = Path(path) if path else base / "engine.yaml"
     if not cfg_path.is_file():
         raise ConfigError(f"no config at {cfg_path}")
 
-    _load_dotenv(ENGINE_DIR / ".env")
+    _load_dotenv(base / ".env")
 
     raw = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
     raw = _expand(raw, "engine.yaml")
@@ -1426,6 +1492,12 @@ def load(path: Path | str | None = None) -> EngineConfig:
         vehicles=VehiclesConfig.parse(raw.get("vehicles"), "vehicles"),
         ask=AskConfig.parse(raw.get("ask"), "ask"),
         alerts=AlertsConfig.parse(raw.get("alerts"), "alerts"),
+        tls=(
+            TlsConfig.parse(
+                raw["tls"], "tls",
+                (home / "tls") if home is not None else TlsConfig.cert_dir)
+            if raw.get("tls") is not None else None
+        ),
     )
 
 

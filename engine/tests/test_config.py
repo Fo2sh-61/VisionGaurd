@@ -8,6 +8,7 @@ Run:  python -m pytest engine/tests -q
 
 from __future__ import annotations
 
+import os
 import sys
 from datetime import datetime, time as dtime
 from pathlib import Path
@@ -514,3 +515,71 @@ class TestAlertsConfig:
         for key in ("gmail_user", "gmail_app_password", "api_key"):
             with pytest.raises(cfg.ConfigError, match="unknown key"):
                 cfg.AlertsConfig.parse({key: "x"}, "alerts")
+
+
+# --- tls and VG_HOME (spec 016) ---------------------------------------------
+
+class TestTls:
+    """The names the site certificate covers. Addresses only."""
+
+    def test_an_absent_block_is_none(self, loaded):
+        # The committed file is a development machine: no HTTPS front.
+        assert loaded.tls is None
+
+    def test_names_and_folder_parse(self, tmp_path):
+        tls = cfg.TlsConfig.parse(
+            {"names": ["192.168.1.20", "127.0.0.1", "LOCALHOST", "127.0.0.1"],
+             "cert_dir": str(tmp_path)},
+            "tls", tmp_path / "unused")
+        assert tls.names == ("192.168.1.20", "127.0.0.1", "localhost")
+        assert tls.cert_dir == tmp_path
+
+    def test_the_folder_defaults_to_the_one_given(self, tmp_path):
+        tls = cfg.TlsConfig.parse({"names": ["127.0.0.1"]}, "tls", tmp_path)
+        assert tls.cert_dir == tmp_path
+
+    def test_a_domain_name_is_refused_with_its_position(self, tmp_path):
+        with pytest.raises(cfg.ConfigError, match=r"tls\.names\[1\].*not an IP"):
+            cfg.TlsConfig.parse(
+                {"names": ["127.0.0.1", "school.example"]}, "tls", tmp_path)
+
+    def test_an_empty_list_is_refused(self, tmp_path):
+        with pytest.raises(cfg.ConfigError, match="list of addresses"):
+            cfg.TlsConfig.parse({"names": []}, "tls", tmp_path)
+
+    def test_an_unknown_key_is_refused(self, tmp_path):
+        with pytest.raises(cfg.ConfigError, match="unknown key"):
+            cfg.TlsConfig.parse(
+                {"names": ["127.0.0.1"], "key": "x"}, "tls", tmp_path)
+
+
+class TestSiteHome:
+    """`VG_HOME` moves engine.yaml and .env to the site's data folder."""
+
+    def _home(self, tmp_path):
+        yaml_text = (cfg.ENGINE_DIR / "engine.yaml").read_text(encoding="utf-8")
+        yaml_text += "\ntls:\n  names: [127.0.0.1, localhost]\n"
+        (tmp_path / "engine.yaml").write_text(yaml_text, encoding="utf-8")
+        (tmp_path / ".env").write_text("VG_TEST_HOME_ONLY=from-home\n",
+                                       encoding="utf-8")
+        return tmp_path
+
+    def test_set_reads_both_files_from_it(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("VG_HOME", str(self._home(tmp_path)))
+        # setenv first so teardown removes what load() puts there.
+        monkeypatch.setenv("VG_TEST_HOME_ONLY", "")
+        monkeypatch.delenv("VG_TEST_HOME_ONLY")
+        loaded = cfg.load()
+        assert loaded.tls is not None and loaded.tls.names == ("127.0.0.1", "localhost")
+        assert loaded.tls.cert_dir == tmp_path / "tls"
+        assert os.environ.get("VG_TEST_HOME_ONLY") == "from-home"
+
+    def test_set_but_empty_is_refused_plainly(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("VG_HOME", str(tmp_path))
+        with pytest.raises(cfg.ConfigError, match="no config at"):
+            cfg.load()
+
+    def test_unset_changes_nothing(self, monkeypatch):
+        monkeypatch.delenv("VG_HOME", raising=False)
+        assert cfg.site_home() is None
+        assert cfg.load().tls is None

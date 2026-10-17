@@ -39,6 +39,15 @@ api:
     - http://localhost:5174
   poll_seconds: 5.0
 
+# The site certificate (spec 016). Absent on a development machine; System
+# Health then says "not set up". On a site, list the workstation's LAN address,
+# 127.0.0.1 and localhost, then run `python engine/tools/site_cert.py site
+# --root E:\`. Only IP addresses and localhost are allowed: the site root is
+# limited to private addresses.
+# tls:
+#   names: [192.168.1.20, 127.0.0.1, localhost]
+#   cert_dir: C:\VisionGuard\data\tls   # default: <VG_HOME>/tls, else engine/data/tls
+
 storage:
   database_url: sqlite:///engine/data/visionguard.db
   clips_dir: engine/data/clips

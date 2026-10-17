@@ -67,6 +67,11 @@ onnx>=1.17                  # read graph metadata out of the .onnx files
 # with no GEMINI_API_KEY set the import is never reached.
 google-genai>=1.0
 
+# --- site ------------------------------------------------------------------
+cryptography>=50            # tools/site_cert.py makes the site's root and
+                            # HTTPS certificate. Already pulled in by
+                            # google-auth; named here so it cannot vanish
+
 # --- dev / CI --------------------------------------------------------------
 pytest>=8.0
 pyflakes>=3.2               # catches a name used but never bound, in ~1s. That
