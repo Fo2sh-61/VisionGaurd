@@ -39,7 +39,8 @@ check `git diff --stat`.
 
 ## Phase 1: Setup
 
-- [ ] T001 **(no gate)** When spec 016 is planned, carry plan.md section C (`tls.names`
+- [x] T001 **(no gate)** *(done 17 Oct 2026: 016 plan.md "020's needs, traced"; 016
+      tasks.md Phase 1 is this spec's gate)* When spec 016 is planned, carry plan.md section C (`tls.names`
       from configuration with the LAN and NetBird addresses; devices trust a fixed root;
       root key not kept on the workstation) and section D into
       `specs/016-pilot-site-readiness/plan.md`. Section D covers: two app addresses; proxy

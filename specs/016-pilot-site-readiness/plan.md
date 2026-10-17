@@ -287,8 +287,9 @@ password-free developer sign-in is deleted.
      cascades to embeddings), `sighting`, `anchor`, `appearance_sighting`, and an `erasure`
      row that lists the files still to delete.
   4. Delete the files, then mark the row done.
-- An interrupted erasure is finished by the maintenance thread at the next start. Until
-  then People says "erasure not finished".
+- An interrupted erasure is finished at the next engine start (startup, not the
+  maintenance thread, so erasure needs nothing else). Until then People says "erasure not
+  finished".
 - The gallery reloads at once (P3-FR-007, as today). A live follow of that person on Track
   stops showing the name and drops its recording. An open enrolment for them is cancelled.
 - Audit entries mentioning the person stay (P3-FR-006).
@@ -433,7 +434,7 @@ engine/tools/serve.py       # rotating log file, proxy-header trust, start-failu
 engine/vg/config.py         # tls block; VG_HOME
 engine/vg/migrations.py     # new
 engine/vg/settings_store.py # new: SettingsStore (site_setting)
-engine/vg/maintenance.py    # new: clean-up, backup, unfinished erasures
+engine/vg/maintenance.py    # new: clean-up, backup
 engine/vg/auth/store.py     # update_user + last-admin guard
 engine/vg/api/app.py        # PATCH /users/{id}, PUT /settings/*, erasure, startup order
 engine/vg/api/live.py       # profile getter, health rows, erase_person

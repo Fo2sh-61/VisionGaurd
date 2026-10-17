@@ -52,7 +52,7 @@ The time zone stays in `engine.yaml`. It cannot be edited.
 | `finished_at` | TEXT NULL | NULL until every file is gone |
 
 - It is written in the same transaction that deletes the rows.
-- The maintenance thread finishes any unfinished row at start.
+- The engine finishes any unfinished row at start.
 
 ## Changes to existing shapes
 
