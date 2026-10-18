@@ -127,7 +127,8 @@ Run $Python @('-m', 'pip', 'install', '-r', (Join-Path $App 'engine\requirements
 # The cu12 line only: the cu13 wheel segfaults while building (models/README.md).
 Run $Python @('-m', 'pip', 'install', 'tensorrt_cu12_bindings', 'tensorrt_cu12_libs', 'tensorrt-cu12') 'installing TensorRT failed'
 # The appearance matcher person tracking uses. Code, not a model (P10-FR-002).
-Run $Python @('-m', 'pip', 'install', (Join-Path $App 'models\reid\loiterwatch')) 'installing the appearance matcher failed'
+# From the kit: step 1 leaves app\models out, and the models arrive in step 4.
+Run $Python @('-m', 'pip', 'install', (Join-Path $KitApp 'models\reid\loiterwatch')) 'installing the appearance matcher failed'
 Ok 'packages installed'
 
 # --- 4. models -----------------------------------------------------------------
