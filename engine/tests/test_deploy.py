@@ -203,6 +203,13 @@ class TestInstallForSetup:
         assert ";;;SY)" in text and ";;;BA)" in text
         assert "anyone signed in at this PC may stop and start $name" in text
 
+    def test_the_site_gets_the_ultralytics_that_was_tested(self):
+        """19 Oct 2026: '>=8.4.127' let a site install 8.4.182, whose CUDA-graph
+        capture broke when two features loaded at once, and the engine stopped."""
+        req = (REPO_DIR / "engine" / "requirements.txt").read_text(encoding="utf-8")
+        line = next(ln for ln in req.splitlines() if ln.startswith("ultralytics"))
+        assert re.match(r"ultralytics==\d+\.\d+\.\d+\s", line + " "), line
+
     def test_users_may_read_the_startup_task_and_nothing_more(self):
         """Without this a normal user's VisionGuard Control could only say it
         cannot tell; with more than read, a user could change what SYSTEM runs."""

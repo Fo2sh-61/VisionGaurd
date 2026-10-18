@@ -105,6 +105,47 @@ class TestStartFailure:
         assert "recognition failed to start" in text
         assert "sface.onnx is missing" in text
 
+    # The workstation, 19 Oct 2026: a CUDA error whose message runs over several
+    # lines, chained under the strict stop. The last line of the traceback was
+    # NVIDIA's debugging tip, and that is what the line and the window showed.
+    CHAINED = (
+        "Traceback (most recent call last):\n"
+        '  File "torch/nn/modules/module.py", line 1212, in <lambda>\n'
+        "    return self._apply(lambda t: t.half())\n"
+        "torch.AcceleratorError: CUDA error: operation failed due to a previous error during capture\n"
+        "Search for `cudaErrorStreamCaptureInvalidated' in https://docs.nvidia.com/cuda/ for more information.\n"
+        "CUDA kernel errors might be asynchronously reported at some other API call.\n"
+        "For debugging consider passing CUDA_LAUNCH_BLOCKING=1\n"
+        "Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.\n"
+        "\n"
+        "\n"
+        "The above exception was the direct cause of the following exception:\n"
+        "\n"
+        "Traceback (most recent call last):\n"
+        '  File "vg/api/app.py", line 1757, in _reraise_if_strict\n'
+        "    raise RuntimeError(\n"
+        "RuntimeError: fall detection failed to start and VG_STRICT=1 is set: AcceleratorError: "
+        "CUDA error: operation failed due to a previous error during capture\n"
+        "Search for `cudaErrorStreamCaptureInvalidated' in https://docs.nvidia.com/cuda/ for more information.\n"
+        "Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.\n"
+    )
+
+    def test_a_many_line_error_still_names_what_failed(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("VG_LOGS", str(tmp_path))
+
+        def fake(*_, **kw):
+            logging.config.dictConfig(kw["log_config"])
+            logging.getLogger("uvicorn.error").error(self.CHAINED)
+            logging.getLogger("uvicorn.error").error("Application startup failed. Exiting.")
+            sys.exit(3)
+
+        with pytest.raises(SystemExit):
+            _run(monkeypatch, fake)
+        text = (tmp_path / "start-failure.txt").read_text(encoding="utf-8")
+        assert "RuntimeError: fall detection failed to start" in text
+        assert "operation failed due to a previous error during capture" in text
+        assert "TORCH_USE_CUDA_DSA" not in text
+
     def test_an_exception_out_of_uvicorn_is_recorded(self, tmp_path, monkeypatch):
         monkeypatch.setenv("VG_LOGS", str(tmp_path))
 

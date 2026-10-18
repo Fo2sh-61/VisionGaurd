@@ -32,6 +32,7 @@ import argparse
 import copy
 import logging
 import os
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -49,6 +50,9 @@ def logs_dir() -> Path | None:
     """`VG_LOGS`, set by the service. None for development."""
     raw = os.environ.get("VG_LOGS", "").strip()
     return Path(raw) if raw else None
+
+
+_EXCEPTION_HEAD = re.compile(r"^[A-Za-z_][\w.]*(Error|Exception|Exit|Interrupt)(: |$)")
 
 
 class FirstError(logging.Handler):
@@ -70,8 +74,14 @@ class FirstError(logging.Handler):
             exc = record.exc_info[1]
             self.reason = f"{type(exc).__name__}: {exc}"
             return
-        lines = [ln.strip() for ln in record.getMessage().splitlines() if ln.strip()]
-        self.reason = lines[-1] if lines else None
+        # The last exception header, not the last line: a CUDA error's message
+        # runs over several lines, and on 19 Oct 2026 the last one was NVIDIA's
+        # debugging tip, which is all the window then showed. A header starts
+        # the line with the exception's name; frames and message lines do not.
+        raw = record.getMessage().splitlines()
+        heads = [ln.strip() for ln in raw if _EXCEPTION_HEAD.match(ln)]
+        lines = [ln.strip() for ln in raw if ln.strip()]
+        self.reason = heads[-1] if heads else (lines[-1] if lines else None)
 
 
 def log_config(logs: Path | None, watch: FirstError) -> dict:

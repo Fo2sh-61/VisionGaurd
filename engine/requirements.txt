@@ -15,7 +15,14 @@
 # `track_buffer` is now raw frames, which `infer/tracking.py` depends on. An
 # older version silently gives a lost-track window frame_rate/30 of the one
 # asked for. See models/README.md.
-ultralytics>=8.4.127        # YOLOv8/11 + YOLO-World + built-in ByteTrack
+# PINNED EXACTLY, not ">=": a site installs whatever this line allows, and on
+# 19 Oct 2026 the workstation got 8.4.182, which nobody had run. Its TensorRT
+# backend records each engine's first run as a CUDA graph; any other GPU work in
+# the process during that recording - fall detection loading while person
+# detection already runs - breaks it ("operation failed due to a previous error
+# during capture") and the engine stopped at start. Move this only after the
+# install drill passes with the new version.
+ultralytics==8.4.127        # YOLOv8/11 + YOLO-World + built-in ByteTrack
 # UPPER BOUND IS LOAD-BEARING. OpenCV 5.0's rewritten DNN graph engine ignores
 # setPreferableTarget - it logs "Targets are not supported by the new graph
 # engine for now" and YuNet/SFace silently run on a path nobody chose. Face
