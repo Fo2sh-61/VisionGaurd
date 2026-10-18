@@ -64,3 +64,16 @@ D4 is set aside for now by Mohamed's decision (the laptop is not kept on day and
   `logs\start-failure.txt` named what failed (person detection, the TensorRT plan).
   Both apps showing "engine is not running" was not checked by eye.
 - Not yet: D1, D2, D6, D7, D8, and Q1–Q3.
+
+**Install drills 2 and 3, same day: running it again.**
+
+- From kit `v0.16.0-drill2`: step 4 found every copied plan stale and rebuilt it
+  (person and pose were already rebuilt). Step 6 then stopped on WinSW `refresh`, which
+  2.12 does not have; fixed in `0342c79`.
+- From the installed copy, `C:\VisionGuard\app\deploy\install.ps1`: every step ran or
+  skipped as it should. The services were kept and updated, the administrator was kept,
+  the firewall rules were kept, and the Public-network warning named the Wi-Fi.
+  `https://localhost/healthz` answered and the engine started with both cameras and
+  TensorRT. "Safe to run twice" holds.
+- `search` (the old bag model nothing loads) fails to build because the `clip` package is
+  missing. The step goes on and the summary says so; nothing depends on it.

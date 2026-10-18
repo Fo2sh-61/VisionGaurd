@@ -178,7 +178,7 @@ On the workstation, drills D1, D3, D4 and D5 pass (Mohamed checks by eye).
   - Done as far as a machine without models allows: the camera stage is passed and
     the first stop is a model, never the camera. Also found and fixed: a config that
     failed to load served fixtures even under `VG_STRICT=1`. Full start is drill D5
-- [ ] T019 [US2] Create `deploy/install.ps1 -Models <folder> -Root <usb>` with plan D's steps
+- [X] T019 [US2] Create `deploy/install.ps1 -Models <folder> -Root <usb>` with plan D's steps
       1–8:
   - Python 3.14 from the kit if missing;
   - `app\.venv` with torch, `requirements.txt` and TensorRT;
@@ -195,8 +195,9 @@ On the workstation, drills D1, D3, D4 and D5 pass (Mohamed checks by eye).
     for the first `engine.yaml` (storage under `data\`, cameras, `tls.names`), the
     loiterwatch install, and a firewall rule for TCP 443/8443. Proven by drill D1–D5
   - First run 18 Oct 2026 on the workstation (quickstart, Results): steps 1–9 ran; the
-    faults it showed are fixed in `cfab60e` and `55a06fd`. Still to prove: a second run
-    from the installed copy ("safe to run twice")
+    faults it showed are fixed in `cfab60e` and `55a06fd`. Second and third runs the same
+    day (from a new kit, then from the installed copy) proved "safe to run twice" after
+    `0342c79`
 - [X] T020 [US2] Create `tools/make_release.ps1 <tag>`:
   - `git archive` of `engine/` and `deploy/` at the tag;
   - `npm run build` in `web/` and `mobile/`, copying both `dist/` folders;
