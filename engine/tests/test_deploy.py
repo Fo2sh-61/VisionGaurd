@@ -350,11 +350,16 @@ class TestUninstall:
         assert "'visionguard-engine', 'visionguard-front'" in text
         assert "Stop-Service" in text and "uninstall" in text and "sc.exe delete" in text
 
-    def test_removes_both_firewall_rules(self):
+    def test_removes_its_firewall_rules(self):
         text = _script("uninstall.ps1")
-        assert "foreach ($port in 443, 8443)" in text
-        assert '"VisionGuard HTTPS $port"' in text
+        assert ("foreach ($rule in 'VisionGuard HTTPS 443', 'VisionGuard HTTPS 8443', "
+                "'VisionGuard remote access (NetBird)')") in text
         assert "Remove-NetFirewallRule" in text
+
+    def test_says_netbird_stays_until_the_owner_removes_it(self):
+        text = _script("uninstall.ps1")
+        assert "NetBird stays installed and connected" in text
+        assert "netbird.exe uninstall" not in text.lower()
 
     def test_removes_the_root_by_its_exact_subject(self):
         text = _script("uninstall.ps1")
@@ -391,3 +396,72 @@ class TestUninstall:
     @needs_powershell
     def test_parses(self):
         assert _parse_errors("uninstall.ps1") == ""
+
+
+class TestRemoteAccess:
+    """Step 5 joins NetBird, step 6 opens the firewall for it (spec 020)."""
+
+    @staticmethod
+    def step5() -> str:
+        return _script("install.ps1").split("Step 5", 1)[1].split("Step 6", 1)[0]
+
+    def test_the_key_leaves_the_environment_before_step_1(self):
+        text = _script("install.ps1")
+        cleared = text.index(r"Remove-Item Env:\VG_NETBIRD_SETUP_KEY")
+        assert text.index("$netbirdKey = $env:VG_NETBIRD_SETUP_KEY") < cleared < text.index("Step 1 ")
+
+    def test_the_key_reaches_netbird_only_through_its_environment(self):
+        step5 = self.step5()
+        assert "--setup-key" not in _script("install.ps1")
+        assert "$env:NB_SETUP_KEY = $netbirdKey" in step5
+        up = step5.index("& $netbird up")
+        assert step5.index("$env:NB_SETUP_KEY = $netbirdKey") < up
+        assert step5.index(r"Remove-Item Env:\NB_SETUP_KEY", up) > up
+        assert "finally" in step5[up - 40:up + 200]
+        # never echoed or put on an argument list
+        for line in step5.splitlines():
+            if "$netbirdKey" in line:
+                assert "Write-Host" not in line and "@(" not in line
+
+    def test_netbird_output_is_never_redirected_under_stop(self):
+        # Windows PowerShell turns a native program's redirected error output
+        # into a terminating error when ErrorActionPreference is Stop.
+        step5 = self.step5()
+        assert "& $netbird up 2>" not in step5
+        status = step5.split("function Get-NetbirdStatus", 1)[1].split("}", 1)[0]
+        assert "$ErrorActionPreference = 'Continue'" in status
+
+    def test_the_netbird_service_starts_with_windows(self):
+        assert "Set-Service -Name netbird -StartupType Automatic" in self.step5()
+
+    def test_netbird_is_installed_from_the_kit_never_downloaded(self):
+        step5 = self.step5()
+        assert "netbird_installer_*_windows_amd64.msi" in step5
+        assert "'/quiet'" in step5
+        assert "Invoke-WebRequest" not in step5 and "http" not in step5.split("Ok \"remote")[0]
+
+    def test_its_address_is_added_to_the_certificate_before_it_is_made(self):
+        step5 = self.step5()
+        assert step5.index("tls_names.py'), 'add', $netbirdIp") < step5.index("site_cert.py'), 'site'")
+
+    def test_a_key_that_does_not_connect_stops_with_a_plain_reason(self):
+        step5 = self.step5()
+        assert "Stop-Install (\"NetBird did not connect: $why." in step5
+        assert "each key works once, for one day" in step5
+
+    def test_the_firewall_opens_the_two_ports_to_netbird_only(self):
+        step6 = _step6()
+        rule = step6.split("New-NetFirewallRule -DisplayName $remoteRule", 1)[1].split("| Out-Null", 1)[0]
+        assert "-LocalPort 443, 8443" in rule
+        assert "-RemoteAddress 100.64.0.0/10" in rule
+        assert "-InterfaceAlias $nbAlias" in rule
+        assert "-Profile Any" in rule and "-Direction Inbound" in rule
+        assert "8000" not in step6
+
+    def test_windows_own_allow_rules_for_our_programs_are_turned_off_not_deleted(self):
+        step6 = _step6()
+        assert "Get-NetFirewallApplicationFilter" in step6
+        assert "Disable-NetFirewallRule -Name $stray.Name" in step6
+        assert "Remove-NetFirewallRule -Name $stray" not in step6
+        assert "$stray.DisplayName -notlike 'VisionGuard*'" in step6
+        assert r"(Join-Path $App 'bin\caddy.exe')" in step6

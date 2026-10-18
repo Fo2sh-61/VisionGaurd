@@ -77,7 +77,7 @@ Use the private address away from the factory, or the LAN address inside it.
 3. **Add the one rule that is allowed.**
    1. In the NetBird dashboard open **Access Control → Policies → Add policy**.
    2. Source: `operators`. Destination: `workstation`.
-   3. Protocol: **TCP**. Ports: the two VisionGuard ports from the on-site guide.
+   3. Protocol: **TCP**. Ports: **443** and **8443** (the console and the phone app).
    4. Make it **one direction** if the screen offers it.
    5. Name it `operators to VisionGuard`. Save.
 4. **Remove the open rule.** In **Policies**, delete the policy named **Default** (it lets
@@ -87,24 +87,24 @@ Use the private address away from the factory, or the LAN address inside it.
    1. In the dashboard open **Setup Keys → Create setup key**.
    2. Name it `workstation`. Leave "reusable" **off**. Set expiry to **1 day**.
    3. Set the auto-assigned group to **workstation**, then create it and copy it.
-6. **Install NetBird on the workstation.**
-   1. Download the Windows installer from netbird.io and run it.
-   2. **If NetBird opens a sign-in page or asks you to log in, close it.** Join only with
-      the key. A device joined by signing in drops off after a day.
-   3. Open a **new** PowerShell window **as administrator**. Type `netbird up --setup-key `
-      followed by the key, then press Enter.
-   4. Type `netbird status`. It should say connected and show a NetBird IP like
-      `100.81.4.7`. That is the **private address**; write it on your device list.
+6. **Run VisionGuard Setup on the workstation** (the newest `VisionGuard-Setup-….exe`).
+   1. Go through the pages as usual. On **Remote access (optional)**, paste the key.
+   2. Setup installs NetBird, joins this PC with the key (never through a sign-in page: a
+      device joined by signing in drops off after a day), opens the firewall for NetBird
+      only, and adds the private address to the site certificate.
+   3. The last page says **"Away from the site, enrolled devices open: https://100.x.x.x/
+      … and https://100.x.x.x:8443/"**. That `100.x.x.x` is the **private address**; write
+      it on your device list.
+   4. **If NetBird opens a sign-in page or asks you to log in, close it.**
+   5. If Setup stops with "NetBird did not connect", make a new key (each works once, for
+      one day) and run Setup again.
 7. **Tidy the dashboard.**
    1. In **Peers**, rename the new device to `workstation`.
    2. In **Setup Keys**, delete the key if it is still listed.
-8. **Lock the door.** In PowerShell as administrator, in the VisionGuard folder:
-   1. Run `.\tools\remote-firewall.ps1`. It only prints what it would do. Read it.
-   2. Run `.\tools\remote-firewall.ps1 -Apply`.
-   3. From an office PC, open `https://` + the LAN address. It must still work.
-   4. If it does not, run `.\tools\remote-firewall.ps1 -Undo` and tell the developer.
-9. **Add the private address to the certificate.** Follow the on-site guide's "certificate
-   names" step (spec 016): add the private address next to the LAN address.
+8. **Check the office still works.** From an office PC, open `https://` + the LAN
+   address. It must still work. Setup also turned off any rule Windows made by itself
+   that opened VisionGuard on **Public** networks; the office uses a Private network.
+9. *(Setup did this in step 6: the private address is on the certificate.)*
 10. **Push keys.** Follow the on-site guide's "make push keys" step. Check that the backup
     includes the `.env` file; losing it means every phone must switch notifications on
     again.

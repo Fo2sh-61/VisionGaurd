@@ -59,8 +59,7 @@ if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
 
 # --- 3. firewall -----------------------------------------------------------------------
 Step 3 'Firewall'
-foreach ($port in 443, 8443) {
-    $rule = "VisionGuard HTTPS $port"
+foreach ($rule in 'VisionGuard HTTPS 443', 'VisionGuard HTTPS 8443', 'VisionGuard remote access (NetBird)') {
     if (Get-NetFirewallRule -DisplayName $rule -ErrorAction SilentlyContinue) {
         try { Remove-NetFirewallRule -DisplayName $rule -ErrorAction Stop; Ok "removed the firewall rule '$rule'" }
         catch { Warn "could not remove the firewall rule '$rule': $($_.Exception.Message)" }
@@ -92,6 +91,13 @@ foreach ($link in @('C:\Users\Public\Desktop\VisionGuard.lnk', 'C:\Users\Public\
     } else {
         Skip "no $link"
     }
+}
+
+# NetBird is its own program (Settings > Apps lists it), and this PC stays in the
+# site's private network until its device is deleted in the NetBird dashboard.
+if (Test-Path (Join-Path $env:ProgramFiles 'NetBird\netbird.exe')) {
+    Warn ('NetBird stays installed and connected. To take this PC off the private network, ' +
+          'delete it in the NetBird dashboard, then remove NetBird in Settings > Apps.')
 }
 
 Write-Host "`n  Your data folder was kept: $Data`n  (faces, database and settings). Delete it yourself only if you are sure.`n"

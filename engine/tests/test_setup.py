@@ -141,6 +141,30 @@ class TestScript:
         assert r"DataDir + '\engine.yaml'" in iss
         assert r"DataDir + '\visionguard.db'" in iss
 
+    def test_remote_access_page_is_optional_and_masked(self, iss):
+        """Spec 020: a NetBird setup key joins this PC to the site's private network."""
+        assert "RemotePage.Add('NetBird setup key:', True)" in iss
+        assert "Leave it empty" in iss
+        assert "(Key <> '') and" in iss          # empty is allowed
+
+    def test_the_netbird_key_never_reaches_a_command_line(self, iss):
+        for name in ("Run", "UninstallRun", "Icons", "Registry"):
+            assert "VG_NETBIRD_SETUP_KEY" not in "\n".join(section(iss, name))
+        code = "\n".join(section(iss, "Code"))
+        assert "SetEnvironmentVariableW('VG_NETBIRD_SETUP_KEY', Trim(RemotePage.Values[0]))" in code
+        assert "SetEnvironmentVariableW('VG_NETBIRD_SETUP_KEY', '')" in code
+        params = [ln for ln in code.splitlines() if "Params" in ln]
+        assert not any("RemotePage" in ln for ln in params)
+        assert "RemotePage" not in "".join(ln for ln in code.splitlines() if "SaveStringToFile" in ln)
+
+    def test_the_finish_page_gives_the_remote_addresses(self, iss):
+        assert "Pos('remote addresses:', S)" in iss
+        assert "Away from the site, enrolled devices open: ' + RemoteLine" in iss
+
+    def test_the_uninstall_says_netbird_stays(self, iss):
+        assert r"{commonpf}\NetBird\netbird.exe" in iss
+        assert "delete it in the NetBird dashboard" in iss
+
 
 class TestReleaseScript:
     def test_it_parses(self):
@@ -161,6 +185,11 @@ class TestReleaseScript:
         assert "[string]$Iscc" in text
         assert "/DKitDir=$Out" in text and "/DAppVersion=$Tag" in text
         assert "VisionGuard-Setup-$Tag.exe" in text
+
+    def test_the_kit_must_carry_the_netbird_installer(self):
+        """Remote access (spec 020): installed from the kit, checked by versions.txt."""
+        text = RELEASE.read_text(encoding="utf-8")
+        assert "'netbird_installer_*_windows_amd64.msi'" in text
 
 
 @pytest.mark.skipif(not ISCC.exists(), reason=f"Inno Setup 7 is not installed at {ISCC}")

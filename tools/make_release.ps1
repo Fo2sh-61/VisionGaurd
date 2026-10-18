@@ -17,8 +17,10 @@
 #                                  visionguard-control.ico (VisionGuard Control),
 #                                  visionguard-setup.ico (Setup)
 #   <tag>\app\web\dist\  <tag>\app\mobile\dist\   both apps, built
-#   <tag>\app\bin\                 caddy.exe and WinSW-x64.exe, checked
-#                                  against deploy\versions.txt, and
+#   <tag>\app\bin\                 caddy.exe, WinSW-x64.exe and NetBird's
+#                                  Windows installer (remote access, spec
+#                                  020), each checked against
+#                                  deploy\versions.txt, and
 #                                  VisionGuardControl.exe, the icon by the
 #                                  clock, compiled here with the csc.exe that
 #                                  ships with Windows
@@ -106,7 +108,7 @@ try {
         }
         Ok "$file $version, checked"
     }
-    foreach ($need in 'caddy.exe', 'WinSW-x64.exe') {
+    foreach ($need in 'caddy.exe', 'WinSW-x64.exe', 'netbird_installer_*_windows_amd64.msi') {
         if (-not (Test-Path (Join-Path $App "bin\$need"))) { Fail "versions.txt names no file giving bin\$need." }
     }
 

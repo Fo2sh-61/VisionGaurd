@@ -173,20 +173,31 @@ real password, and guessing is stopped.
 **Independent test**: drills D1 (first half), D1-PC, D2–D7, D11 on the pilot workstation
 with 016 installed.
 
-- [ ] T018 [US1] Create `tools/remote-firewall.ps1`:
-  - for each console port, one rule from `LocalSubnet` and one from `100.64.0.0/10`
-    limited by `-InterfaceAlias` to the NetBird adapter (found by its 100.64 address), both
-    `-Profile Any`;
-  - it lists inbound allow rules opening the console ports, the front's program or Python
-    to any address, and disables them only with `-Apply`;
-  - without `-Apply` it only prints;
-  - `-Undo` removes its rules and re-enables what it disabled;
-  - ports are arguments, defaulting to 016's; port 8000 is never opened.
-  - Check on a Windows 11 PC with `Get-NetFirewallRule | Get-NetFirewallAddressFilter`, and
-    from an office PC on the LAN afterwards
-- [ ] T019 [US1] Confirm 016's certificate step reads `tls.names`, accepts IP addresses, and
+- [x] T018 [US1] ~~Create `tools/remote-firewall.ps1`~~ **Replaced by Setup (decision 4,
+      19 Oct 2026)**: nobody at the site types a command, so `deploy/install.ps1` does it.
+  - Step 5: with a key from Setup's "Remote access" page, installs NetBird from the kit
+    (`appin
+etbird_installer_*.msi`, pinned in `deploy/versions.txt`), sets its service to
+    start with Windows, joins with the key in `NB_SETUP_KEY` (never a command line), and
+    adds the NetBird address to `tls.names` (`engine/tools/tls_names.py`) before the
+    certificate is made.
+  - Step 6: one rule, TCP 443 and 8443 from `100.64.0.0/10`, on the NetBird adapter only,
+    every profile; and Windows' own "Query User" allow rules for `caddy.exe` or the app's
+    Python are turned off. **Found on this laptop**: two such rules opened Caddy to everyone
+    on Public networks.
+  - The LAN rules stay 016's (Private and Domain only); port 8000 is never opened.
+    `deploy/uninstall.ps1` removes the NetBird rule; NetBird itself stays (it says so).
+  - Static tests in `test_deploy.py` and `test_setup.py`; the wizard compiles. Not yet run
+    on the workstation: that is drill D5/D11
+- [x] T019 [US1] Confirm 016's certificate step reads `tls.names`, accepts IP addresses, and
       lists the LAN and NetBird addresses; that only the root's public `.crt` is handed to
       devices; and that the root key is not left on the workstation
+  - Confirmed in code: `site_cert.py site` reads `tls.names` (IP addresses and `localhost`
+    only), the root allows 100.64/10, Setup reads the root from the USB folder each run and
+    writes only `site.crt`/`site.key`. The NetBird address is added by step 5 above.
+  - **The LAN address in `tls.names` is out of date on this laptop**: 192.168.1.5 is listed,
+    the Wi-Fi now has 192.168.1.3 (the router gave a new address). A DHCP reservation
+    (checklist B1) is the fix; until then LAN phones see a certificate warning
 - [ ] T020 [US1] Walk owner-checklist parts A, B (except B11), C (except C8), D (except D8
       and D9), E and F on the pilot. Mohamed follows the text alone; the developer only
       times him and notes where he stumbles. Fix every step whose screen or wording

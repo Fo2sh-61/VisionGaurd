@@ -3,9 +3,10 @@
 ;   ISCC.exe /DKitDir=<release\tag> /DAppVersion=<tag> /O<release> VisionGuard.iss
 ;
 ; The wizard asks four things (models folder, USB key folder, site settings
-; folder, first administrator), unpacks the kit to C:\VisionGuard\app and
-; runs deploy\install.ps1 hidden, with the password in an environment
-; variable of that one process and nowhere else. Uninstall runs
+; folder, first administrator), and optionally a NetBird setup key for remote
+; access (spec 020). It unpacks the kit to C:\VisionGuard\app and runs
+; deploy\install.ps1 hidden, with the password and the key in environment
+; variables of that one process and nowhere else. Uninstall runs
 ; deploy\uninstall.ps1 and never touches C:\VisionGuard\data.
 
 #ifndef KitDir
@@ -78,9 +79,9 @@ function SetEnvironmentVariableW(Name, Value: String): Boolean;
 
 var
   ModelsPage, KeyPage, SitePage: TInputDirWizardPage;
-  AdminPage: TInputQueryWizardPage;
+  AdminPage, RemotePage: TInputQueryWizardPage;
   InstallRan, InstallFailed: Boolean;
-  StoppedReason, WarningLines: String;
+  StoppedReason, WarningLines, RemoteLine: String;
 
 function InstallSucceeded: Boolean;
 begin
@@ -139,6 +140,17 @@ begin
   AdminPage.Add('Full name:', False);
   AdminPage.Add('Password:', True);
   AdminPage.Add('Password again:', True);
+
+  { Spec 020. Optional: empty skips it, and a second run needs no new key once
+    this PC is connected. The key is a secret for a day, so it is masked. }
+  RemotePage := CreateInputQueryPage(AdminPage.ID,
+    'Remote access (optional)',
+    'Reach VisionGuard from outside the site?',
+    'Paste a NetBird setup key to join this PC to the site''s private network. Phones and ' +
+    'laptops the owner enrolls can then open VisionGuard from anywhere; nothing else can. ' +
+    'Make the key in the NetBird dashboard: one-off, 1 day, group "workstation".' + #13#10#13#10 +
+    'Leave it empty if remote access is not wanted, or is already connected.');
+  RemotePage.Add('NetBird setup key:', True);
 end;
 
 function ShouldSkipPage(PageID: Integer): Boolean;
@@ -152,7 +164,7 @@ end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
 var
-  Email, FullName, Pw: String;
+  Email, FullName, Pw, Key: String;
 begin
   Result := True;
   if CurPageID = ModelsPage.ID then begin
@@ -198,6 +210,14 @@ begin
       MsgBox('The two passwords are not the same. Type them again.', mbError, MB_OK);
       Result := False;
     end;
+  end else if CurPageID = RemotePage.ID then begin
+    Key := Trim(RemotePage.Values[0]);
+    if (Key <> '') and ((Length(Key) < 20) or (Length(Key) > 100) or (Pos(' ', Key) > 0) or
+                        (Pos('"', Key) > 0)) then begin
+      MsgBox('That does not look like a NetBird setup key. Copy the whole key from the ' +
+             'NetBird dashboard, or leave the box empty.', mbError, MB_OK);
+      Result := False;
+    end;
   end;
 end;
 
@@ -234,6 +254,9 @@ begin
     lines starting "WARNING" too, and those are noise on the finish page. }
   if Copy(S, 1, 13) = '    WARNING  ' then
     WarningLines := WarningLines + #13#10 + T;
+  { The addresses enrolled devices use away from the site (spec 020). }
+  if Pos('remote addresses:', S) > 0 then
+    RemoteLine := Trim(Copy(S, Pos('remote addresses:', S) + 17, Length(S)));
   if Pos('STOPPED:', S) > 0 then
     StoppedReason := Trim(Copy(S, Pos('STOPPED:', S) + 8, Length(S)));
 end;
@@ -269,9 +292,12 @@ begin
     Params := Params + ' -AdminEmail ' + Q(Trim(AdminPage.Values[0])) +
               ' -AdminName ' + Q(Trim(AdminPage.Values[1]));
 
-  { The password lives only in this process's environment, which the child inherits. }
+  { The password and the key live only in this process's environment, which
+    the child inherits; install.ps1 takes them out of its own at once. }
   if WithAdmin then
     SetEnvironmentVariableW('VG_ADMIN_PASSWORD', AdminPage.Values[2]);
+  if Trim(RemotePage.Values[0]) <> '' then
+    SetEnvironmentVariableW('VG_NETBIRD_SETUP_KEY', Trim(RemotePage.Values[0]));
   try
     try
       ExecAndLogOutput(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), Params, '',
@@ -282,6 +308,7 @@ begin
     end;
   finally
     SetEnvironmentVariableW('VG_ADMIN_PASSWORD', '');
+    SetEnvironmentVariableW('VG_NETBIRD_SETUP_KEY', '');
   end;
 
   if Code <> 0 then begin
@@ -327,6 +354,9 @@ begin
     end else begin
       WizardForm.FinishedHeadingLabel.Caption := 'VisionGuard is installed';
       WizardForm.FinishedLabel.Caption := 'VisionGuard is installed and running.';
+      if RemoteLine <> '' then
+        WizardForm.FinishedLabel.Caption := WizardForm.FinishedLabel.Caption + #13#10#13#10 +
+          'Away from the site, enrolled devices open: ' + RemoteLine;
       if WarningLines <> '' then
         WizardForm.FinishedLabel.Caption := WizardForm.FinishedLabel.Caption + #13#10#13#10 +
           'Please read:' + WarningLines;
@@ -335,10 +365,18 @@ begin
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  NetBirdNote: String;
 begin
-  if (CurUninstallStep = usDone) and not UninstallSilent then
+  if (CurUninstallStep = usDone) and not UninstallSilent then begin
+    NetBirdNote := '';
+    if FileExists(ExpandConstant('{commonpf}\NetBird\netbird.exe')) then
+      NetBirdNote := #13#10#13#10 + 'NetBird stays installed and this PC stays in the site''s private ' +
+        'network. To take it off, delete it in the NetBird dashboard, then remove NetBird in Settings > Apps.';
     MsgBox('VisionGuard is removed.' + #13#10#13#10 +
            'Your data was kept: ' + DataDir + #13#10 +
-           '(people, faces, recordings and settings). Delete that folder by hand if you no longer need it.',
+           '(people, faces, recordings and settings). Delete that folder by hand if you no longer need it.' +
+           NetBirdNote,
            mbInformation, MB_OK);
+  end;
 end;

@@ -18,15 +18,23 @@
 #            never ask anything; Setup always passes it, because nobody can
 #            see or answer a question in its hidden window.
 #
+# Remote access (spec 020) needs no parameter: when the environment variable
+# VG_NETBIRD_SETUP_KEY holds a NetBird setup key (Setup's "Remote access" page),
+# step 5 installs NetBird from the kit and joins this PC to the site's private
+# network with it. Like the password, the key is never an argument or a file.
+#
 # What it does, in order, stopping at the first step that fails:
 #   1. copies the program to C:\VisionGuard\app, makes data\ and logs\
 #   2. Python 3.14, from the installer in the kit, if it is missing
 #   3. app\.venv with torch, requirements.txt, TensorRT and the appearance
 #      matcher (needs internet)
 #   4. copies the models, checks every one the site needs, builds TensorRT
-#   5. the site certificate, and trusts the root on this machine
-#   6. the two services, folder rights for them, and the startup task that
-#      starts them at boot unless the switch in VisionGuard Control is off
+#   5. remote access (NetBird), when there is a key or it is already here, and
+#      the site certificate - covering the NetBird address too - and trusts the
+#      root on this machine
+#   6. the two services, folder rights for them, the startup task that starts
+#      them at boot unless the switch in VisionGuard Control is off, and the
+#      firewall
 #   7. the first administrator, if there is none
 #   8. one desktop shortcut, "VisionGuard", that opens the console
 #   9. starts both services and waits for https://localhost/healthz
@@ -52,6 +60,9 @@ $ErrorActionPreference = 'Stop'
 # child of steps 1-6 never inherit it. Step 7 hands it to create_user.py alone.
 $adminPassword = $env:VG_ADMIN_PASSWORD
 Remove-Item Env:\VG_ADMIN_PASSWORD -ErrorAction SilentlyContinue
+# The same for the NetBird setup key: step 5 hands it to `netbird up` alone.
+$netbirdKey = $env:VG_NETBIRD_SETUP_KEY
+Remove-Item Env:\VG_NETBIRD_SETUP_KEY -ErrorAction SilentlyContinue
 
 $Home_   = 'C:\VisionGuard'
 $App     = Join-Path $Home_ 'app'
@@ -162,8 +173,77 @@ Run $Python @((Join-Path $App 'engine\tools\check_models.py')) 'a model this sit
 Run $Python @((Join-Path $App 'engine\tools\build_engines.py')) 'building the TensorRT engines failed'
 Ok 'models in place'
 
-# --- 5. certificate ------------------------------------------------------------
-Step 5 'Site certificate'
+# --- 5. remote access and certificate ----------------------------------------------
+Step 5 'Remote access and site certificate'
+# Remote access (spec 020): NetBird joins this PC to the site's private network,
+# so phones and laptops the owner enrolled reach the console from anywhere and
+# nothing else can. There is no public address and nothing opens on the router.
+# Only with a setup key from Setup, or when NetBird is already here.
+$netbird = Join-Path $env:ProgramFiles 'NetBird\netbird.exe'
+$netbirdIp = $null
+function Get-NetbirdStatus {
+    # 'Continue' here: under 'Stop', Windows PowerShell turns a native
+    # program's error output into a terminating error once it is redirected.
+    $ErrorActionPreference = 'Continue'
+    $out = & $netbird status --json 2>$null
+    try { ($out | Out-String) | ConvertFrom-Json } catch { $null }
+}
+if ($netbirdKey -and -not (Test-Path $netbird)) {
+    $msi = Get-ChildItem (Join-Path $App 'bin') -Filter 'netbird_installer_*_windows_amd64.msi' `
+        -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $msi) { Stop-Install "the NetBird installer is missing from the kit ($App\bin)." }
+    $p = Start-Process msiexec.exe -Wait -PassThru -ArgumentList @(
+        '/i', "`"$($msi.FullName)`"", '/quiet', '/norestart')
+    if ($p.ExitCode -notin 0, 3010) { Stop-Install "installing NetBird failed (msiexec exit code $($p.ExitCode))." }
+    Ok "NetBird installed from $($msi.Name)"
+}
+if (Test-Path $netbird) {
+    # Its background service must start with Windows, with nobody signed in.
+    $nbService = Get-Service -Name netbird -ErrorAction SilentlyContinue
+    if ($nbService) {
+        if ($nbService.StartType -ne 'Automatic') { Set-Service -Name netbird -StartupType Automatic }
+        if ($nbService.Status -ne 'Running') { Start-Service -Name netbird }
+    }
+    $status = Get-NetbirdStatus
+    if ($status -and $status.management.connected) {
+        Skip 'NetBird is already connected (no new key needed)'
+    } elseif ($netbirdKey) {
+        # Joined with the key only, never through a sign-in page: a device that
+        # signs in drops off after a day, a key-joined one never does. The key
+        # is in this one child's environment (NB_SETUP_KEY), never its command line.
+        # Whether it worked is read from its status below, not its exit code.
+        $env:NB_SETUP_KEY = $netbirdKey
+        $ErrorActionPreference = 'Continue'
+        try { & $netbird up }
+        finally {
+            Remove-Item Env:\NB_SETUP_KEY -ErrorAction SilentlyContinue
+            $ErrorActionPreference = 'Stop'
+        }
+        $deadline = (Get-Date).AddSeconds(60)
+        do {
+            $status = Get-NetbirdStatus
+            if ($status -and $status.management.connected -and $status.netbirdIp) { break }
+            Start-Sleep -Seconds 3
+        } while ((Get-Date) -lt $deadline)
+        if (-not ($status -and $status.management.connected)) {
+            $why = if ($status -and $status.management.error) { $status.management.error } else { 'no answer' }
+            Stop-Install ("NetBird did not connect: $why. Check this PC has internet, and that the setup " +
+                          'key is new: each key works once, for one day. Make a new one and run Setup again.')
+        }
+        Ok 'NetBird joined the site''s private network with the setup key'
+    } else {
+        Write-Host ('    WARNING  NetBird is installed but not connected, so remote access is off. Make a ' +
+                    'setup key in the NetBird dashboard and run Setup again with it.') -ForegroundColor Yellow
+    }
+    if ($status -and $status.netbirdIp) { $netbirdIp = ($status.netbirdIp -split '/')[0] }
+    if ($netbirdIp) {
+        Run $Python @((Join-Path $App 'engine\tools\tls_names.py'), 'add', $netbirdIp) `
+            'adding the NetBird address to the certificate''s names failed'
+        Ok "remote addresses: https://$netbirdIp/ (console) and https://${netbirdIp}:8443/ (phone app)"
+    }
+} else {
+    Skip 'remote access is not set up (no NetBird setup key was given)'
+}
 Run $Python @((Join-Path $App 'engine\tools\site_cert.py'), 'site', '--root', $Root) 'making the site certificate failed'
 $rootCrt = Join-Path $Root 'visionguard-root.crt'
 $thumb = (New-Object Security.Cryptography.X509Certificates.X509Certificate2 $rootCrt).Thumbprint
@@ -266,6 +346,41 @@ foreach ($port in 443, 8443) {
             -LocalPort $port -Action Allow -Profile Private,Domain | Out-Null
         Ok "firewall: TCP $port open on private networks"
     }
+}
+# Windows makes its own allow rule when somebody answers its firewall prompt for
+# a program ("Query User" rules): for caddy.exe that opens both ports to every
+# address on Public networks, which is the hole the two rules above keep shut.
+# Found on the first workstation on 19 Oct 2026. Turned off, never deleted, so
+# they are not made again and anyone can see what was done.
+$ourPrograms = @((Join-Path $App 'bin\caddy.exe'), $Python)
+foreach ($filter in @(Get-NetFirewallApplicationFilter -ErrorAction SilentlyContinue |
+                      Where-Object { $p = $_.Program; $ourPrograms | Where-Object { $_ -ieq $p } })) {
+    $stray = $filter | Get-NetFirewallRule
+    if ($stray.Enabled -eq 'True' -and $stray.Direction -eq 'Inbound' -and $stray.Action -eq 'Allow' -and
+            $stray.DisplayName -notlike 'VisionGuard*') {
+        Disable-NetFirewallRule -Name $stray.Name
+        Ok "firewall: turned off '$($stray.DisplayName)', which Windows made for $($filter.Program) (open to everyone on $($stray.Profile) networks)"
+    }
+}
+# Remote access (spec 020): both ports from NetBird's addresses only, and only
+# on its own adapter, because some internet providers use 100.64/10 too. Every
+# profile, because which one Windows gives the NetBird adapter is not documented.
+$remoteRule = 'VisionGuard remote access (NetBird)'
+$nbAlias = $null
+if ($netbirdIp) {
+    $nbAlias = (Get-NetIPAddress -IPAddress $netbirdIp -ErrorAction SilentlyContinue |
+                Select-Object -First 1).InterfaceAlias
+}
+if ($nbAlias) {
+    Remove-NetFirewallRule -DisplayName $remoteRule -ErrorAction SilentlyContinue
+    New-NetFirewallRule -DisplayName $remoteRule -Direction Inbound -Protocol TCP -LocalPort 443, 8443 `
+        -RemoteAddress 100.64.0.0/10 -InterfaceAlias $nbAlias -Profile Any -Action Allow | Out-Null
+    Ok "firewall: TCP 443 and 8443 open to the site's private network only, on '$nbAlias'"
+} elseif ($netbirdIp) {
+    Write-Host ("    WARNING  NetBird's address $netbirdIp is on no network adapter, so the firewall " +
+                'rule for remote access was not made. Restart the PC and run Setup again.') -ForegroundColor Yellow
+} else {
+    Skip 'firewall: no remote access rule (remote access is not set up)'
 }
 # Public stays closed on purpose. Say so when this machine is on such a network.
 foreach ($net in @(Get-NetConnectionProfile | Where-Object NetworkCategory -eq 'Public')) {
