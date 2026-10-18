@@ -62,13 +62,17 @@ every UI task.
 - [x] T003 Make `config.load()` in `engine/vg/config.py` read `engine.yaml` and `.env` from
       `VG_HOME` when that is set; unset changes nothing. Test in
       `engine/tests/test_config.py` with a temporary folder
-- [ ] T004 Owner step: ask Mohamed to download **Caddy 2.11.7** (`caddy_2.11.7_windows_amd64.zip`)
+- [X] T004 Owner step: ask Mohamed to download **Caddy 2.11.7** (`caddy_2.11.7_windows_amd64.zip`)
       and **WinSW 2.12.0** (`WinSW-x64.exe`) from their GitHub release pages into
       `deploy/bin/`. Add `deploy/bin/` to `.gitignore`. Write `deploy/versions.txt` with
       each file's version and SHA-256 (`Get-FileHash`). Never download them yourself
   - Done here: `deploy/bin/` (and `release/`) added to `.gitignore`. Left for Mohamed:
     the two downloads and `deploy/versions.txt` (`<file> <version> <sha256>` per line,
     the format `tools/make_release.ps1` reads)
+  - Done 18 Oct 2026, at Mohamed's request in chat: both downloaded from the
+    official release pages into `deploy/bin/`, `deploy/versions.txt` written.
+    Caddy matches its release's published SHA-512; WinSW publishes no checksum
+    (size and file version checked only)
 
 ### 1b. US1: HTTPS front and site certificate
 
