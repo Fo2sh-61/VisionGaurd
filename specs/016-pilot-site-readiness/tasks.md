@@ -280,6 +280,51 @@ next click.
       `specs/020-private-remote-access/tasks.md` that 016's Phase 1 is merged, and that
       020's T006 `serve.py` pin was done by T009 here
 
+### 1f. Setup.exe and the control icon (decided 18 Oct 2026)
+
+Mohamed: no pilot any more; this is the version installed at the site, and nobody there
+types a command. Decisions: an **Inno Setup 7.1** wizard (free licence; its authors ask
+commercial users to buy one, which is Mohamed's call); an **icon by the clock** to open,
+stop and start; **any Windows user on the PC** may stop or start it without an admin
+prompt.
+
+- **Setup.exe** (`deploy/setup/VisionGuard.iss`, built by `tools/make_release.ps1` with
+  `ISCC.exe`): asks for admin rights once, then pages for the models folder, the USB key
+  folder, the site settings folder (first install only) and the first administrator
+  (first install only; password at least 12 characters, typed twice). It unpacks the kit to
+  `C:\VisionGuard\app` and runs `install.ps1` hidden, showing each step's line as it
+  goes. On failure it shows the `STOPPED:` reason and the log's path. The finish page
+  repeats any `WARNING` line, such as a Public network. Settings → Apps → Uninstall runs
+  `deploy/uninstall.ps1`: services, firewall rules, the trusted root and the shortcuts go;
+  `C:\VisionGuard\data` (people, faces, recordings, settings) is kept and the last page
+  says where it is.
+- **Admin page vs create_user.py's warning**: that warning is about a create-the-admin page
+  reachable over the network. The wizard runs only on the machine, as its administrator,
+  so it is the same barrier as the command. The password goes to `create_user.py` through
+  an environment variable of the child process only; never a file, a command line or a log.
+- **VisionGuard Control** (`deploy/control/VisionGuardControl.cs`, compiled by the
+  built-in .NET Framework `csc.exe`, nothing to download): an icon by the clock, started
+  with Windows for every user. Green when both services run and `/healthz` answers; amber
+  while starting; red when stopped, with the reason from `logs\start-failure.txt` when
+  there is one (rule 8). Menu: Open VisionGuard (Edge app window, like the desktop icon),
+  Stop, Start, Restart, Open logs folder. A Windows notice when the engine stops by itself.
+- **Stop/start without admin**: `install.ps1` sets both services' permissions so
+  Interactive Users may query, start and stop them (`sc.exe sdset`). Nothing else changes.
+
+- [ ] T057 [P] `engine/tools/create_user.py --password-from-env VG_ADMIN_PASSWORD`, so it
+      can run with no prompts; same checks; test
+- [ ] T058 `install.ps1`: `-AdminEmail` / `-AdminName` (password from that variable) for
+      step 7, and with neither on a site with no administrator, stop with a plain reason
+      instead of prompting; step 6 sets the services' permissions; `deploy/uninstall.ps1`;
+      static tests in `test_deploy.py`
+- [ ] T059 [P] `deploy/control/VisionGuardControl.cs`: the icon above. A test compiles it
+      with `csc.exe` (skipped where there is none)
+- [ ] T060 `deploy/setup/VisionGuard.iss` and `tools/make_release.ps1` building the icon
+      and `release\VisionGuard-Setup-<tag>.exe`; the ISCC path recorded in
+      `deploy/versions.txt`'s comments
+- [ ] T061 Drill on the workstation: uninstall from Settings → Apps, then install with
+      Setup.exe; the icon stops and starts it as a normal user; data kept across uninstall
+
 **Checkpoint, spec 020's gate**: HTTPS on 443 and 8443, the site certificate, both services,
 the install, no password-free sign-in, and account editing. Spec 020 may start.
 

@@ -16,14 +16,22 @@
 #   <tag>\app\assets\visionguard.ico     the desktop shortcut's icon
 #   <tag>\app\web\dist\  <tag>\app\mobile\dist\   both apps, built
 #   <tag>\app\bin\                 caddy.exe and WinSW-x64.exe, checked
-#                                  against deploy\versions.txt
+#                                  against deploy\versions.txt, and
+#                                  VisionGuardControl.exe, the icon by the
+#                                  clock, compiled here with the csc.exe that
+#                                  ships with Windows
+#
+# Then builds release\VisionGuard-Setup-<tag>.exe, the wizard the site runs
+# (deploy\setup\VisionGuard.iss), with Inno Setup's ISCC.exe. Inno Setup is
+# a build tool and is not shipped; -Iscc names it if it is installed elsewhere.
 #
 # No model files: the owner supplies them at install time (P10-FR-003).
 
 [CmdletBinding()]
 param(
     [Parameter(Mandatory, Position = 0)] [string]$Tag,
-    [Parameter(Mandatory)] [string]$Python
+    [Parameter(Mandatory)] [string]$Python,
+    [string]$Iscc = (Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 7\ISCC.exe')
 )
 
 $ErrorActionPreference = 'Stop'
@@ -100,6 +108,17 @@ try {
         if (-not (Test-Path (Join-Path $App "bin\$need"))) { Fail "versions.txt names no file giving bin\$need." }
     }
 
+    # The icon by the clock: built with the compiler every Windows has, from
+    # the tag's source in the kit, never the working folder's.
+    $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+    if (-not (Test-Path $csc)) { Fail "csc.exe is missing ($csc), so the control icon cannot be built." }
+    $control = Join-Path $App 'bin\VisionGuardControl.exe'
+    & $csc /nologo /target:winexe /optimize+ "/out:$control" "/win32icon:$App\assets\visionguard.ico" `
+        /r:System.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:System.ServiceProcess.dll `
+        "$App\deploy\control\VisionGuardControl.cs"
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $control)) { Fail 'compiling VisionGuardControl.cs failed.' }
+    Ok 'VisionGuardControl.exe compiled'
+
     $installer = Get-ChildItem $Python -Filter 'python-3.14*-amd64.exe' | Select-Object -First 1
     if (-not $installer) { Fail "no python-3.14*-amd64.exe in $Python." }
     Copy-Item $installer.FullName $Out
@@ -107,6 +126,14 @@ try {
 
     $weights = Get-ChildItem -Recurse $App -Include *.pt, *.onnx, *.engine, *.pth
     if ($weights) { Fail "model files ended up in the kit: $($weights.Name -join ', ')." }
+
+    # Setup.exe, from the kit as it now stands. The wizard script is the
+    # tag's too (app\deploy\setup), like everything else in the kit.
+    if (-not (Test-Path $Iscc)) { Fail "Inno Setup's ISCC.exe is missing ($Iscc). Install Inno Setup 7 or pass -Iscc." }
+    & $Iscc /Q "/DKitDir=$Out" "/DAppVersion=$Tag" "/O$(Join-Path $Repo 'release')" (Join-Path $App 'deploy\setup\VisionGuard.iss')
+    $setupExe = Join-Path $Repo "release\VisionGuard-Setup-$Tag.exe"
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $setupExe)) { Fail 'Inno Setup could not build the Setup program.' }
+    Ok "release\VisionGuard-Setup-$Tag.exe"
 
     Compress-Archive -Path "$Out\*" -DestinationPath "$Out.zip"
     Ok "release\$Tag.zip"

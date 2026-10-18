@@ -3,6 +3,13 @@
 # file whose hash differs from the one here.
 # <file> <version> <sha256>
 #
+# Build tool, not shipped and not listed below: Setup.exe is built with Inno Setup
+#   7.1.0 (installer innosetup-7.1.0-x64.exe, sha256
+#   0362a383ed217d4c4239b5933866dd96d3eb2102737da92f80f6057a4b40df2f, from
+#   github.com/jrsoftware/issrc). It is free, but its authors ask commercial users
+#   to buy a licence.
+#
+#
 # caddy: github.com/caddyserver/caddy releases v2.11.7. Matches the SHA-512 in
 #   that release's caddy_2.11.7_checksums.txt; caddy.exe reports v2.11.7.
 # WinSW: github.com/winsw/winsw releases v2.12.0. The release publishes no

@@ -12,6 +12,11 @@ left open on a machine somebody set up months ago and forgot.
 Running this needs a shell on the engine's own machine, which is a meaningful
 barrier and one nobody can reach across the network.
 
+The Setup wizard uses `--password-from-env`: it runs only on the machine
+itself, as its administrator, which is the same barrier as this command. The
+password travels in an environment variable of that one child process, never
+on a command line, and the mode never asks anything, so nothing can hang.
+
 The password is read without echoing and is never written to the shell history,
 the log, or the database — only its argon2 hash is stored.
 """
@@ -20,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import os
 import sys
 from pathlib import Path
 
@@ -47,8 +53,23 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--email")
     parser.add_argument("--name")
     parser.add_argument("--role", choices=ROLES)
+    parser.add_argument("--password-from-env", metavar="NAME",
+                        help="read the password from this environment variable; "
+                             "never asks anything (needs --email, --name, --role)")
     parser.add_argument("--list", action="store_true", help="show existing accounts")
     args = parser.parse_args(argv)
+
+    from_env = args.password_from_env
+    if from_env:
+        missing = [flag for flag, value in (("--email", args.email), ("--name", args.name),
+                                            ("--role", args.role)) if not value]
+        if missing:
+            print(f"  --password-from-env also needs {', '.join(missing)}", file=sys.stderr)
+            return 1
+        if not os.environ.get(from_env):
+            print(f"  the environment variable {from_env} is not set or is empty",
+                  file=sys.stderr)
+            return 1
 
     database = _database()
     print(f"\n  database  {database}")
@@ -71,12 +92,12 @@ def main(argv: list[str] | None = None) -> int:
     if existing == 0:
         print("\n  This will be the first account, so it should be an administrator.")
 
-    email = args.email or input("\n  email     ").strip()
+    email = args.email.strip() if from_env else args.email or input("\n  email     ").strip()
     if not email or "@" not in email:
         print("  that does not look like an email address", file=sys.stderr)
         return 1
 
-    name = args.name or input("  full name ").strip()
+    name = args.name.strip() if from_env else args.name or input("  full name ").strip()
     if not name:
         print("  a name is required", file=sys.stderr)
         return 1
@@ -90,11 +111,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  unknown role {role!r}; expected one of {ROLES}", file=sys.stderr)
         return 1
 
-    print(f"\n  Password must be at least {MIN_LENGTH} characters. It is not echoed.")
-    password = getpass.getpass("  password  ")
-    if password != getpass.getpass("  again     "):
-        print("\n  those did not match", file=sys.stderr)
-        return 1
+    if from_env:
+        password = os.environ[from_env]
+    else:
+        print(f"\n  Password must be at least {MIN_LENGTH} characters. It is not echoed.")
+        password = getpass.getpass("  password  ")
+        if password != getpass.getpass("  again     "):
+            print("\n  those did not match", file=sys.stderr)
+            return 1
 
     try:
         user = store.create_user(email=email, name=name, role=role, password=password)

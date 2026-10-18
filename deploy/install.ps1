@@ -7,9 +7,16 @@
 #            ever downloaded)
 #   -Root    the USB stick holding visionguard-root.crt and .key, made once
 #            with `site_cert.py root --out E:\`
+#   -AdminEmail, -AdminName
+#            the first administrator, made without any question when the
+#            password is in the environment variable VG_ADMIN_PASSWORD. Setup
+#            (the wizard) passes all three; the password is never an argument.
 #   -Site    a folder holding this site's engine.yaml (and .env, if cameras
 #            need passwords). Only needed the first time: after that the copy
 #            in C:\VisionGuard\data is the one that counts.
+#   -NoPrompt
+#            never ask anything; Setup always passes it, because nobody can
+#            see or answer a question in its hidden window.
 #
 # What it does, in order, stopping at the first step that fails:
 #   1. copies the program to C:\VisionGuard\app, makes data\ and logs\
@@ -23,16 +30,27 @@
 #   8. one desktop shortcut, "VisionGuard", that opens the console
 #   9. starts both services and waits for https://localhost/healthz
 #
+# Nothing here waits for the keyboard when run hidden by Setup: the Python
+# installer is /quiet, pip never asks, and step 7 only prompts at a real console.
+#
 # Safe to run twice: every step checks what is already there first.
 
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)] [string]$Models,
     [Parameter(Mandatory)] [string]$Root,
-    [string]$Site
+    [string]$Site,
+    [string]$AdminEmail,
+    [string]$AdminName,
+    [switch]$NoPrompt
 )
 
 $ErrorActionPreference = 'Stop'
+
+# Out of the environment at once, so pip, the Python installer and every other
+# child of steps 1-6 never inherit it. Step 7 hands it to create_user.py alone.
+$adminPassword = $env:VG_ADMIN_PASSWORD
+Remove-Item Env:\VG_ADMIN_PASSWORD -ErrorAction SilentlyContinue
 
 $Home_   = 'C:\VisionGuard'
 $App     = Join-Path $Home_ 'app'
@@ -176,6 +194,18 @@ foreach ($name in $Services) {
         Ok "$name installed"
     }
 }
+# Anyone signed in at this PC may query, start and stop the two services, so the
+# control icon works without an administrator prompt. SDDL, per ACE:
+#   SY / BA  SYSTEM and Administrators keep full control (BA also keeps delete and owner rights)
+#   IU       Interactive Users: CC query config, LC query status, SW enum dependents,
+#            RP start, WP stop, DT pause, LO interrogate, CR user control, RC read permissions
+#   SU       services themselves: query only
+$serviceSddl = 'D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)' +
+               '(A;;CCLCSWRPWPDTLOCRRC;;;IU)(A;;CCLCSWLOCRRC;;;SU)'
+foreach ($name in $Services) {
+    Run sc.exe @('sdset', $name, $serviceSddl) "setting who may stop and start $name failed"
+    Ok "anyone signed in at this PC may stop and start $name"
+}
 # The service account is given write access to data\ and logs\, where it writes.
 foreach ($dir in @($Data, $Logs)) {
     Run icacls @($dir, '/grant', 'NT AUTHORITY\LocalService:(OI)(CI)M', '/Q') "giving the service rights on $dir failed"
@@ -206,9 +236,22 @@ Step 7 'First administrator'
 & $Python -c "import sys; sys.path[:0] = [r'$App\engine', r'$App\engine\tools']; import create_user; from vg.auth.store import UserStore; s = UserStore(create_user._database()); sys.exit(0 if any(u.role == 'admin' and not u.disabled for u in s.users()) else 3)"
 if ($LASTEXITCODE -eq 0) {
     Skip 'an administrator already exists'
-} else {
+} elseif ($AdminEmail -and $AdminName -and $adminPassword) {
+    # Back in the environment for this one child only, never on a command line.
+    $env:VG_ADMIN_PASSWORD = $adminPassword
+    try {
+        Run $Python @((Join-Path $App 'engine\tools\create_user.py'), '--email', $AdminEmail,
+                      '--name', $AdminName, '--role', 'admin',
+                      '--password-from-env', 'VG_ADMIN_PASSWORD') 'creating the administrator failed'
+    } finally {
+        Remove-Item Env:\VG_ADMIN_PASSWORD -ErrorAction SilentlyContinue
+    }
+    Ok "administrator $AdminEmail created"
+} elseif (-not $NoPrompt -and [Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
     Write-Host '    Type the head''s name, email and a password. There is no default password.'
     Run $Python @((Join-Path $App 'engine\tools\create_user.py'), '--role', 'admin') 'creating the administrator failed'
+} else {
+    Stop-Install 'there is no administrator account yet; run Setup again and fill in the first administrator page'
 }
 
 # --- 8. shortcut -------------------------------------------------------------------

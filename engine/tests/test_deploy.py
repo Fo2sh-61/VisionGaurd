@@ -8,6 +8,8 @@ restarts, where it logs, and as whom.
 from __future__ import annotations
 
 import re
+import shutil
+import subprocess
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -136,3 +138,126 @@ class TestInstall:
         assert "Get-NetConnectionProfile" in text
         assert "Set-NetConnectionProfile" in text
         assert text.count("-Profile Private,Domain") == 2
+
+
+def _script(name: str) -> str:
+    return (REPO_DIR / "deploy" / name).read_text(encoding="utf-8")
+
+
+def _parse_errors(name: str) -> str:
+    command = ("$e = $null; [void][System.Management.Automation.Language.Parser]::ParseFile("
+               f"'{REPO_DIR / 'deploy' / name}', [ref]$null, [ref]$e); "
+               "$e | ForEach-Object { $_.Message }")
+    done = subprocess.run(["powershell", "-NoProfile", "-Command", command],
+                          capture_output=True, text=True, timeout=60)
+    return done.stdout.strip()
+
+
+needs_powershell = pytest.mark.skipif(shutil.which("powershell") is None,
+                                      reason="powershell is not available")
+
+
+class TestInstallForSetup:
+    """Setup (the wizard) runs install.ps1 hidden: nothing may wait for a person."""
+
+    def test_takes_the_first_administrator_as_parameters(self):
+        text = _script("install.ps1")
+        assert "[string]$AdminEmail" in text and "[string]$AdminName" in text
+
+    def test_step7_reads_the_password_from_the_environment_only(self):
+        step7 = _script("install.ps1").split("Step 7", 1)[1].split("Step 8", 1)[0]
+        assert "'--password-from-env', 'VG_ADMIN_PASSWORD'" in step7
+        assert "$env:VG_ADMIN_PASSWORD" in step7
+        assert "'--password'" not in step7
+        # the password variable is never written out
+        assert "$env:VG_ADMIN_PASSWORD" not in "".join(
+            line for line in step7.splitlines() if "Write-Host" in line or "Ok " in line)
+
+    def test_step7_without_a_console_stops_with_a_plain_reason(self):
+        step7 = _script("install.ps1").split("Step 7", 1)[1].split("Step 8", 1)[0]
+        assert "[Environment]::UserInteractive" in step7
+        assert "[Console]::IsInputRedirected" in step7
+        assert ("Stop-Install 'there is no administrator account yet; run Setup again "
+                "and fill in the first administrator page'") in step7
+        # the prompt path comes after the environment path, never before it
+        assert step7.index("--password-from-env") < step7.index("IsInputRedirected")
+
+    def test_anyone_signed_in_may_stop_and_start_the_services(self):
+        text = _script("install.ps1")
+        assert "Run sc.exe @('sdset', $name, $serviceSddl)" in text
+        entry = re.search(r"\(A;;([A-Z]+);;;IU\)", text)
+        assert entry, "no Interactive Users entry"
+        # RP = start, WP = stop, LO = interrogate, LC = query status
+        for right in ("RP", "WP", "LO", "LC"):
+            assert right in entry.group(1)
+        assert ";;;SY)" in text and ";;;BA)" in text
+        assert "anyone signed in at this PC may stop and start $name" in text
+
+    def test_setup_can_forbid_every_question(self):
+        """A hidden run whose stdin is not redirected would otherwise reach the
+        prompt and wait for ever; Setup passes -NoPrompt."""
+        text = _script("install.ps1")
+        assert "[switch]$NoPrompt" in text
+        step7 = text.split("Step 7", 1)[1].split("Step 8", 1)[0]
+        assert "-not $NoPrompt -and [Environment]::UserInteractive" in step7
+        iss = (REPO_DIR / "deploy" / "setup" / "VisionGuard.iss").read_text(encoding="utf-8")
+        assert "-NoPrompt" in iss
+
+    def test_the_password_leaves_the_environment_before_step_1(self):
+        """Otherwise pip and the Python installer inherit it."""
+        text = _script("install.ps1")
+        cleared = text.index("Remove-Item Env:\\VG_ADMIN_PASSWORD")
+        assert cleared < text.index("Step 1 ")
+        step7 = text.split("Step 7", 1)[1].split("Step 8", 1)[0]
+        assert "finally" in step7 and "Remove-Item Env:\\VG_ADMIN_PASSWORD" in step7
+
+    def test_nothing_waits_for_the_keyboard(self):
+        text = _script("install.ps1")
+        assert "Read-Host" not in text
+        assert "'/quiet'" in text
+
+    @needs_powershell
+    def test_parses(self):
+        assert _parse_errors("install.ps1") == ""
+
+
+class TestUninstall:
+    def test_removes_both_services(self):
+        text = _script("uninstall.ps1")
+        assert "'visionguard-engine', 'visionguard-front'" in text
+        assert "Stop-Service" in text and "uninstall" in text and "sc.exe delete" in text
+
+    def test_removes_both_firewall_rules(self):
+        text = _script("uninstall.ps1")
+        assert "foreach ($port in 443, 8443)" in text
+        assert '"VisionGuard HTTPS $port"' in text
+        assert "Remove-NetFirewallRule" in text
+
+    def test_removes_the_root_by_its_exact_subject(self):
+        text = _script("uninstall.ps1")
+        assert "'CN=VisionGuard site root'" in text and "'O=VisionGuard'" in text
+        assert "$_.Subject -eq $_.Issuer" in text
+        assert "-like" not in text and "-match" not in text
+        # and that is what site_cert.py names the root
+        cert = (REPO_DIR / "engine" / "tools" / "site_cert.py").read_text(encoding="utf-8")
+        assert '_name("VisionGuard site root")' in cert
+        assert 'NameOID.ORGANIZATION_NAME, "VisionGuard"' in cert
+
+    def test_removes_the_desktop_shortcut_and_ends_the_control_icon(self):
+        text = _script("uninstall.ps1")
+        assert r"C:\Users\Public\Desktop\VisionGuard.lnk" in text
+        assert "VisionGuardControl" in text
+
+    def test_never_deletes_the_data_folder(self):
+        text = _script("uninstall.ps1")
+        for line in text.splitlines():
+            if line.lstrip().startswith("#"):
+                continue
+            if "Remove-Item" in line or "rmdir" in line or "robocopy" in line:
+                assert "$Data" not in line and "data" not in line.lower()
+        assert "Your data folder was kept: $Data" in text
+        assert "exit 0" in text
+
+    @needs_powershell
+    def test_parses(self):
+        assert _parse_errors("uninstall.ps1") == ""
