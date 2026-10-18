@@ -45,3 +45,22 @@ The new tests that must pass:
 | D6 update and back | `update.ps1` with a new kit, then `-Back` | the previous version runs on the pre-update backup |
 | D7 clean machine | A person who is not the developer follows `docs/ON-SITE-GUIDE.md` on a clean Windows 11 PC | done in one working day (SC-006) |
 | D8 install as an app | Install the console on a PC and the phone app on a phone from their addresses | each opens from its icon |
+
+## Results
+
+**Install drill 1, 18 Oct 2026.** Mohamed's laptop stood in for the workstation (RTX 2080
+Max-Q, Windows 11, Wi-Fi 192.168.1.5, `tls.names` 192.168.1.5 / 127.0.0.1 / localhost).
+Kit `v0.16.0-drill1` from `tools/make_release.ps1`, which worked on its first run.
+D4 is set aside for now by Mohamed's decision (the laptop is not kept on day and night).
+
+- `install.ps1` ran steps 1–9. The engine then failed: the dev setup's `.engine` files
+  (TensorRT 11.2) had been copied into an install with TensorRT 11.4. Fixed in `cfab60e`
+  (copy no plans, rebuild a plan that will not open, fall back to `.pt` if one still
+  will not). After the rebuild, both services ran and `https://localhost/healthz` answered.
+- **D3, in part**: under `LocalService`, person and pose ran on TensorRT on the GPU, and
+  the laptop webcam opened and delivered frames. Not yet: a reboot with nobody signed
+  in, and a network camera (there is none here).
+- **D5, by accident**: the failed start stopped after three restarts, and
+  `logs\start-failure.txt` named what failed (person detection, the TensorRT plan).
+  Both apps showing "engine is not running" was not checked by eye.
+- Not yet: D1, D2, D6, D7, D8, and Q1–Q3.
