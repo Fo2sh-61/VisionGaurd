@@ -60,6 +60,19 @@ class TestScript:
         assert r"Software\Microsoft\Windows\CurrentVersion\Run" in reg
         assert "VisionGuard Control" in reg and "uninsdeletevalue" in reg
 
+    def test_the_run_value_starts_only_the_tray(self, iss):
+        (line,) = [ln for ln in section(iss, "Registry") if "VisionGuard Control" in ln]
+        value = re.search(r'ValueData: (".*?"); Flags', line).group(1)
+        assert value == '"""{app}\\app\\bin\\VisionGuardControl.exe"" --tray"'
+
+    def test_control_has_a_desktop_icon_and_a_start_menu_entry_that_open_the_window(self, iss):
+        icons = section(iss, "Icons")
+        for place in ("{commondesktop}", "{commonprograms}"):
+            (line,) = [ln for ln in icons if ln.startswith('Name: "' + place + '\\VisionGuard Control"')]
+            assert r'Filename: "{app}\app\bin\VisionGuardControl.exe"' in line
+            assert "Parameters" not in line
+            assert r'IconFilename: "{app}\app\assets\visionguard.ico"' in line
+
     def test_the_data_folder_is_never_deleted(self, iss):
         for line in section(iss, "UninstallDelete") + section(iss, "Files"):
             assert "data" not in line.lower().replace("metadata", ""), line
@@ -87,6 +100,10 @@ class TestScript:
     def test_the_two_run_choices_wait_for_a_good_install(self, iss):
         lines = section(iss, "Run")
         assert len(lines) == 2
+        control = [ln for ln in lines if "VisionGuardControl.exe" in ln]
+        assert len(control) == 1
+        assert 'Description: "Open VisionGuard Control"' in control[0]
+        assert "Parameters" not in control[0] and "nowait" in control[0]
         for line in lines:
             assert "postinstall" in line and "runasoriginaluser" in line
             assert "Check: InstallSucceeded" in line
@@ -125,7 +142,8 @@ class TestReleaseScript:
 
     def test_it_builds_the_icon_and_the_setup(self):
         text = RELEASE.read_text(encoding="utf-8")
-        assert "VisionGuardControl.cs" in text and "csc.exe" in text
+        assert r"deploy\control" in text and "*.cs" in text and "csc.exe" in text
+        assert "VisionGuardControl.cs" not in text
         assert "[string]$Iscc" in text
         assert "/DKitDir=$Out" in text and "/DAppVersion=$Tag" in text
         assert "VisionGuard-Setup-$Tag.exe" in text

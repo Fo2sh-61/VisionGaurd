@@ -47,15 +47,16 @@ Source: "{#KitDir}\python-3.14*-amd64.exe"; DestDir: "{app}"; Flags: ignoreversi
 
 [Icons]
 Name: "{commonprograms}\VisionGuard"; Filename: "{code:BrowserExe}"; Parameters: "{code:BrowserArgs}"; IconFilename: "{app}\app\assets\visionguard.ico"
-Name: "{commonprograms}\VisionGuard Control"; Filename: "{app}\app\bin\VisionGuardControl.exe"
+Name: "{commonprograms}\VisionGuard Control"; Filename: "{app}\app\bin\VisionGuardControl.exe"; IconFilename: "{app}\app\assets\visionguard.ico"
+Name: "{commondesktop}\VisionGuard Control"; Filename: "{app}\app\bin\VisionGuardControl.exe"; IconFilename: "{app}\app\assets\visionguard.ico"
 
 [Registry]
 ; The icon by the clock starts for every user at sign-in.
-Root: HKLM; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "VisionGuard Control"; ValueData: """{app}\app\bin\VisionGuardControl.exe"""; Flags: uninsdeletevalue
+Root: HKLM; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "VisionGuard Control"; ValueData: """{app}\app\bin\VisionGuardControl.exe"" --tray"; Flags: uninsdeletevalue
 
 [Run]
 Filename: "{code:BrowserExe}"; Parameters: "{code:BrowserArgs}"; Description: "Open VisionGuard now"; Flags: postinstall runasoriginaluser nowait skipifsilent; Check: InstallSucceeded
-Filename: "{app}\app\bin\VisionGuardControl.exe"; Description: "Show the VisionGuard icon by the clock"; Flags: postinstall runasoriginaluser nowait skipifsilent; Check: InstallSucceeded
+Filename: "{app}\app\bin\VisionGuardControl.exe"; Description: "Open VisionGuard Control"; Flags: postinstall runasoriginaluser nowait skipifsilent; Check: InstallSucceeded
 
 [UninstallRun]
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\app\deploy\uninstall.ps1"""; Flags: runhidden waituntilterminated; RunOnceId: "VisionGuardUninstallScript"

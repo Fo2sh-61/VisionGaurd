@@ -311,6 +311,23 @@ prompt.
 - **Stop/start without admin**: `install.ps1` sets both services' permissions so
   Interactive Users may query, start and stop them (`sc.exe sdset`). Nothing else changes.
 
+- **VisionGuard Control becomes a window** (Mohamed, same day). A standalone app with its
+  own Start menu and desktop icon, separate from the console's desktop icon, which it can
+  open. The window shows: a status light and text; Start/Stop; "Start automatically when
+  the PC starts"; Open VisionGuard (runs the existing desktop shortcut); the phone address
+  `https://<tls.names address>:8443/` with a QR code (our own encoder, nothing
+  downloaded); the last start failure and Open logs folder. English only. Closing the
+  window keeps the icon by the clock; at sign-in it starts in the tray only.
+- **Auto-start without a hole**: giving users the right to change the services' settings
+  would let them change what the services run. Instead, both services start on demand,
+  and a startup task ("VisionGuard start at boot", run by SYSTEM) starts them when
+  `C:\VisionGuard\data\autostart.txt` does not say `off`. The task runs Windows'
+  `powershell.exe` with its few lines inside the task itself, never a file from
+  `C:\VisionGuard\app`. Anyone may change the switch; it only writes that file.
+- **Known risk, kept by decision (Mohamed, 18 Oct 2026)**: `C:\VisionGuard\app` inherits
+  "Authenticated Users: Modify" from `C:\`, so any Windows user on the PC can replace the
+  programs the services run. Explained to him as a take-over risk; he chose to leave it.
+
 - [ ] T057 [P] `engine/tools/create_user.py --password-from-env VG_ADMIN_PASSWORD`, so it
       can run with no prompts; same checks; test
 - [ ] T058 `install.ps1`: `-AdminEmail` / `-AdminName` (password from that variable) for
@@ -324,6 +341,15 @@ prompt.
       `deploy/versions.txt`'s comments
 - [ ] T061 Drill on the workstation: uninstall from Settings → Apps, then install with
       Setup.exe; the icon stops and starts it as a normal user; data kept across uninstall
+- [ ] T062 [P] The control window (`deploy/control/*.cs`): the window above, single
+      instance (a second start brings the window forward), `--tray`, `--check`, and
+      `--qr <text> <png>`; a test decodes that PNG with OpenCV's QR reader
+- [ ] T063 `install.ps1`: services on demand plus the startup task; `uninstall.ps1`
+      removes the task; Setup adds the control app's desktop icon and starts it with
+      `--tray` at sign-in; `make_release.ps1` compiles every `deploy/control/*.cs`;
+      tests
+- [ ] T064 Drill: switch auto-start off, restart the PC, VisionGuard stays off; on,
+      restart, it comes back; the window's light and buttons follow
 
 **Checkpoint, spec 020's gate**: HTTPS on 443 and 8443, the site certificate, both services,
 the install, no password-free sign-in, and account editing. Spec 020 may start.

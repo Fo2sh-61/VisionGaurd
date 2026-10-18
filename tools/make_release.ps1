@@ -115,8 +115,8 @@ try {
     $control = Join-Path $App 'bin\VisionGuardControl.exe'
     & $csc /nologo /target:winexe /optimize+ "/out:$control" "/win32icon:$App\assets\visionguard.ico" `
         /r:System.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:System.ServiceProcess.dll `
-        "$App\deploy\control\VisionGuardControl.cs"
-    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $control)) { Fail 'compiling VisionGuardControl.cs failed.' }
+        (Get-ChildItem "$App\deploy\control" -Filter '*.cs' | ForEach-Object FullName)
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $control)) { Fail 'compiling deploy\control\*.cs failed.' }
     Ok 'VisionGuardControl.exe compiled'
 
     $installer = Get-ChildItem $Python -Filter 'python-3.14*-amd64.exe' | Select-Object -First 1

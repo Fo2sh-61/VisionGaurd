@@ -44,15 +44,72 @@ namespace VisionGuardControl
                 return s.Kind == Kind.Running ? 0 : 1;
             }
 
-            // One icon per Windows session; a second start just leaves.
+            // `--qr <text> <png>` writes a QR code picture and exits 0. For tests.
+            if (args.Length == 3 && args[0] == "--qr")
+            {
+                try
+                {
+                    using (Bitmap bmp = QrCode.Render(QrCode.Encode(args[1]), 8))
+                    {
+                        bmp.Save(args[2], System.Drawing.Imaging.ImageFormat.Png);
+                    }
+                    return 0;
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine("QR code could not be written: " + ex.Message);
+                    return 1;
+                }
+            }
+
+            // `--phone-address <engine.yaml>` prints the address the window would
+            // show for phones, or "none". For tests.
+            if (args.Length == 2 && args[0] == "--phone-address")
+            {
+                string address = ControlWindow.PhoneAddressFrom(File.ReadAllLines(args[1]));
+                Console.WriteLine(address ?? "none");
+                return address != null ? 0 : 1;
+            }
+
+            // `--task-state` prints what the window would say about the startup
+            // task: set-up, missing, or unknown (Windows would not say).
+            if (args.Length == 1 && args[0] == "--task-state")
+            {
+                int state = ControlWindow.TaskExists();
+                Console.WriteLine(state == 1 ? "set-up" : state == 0 ? "missing" : "unknown");
+                return state == 1 ? 0 : 1;
+            }
+
+            bool trayOnly = false;
+            foreach (string a in args)
+            {
+                if (a == "--tray") trayOnly = true;
+            }
+
+            // One icon per Windows session. The event is made before the mutex, so
+            // whoever finds the mutex taken can rely on the event existing.
+            EventWaitHandle show = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VisionGuardControlShow");
             bool created;
             using (Mutex single = new Mutex(true, "Local\\VisionGuardControl", out created))
             {
-                if (!created) return 0;
+                if (!created)
+                {
+                    // Already running: bring its window forward (unless this is
+                    // the sign-in start, which wants no window), then leave.
+                    if (!trayOnly) show.Set();
+                    return 0;
+                }
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
                 using (TrayApp app = new TrayApp())
                 {
+                    Thread waiter = new Thread(delegate()
+                    {
+                        while (show.WaitOne()) app.ShowWindowSoon();
+                    });
+                    waiter.IsBackground = true;
+                    waiter.Start();
+                    if (!trayOnly) app.ShowWindowSoon();
                     Application.Run();
                 }
                 GC.KeepAlive(single);
@@ -68,6 +125,7 @@ namespace VisionGuardControl
         const string HealthUrl = "https://localhost/healthz";
         const string ConsoleUrl = "https://localhost/";
         const string LogsDir = @"C:\VisionGuard\logs";
+        const string ConsoleShortcut = @"C:\Users\Public\Desktop\VisionGuard.lnk";
         const string FailureFile = @"C:\VisionGuard\logs\start-failure.txt";
         static readonly TimeSpan StartingGrace = TimeSpan.FromMinutes(3);
 
@@ -83,6 +141,7 @@ namespace VisionGuardControl
         readonly System.Windows.Forms.Timer timer = new System.Windows.Forms.Timer();
         readonly ContextMenuStrip menu = new ContextMenuStrip();
         readonly ToolStripMenuItem statusItem = new ToolStripMenuItem();
+        readonly ToolStripMenuItem controlItem = new ToolStripMenuItem("Open VisionGuard Control");
         readonly ToolStripMenuItem openItem = new ToolStripMenuItem("Open VisionGuard");
         readonly ToolStripMenuItem startItem = new ToolStripMenuItem("Start");
         readonly ToolStripMenuItem stopItem = new ToolStripMenuItem("Stop");
@@ -91,6 +150,7 @@ namespace VisionGuardControl
         readonly ToolStripMenuItem hideItem = new ToolStripMenuItem("Hide this icon (VisionGuard keeps running)");
 
         readonly Icon baseIcon;
+        ControlWindow window;
         Icon currentIcon;
         Color currentDot = Color.Empty;
 
@@ -109,7 +169,9 @@ namespace VisionGuardControl
             baseIcon = own != null ? own : SystemIcons.Application;
 
             statusItem.Enabled = false;
-            openItem.Font = new Font(openItem.Font, FontStyle.Bold);
+            window = new ControlWindow(this, baseIcon);
+            controlItem.Font = new Font(controlItem.Font, FontStyle.Bold);
+            controlItem.Click += delegate { ShowWindow(); };
             openItem.Click += delegate { OpenConsole(); };
             startItem.Click += delegate { RunAction("start"); };
             stopItem.Click += delegate { RunAction("stop"); };
@@ -118,6 +180,7 @@ namespace VisionGuardControl
             hideItem.Click += delegate { Application.Exit(); };
 
             menu.Items.Add(statusItem);
+            menu.Items.Add(controlItem);
             menu.Items.Add(openItem);
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(startItem);
@@ -129,7 +192,7 @@ namespace VisionGuardControl
             startItem.Enabled = stopItem.Enabled = restartItem.Enabled = false;
 
             tray.ContextMenuStrip = menu;
-            tray.DoubleClick += delegate { OpenConsole(); };
+            tray.DoubleClick += delegate { ShowWindow(); };
             SetStatus(new Snapshot { Kind = Kind.Starting, Text = "VisionGuard: checking..." });
             tray.Visible = true;
 
@@ -146,8 +209,25 @@ namespace VisionGuardControl
             tray.Visible = false;
             tray.Dispose();
             menu.Dispose();
+            if (window != null) window.Dispose();
             ui.Dispose();
             ReplaceIcon(null);
+        }
+
+        // Safe from any thread: the second start signals, a background thread calls this.
+        public void ShowWindowSoon()
+        {
+            try { ui.BeginInvoke(new MethodInvoker(ShowWindow)); }
+            catch (Exception) { /* the app is closing */ }
+        }
+
+        void ShowWindow()
+        {
+            if (window == null) return;
+            if (!window.Visible) window.Show();
+            if (window.WindowState == FormWindowState.Minimized) window.WindowState = FormWindowState.Normal;
+            window.Activate();
+            window.BringToFront();
         }
 
         public static Snapshot CheckOnce()
@@ -353,6 +433,8 @@ namespace VisionGuardControl
             stopItem.Enabled = installed && !busy && s.AnyActive;
             restartItem.Enabled = installed && !busy && s.AnyActive && !pending;
             openItem.Enabled = installed;
+            window.ShowStatus(s, startItem.Enabled, stopItem.Enabled, restartItem.Enabled);
+            if (busy) window.SetBusy();
 
             if (dropped)
             {
@@ -368,19 +450,23 @@ namespace VisionGuardControl
             if (tip.Length > 63) tip = tip.Substring(0, 60) + "...";   // NotifyIcon.Text throws past 63
             tray.Text = tip;
 
-            Color dot;
-            switch (s.Kind)
-            {
-                case Kind.Running: dot = Color.FromArgb(34, 160, 60); break;
-                case Kind.Starting:
-                case Kind.Stopping: dot = Color.FromArgb(240, 170, 0); break;
-                case Kind.NotInstalled: dot = Color.FromArgb(140, 140, 140); break;
-                default: dot = Color.FromArgb(215, 40, 40); break;
-            }
+            Color dot = DotColor(s.Kind);
             if (dot != currentDot)
             {
                 currentDot = dot;
                 ReplaceIcon(MakeIcon(dot));
+            }
+        }
+
+        public static Color DotColor(Kind kind)
+        {
+            switch (kind)
+            {
+                case Kind.Running: return Color.FromArgb(34, 160, 60);
+                case Kind.Starting:
+                case Kind.Stopping: return Color.FromArgb(240, 170, 0);
+                case Kind.NotInstalled: return Color.FromArgb(140, 140, 140);
+                default: return Color.FromArgb(215, 40, 40);
             }
         }
 
@@ -432,11 +518,12 @@ namespace VisionGuardControl
 
         // ---- doing ----------------------------------------------------------
 
-        void RunAction(string what)
+        public void RunAction(string what)
         {
             if (acting) return;
             acting = true;
             startItem.Enabled = stopItem.Enabled = restartItem.Enabled = false;
+            window.SetBusy();
             ThreadPool.QueueUserWorkItem(delegate
             {
                 string problem = null;
@@ -458,8 +545,11 @@ namespace VisionGuardControl
                 {
                     ui.BeginInvoke(new MethodInvoker(delegate
                     {
-                        if (problem != null) Balloon("VisionGuard", problem, ToolTipIcon.Warning);
                         Poll();   // the next check shows the truth, whatever happened
+                        if (problem == null) return;
+                        // Someone looking at the window gets the words there; otherwise a notice.
+                        if (window.Visible) MessageBox.Show(window, problem, "VisionGuard Control");
+                        else Balloon("VisionGuard", problem, ToolTipIcon.Warning);
                     }));
                 }
                 catch (Exception) { }
@@ -516,8 +606,18 @@ namespace VisionGuardControl
 
         // ---- opening --------------------------------------------------------
 
-        void OpenConsole()
+        public void OpenConsole()
         {
+            // The desktop shortcut is what a person double-clicks, so use it when it is there.
+            if (File.Exists(ConsoleShortcut))
+            {
+                try
+                {
+                    Process.Start(new ProcessStartInfo(ConsoleShortcut) { UseShellExecute = true });
+                    return;
+                }
+                catch (Exception) { /* fall through to the Edge window */ }
+            }
             string edge = null;
             string[] roots = new string[]
             {
@@ -541,7 +641,7 @@ namespace VisionGuardControl
             }
         }
 
-        void OpenLogs()
+        public void OpenLogs()
         {
             try
             {

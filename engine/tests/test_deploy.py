@@ -7,6 +7,7 @@ restarts, where it logs, and as whom.
 
 from __future__ import annotations
 
+import base64
 import re
 import shutil
 import subprocess
@@ -140,6 +141,15 @@ class TestInstall:
         assert text.count("-Profile Private,Domain") == 2
 
 
+def _step6() -> str:
+    return _script("install.ps1").split("Step 6", 1)[1].split("Step 7", 1)[0]
+
+
+def _boot_lines() -> str:
+    """The lines the startup task runs, as written in install.ps1."""
+    return _script("install.ps1").split("$bootLines = @'\n", 1)[1].split("\n'@", 1)[0]
+
+
 def _script(name: str) -> str:
     return (REPO_DIR / "deploy" / name).read_text(encoding="utf-8")
 
@@ -193,6 +203,17 @@ class TestInstallForSetup:
         assert ";;;SY)" in text and ";;;BA)" in text
         assert "anyone signed in at this PC may stop and start $name" in text
 
+    def test_users_may_read_the_startup_task_and_nothing_more(self):
+        """Without this a normal user's VisionGuard Control could only say it
+        cannot tell; with more than read, a user could change what SYSTEM runs."""
+        text = _script("install.ps1")
+        sd = re.search(r"SetSecurityDescriptor\('([^']+)'", text)
+        assert sd, "the task's permissions are not set"
+        aces = dict((m.group(2), m.group(1)) for m in re.finditer(r"\(A;;(\w+);;;(\w+)\)", sd.group(1)))
+        assert aces.get("AU") == "GR"
+        assert aces.get("SY") == "FA" and aces.get("BA") == "FA"
+        assert set(aces) == {"SY", "BA", "AU"}
+
     def test_setup_can_forbid_every_question(self):
         """A hidden run whose stdin is not redirected would otherwise reach the
         prompt and wait for ever; Setup passes -NoPrompt."""
@@ -221,6 +242,101 @@ class TestInstallForSetup:
         assert _parse_errors("install.ps1") == ""
 
 
+class TestStartupTask:
+    """Both services start on demand; a SYSTEM task starts them unless autostart.txt says off."""
+
+    def test_both_services_start_on_demand(self):
+        step6 = _step6()
+        assert "Run sc.exe @('config', $name, 'start=', 'demand')" in step6
+        # one call per service, inside the loop over $Services
+        before = step6.split("Run sc.exe @('config'", 1)[0]
+        assert before.rstrip().endswith("foreach ($name in $Services) {")
+
+    def test_the_task_is_registered_as_system_at_startup(self):
+        step6 = _step6()
+        assert "$taskName = 'VisionGuard start at boot'" in step6
+        assert "New-ScheduledTaskTrigger -AtStartup" in step6
+        assert "-UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest" in step6
+        assert "Register-ScheduledTask -TaskName $taskName" in step6 and "-Force" in step6
+        assert "-AllowStartIfOnBatteries -DontStopIfGoingOnBatteries" in step6
+        assert "New-TimeSpan -Minutes 10" in step6
+
+    def test_the_task_runs_windows_powershell_with_a_command_never_a_file(self):
+        step6 = _step6()
+        assert r'"$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"' in step6
+        argument = next(ln for ln in step6.splitlines() if "-Argument" in ln)
+        assert "-Command" in argument and "-File" not in argument
+        assert "-NoProfile" in argument and "-NonInteractive" in argument
+        assert "-ExecutionPolicy Bypass" in argument
+
+    def test_the_inline_lines_read_the_switch_and_start_both_services(self):
+        lines = _boot_lines()
+        assert "autostart.txt" in lines and "'off'" in lines
+        assert "Start-Service visionguard-engine" in lines
+        assert "Start-Service visionguard-front" in lines
+        assert '"' not in lines                      # quote-safe inside -Argument
+        # the file's text is only compared, never run
+        assert "Invoke-Expression" not in lines and "iex" not in lines.lower().split()
+        assert "& $" not in lines and ". $" not in lines
+
+    def test_the_task_never_runs_anything_from_the_app_folder(self):
+        step6 = _step6()
+        task_part = step6.split("$bootLines", 1)[1].split("# The service account", 1)[0]
+        code = "\n".join(ln for ln in task_part.splitlines() if not ln.lstrip().startswith("#"))
+        assert r"C:\VisionGuard\app" not in code and "$App" not in code
+        assert r"C:\VisionGuard\app" not in _boot_lines()
+
+    def test_autostart_txt_is_written_only_when_missing(self):
+        step6 = _step6()
+        (line,) = [ln for ln in step6.splitlines() if "Set-Content" in ln]
+        assert line.startswith("if (-not (Test-Path $autostart))")
+        assert "-Value 'on'" in line
+
+    def test_the_ok_line_says_when_it_starts(self):
+        assert ("VisionGuard starts when the PC starts unless the switch in VisionGuard "
+                "Control is off") in _step6()
+
+    def test_step9_still_starts_both_services_itself(self):
+        step9 = _script("install.ps1").split("Step 9", 1)[1]
+        assert "foreach ($name in $Services) { Start-Service -Name $name" in step9
+
+
+def _run_boot_lines(tmp_path, content):
+    """Run the task's real lines with Start-Service replaced by a recorder."""
+    switch = tmp_path / "autostart.txt"
+    if content is not None:
+        switch.write_bytes(content)
+    lines = _boot_lines().replace(r"C:\VisionGuard\data\autostart.txt", str(switch))
+    assert str(switch) in lines
+    script = ('function Start-Service { param($Name) Write-Output "started $Name" }\n'
+              + "; ".join(ln for ln in lines.splitlines() if ln.strip()))
+    encoded = base64.b64encode(script.encode("utf-16-le")).decode()
+    done = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
+                          capture_output=True, text=True, timeout=60)
+    assert done.returncode == 0, done.stderr
+    return done.stdout.split()
+
+
+@needs_powershell
+class TestStartupTaskLogic:
+    BOTH = ["started", "visionguard-engine", "started", "visionguard-front"]
+
+    @pytest.mark.parametrize("content,expect_both", [
+        (None, True),
+        (b"off\r\n", False),
+        (b"OFF \r\n", False),
+        (b"  Off\n", False),
+        (b"on\r\n", True),
+        (b"garbage\n", True),
+        (b"", True),
+        (b"\n", True),
+        (b"on\noff\n", True),
+    ])
+    def test_switch(self, tmp_path, content, expect_both):
+        started = _run_boot_lines(tmp_path, content)
+        assert started == (self.BOTH if expect_both else [])
+
+
 class TestUninstall:
     def test_removes_both_services(self):
         text = _script("uninstall.ps1")
@@ -246,7 +362,14 @@ class TestUninstall:
     def test_removes_the_desktop_shortcut_and_ends_the_control_icon(self):
         text = _script("uninstall.ps1")
         assert r"C:\Users\Public\Desktop\VisionGuard.lnk" in text
+        assert r"C:\Users\Public\Desktop\VisionGuard Control.lnk" in text
         assert "VisionGuardControl" in text
+
+    def test_removes_the_startup_task(self):
+        text = _script("uninstall.ps1")
+        assert "$taskName = 'VisionGuard start at boot'" in text
+        assert "Unregister-ScheduledTask -TaskName $taskName -Confirm:$false" in text
+        assert 'Skip "no task' in text
 
     def test_never_deletes_the_data_folder(self):
         text = _script("uninstall.ps1")

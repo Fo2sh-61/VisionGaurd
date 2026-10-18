@@ -47,6 +47,16 @@ foreach ($name in $Services) {
     }
 }
 
+# --- 2b. startup task ----------------------------------------------------------------
+Step '2b' 'Startup task'
+$taskName = 'VisionGuard start at boot'
+if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
+    try { Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction Stop; Ok "removed the task '$taskName'" }
+    catch { Warn "could not remove the task '${taskName}': $($_.Exception.Message)" }
+} else {
+    Skip "no task '$taskName'"
+}
+
 # --- 3. firewall -----------------------------------------------------------------------
 Step 3 'Firewall'
 foreach ($port in 443, 8443) {
@@ -75,12 +85,13 @@ foreach ($cert in $roots) {
 
 # --- 5. desktop shortcut -------------------------------------------------------------------
 Step 5 'Desktop shortcut'
-$link = 'C:\Users\Public\Desktop\VisionGuard.lnk'
-if (Test-Path $link) {
-    try { Remove-Item -Path $link -ErrorAction Stop; Ok "removed $link" }
-    catch { Warn "could not remove ${link}: $($_.Exception.Message)" }
-} else {
-    Skip "no $link"
+foreach ($link in @('C:\Users\Public\Desktop\VisionGuard.lnk', 'C:\Users\Public\Desktop\VisionGuard Control.lnk')) {
+    if (Test-Path $link) {
+        try { Remove-Item -Path $link -ErrorAction Stop; Ok "removed $link" }
+        catch { Warn "could not remove ${link}: $($_.Exception.Message)" }
+    } else {
+        Skip "no $link"
+    }
 }
 
 Write-Host "`n  Your data folder was kept: $Data`n  (faces, database and settings). Delete it yourself only if you are sure.`n"

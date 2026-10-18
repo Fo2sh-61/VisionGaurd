@@ -25,7 +25,8 @@
 #      matcher (needs internet)
 #   4. copies the models, checks every one the site needs, builds TensorRT
 #   5. the site certificate, and trusts the root on this machine
-#   6. the two services, and folder rights for them
+#   6. the two services, folder rights for them, and the startup task that
+#      starts them at boot unless the switch in VisionGuard Control is off
 #   7. the first administrator, if there is none
 #   8. one desktop shortcut, "VisionGuard", that opens the console
 #   9. starts both services and waits for https://localhost/healthz
@@ -206,6 +207,49 @@ foreach ($name in $Services) {
     Run sc.exe @('sdset', $name, $serviceSddl) "setting who may stop and start $name failed"
     Ok "anyone signed in at this PC may stop and start $name"
 }
+# Both services start on demand. Windows no longer starts them by itself; the
+# startup task below does, when data\autostart.txt does not say "off". Letting
+# users change the switch therefore never lets them change what a service runs.
+foreach ($name in $Services) {
+    Run sc.exe @('config', $name, 'start=', 'demand') "setting $name to start on demand failed"
+}
+Ok 'both services now start through the startup task (crash restarts still apply)'
+# The task's few lines are inside the task itself, never a file from $App: that
+# folder is writable by any user (Mohamed's decision, 18 Oct 2026), and a task
+# that runs as SYSTEM must not run a file anybody can replace. The only thing it
+# reads from disk is the first line of autostart.txt, compared with 'off'; that
+# text is never run.
+$bootLines = @'
+$f = 'C:\VisionGuard\data\autostart.txt'
+$l = ''
+if (Test-Path -LiteralPath $f) { $l = '' + (Get-Content -LiteralPath $f -TotalCount 1) }
+if ($l.Trim() -ne 'off') { Start-Service visionguard-engine; Start-Service visionguard-front }
+'@
+$bootCommand = (($bootLines -split '\r?\n' | Where-Object { $_ }) -join '; ')
+# The switch is the user's choice: made "on" the first time, never overwritten.
+$autostart = Join-Path $Data 'autostart.txt'
+if (-not (Test-Path $autostart)) { Set-Content -Path $autostart -Value 'on' -Encoding ASCII }
+$taskName = 'VisionGuard start at boot'
+$taskAction = New-ScheduledTaskAction -Execute "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" `
+    -Argument "-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command `"$bootCommand`""
+$taskTrigger = New-ScheduledTaskTrigger -AtStartup
+$taskPrincipal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
+$taskSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+    -ExecutionTimeLimit (New-TimeSpan -Minutes 10)
+Register-ScheduledTask -TaskName $taskName -Action $taskAction -Trigger $taskTrigger `
+    -Principal $taskPrincipal -Settings $taskSettings -Force | Out-Null
+# Signed-in users may READ the task (never change or run it), so VisionGuard
+# Control can say truthfully whether automatic start is set up; by default only
+# administrators can see a SYSTEM task.
+try {
+    $scheduler = New-Object -ComObject Schedule.Service
+    $scheduler.Connect()
+    $scheduler.GetFolder('\').GetTask($taskName).SetSecurityDescriptor('D:(A;;FA;;;SY)(A;;FA;;;BA)(A;;GR;;;AU)', 0)
+} catch {
+    Write-Host ("    WARNING  users cannot read the startup task, so VisionGuard Control may say it " +
+                "cannot tell whether automatic start is set up: $($_.Exception.Message)") -ForegroundColor Yellow
+}
+Ok 'VisionGuard starts when the PC starts unless the switch in VisionGuard Control is off'
 # The service account is given write access to data\ and logs\, where it writes.
 foreach ($dir in @($Data, $Logs)) {
     Run icacls @($dir, '/grant', 'NT AUTHORITY\LocalService:(OI)(CI)M', '/Q') "giving the service rights on $dir failed"
