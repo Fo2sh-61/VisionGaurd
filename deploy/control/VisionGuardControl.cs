@@ -148,7 +148,9 @@ namespace VisionGuardControl
         readonly ToolStripMenuItem stopItem = new ToolStripMenuItem("Stop");
         readonly ToolStripMenuItem restartItem = new ToolStripMenuItem("Restart");
         readonly ToolStripMenuItem logsItem = new ToolStripMenuItem("Open logs folder");
-        readonly ToolStripMenuItem hideItem = new ToolStripMenuItem("Hide this icon (VisionGuard keeps running)");
+        // Two ways out, worded so nobody switches the cameras off by mistake.
+        readonly ToolStripMenuItem exitItem = new ToolStripMenuItem("Exit VisionGuard Control (cameras keep running)");
+        readonly ToolStripMenuItem stopExitItem = new ToolStripMenuItem("Stop VisionGuard and exit");
 
         readonly Icon baseIcon;
         ControlWindow window;
@@ -178,7 +180,8 @@ namespace VisionGuardControl
             stopItem.Click += delegate { RunAction("stop"); };
             restartItem.Click += delegate { RunAction("restart"); };
             logsItem.Click += delegate { OpenLogs(); };
-            hideItem.Click += delegate { Application.Exit(); };
+            exitItem.Click += delegate { Application.Exit(); };
+            stopExitItem.Click += delegate { StopAndExit(); };
 
             menu.Items.Add(statusItem);
             menu.Items.Add(controlItem);
@@ -189,7 +192,8 @@ namespace VisionGuardControl
             menu.Items.Add(restartItem);
             menu.Items.Add(logsItem);
             menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add(hideItem);
+            menu.Items.Add(exitItem);
+            menu.Items.Add(stopExitItem);
             startItem.Enabled = stopItem.Enabled = restartItem.Enabled = false;
 
             tray.ContextMenuStrip = menu;
@@ -531,7 +535,25 @@ namespace VisionGuardControl
 
         // ---- doing ----------------------------------------------------------
 
+        // Asks first: this switches the cameras off. Exits only once both
+        // services really stopped; if Windows refuses, the icon stays to say so.
+        void StopAndExit()
+        {
+            DialogResult sure = MessageBox.Show(
+                "This stops VisionGuard: the cameras are no longer watched and the console stops " +
+                "answering, until someone starts it again (or the PC restarts, if " +
+                "\"Start automatically when the PC starts\" is on).\r\n\r\nStop VisionGuard and exit?",
+                "VisionGuard Control", MessageBoxButtons.YesNo, MessageBoxIcon.Warning,
+                MessageBoxDefaultButton.Button2);
+            if (sure == DialogResult.Yes) RunAction("stop", true);
+        }
+
         public void RunAction(string what)
+        {
+            RunAction(what, false);
+        }
+
+        void RunAction(string what, bool exitWhenDone)
         {
             if (acting) return;
             acting = true;
@@ -558,6 +580,7 @@ namespace VisionGuardControl
                 {
                     ui.BeginInvoke(new MethodInvoker(delegate
                     {
+                        if (exitWhenDone && problem == null) { Application.Exit(); return; }
                         Poll();   // the next check shows the truth, whatever happened
                         if (problem == null) return;
                         // Someone looking at the window gets the words there; otherwise a notice.

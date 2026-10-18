@@ -11,7 +11,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCES = sorted((ROOT / "deploy" / "control").glob("*.cs"))
-ICON = ROOT / "assets" / "visionguard.ico"
+ICON = ROOT / "assets" / "visionguard-control.ico"
 CSC = Path(r"C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe")
 
 
@@ -48,7 +48,8 @@ def test_compiles_with_the_built_in_compiler(tmp_path):
     "visionguard-front",
     "https://localhost/healthz",
     "start-failure.txt",
-    "Hide this icon",
+    "Exit VisionGuard Control (cameras keep running)",
+    "Stop VisionGuard and exit",
     "--app=",
     'Local\\\\VisionGuardControlShow',
     "autostart.txt",

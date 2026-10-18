@@ -27,7 +27,7 @@ DefaultGroupName=VisionGuard
 PrivilegesRequired=admin
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-SetupIconFile={#KitDir}\app\assets\visionguard.ico
+SetupIconFile={#KitDir}\app\assets\visionguard-setup.ico
 UninstallDisplayIcon={app}\app\assets\visionguard.ico
 OutputBaseFilename=VisionGuard-Setup-{#AppVersion}
 WizardStyle=modern
@@ -47,8 +47,8 @@ Source: "{#KitDir}\python-3.14*-amd64.exe"; DestDir: "{app}"; Flags: ignoreversi
 
 [Icons]
 Name: "{commonprograms}\VisionGuard"; Filename: "{code:BrowserExe}"; Parameters: "{code:BrowserArgs}"; IconFilename: "{app}\app\assets\visionguard.ico"
-Name: "{commonprograms}\VisionGuard Control"; Filename: "{app}\app\bin\VisionGuardControl.exe"; IconFilename: "{app}\app\assets\visionguard.ico"
-Name: "{commondesktop}\VisionGuard Control"; Filename: "{app}\app\bin\VisionGuardControl.exe"; IconFilename: "{app}\app\assets\visionguard.ico"
+Name: "{commonprograms}\VisionGuard Control"; Filename: "{app}\app\bin\VisionGuardControl.exe"; IconFilename: "{app}\app\assets\visionguard-control.ico"
+Name: "{commondesktop}\VisionGuard Control"; Filename: "{app}\app\bin\VisionGuardControl.exe"; IconFilename: "{app}\app\assets\visionguard-control.ico"
 
 [Registry]
 ; The icon by the clock starts for every user at sign-in.

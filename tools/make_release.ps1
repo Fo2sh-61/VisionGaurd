@@ -13,7 +13,9 @@
 #   <tag>\app\engine\              git archive of engine/ at the tag
 #   <tag>\app\deploy\              git archive of deploy/ (install.ps1 is here)
 #   <tag>\app\models\reid\loiterwatch\   the appearance matcher: code, not weights
-#   <tag>\app\assets\visionguard.ico     the desktop shortcut's icon
+#   <tag>\app\assets\               the icons: visionguard.ico (the console),
+#                                  visionguard-control.ico (VisionGuard Control),
+#                                  visionguard-setup.ico (Setup)
 #   <tag>\app\web\dist\  <tag>\app\mobile\dist\   both apps, built
 #   <tag>\app\bin\                 caddy.exe and WinSW-x64.exe, checked
 #                                  against deploy\versions.txt, and
@@ -52,7 +54,7 @@ try {
     # The program, at the tag. The weights under models/ are never in git,
     # so only the matcher's source comes from there.
     $tar = Join-Path $Out 'src.tar'
-    git archive --format=tar -o $tar $Tag engine deploy models/reid/loiterwatch assets/visionguard.ico
+    git archive --format=tar -o $tar $Tag engine deploy models/reid/loiterwatch assets/visionguard.ico assets/visionguard-control.ico assets/visionguard-setup.ico
     if ($LASTEXITCODE -ne 0) { Fail 'git archive failed.' }
     tar -xf $tar -C $App
     Remove-Item $tar
@@ -113,7 +115,7 @@ try {
     $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
     if (-not (Test-Path $csc)) { Fail "csc.exe is missing ($csc), so the control icon cannot be built." }
     $control = Join-Path $App 'bin\VisionGuardControl.exe'
-    & $csc /nologo /target:winexe /optimize+ "/out:$control" "/win32icon:$App\assets\visionguard.ico" `
+    & $csc /nologo /target:winexe /optimize+ "/out:$control" "/win32icon:$App\assets\visionguard-control.ico" `
         /r:System.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:System.ServiceProcess.dll `
         (Get-ChildItem "$App\deploy\control" -Filter '*.cs' | ForEach-Object FullName)
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path $control)) { Fail 'compiling deploy\control\*.cs failed.' }

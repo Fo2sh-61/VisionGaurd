@@ -71,7 +71,21 @@ class TestScript:
             (line,) = [ln for ln in icons if ln.startswith('Name: "' + place + '\\VisionGuard Control"')]
             assert r'Filename: "{app}\app\bin\VisionGuardControl.exe"' in line
             assert "Parameters" not in line
-            assert r'IconFilename: "{app}\app\assets\visionguard.ico"' in line
+            assert r'IconFilename: "{app}\app\assets\visionguard-control.ico"' in line
+
+    def test_each_piece_wears_its_own_icon(self, iss):
+        """The designer's set, 19 Oct 2026: the plain mark for the console,
+        sliders for VisionGuard Control, an arrow for Setup - so the three
+        can be told apart at a glance."""
+        assert r"SetupIconFile={#KitDir}\app\assets\visionguard-setup.ico" in iss
+        icons = section(iss, "Icons")
+        (console,) = [ln for ln in icons if ln.startswith('Name: "{commonprograms}\\VisionGuard";')]
+        assert r"visionguard.ico" in console
+        release = (REPO_DIR / "tools" / "make_release.ps1").read_text(encoding="utf-8")
+        for icon in ("visionguard.ico", "visionguard-control.ico", "visionguard-setup.ico"):
+            assert f"assets/{icon}" in release, f"{icon} is not packed into the kit"
+            assert (REPO_DIR / "assets" / icon).is_file()
+        assert r'"/win32icon:$App\assets\visionguard-control.ico"' in release
 
     def test_the_data_folder_is_never_deleted(self, iss):
         for line in section(iss, "UninstallDelete") + section(iss, "Files"):
@@ -155,7 +169,8 @@ def test_a_fake_kit_really_compiles(tmp_path):
     for sub in ("app/deploy", "app/assets", "app/bin"):
         (kit / sub).mkdir(parents=True)
     (kit / "app/deploy/install.ps1").write_text("exit 0\n")
-    shutil.copy(REPO_DIR / "assets" / "visionguard.ico", kit / "app/assets/visionguard.ico")
+    for icon in ("visionguard.ico", "visionguard-control.ico", "visionguard-setup.ico"):
+        shutil.copy(REPO_DIR / "assets" / icon, kit / "app/assets" / icon)
     (kit / "app/bin/VisionGuardControl.exe").write_bytes(b"MZ-not-real")
     (kit / "python-3.14.0-amd64.exe").write_bytes(b"MZ-not-real")
     out = tmp_path / "out"
