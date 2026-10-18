@@ -4,6 +4,7 @@ import { useAuth } from '@/app/AuthContext';
 import { useLanguage } from '@/app/LanguageContext';
 import { Logo } from '@/components/Logo';
 import { useSiteName } from '@/app/SiteContext';
+import { lockedUntilOf, signInLockedMessage } from '@/services/format';
 import { LANGUAGES } from '@/i18n';
 
 /** Shortest password the engine will hash — `auth/passwords.MIN_LENGTH`.
@@ -109,11 +110,16 @@ export function Login() {
       // the same thing for a wrong password and an unknown account on purpose,
       // so a guessed school address cannot be confirmed from this form. For
       // sign-up it names the real reason - too short, already registered -
-      // because a person who cannot get in has to be told why.
+      // because a person who cannot get in has to be told why. A locked
+      // account (spec 020) is the one answer worded here: it carries the
+      // unlock time, shown in the site's time and this person's language.
+      const locked = lockedUntilOf(caught);
       setError(
-        caught instanceof Error
-          ? caught.message
-          : t(signingUp ? 'login.couldNotCreate' : 'login.couldNotSignIn'),
+        locked
+          ? signInLockedMessage(locked, language)
+          : caught instanceof Error
+            ? caught.message
+            : t(signingUp ? 'login.couldNotCreate' : 'login.couldNotSignIn'),
       );
     } finally {
       setBusy(false);

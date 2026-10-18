@@ -341,6 +341,11 @@ export const en: Record<MessageKey, string> = {
   'users.saving': 'Saving…',
   'users.notSaved': 'That was not saved: {reason}',
   'users.notSavedOffline': 'Not saved: the engine could not be reached.',
+  // Spec 020: five wrong passwords lock an account for a while.
+  'users.lockedUntil': 'Locked until {time}',
+  'users.unlock': 'Unlock',
+  'users.unlocking': 'Unlocking…',
+  'users.notUnlocked': 'Not unlocked: {reason}',
   'state.engineNotRunning': 'VisionGuard’s engine is not running. The reason is in C:\\VisionGuard\\logs on the workstation.',
   'common.yes': 'Yes',
   'common.engineRefused': 'the engine did not accept it',
@@ -580,6 +585,7 @@ export const en: Record<MessageKey, string> = {
   'login.haveAccount': 'Already have an account?',
   'login.noAccount': 'Don’t have an account?',
   'login.createOne': 'Create one',
+  'login.lockedUntil': 'Too many wrong passwords. This account is locked until {time}. An administrator can unlock it sooner.',
 
   // -- system health --------------------------------------------------------
   'health.title': 'System health',

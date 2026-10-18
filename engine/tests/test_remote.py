@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import threading
 import time
+from dataclasses import replace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -199,3 +200,80 @@ class TestStreamSlots:
         slots.close(a)
         slots.close(a)
         assert slots.count("u1") == 0
+
+
+# --- self sign-up only on the factory network (T013, P10-FR-124) -------------
+
+class TestSignUpFromOutside:
+    BODY = {"name": "New Person", "email": "new@test.local",
+            "password": "a-long-enough-test-password"}
+
+    @pytest.fixture
+    def app(self, user_store):
+        from vg.api import app as app_module
+        from vg.api.store import MockStore
+
+        app_module._signups = app_module._SignupThrottle()
+        app_module.set_store(MockStore())
+        application = create_app()
+        application.state.users = user_store
+        yield application
+        app_module._signups = app_module._SignupThrottle()
+
+    @staticmethod
+    def entries(action):
+        from vg.api import app as app_module
+        return [e for e in app_module.get_store().audit(100) if e.action == action]
+
+    def test_refused_from_outside_with_a_plain_reason(self, app, user_store):
+        answer = TestClient(app, client=NETBIRD).post("/auth/register", json=self.BODY)
+        assert answer.status_code == 403
+        assert answer.json()["detail"] == "Sign up on the factory network."
+        assert user_store.count() == 0
+
+    def test_the_refusal_is_audited_with_the_address(self, app):
+        TestClient(app, client=NETBIRD).post("/auth/register", json=self.BODY)
+        [entry] = self.entries("signup.refused")
+        assert entry.subject == "new@test.local"
+        assert "from 100.81.4.7 (private network)" in entry.detail
+
+    @pytest.mark.parametrize("where", [("testclient", 50000), ("2001:db8::1", 50000),
+                                       ("8.8.8.8", 50000)])
+    def test_anything_not_on_the_factory_network_is_outside(self, app, where):
+        assert TestClient(app, client=where).post(
+            "/auth/register", json=self.BODY).status_code == 403
+
+    def test_on_the_factory_network_it_works_as_today(self, app, user_store):
+        answer = TestClient(app, client=LAN).post("/auth/register", json=self.BODY)
+        assert answer.status_code == 200
+        assert answer.json()["user"]["role"] == "it"
+        assert user_store.count() == 1
+
+
+# --- the session cookie (T015, P10-FR-120) -----------------------------------
+
+class TestCookie:
+    @staticmethod
+    def set_cookie(user_store, tls):
+        from vg.api import app as app_module
+        from vg.api.store import MockStore
+
+        app_module.set_store(MockStore())
+        app = create_app()
+        app.state.users = user_store
+        base = vgconfig.load()
+        app.state.config = (replace(base, tls=vgconfig.TlsConfig(names=("127.0.0.1",)))
+                            if tls else base)
+        user_store.create_user(email="a@x.com", name="A", role="admin",
+                               password="a-long-enough-test-password")
+        answer = TestClient(app, client=LAN).post(
+            "/auth/login", json={"email": "a@x.com", "password": "a-long-enough-test-password"})
+        assert answer.status_code == 200
+        return answer.headers["set-cookie"].lower()
+
+    def test_secure_when_the_site_runs_https(self, user_store):
+        cookie = self.set_cookie(user_store, tls=True)
+        assert "; secure" in cookie and "httponly" in cookie and "samesite=strict" in cookie
+
+    def test_not_secure_in_development_over_plain_http(self, user_store):
+        assert "; secure" not in self.set_cookie(user_store, tls=False)

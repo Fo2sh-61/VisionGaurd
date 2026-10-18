@@ -205,6 +205,7 @@ class Store(Protocol):
     def users(self) -> list[S.User]: ...
     def update_user(self, user_id: str, body: S.UserEdit,
                     actor: str) -> S.User | None: ...
+    def unlock_user(self, user_id: str, actor: str, where: str) -> S.User | None: ...
 
     # -- vehicle gate --
     def vehicle_summary(self) -> S.GateSummary: ...
@@ -1329,6 +1330,10 @@ class MockStore:
         raise SubsystemUnavailable(
             "Accounts cannot be changed in this demo store.")
 
+    def unlock_user(self, user_id: str, actor: str, where: str):
+        raise SubsystemUnavailable(
+            "Accounts cannot be unlocked in this demo store.")
+
     def users(self) -> list[S.User]:
         return [
             S.User(id="u1", name="Mohamed Fouad", email="mohamed61fouad@gmail.com",
@@ -1511,6 +1516,13 @@ class MockStore:
 
     def audit(self, limit: int) -> list[S.AuditEntry]:
         return list(reversed(self._audit))[:limit]
+
+    def log_access(self, actor: str, action: str, subject: str | None,
+                   detail: str) -> S.AuditEntry:
+        """Sign-in, lockout and sign-up entries, written by the API layer
+        (spec 020). `detail` carries the real address and which network it
+        came through. Written before the answer, like every audit entry."""
+        return self._log(actor, action, subject, detail)
 
     def _log(self, actor: str, action: str, subject: str | None,
              detail: str | None) -> S.AuditEntry:

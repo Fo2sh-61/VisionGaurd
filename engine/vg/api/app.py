@@ -41,7 +41,7 @@ from vg.api.store import (
     SubsystemUnavailable,
 )
 from vg.auth.passwords import WeakPassword
-from vg.auth.store import SELF_SIGNUP_ROLE, EmailTaken, LastAdminError
+from vg.auth.store import SELF_SIGNUP_ROLE, EmailTaken, LastAdminError, email_key
 
 log = logging.getLogger(__name__)
 
@@ -1850,6 +1850,7 @@ def create_app() -> FastAPI:
     # app built without one still has them.
     app.state.snapshot_pacer = remote.SnapshotPacer()
     app.state.remote_streams = remote.StreamSlots()
+    app.state.signin_failures = _AddressFailures()
 
     _mount(app)
     return app
@@ -1902,6 +1903,55 @@ class _SignupThrottle:
 _signups = _SignupThrottle()
 
 
+class _AddressFailures:
+    """Failed sign-ins per address, across every account (spec 020).
+
+    The per-account lock stops guessing one password. This stops one address
+    guessing many: spraying a common password over every staff address, or
+    locking out every administrator in turn. In memory, reset on restart, like
+    `_SignupThrottle`, because what it slows down is a script, not a person.
+    """
+
+    def __init__(self) -> None:
+        self._failures: dict[str, list[datetime]] = {}
+        self._until: dict[str, datetime] = {}
+        self._lock = threading.Lock()
+
+    def blocked(self, address: str) -> bool:
+        with self._lock:
+            until = self._until.get(address)
+            if until is not None and until <= datetime.now(timezone.utc):
+                del self._until[address]
+                until = None
+            return until is not None
+
+    def fail(self, address: str, limit: int, window: timedelta, wait: timedelta) -> None:
+        now = datetime.now(timezone.utc)
+        with self._lock:
+            recent = [t for t in self._failures.get(address, []) if t > now - window]
+            recent.append(now)
+            self._failures[address] = recent
+            if len(recent) >= limit:
+                self._until[address] = now + wait
+                self._failures[address] = []
+            for other in [a for a, ts in self._failures.items() if not ts]:
+                del self._failures[other]
+
+
+def _auth_config(request: Request) -> vgconfig.AuthConfig:
+    cfg = getattr(request.app.state, "config", None)
+    return cfg.auth if cfg is not None else vgconfig.AuthConfig()
+
+
+def _site_instant(when: datetime) -> S.Instant:
+    """A moment in the site's own time, as the rest of the wire sends it."""
+    store = get_store()
+    clock = getattr(store, "clock", None)
+    offset = (clock.offset_minutes(when) if clock is not None
+              else getattr(store, "_offset", 0))
+    return S.Instant(utc=when, tz_offset_minutes=offset)
+
+
 def _looks_like_an_email(value: str) -> bool:
     """The shape of an address, not a proof that it exists.
 
@@ -1914,7 +1964,7 @@ def _looks_like_an_email(value: str) -> bool:
     return bool(local) and bool(domain) and "." in domain and not domain.endswith(".")
 
 
-def _issue_session(store, user, response: Response) -> S.LoginResult:
+def _issue_session(store, user, response: Response, request: Request) -> S.LoginResult:
     """Start a session and dress it for the wire. One place, two callers.
 
     The token goes in the body *and* as an HttpOnly cookie. The body is for
@@ -1923,12 +1973,19 @@ def _issue_session(store, user, response: Response) -> S.LoginResult:
     Sign-in and sign-up must set it identically — a sign-up that returned a
     token but no cookie would look like it worked and then show black
     cameras.
+
+    **Secure on a site** (spec 020): with a `tls` block the site runs
+    HTTPS only, so the cookie is marked for HTTPS and is never sent over
+    plain HTTP. Development over plain HTTP has no `tls` block and keeps
+    working.
     """
     token, expires = store.start_session(user)
+    cfg = getattr(request.app.state, "config", None)
     response.set_cookie(
         auth_deps.COOKIE_NAME, token,
         httponly=True,      # page scripts cannot read it
         samesite="strict",  # another site cannot ride it
+        secure=cfg is not None and cfg.tls is not None,
         max_age=int((expires - datetime.now(timezone.utc)).total_seconds()),
         path="/",
     )
@@ -1957,7 +2014,8 @@ def _mount(app: FastAPI) -> None:
 
     # ----------------------------------------------------------------- auth
     @app.post("/auth/login", tags=["auth"], summary="Sign in")
-    async def login(request: Request, body: S.LoginRequest, response: Response):
+    async def login(request: Request, body: S.LoginRequest, response: Response,
+                    audit: StoreDep):
         """Exchange an email and password for a session.
 
         One failure message for every way this can fail - unknown account,
@@ -1968,6 +2026,13 @@ def _mount(app: FastAPI) -> None:
         is for the API client; the cookie exists because the MJPEG camera
         streams are loaded by `<img src=...>`, which cannot send an
         Authorization header.
+
+        **Lockout (spec 020).** Five wrong passwords for one typed email within
+        fifteen minutes lock it for fifteen: 423, even with the right password,
+        and more attempts do not extend it. Kept whether or not the account
+        exists, so the 423 says nothing about which addresses are real. One
+        address failing twenty times, across any emails, waits too (429).
+        Every attempt is audited before the answer, with the real address.
         """
         store = getattr(request.app.state, "users", None)
         if store is None:
@@ -1976,17 +2041,51 @@ def _mount(app: FastAPI) -> None:
                 detail="Sign-in is unavailable. See System Health.",
             )
 
-        user = store.authenticate(body.email, body.password)
-        if user is None:
-            log.warning("failed sign-in for %r from %s", body.email,
-                        request.client.host if request.client else "?")
-            raise HTTPException(status_code=401, detail="Email or password is wrong.")
+        limits = _auth_config(request)
+        address = remote.client_address(request) or "?"
+        where = remote.where_from(request)
+        key = email_key(body.email)
+        failures = request.app.state.signin_failures
+        if failures.blocked(address):
+            log.warning("sign-in from %s refused: too many failures", address)
+            raise HTTPException(
+                status_code=429,
+                detail="Too many failed sign-ins from this device. "
+                       f"Wait {limits.lockout_min:g} minutes, then try again.")
 
-        log.info("%s signed in", user.email)
-        return _issue_session(store, user, response)
+        until = store.locked_until(body.email)
+        if until is None:
+            user = store.authenticate(body.email, body.password)
+            if user is not None:
+                store.clear_failures(body.email)
+                audit.log_access(user.name, "signin", user.email, where)
+                log.info("%s signed in", user.email)
+                return _issue_session(store, user, response, request)
+
+            log.warning("failed sign-in for %r %s", body.email, where)
+            failures.fail(address, limits.address_attempts,
+                          timedelta(minutes=limits.lockout_window_min),
+                          timedelta(minutes=limits.lockout_min))
+            audit.log_access(key, "signin.failed", key, where)
+            until = store.record_failure(
+                body.email, address, attempts=limits.lockout_attempts,
+                window=timedelta(minutes=limits.lockout_window_min),
+                lock_for=timedelta(minutes=limits.lockout_min))
+            if until is None:
+                raise HTTPException(status_code=401, detail="Email or password is wrong.")
+            audit.log_access(key, "signin.locked", key,
+                             f"{where}, until {until.isoformat(timespec='minutes')}")
+
+        # `detail` is the fallback a screen shows as it is; both apps build
+        # "locked until 14:20" from `lockedUntil`, in the site's time.
+        return JSONResponse(status_code=423, content={
+            "detail": "This account is locked for now.",
+            "lockedUntil": _site_instant(until).model_dump(mode="json", by_alias=True),
+        })
 
     @app.post("/auth/register", tags=["auth"], summary="Create an account")
-    async def register(request: Request, body: S.RegisterRequest, response: Response):
+    async def register(request: Request, body: S.RegisterRequest, response: Response,
+                       audit: StoreDep):
         """Open sign-up. Creates a working account and signs it in.
 
         **This endpoint is reachable without a session, by anyone who can
@@ -2015,6 +2114,14 @@ def _mount(app: FastAPI) -> None:
                 status_code=503,
                 detail="Sign-up is unavailable. See System Health.",
             )
+
+        # Spec 020: only on the factory network. Away from it, a device that
+        # is enrolled in the private network must still need a real
+        # account's password; an open form would hand it one. Audited first.
+        if remote.is_remote(request):
+            key = email_key(body.email)
+            audit.log_access(key, "signup.refused", key, remote.where_from(request))
+            raise HTTPException(status_code=403, detail="Sign up on the factory network.")
 
         caller = request.client.host if request.client else "?"
         if not _signups.allow(caller):
@@ -2045,7 +2152,7 @@ def _mount(app: FastAPI) -> None:
 
         log.info("new %s account registered: %s (from %s)", user.role, user.email,
                  caller)
-        return _issue_session(store, user, response)
+        return _issue_session(store, user, response, request)
 
     @app.post("/auth/logout", tags=["auth"], summary="Sign out")
     async def logout(request: Request, response: Response) -> dict:
@@ -3557,6 +3664,25 @@ def _mount(app: FastAPI) -> None:
         if changed is None:
             raise HTTPException(404, "No such account.")
         return changed
+
+    @app.post("/users/{user_id}/unlock", response_model=S.User, tags=["people"])
+    async def unlock_user(
+        request: Request, user_id: str, store: StoreDep, user: auth_deps.AdminUser,
+    ) -> S.User:
+        """Lift a sign-in lock now, instead of waiting it out (spec 020).
+
+        Administrator-only by path (`/users` is in `ADMIN_PREFIXES`). Audited
+        before the write, with the address it came from. The owner can do the
+        same at the workstation with `engine/tools/unlock_account.py` when no
+        administrator can sign in.
+        """
+        try:
+            unlocked = store.unlock_user(user_id, user.name, remote.where_from(request))
+        except SubsystemUnavailable as exc:
+            raise HTTPException(503, str(exc)) from exc
+        if unlocked is None:
+            raise HTTPException(404, "No such account.")
+        return unlocked
 
     # --------------------------------------------------------- vehicle gate
     #

@@ -62,6 +62,7 @@ import {
   formatClock,
   formatCount,
   formatEventTime,
+  formatLockedUntil,
   formatLongDate,
   formatMetrics,
   formatDuration,
@@ -925,22 +926,7 @@ export async function getSystemHealth(lang: Language): Promise<SystemHealth> {
   };
 }
 
-export async function getUsers(lang: Language): Promise<User[]> {
-  const users = await get<W.User[]>('/users');
-  return users.map((u) => ({
-    id: u.id,
-    name: u.name,
-    role: u.role,
-    email: u.email,
-    lastActive: u.lastActive ? formatEventTime(u.lastActive, lang) : '—',
-    disabled: u.disabled === true,
-  }));
-}
-
-/** Change an account (admin). A 409 carries the engine's reason: it would
- *  leave no active administrator. */
-export async function updateUser(id: string, changes: UserChanges, lang: Language): Promise<User> {
-  const u = await patch<W.User>(`/users/${encodeURIComponent(id)}`, changes);
+function toUser(u: W.User, lang: Language): User {
   return {
     id: u.id,
     name: u.name,
@@ -948,7 +934,26 @@ export async function updateUser(id: string, changes: UserChanges, lang: Languag
     email: u.email,
     lastActive: u.lastActive ? formatEventTime(u.lastActive, lang) : '—',
     disabled: u.disabled === true,
+    lockedUntil: u.lockedUntil ? formatLockedUntil(u.lockedUntil, lang) : null,
   };
+}
+
+export async function getUsers(lang: Language): Promise<User[]> {
+  const users = await get<W.User[]>('/users');
+  return users.map((u) => toUser(u, lang));
+}
+
+/** Change an account (admin). A 409 carries the engine's reason: it would
+ *  leave no active administrator. */
+export async function updateUser(id: string, changes: UserChanges, lang: Language): Promise<User> {
+  const u = await patch<W.User>(`/users/${encodeURIComponent(id)}`, changes);
+  return toUser(u, lang);
+}
+
+/** Lift a sign-in lock now (admin, spec 020). Audited by the engine. */
+export async function unlockUser(id: string, lang: Language): Promise<User> {
+  const u = await post<W.User>(`/users/${encodeURIComponent(id)}/unlock`);
+  return toUser(u, lang);
 }
 
 /* ---------- people directory ---------- */

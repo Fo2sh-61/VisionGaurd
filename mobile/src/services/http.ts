@@ -75,6 +75,9 @@ export class ApiError extends Error {
     readonly status: number,
     readonly retryable: boolean,
     readonly detail?: string,
+    /** The engine's whole error body, for the few answers that carry more
+     *  than a sentence - a 423 sign-in carries `lockedUntil`. */
+    readonly body?: unknown,
   ) {
     super(message);
     this.name = 'ApiError';
@@ -153,9 +156,11 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     if (!response.ok) {
       let message = `${method} ${path} failed (${response.status})`;
       let detail: string | undefined;
+      let problem: unknown;
       try {
-        const problem = await response.json();
-        detail = problem?.detail ?? problem?.error;
+        problem = await response.json();
+        const p = problem as { detail?: string; error?: string } | null;
+        detail = p?.detail ?? p?.error;
         if (typeof detail === 'string') message = detail;
       } catch {
         /* a non-JSON error body is not worth failing over */
@@ -177,7 +182,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
 
       // 5xx and 429 are worth retrying; a 404 or a validation error is not.
       const retryable = response.status >= 500 || response.status === 429;
-      throw new ApiError(message, response.status, retryable, detail);
+      throw new ApiError(message, response.status, retryable, detail, problem);
     }
 
     if (response.status === 204) return undefined as T;

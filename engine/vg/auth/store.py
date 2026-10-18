@@ -75,7 +75,30 @@ CREATE TABLE IF NOT EXISTS session (
 );
 
 CREATE INDEX IF NOT EXISTS idx_session_user ON session(user_id);
+
+CREATE TABLE IF NOT EXISTS signin_lock (
+    email_key        TEXT PRIMARY KEY,
+    failures         INTEGER NOT NULL,
+    first_failure_at TEXT NOT NULL,
+    locked_until     TEXT,
+    last_address     TEXT
+);
 """
+
+#: The longest address RFC 5321 allows; a typed email is cut to it for the key.
+MAX_EMAIL_KEY = 254
+
+_ASCII_LOWER = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
+
+
+def email_key(email: str) -> str:
+    """The typed email made exactly the way sign-in matches it.
+
+    `strip()`, then lower-case A-Z only, because SQLite's `COLLATE NOCASE`
+    folds nothing else: two addresses sign-in treats as different must count
+    as different here too, or one person's typos could lock another.
+    """
+    return email.strip().translate(_ASCII_LOWER)[:MAX_EMAIL_KEY]
 
 
 class LastAdminError(ValueError):
@@ -418,6 +441,101 @@ class UserStore:
                                         (user_id,))
             self._conn.commit()
             return cursor.rowcount
+
+    # -- sign-in lockout (spec 020) -----------------------------------------
+    #
+    # Kept per typed email whether or not an account has it, so "locked" never
+    # tells anybody which addresses are real.
+
+    def locked_until(self, email: str, now: datetime | None = None) -> datetime | None:
+        """When this address's lock lifts, or None when it is not locked."""
+        now = now or _now()
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT locked_until FROM signin_lock WHERE email_key = ?",
+                (email_key(email),)).fetchone()
+        if row is None or not row["locked_until"]:
+            return None
+        until = datetime.fromisoformat(row["locked_until"])
+        return until if until > now else None
+
+    def record_failure(self, email: str, address: str | None, attempts: int = 5,
+                       window: timedelta = timedelta(minutes=15),
+                       lock_for: timedelta = timedelta(minutes=15),
+                       now: datetime | None = None) -> datetime | None:
+        """Count one wrong password. Returns the lock's end when this one locks.
+
+        A failure while already locked is not counted and changes nothing:
+        more attempts never extend a lock.
+        """
+        now = now or _now()
+        key = email_key(email)
+        with self._lock:
+            self._conn.execute("BEGIN IMMEDIATE")
+            try:
+                self._forget_expired_locks(now, window)
+                row = self._conn.execute(
+                    "SELECT failures, first_failure_at, locked_until FROM signin_lock"
+                    " WHERE email_key = ?", (key,)).fetchone()
+                if row is not None and row["locked_until"] and                         datetime.fromisoformat(row["locked_until"]) > now:
+                    self._conn.rollback()
+                    return None
+                if row is not None and                         datetime.fromisoformat(row["first_failure_at"]) + window > now:
+                    failures, first = row["failures"] + 1, row["first_failure_at"]
+                else:
+                    failures, first = 1, now.isoformat()
+                until = now + lock_for if failures >= attempts else None
+                self._conn.execute(
+                    "INSERT OR REPLACE INTO signin_lock (email_key, failures,"
+                    " first_failure_at, locked_until, last_address)"
+                    " VALUES (?, ?, ?, ?, ?)",
+                    (key, failures, first, until.isoformat() if until else None, address))
+                self._conn.commit()
+            except BaseException:
+                self._conn.rollback()
+                raise
+        return until
+
+    def clear_failures(self, email: str) -> None:
+        """A successful sign-in starts the count again."""
+        with self._lock:
+            self._conn.execute("DELETE FROM signin_lock WHERE email_key = ?",
+                               (email_key(email),))
+            self._conn.commit()
+
+    def unlock(self, email: str) -> bool:
+        """Lift a lock now. True when there was one to lift."""
+        now = _now().isoformat()
+        with self._lock:
+            locked = self._conn.execute(
+                "SELECT 1 FROM signin_lock WHERE email_key = ? AND locked_until > ?",
+                (email_key(email), now)).fetchone() is not None
+            self._conn.execute("DELETE FROM signin_lock WHERE email_key = ?",
+                               (email_key(email),))
+            self._conn.commit()
+        return locked
+
+    def active_locks(self, now: datetime | None = None) -> dict[str, datetime]:
+        """Every lock in force, by email key: for the Users page."""
+        now = now or _now()
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT email_key, locked_until FROM signin_lock"
+                " WHERE locked_until > ?", (now.isoformat(),)).fetchall()
+        return {r["email_key"]: datetime.fromisoformat(r["locked_until"]) for r in rows}
+
+    def lock_rows(self) -> list[str]:
+        """Every key the table holds, locked or counting. For tests."""
+        with self._lock:
+            return [r["email_key"] for r in self._conn.execute(
+                "SELECT email_key FROM signin_lock ORDER BY email_key")]
+
+    def _forget_expired_locks(self, now: datetime, window: timedelta) -> None:
+        """Rows whose count window and lock have both passed. Caller holds the lock."""
+        self._conn.execute(
+            "DELETE FROM signin_lock WHERE first_failure_at <= ?"
+            " AND (locked_until IS NULL OR locked_until <= ?)",
+            ((now - window).isoformat(), now.isoformat()))
 
     def purge_expired(self) -> int:
         with self._lock:

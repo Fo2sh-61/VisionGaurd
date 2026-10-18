@@ -14,6 +14,8 @@ export interface User {
   lastActive: string;
   /** A disabled account cannot sign in. Still listed, so it can be turned back on. */
   disabled: boolean;
+  /** "Locked until 2:20 pm" after too many wrong passwords (spec 020); null when not locked. */
+  lockedUntil: string | null;
 }
 
 /** What an administrator may change on an account. Any subset. */

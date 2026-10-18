@@ -1352,6 +1352,9 @@ class User(Wire):
     #: A disabled account cannot sign in. Listed all the same, so an
     #: administrator can see it and turn it back on.
     disabled: bool = False
+    #: When a sign-in lock lifts by itself (spec 020); None when not locked.
+    #: An administrator can lift it sooner (`POST /users/{id}/unlock`).
+    locked_until: Instant | None = None
 
 
 class UserEdit(Wire):

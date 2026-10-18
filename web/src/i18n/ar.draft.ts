@@ -350,6 +350,10 @@ export const arDraft: Partial<Record<MessageKey, string>> = {
   'users.saving': 'جارٍ الحفظ…',
   'users.notSaved': 'لم يُحفظ ذلك: {reason}',
   'users.notSavedOffline': 'لم يُحفظ: تعذّر الوصول إلى المحرك.',
+  'users.lockedUntil': 'مقفل حتى {time}',
+  'users.unlock': 'فتح القفل',
+  'users.unlocking': 'جارٍ فتح القفل…',
+  'users.notUnlocked': 'لم يُفتح القفل: {reason}',
   'state.engineNotRunning': 'محرك VisionGuard لا يعمل. السبب مكتوب في C:\\VisionGuard\\logs على جهاز التشغيل.',
   'common.yes': 'نعم',
   'common.engineRefused': 'لم يقبله المحرك',
@@ -589,6 +593,7 @@ export const arDraft: Partial<Record<MessageKey, string>> = {
   'login.haveAccount': 'لديك حساب بالفعل؟',
   'login.noAccount': 'ليس لديك حساب؟',
   'login.createOne': 'أنشئ واحدًا',
+  'login.lockedUntil': 'محاولات خاطئة كثيرة لكلمة المرور. هذا الحساب مقفل حتى {time}. يمكن للمسؤول فتح القفل قبل ذلك.',
 
   // -- system health --------------------------------------------------------
   'health.title': 'حالة النظام',

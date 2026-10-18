@@ -44,10 +44,17 @@ def app(user_store):
     return application
 
 
+#: Sign-up works only on the factory network (spec 020); from anywhere else it
+#: is refused, which `test_remote.py` covers. Every test here is about the
+#: factory network, so it says so: TestClient's own made-up "testclient" host
+#: is not an address, and counts as outside.
+LAN = ("192.168.1.20", 50000)
+
+
 @pytest.fixture
 def anon(app):
     """No session at all — the state a person signing up is actually in."""
-    return TestClient(app)
+    return TestClient(app, client=LAN)
 
 
 @pytest.fixture(autouse=True)
@@ -224,7 +231,7 @@ class TestSignUpRefuses:
         form that spins forever teaches an operator to distrust the page."""
         app.state.users = None
 
-        response = register(TestClient(app))
+        response = register(TestClient(app, client=LAN))
 
         assert response.status_code == 503
         assert "System Health" in response.json()["detail"]

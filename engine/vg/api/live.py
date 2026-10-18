@@ -28,6 +28,7 @@ from vg.ingest.recorder import AlreadyRecording
 from vg.config import PERSON_FEATURES, CameraConfig, EngineConfig
 from vg.api import schemas as S
 from vg.api.notes import note
+from vg.auth.store import email_key
 from vg.api.store import (
     AlreadyBusy,
     FallRefused,
@@ -2763,11 +2764,25 @@ class LiveStore(MockStore):
         """
         if self.users_store is None:
             return []
+        locks = self.users_store.active_locks()
         return [
             S.User(id=u.id, name=u.name, email=u.email, role=u.role,
-                   disabled=u.disabled)
+                   disabled=u.disabled,
+                   locked_until=_instant(locks.get(email_key(u.email)), self.clock))
             for u in self.users_store.users()
         ]
+
+    def unlock_user(self, user_id: str, actor: str, where: str) -> S.User | None:
+        """Lift a sign-in lock now (spec 020). Audited before the write."""
+        if self.users_store is None:
+            raise SubsystemUnavailable(
+                "sign-in is not running, so there are no accounts to unlock")
+        target = next((u for u in self.users_store.users() if u.id == user_id), None)
+        if target is None:
+            return None
+        self._log(actor, "signin.unlock", target.email, where)
+        self.users_store.unlock(target.email)
+        return next(u for u in self.users() if u.id == user_id)
 
     def update_user(self, user_id: str, body: S.UserEdit,
                     actor: str) -> S.User | None:

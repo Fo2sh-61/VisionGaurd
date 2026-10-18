@@ -2,7 +2,7 @@ import { useState } from 'react';
 import {
   Badge, Card, CardHeader, DataNotice, Empty, Field, LoadError, PageHeader, Select, Toggle,
 } from '@/components/ui';
-import { getUsers, updateUser } from '@/services/api';
+import { getUsers, unlockUser, updateUser } from '@/services/api';
 import { ApiError } from '@/services/http';
 import { useLanguage, useT } from '@/app/LanguageContext';
 import { CAPABILITIES } from '@/services/content';
@@ -56,6 +56,12 @@ export function Users() {
                   {t(user.role === 'admin' ? 'role.admin' : 'role.it')}
                 </Badge>
                 {user.disabled && <Badge tone="warn">{t('users.disabled')}</Badge>}
+                {user.lockedUntil && (
+                  <>
+                    <Badge tone="warn">{user.lockedUntil}</Badge>
+                    <UnlockButton user={user} onDone={reload} />
+                  </>
+                )}
               </span>
               <span
                 className="row__muted"
@@ -99,6 +105,41 @@ export function Users() {
           ))}
         </div>
       </Card>
+    </>
+  );
+}
+
+/** Lift a sign-in lock now (spec 020). The engine audits it; a refusal or an
+ *  unreachable engine is said in place, never shown as unlocked. */
+function UnlockButton({ user, onDone }: { user: User; onDone: () => void }) {
+  const t = useT();
+  const { language } = useLanguage();
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+
+  async function unlock() {
+    setBusy(true);
+    setProblem(null);
+    try {
+      await unlockUser(user.id, language);
+      onDone();
+    } catch (err) {
+      setProblem(
+        err instanceof ApiError && err.offline
+          ? t('users.notSavedOffline')
+          : t('users.notUnlocked', { reason: err instanceof Error ? err.message : String(err) }),
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <button type="button" className="linkbtn" disabled={busy} onClick={() => void unlock()}>
+        {busy ? t('users.unlocking') : t('users.unlock')}
+      </button>
+      {problem && <span role="alert" style={{ color: 'var(--rd)', fontSize: 13 }}>{problem}</span>}
     </>
   );
 }

@@ -680,6 +680,8 @@ export interface User {
   role: 'admin' | 'it';
   lastActive?: Instant | null;
   disabled?: boolean;
+  /** When a sign-in lock lifts by itself (spec 020). */
+  lockedUntil?: Instant | null;
 }
 
 /* ---------- home / live ---------- */

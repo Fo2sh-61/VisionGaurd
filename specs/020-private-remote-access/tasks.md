@@ -107,7 +107,7 @@ be forged through the engine's own settings.
 **Independent test**: pytest alone proves the lockout, sign-up refusal, media sessions and
 cookie. Drills D8 and D12 prove them on devices.
 
-- [ ] T008 [P] [US2] Write `engine/tests/test_signin_lock.py`:
+- [x] T008 [P] [US2] Write `engine/tests/test_signin_lock.py`:
   - the 5th failure within 15 min locks;
   - the right password gets 423 with the unlock time while locked;
   - attempts while locked do not extend the lock;
@@ -120,34 +120,46 @@ cookie. Drills D8 and D12 prove them on devices.
     audited before the write;
   - `signin.locked` is audited before the 423, with the address;
   - `User.locked_until` is filled for a locked account
-- [ ] T009 [US2] Add the `signin_lock` table and its methods to `engine/vg/auth/store.py`.
+  - Done 19 Oct 2026, 30 tests. The 5th wrong password answers 423 itself; the per-address
+    cap is per app (`app.state`), not module-wide
+- [x] T009 [US2] Add the `signin_lock` table and its methods to `engine/vg/auth/store.py`.
       The key is `strip()` then ASCII lower-case, cut to 254 characters
-- [ ] T010 [US2] In `engine/vg/api/app.py`:
+- [x] T010 [US2] In `engine/vg/api/app.py`:
   - wire the lockout and the per-address cap into `login`;
   - add `POST /users/{id}/unlock` (admin-only by its `/users` path in `auth/deps.py`);
   - add `locked_until: Instant | None` to `User` in `schemas.py` and fill it in
     `LiveStore.users()`.
   - Audits use the store's `_log`, actor = the email key for an unknown sender.
   - T008 passes
-- [ ] T011 [US2] Create `engine/tools/unlock_account.py <email>` for the owner at the
+- [x] T011 [US2] Create `engine/tools/unlock_account.py <email>` for the owner at the
       workstation. It clears the lock and audits it with actor `workstation`. Add a test
       that loads it by path, as `test_track_page.py` loads its tool
-- [ ] T012 [US2] Show "Locked until 14:20" and an Unlock button on a locked account in
+  - Done, with one gap said plainly: the audit lives in the engine's memory until spec
+    018, so a command outside the engine cannot add to it. The tool prints what it did;
+    the Users page's unlock is audited
+- [x] T012 [US2] Show "Locked until 14:20" and an Unlock button on a locked account in
       `web/src/pages/Users.tsx` **and** `mobile/src/pages/Users.tsx`, and the locked
       message on both `Login.tsx`. Words in `i18n/*`, sentences in `format.ts`; parity check
-- [ ] T013 [P] [US2] Add to `engine/tests/test_remote.py`: `/auth/register` from a remote
+  - Done. The 423 carries `lockedUntil` as an Instant; `ApiError.body` hands it to the
+    page, which words it in the site's time and the reader's language
+- [x] T013 [P] [US2] Add to `engine/tests/test_remote.py`: `/auth/register` from a remote
       address → 403 "Sign up on the factory network", audited before the answer; from the
       LAN → works as today. Implement in `register` (`app.py`)
-- [ ] T014 [P] [US2] Write `engine/tests/test_media_auth.py`:
+- [x] T014 [P] [US2] Write `engine/tests/test_media_auth.py`:
   - every image, stream and clip GET route found by walking `app.routes` answers 401
     without a session;
   - `PUBLIC_PATHS` is exactly `/healthz`, `/auth/login`, `/auth/register`.
   - It should pass today; it guards the future
-- [ ] T015 [P] [US2] Write `engine/tests/test_cookie.py`, then set `secure=True` in
+  - Done: passes, from the LAN and from outside; it also walks every parameterised route
+- [x] T015 [P] [US2] Write `engine/tests/test_cookie.py`, then set `secure=True` in
       `_issue_session` (`app.py`) when 016's TLS setting is on; dev over plain HTTP unchanged
-- [ ] T016 [US2] Add the real address and "factory network" / "private network" to the
+  - Done; the two tests live in `test_remote.py` (`TestCookie`), not a file of their own
+- [x] T016 [US2] Add the real address and "factory network" / "private network" to the
       `detail` of sign-in, failed sign-in, lock, unlock and refused sign-up audit entries.
       Extend 018's sign-in audit tests
+  - Done. 018 is not built, so sign-ins were not audited at all; they now are, in the
+    in-memory audit (`signin`, `signin.failed`, `signin.locked`, `signin.unlock`,
+    `signup.refused`), each `from <address> (factory network | private network | outside)`
 - [ ] T017 [US2] Run drills D8 and D12 (plan, Test plan); record in
       `specs/020-private-remote-access/drills.md`
 

@@ -346,6 +346,10 @@ export type UiKey =
   | 'users.saving'
   | 'users.notSaved'
   | 'users.notSavedOffline'
+  | 'users.lockedUntil'
+  | 'users.unlock'
+  | 'users.unlocking'
+  | 'users.notUnlocked'
   | 'state.engineNotRunning'
   | 'common.yes'
   | 'common.engineRefused'
@@ -579,6 +583,7 @@ export type UiKey =
   | 'login.haveAccount'
   | 'login.noAccount'
   | 'login.createOne'
+  | 'login.lockedUntil'
 
   // -- system health --------------------------------------------------------
   | 'health.title'

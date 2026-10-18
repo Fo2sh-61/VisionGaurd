@@ -25,7 +25,7 @@ import type {
   BoxColor, Camera, CameraZone, CapacityRowItem, DetectionBox, Stat, Tone,
   WorkerLoadItem,
 } from '@/types';
-import { assetUrl } from './http';
+import { ApiError, assetUrl } from './http';
 
 /* ---------- time ----------
  *
@@ -73,6 +73,22 @@ export function formatTime(instant: Instant | null | undefined, lang: Language):
   if (!instant) return '—';
   return dateFormat(lang, { hour: 'numeric', minute: '2-digit' })
     .format(siteLocal(instant));
+}
+
+/** "Locked until 2:20 pm", in the site's time (spec 020). */
+export function formatLockedUntil(instant: Instant, lang: Language): string {
+  return translate(lang, 'users.lockedUntil', { time: formatTime(instant, lang) });
+}
+
+/** The unlock time a refused sign-in carries: the engine's 423. */
+export function lockedUntilOf(err: unknown): Instant | null {
+  if (!(err instanceof ApiError) || err.status !== 423) return null;
+  return (err.body as { lockedUntil?: Instant } | undefined)?.lockedUntil ?? null;
+}
+
+/** What the sign-in form says when the engine answers 423. */
+export function signInLockedMessage(instant: Instant, lang: Language): string {
+  return translate(lang, 'login.lockedUntil', { time: formatTime(instant, lang) });
 }
 
 /** The current wall clock at the SCHOOL, as "07:42:11".
