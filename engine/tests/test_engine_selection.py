@@ -25,6 +25,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 
 from vg.infer import shared  # noqa: E402
 from vg.infer.shared import (  # noqa: E402
@@ -146,6 +147,83 @@ class TestItAlwaysSaysWhichOneItGot:
         the page stops answering the question it exists to answer."""
         assert TENSORRT != UNACCELERATED
         assert TENSORRT and UNACCELERATED
+
+
+class _FakeYOLO:
+    """Stands in for ultralytics.YOLO. Like the real one, a plan is only
+    opened on the first predict - which is where a stale one fails."""
+
+    opened: list[str] = []
+
+    def __init__(self, path, task=None):
+        self.path = str(path)
+
+    def predict(self, *args, **kwargs):
+        _FakeYOLO.opened.append(self.path)
+        if self.path.endswith(".engine"):
+            raise AttributeError(
+                "'NoneType' object has no attribute 'create_execution_context'")
+        return []
+
+
+@pytest.fixture
+def fake_yolo(monkeypatch):
+    import ultralytics
+
+    _FakeYOLO.opened = []
+    monkeypatch.setattr(ultralytics, "YOLO", _FakeYOLO)
+    return _FakeYOLO
+
+
+class TestAStalePlanFallsBack:
+    """First site install, 18 Oct 2026: plans built by TensorRT 11.2 met
+    TensorRT 11.4. They deserialised to None on the first predict - after
+    `load_model`'s try - and the engine would not start at all."""
+
+    def test_a_plan_that_will_not_open_falls_back_to_the_weights(
+        self, weights, with_tensorrt, fake_yolo
+    ):
+        engine_path_for(weights, 640).write_bytes(b"plan from another TensorRT")
+
+        model, loaded, form = shared.load_model(weights, 640)
+
+        assert loaded == weights
+        assert form == UNACCELERATED
+        assert model.path == str(weights)
+        assert fake_yolo.opened == [str(engine_path_for(weights, 640))]
+
+    def test_engine_opens_names_the_reason(self, weights, fake_yolo):
+        plan = engine_path_for(weights, 640)
+        plan.write_bytes(b"stale")
+
+        why = shared.engine_opens(plan, 640)
+
+        assert why and "create_execution_context" in why
+
+    def test_the_build_tool_rebuilds_a_stale_plan_instead_of_calling_it_present(
+        self, weights, monkeypatch
+    ):
+        import build_engines
+
+        engine_path_for(weights, 640).write_bytes(b"stale")
+        monkeypatch.setattr(build_engines, "engine_opens", lambda *a: "will not open")
+        import ultralytics
+
+        class Exporter:
+            def __init__(self, path):
+                pass
+
+            def export(self, **kwargs):
+                out = weights.with_suffix(".engine")
+                out.write_bytes(b"fresh plan")
+                return str(out)
+
+        monkeypatch.setattr(ultralytics, "YOLO", Exporter)
+
+        status, _ = build_engines.build("person", weights, 640, False, False)
+
+        assert status == "built"
+        assert engine_path_for(weights, 640).read_bytes() == b"fresh plan"
 
 
 class TestProbingThisMachine:

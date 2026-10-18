@@ -48,7 +48,7 @@ import os  # noqa: E402
 os.environ.setdefault("YOLO_AUTOINSTALL", "false")
 
 from vg import config as vgconfig  # noqa: E402
-from vg.infer.shared import engine_path_for, tensorrt_available  # noqa: E402
+from vg.infer.shared import engine_opens, engine_path_for, tensorrt_available  # noqa: E402
 
 #: Models that are not ultralytics and have no engine form. Named here so the
 #: report says "skipped, and why" rather than silently covering four of six.
@@ -79,7 +79,8 @@ def fp16_available() -> bool:
     return autocast is not None
 
 
-def build(name: str, weights: Path, imgsz: int, half: bool, force: bool) -> tuple[str, str]:
+def build(name: str, weights: Path, imgsz: int, half: bool, force: bool,
+          task: str = "detect") -> tuple[str, str]:
     """Build one engine. Returns (status, detail). Never raises."""
     target = engine_path_for(weights, imgsz)
     # Silently dropping to FP32 would be its own small untruth, so the
@@ -89,8 +90,15 @@ def build(name: str, weights: Path, imgsz: int, half: bool, force: bool) -> tupl
     if not weights.is_file():
         return "missing", f"no weights at {weights}"
     if target.exists() and not force:
-        size_mb = target.stat().st_size / 1e6
-        return "present", f"{target.name} already built ({size_mb:.0f} MB)"
+        # Existing is not enough: a plan from another TensorRT version is on
+        # disk and useless. The first site install copied 11.2 plans into an
+        # 11.4 install, called them "already built", and the engine stopped.
+        why = engine_opens(target, imgsz, task)
+        if why is None:
+            size_mb = target.stat().st_size / 1e6
+            return "present", f"{target.name} already built ({size_mb:.0f} MB)"
+        print(f"  {name:14} stale    {target.name} will not open here ({why}); rebuilding",
+              flush=True)
 
     from ultralytics import YOLO
 
@@ -170,7 +178,7 @@ def main() -> int:
 
         print(f"  {name:14} building at {spec.imgsz}...", flush=True)
         status, detail = build(
-            name, spec.weights, spec.imgsz, spec.half and half, args.force)
+            name, spec.weights, spec.imgsz, spec.half and half, args.force, spec.task)
         results.append((name, status, detail))
         print(f"  {name:14} {status:8} {detail}", flush=True)
 

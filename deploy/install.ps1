@@ -133,7 +133,9 @@ Ok 'packages installed'
 
 # --- 4. models -----------------------------------------------------------------
 Step 4 'Models'
-robocopy $Models (Join-Path $App 'models') /E /NFL /NDL /NJH /NJS /NP | Out-Null
+# Never the .engine files: a TensorRT plan only opens with the TensorRT that
+# built it, so plans from another machine are built again below.
+robocopy $Models (Join-Path $App 'models') /E /XF *.engine /NFL /NDL /NJH /NJS /NP | Out-Null
 if ($LASTEXITCODE -ge 8) { Stop-Install "copying the models from $Models failed (robocopy $LASTEXITCODE)" }
 Run $Python @((Join-Path $App 'engine\tools\check_models.py')) 'a model this site needs is missing (listed above). Nothing was started'
 Run $Python @((Join-Path $App 'engine\tools\build_engines.py')) 'building the TensorRT engines failed'

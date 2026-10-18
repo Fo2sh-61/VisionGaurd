@@ -78,3 +78,15 @@ class TestFront:
 
     def test_needs_no_engine_settings(self):
         assert not load("visionguard-front").findall("env")
+
+
+class TestInstall:
+    def test_never_copies_tensorrt_plans_with_the_models(self):
+        """First drill, 18 Oct 2026: plans built by TensorRT 11.2 on the dev
+        setup were copied into an 11.4 install and the engine would not start.
+        A plan is built on the machine, never carried to it."""
+        text = (REPO_DIR / "deploy" / "install.ps1").read_text(encoding="utf-8")
+        copy = [line for line in text.splitlines()
+                if line.lstrip().startswith("robocopy $Models")]
+        assert len(copy) == 1
+        assert "/XF *.engine" in copy[0]

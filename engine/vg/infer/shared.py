@@ -160,6 +160,36 @@ def weights_to_load(weights: Path, imgsz: int) -> tuple[Path, str]:
     return engine, TENSORRT
 
 
+def _open_now(model, imgsz: int) -> None:
+    """Make ultralytics actually open the plan, here, inside the caller's try.
+
+    `YOLO("x.engine")` only remembers the path. The plan is deserialised on
+    the first predict, so a plan from another TensorRT version used to pass
+    the try in `load_model` and fail later, in a runner's warm-up, where
+    nothing falls back. On the first site install that stopped the engine:
+    plans built by TensorRT 11.2 were read by 11.4 and deserialised to None.
+    """
+    import numpy as np
+
+    model.predict(np.zeros((imgsz, imgsz, 3), dtype=np.uint8),
+                  imgsz=imgsz, verbose=False)
+
+
+def engine_opens(engine: Path, imgsz: int, task: str = "detect") -> str | None:
+    """None when this plan opens with the TensorRT installed here, else why not.
+
+    `build_engines.py` asks this before calling a plan "already built": a file
+    that exists but will not open is stale, and gets rebuilt.
+    """
+    from ultralytics import YOLO
+
+    try:
+        _open_now(YOLO(str(engine), task=task), imgsz)
+    except Exception as exc:  # noqa: BLE001 - any failure means "rebuild it"
+        return f"{type(exc).__name__}: {exc}"
+    return None
+
+
 def load_model(weights: Path, imgsz: int, task: str = "detect",
                accelerate: bool = True):
     """Open the fastest form of these weights that actually loads.
@@ -186,7 +216,9 @@ def load_model(weights: Path, imgsz: int, task: str = "detect",
         return YOLO(str(weights)), weights, UNACCELERATED
 
     try:
-        return YOLO(str(chosen), task=task), chosen, TENSORRT
+        model = YOLO(str(chosen), task=task)
+        _open_now(model, imgsz)
+        return model, chosen, TENSORRT
     except Exception as exc:
         # Stale plan, wrong GPU, wrong library version. Say it once, loudly,
         # and keep working - the console reports the form either way.
