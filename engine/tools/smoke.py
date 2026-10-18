@@ -24,7 +24,7 @@ It runs with `VG_MOCK=1` and `VG_STRICT=1`:
             exercised on the same path CI uses.
 
 A non-default port keeps this from colliding with an engine the developer
-already has running on 8000.
+already has running on 8001.
 """
 
 from __future__ import annotations

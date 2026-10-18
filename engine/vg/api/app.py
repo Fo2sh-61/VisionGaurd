@@ -4,10 +4,10 @@ Every endpoint maps one-to-one onto a function in web/src/services/api.ts.
 No endpoint returns a shape the UI has to reassemble from several calls.
 
 Run it:
-    python -m uvicorn vg.api.app:app --reload --port 8000     (from engine/)
+    python -m uvicorn vg.api.app:app --reload --port 8001     (from engine/)
     python engine/tools/serve.py                              (from the repo root)
 
-Then http://127.0.0.1:8000/docs for the generated OpenAPI page — that page IS
+Then http://127.0.0.1:8001/docs for the generated OpenAPI page — that page IS
 the frozen contract, and it is what the front end is written against.
 """
 

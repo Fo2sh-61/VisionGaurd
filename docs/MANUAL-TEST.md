@@ -195,7 +195,7 @@ The refusal comes from the engine, not the page. To prove it, open the browser
 console and run:
 
 ```js
-await fetch('http://127.0.0.1:8000/enrolment/sessions', {
+await fetch('/enrolment/sessions', {
   method: 'POST', credentials: 'include',
   headers: { 'Content-Type': 'application/json' }, body: '{}'
 })
@@ -222,7 +222,7 @@ it. Then:
 ```powershell
 python -m pytest engine     # did a rule break?
 .\dev.ps1 doctor            # is the machine set up right?
-.\dev.ps1 down              # frees ports 8000 and 5173
+.\dev.ps1 down              # frees ports 8001 and 5173
 ```
 
 Report what you saw and what you expected. "Attendance showed an empty table

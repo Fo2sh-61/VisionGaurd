@@ -13,7 +13,7 @@ const ENGINE = process.env.VITE_ENGINE_ORIGIN ?? 'http://127.0.0.1:8001';
  *  carry an Authorization header — the only credential it can send is a
  *  cookie, and the session cookie is `SameSite=Strict`, which means the
  *  browser will not attach it to a request for a *different site*. With the
- *  page on localhost:5173 and the engine on 127.0.0.1:8000, every stream
+ *  page on localhost:5173 and the engine on 127.0.0.1:8001, every stream
  *  arrived with no credentials, came back 401, and rendered as a black
  *  rectangle. Detection kept working the whole time, because that happens on
  *  the server and never touches the browser — which made it look like a video

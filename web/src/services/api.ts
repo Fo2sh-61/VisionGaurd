@@ -6,7 +6,7 @@
  *  in `@/types`.
  *
  *  Start the engine:  python engine/tools/serve.py
- *  Point at it:       web/.env.local -> VITE_API_BASE=http://127.0.0.1:8000
+ *  Point at it:       web/.env.local -> VITE_API_BASE=http://127.0.0.1:8001
  *
  *  Three signatures had to change, because the originals could not carry the
  *  data the engine needs. They are marked CHANGED below. */

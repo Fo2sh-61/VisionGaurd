@@ -50,7 +50,7 @@ python-dotenv>=1.0          # camera credentials stay out of the repo
 psutil>=6.0                 # REQUIRED: serve.py's orphan cleanup imports this
                             # inside a try/except and returns silently if it is
                             # missing, so without it the safety net that frees
-                            # the camera and port 8000 does nothing at all
+                            # the camera and the engine port does nothing at all
 tzdata                      # REQUIRED on Windows: no system tz database, so
                             # zoneinfo cannot resolve Africa/Cairo without it
                             # and every timestamp would render in UTC

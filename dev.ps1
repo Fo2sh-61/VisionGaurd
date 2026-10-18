@@ -471,7 +471,7 @@ function Invoke-Test {
     # Boot the real process, ask it one question, stop it. Unit tests start the
     # app object; this starts the program, which is where a startup that fails
     # after the app is built shows up. VG_MOCK, so it opens no camera and needs
-    # no weights - safe to run with an engine already up on 8000.
+    # no weights - safe to run with an engine already up on 8001.
     Write-Head 'smoke'
     & $py engine/tools/smoke.py
     if ($LASTEXITCODE -ne 0) { $failed++ }

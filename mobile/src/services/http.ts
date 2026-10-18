@@ -5,7 +5,7 @@
  *
  *  Base URL comes from `VITE_API_BASE`; create `web/.env.local` with
  *
- *      VITE_API_BASE=http://127.0.0.1:8000
+ *      VITE_API_BASE=http://127.0.0.1:8001
  *
  *  and start the engine with `python engine/tools/serve.py`. */
 
@@ -17,7 +17,7 @@ import { translate } from '@/i18n';
  *  request is same-origin and goes through the dev server's proxy (see
  *  `vite.config.ts`), which forwards it to the engine.
  *
- *  Pointing this straight at `http://127.0.0.1:8000` works for JSON — those
+ *  Pointing this straight at `http://127.0.0.1:8001` works for JSON — those
  *  calls carry an Authorization header — but silently breaks the camera
  *  streams. An `<img src=...>` cannot send a header, so its only credential
  *  is the session cookie, and that cookie is `SameSite=Strict`: the browser

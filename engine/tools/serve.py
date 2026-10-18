@@ -17,7 +17,7 @@ Leave `VITE_API_BASE` unset. The dev server proxies the engine, so the browser
 talks to one origin and the session cookie reaches the camera streams; setting
 it makes the browser call the engine directly and every live view goes black.
 
-http://127.0.0.1:8000/docs is the generated OpenAPI page. That page is the
+http://127.0.0.1:8001/docs (the port in engine.yaml: 8001 in development, 8000 on a site) is the generated OpenAPI page. That page is the
 frozen contract — if the front end and the engine ever disagree, it decides.
 
 **Under the Windows service** nobody reads the console. `VG_LOGS` names the
@@ -155,7 +155,7 @@ def main(argv: list[str] | None = None) -> int:
     #
     # uvicorn's reloader runs the app in a child process. On Windows, Ctrl-C
     # reaches the parent but frequently not the child, which then survives
-    # holding the camera and port 8000 — the next start fails with WinError
+    # holding the camera and the engine port — the next start fails with WinError
     # 10013 and nothing obvious is listening. Reload is a convenience; a
     # server you cannot stop is not.
     p.add_argument("--reload", action="store_true",
@@ -235,7 +235,7 @@ def _release_children() -> None:
 
     Belt and braces: capture threads are daemons and uvicorn shuts itself
     down, but a reload child or a stuck OpenCV read has been observed
-    surviving and keeping port 8000 bound. Cleaning up here means Ctrl-C
+    surviving and keeping the engine port bound. Cleaning up here means Ctrl-C
     always leaves a usable machine.
     """
     try:
