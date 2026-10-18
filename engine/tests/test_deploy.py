@@ -7,6 +7,7 @@ restarts, where it logs, and as whom.
 
 from __future__ import annotations
 
+import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -118,6 +119,16 @@ class TestInstall:
         text = (REPO_DIR / "deploy" / "install.ps1").read_text(encoding="utf-8")
         said = [line for line in text.splitlines() if "LocalService" in line and "Ok " in line]
         assert said and all("only" not in line for line in said)
+
+    def test_only_asks_winsw_2_12_for_commands_it_has(self):
+        """Second drill, 18 Oct 2026: a re-run asked WinSW 2.12 to `refresh`,
+        which only WinSW 3 has, and stopped with both services down."""
+        text = (REPO_DIR / "deploy" / "install.ps1").read_text(encoding="utf-8")
+        winsw_2_12 = {"install", "uninstall", "start", "stop", "stopwait",
+                      "restart", "status", "test", "testwait", "version", "help"}
+        asked = re.findall(r'Join-Path \$serviceDir "\$name\.exe"\) @\(\'(\w+)\'\)', text)
+        assert asked, "the WinSW calls were not found"
+        assert set(asked) <= winsw_2_12
 
     def test_firewall_stays_private_and_warns_on_a_public_network(self):
         text = (REPO_DIR / "deploy" / "install.ps1").read_text(encoding="utf-8")

@@ -166,8 +166,11 @@ foreach ($name in $Services) {
     Copy-Item $winsw (Join-Path $serviceDir "$name.exe") -Force
     Copy-Item (Join-Path $App "deploy\service\$name.xml") $serviceDir -Force
     if (Get-Service -Name $name -ErrorAction SilentlyContinue) {
-        Run (Join-Path $serviceDir "$name.exe") @('refresh') "refreshing $name failed"
-        Ok "$name updated"
+        # WinSW 2.12 has no `refresh` (that is WinSW 3); the second install
+        # drill stopped here on it. The wrapper reads its XML every time the
+        # service starts, so the files copied above are the update. What
+        # Windows recorded at install (account, start mode) stays as it was.
+        Ok "$name kept; its program and settings file were updated"
     } else {
         Run (Join-Path $serviceDir "$name.exe") @('install') "installing $name failed"
         Ok "$name installed"
