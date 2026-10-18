@@ -12,6 +12,7 @@ using System.Runtime.InteropServices;
 using System.ServiceProcess;
 using System.Threading;
 using System.Windows.Forms;
+using Microsoft.Win32;
 
 namespace VisionGuardControl
 {
@@ -200,10 +201,22 @@ namespace VisionGuardControl
             timer.Tick += delegate { Poll(); };
             timer.Start();
             Poll();
+
+            // Sign-out, restart, or an installer asking through Windows' Restart
+            // Manager all arrive as "the session is ending". The X only hides
+            // the window, so without this nothing would ever close the app and
+            // Setup stopped to ask (19 Oct 2026).
+            SystemEvents.SessionEnding += OnSessionEnding;
+        }
+
+        void OnSessionEnding(object sender, SessionEndingEventArgs e)
+        {
+            Application.Exit();
         }
 
         public void Dispose()
         {
+            SystemEvents.SessionEnding -= OnSessionEnding;
             timer.Stop();
             timer.Dispose();
             tray.Visible = false;

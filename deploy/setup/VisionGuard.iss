@@ -230,7 +230,9 @@ begin
     WizardForm.FilenameLabel.Caption := Copy(T, 1, 107) + '...'
   else
     WizardForm.FilenameLabel.Caption := T;
-  if Pos('WARNING', S) > 0 then
+  { Only install.ps1's own warnings ("    WARNING  ..."): the AI library prints
+    lines starting "WARNING" too, and those are noise on the finish page. }
+  if Copy(S, 1, 13) = '    WARNING  ' then
     WarningLines := WarningLines + #13#10 + T;
   if Pos('STOPPED:', S) > 0 then
     StoppedReason := Trim(Copy(S, Pos('STOPPED:', S) + 8, Length(S)));
@@ -294,12 +296,17 @@ end;
 
 { An update copies over a running install: the front service holds
   app\bin\caddy.exe open, so both services stop before any file is copied.
-  net stop waits until each has stopped; one that is not there is not an error. }
+  net stop waits until each has stopped; one that is not there is not an error.
+  VisionGuard Control is ended too, for every signed-in user: it holds its own
+  exe open, and on 19 Oct 2026 Windows' "close the applications" could not
+  close it, so Setup stopped to ask. It holds no data; the finish page opens it
+  again and it starts by itself at the next sign-in. }
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   Code: Integer;
 begin
   Result := '';
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM VisionGuardControl.exe', '', SW_HIDE, ewWaitUntilTerminated, Code);
   Exec(ExpandConstant('{sys}\net.exe'), 'stop visionguard-front', '', SW_HIDE, ewWaitUntilTerminated, Code);
   Exec(ExpandConstant('{sys}\net.exe'), 'stop visionguard-engine', '', SW_HIDE, ewWaitUntilTerminated, Code);
 end;

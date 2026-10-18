@@ -65,6 +65,30 @@ def test_certificate_checks_are_never_switched_off():
     assert "ServerCertificateValidationCallback" not in _text()
 
 
+def test_it_leaves_when_windows_or_setup_asks():
+    """19 Oct 2026: Setup's "close the applications" could not close the icon,
+    because its X only hides the window. A session ending (sign-out, restart, or
+    the Restart Manager an installer uses) now ends it, and Setup ends it
+    itself before copying files."""
+    text = _text()
+    assert "SystemEvents.SessionEnding += OnSessionEnding" in text
+    assert "SystemEvents.SessionEnding -= OnSessionEnding" in text
+    iss = (ROOT / "deploy" / "setup" / "VisionGuard.iss").read_text(encoding="utf-8")
+    prepare = iss.split("function PrepareToInstall", 1)[1].split("end;", 1)[0]
+    assert "taskkill.exe'), '/F /IM VisionGuardControl.exe'" in prepare
+    # before the services, so nothing is left holding app\bin
+    assert prepare.index("VisionGuardControl.exe") < prepare.index("stop visionguard-front")
+
+
+def test_the_finish_page_lists_only_the_installers_warnings():
+    """19 Oct 2026: ultralytics' own "WARNING ..." lines were collected too."""
+    iss = (ROOT / "deploy" / "setup" / "VisionGuard.iss").read_text(encoding="utf-8")
+    assert "if Copy(S, 1, 13) = '    WARNING  ' then" in iss
+    assert "if Pos('WARNING', S) > 0 then" not in iss
+    install = (ROOT / "deploy" / "install.ps1").read_text(encoding="utf-8")
+    assert 'Write-Host ("    WARNING  ' in install
+
+
 def test_results_never_go_back_through_the_menu():
     """Checker, 18 Oct 2026: a ContextMenuStrip has no window until it is first
     shown, so menu.BeginInvoke threw and the icon sat on "checking..." until
