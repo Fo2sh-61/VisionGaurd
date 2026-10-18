@@ -27,6 +27,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 
 from vg import config as vgconfig
 from vg.auth import deps as auth_deps
+from vg.api import remote
 from vg.api import schemas as S
 from vg.clock import clock_for
 from vg.api.store import (
@@ -1845,6 +1846,11 @@ def create_app() -> FastAPI:
                               retryable=True).model_dump(by_alias=True),
         )
 
+    # Spec 020's remote limits. Here rather than in the lifespan, so a test
+    # app built without one still has them.
+    app.state.snapshot_pacer = remote.SnapshotPacer()
+    app.state.remote_streams = remote.StreamSlots()
+
     _mount(app)
     return app
 
@@ -2102,6 +2108,26 @@ def _mount(app: FastAPI) -> None:
         decide which day an attendance register belongs to.
         """
         return store.site()
+
+    @app.get("/connection", response_model=S.Connection, tags=["meta"])
+    async def connection(request: Request, user: auth_deps.CurrentUser) -> S.Connection:
+        """Is this caller remote, and what does that get them (spec 020).
+
+        Decided from the real address: only the factory network is local.
+        Both apps read it after sign-in, and again when a live view is
+        refused, so they can say what they are showing instead of guessing.
+        """
+        limits = remote.remote_config(request)
+        far = remote.is_remote(request)
+        return S.Connection(
+            remote=far,
+            tile_interval_seconds=limits.tile_interval_s,
+            live_width=limits.live_width,
+            live_fps=limits.live_fps,
+            live_views=limits.live_views,
+            live_views_open=(request.app.state.remote_streams.count(user.id)
+                             if far else 0),
+        )
 
     # --------------------------------------------------------------- frames
     @app.get(

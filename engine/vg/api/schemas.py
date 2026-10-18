@@ -2018,6 +2018,24 @@ class LoginResult(Wire):
     user: Account
 
 
+class Connection(Wire):
+    """`GET /connection`: how this caller is reaching the site (spec 020).
+
+    `remote` is decided by the engine from the real address: only the factory
+    network is local. The limits are the site's configuration, sent so the
+    screens can say what they show ("every 2 s", "reduced for remote") rather
+    than guess. The engine applies them whatever a screen does.
+    """
+
+    remote: bool
+    tile_interval_seconds: float
+    live_width: int
+    live_fps: float
+    live_views: int
+    #: This account's remote live views open right now.
+    live_views_open: int
+
+
 class RegisterRequest(Wire):
     """What the sign-up form sends.
 

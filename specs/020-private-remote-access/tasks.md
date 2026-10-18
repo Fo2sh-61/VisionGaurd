@@ -78,21 +78,24 @@ check `git diff --stat`.
 
 ## Phase 2: Foundational (blocks US2, US3, US6)
 
-- [ ] T004 [P] Write `engine/tests/test_remote.py`:
+- [x] T004 [P] Write `engine/tests/test_remote.py`:
   - local only for addresses in `lan_networks`;
   - the NetBird range, IPv6, unknown and missing client are remote;
   - `serve.py` passes `forwarded_allow_ips="127.0.0.1"`;
   - `GET /connection` gives the limits and `remote` for a LAN and a remote caller, and 401
     without a session
-- [ ] T005 Create `engine/vg/api/remote.py`: `is_remote(request)`, a frozen `RemoteLimits`
+- [x] T005 Create `engine/vg/api/remote.py`: `is_remote(request)`, a frozen `RemoteLimits`
       from config, the snapshot pacer keyed by (session, camera, width), and the per-account
       stream slots (each with its last-sent time, freed after 15 s idle or in `finally`)
-- [ ] T006 Pin `forwarded_allow_ips="127.0.0.1"` in `engine/tools/serve.py`. Add the
+- [x] T006 Pin `forwarded_allow_ips="127.0.0.1"` in `engine/tools/serve.py`. Add the
       `Connection` wire type to `engine/vg/api/schemas.py` and `GET /connection` to
       `engine/vg/api/app.py`. Add `/connection` and `/push` to `API_PATHS` in
       `web/vite.config.ts` and `mobile/vite.config.ts`. T004 passes
-- [ ] T007 [P] Add `getConnection()` and the `Connection` type to `services/api.ts` and
+- [x] T007 [P] Add `getConnection()` and the `Connection` type to `services/api.ts` and
       `types.ts` (shared files, both apps); run `python tools/check_parity.py`
+  - Done 19 Oct 2026. The type went into `services/wire.ts` beside `SiteInfo` (engine
+    shapes live there). The `serve.py` pin's test is 016's, in `test_front.py`. A remote
+    picture's widest is `live_width`, for tiles too (no second setting)
 
 **Checkpoint**: the engine knows a remote caller, both apps can ask, and the address cannot
 be forged through the engine's own settings.

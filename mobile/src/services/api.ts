@@ -81,6 +81,10 @@ import {
  *  Fetched once by `SiteProvider`; pages read it from `useSite()`. */
 export const getSite = () => get<W.SiteInfo>('/site');
 
+/** Is this device remote, and what does that get it. Read after sign-in and
+ *  again when a live view is refused. */
+export const getConnection = () => get<W.Connection>('/connection');
+
 /** Just the overlay boxes for one camera.
  *
  *  The enlarged view polls this several times a second so the boxes track a
