@@ -65,14 +65,16 @@ check `git diff --stat`.
       `/connection` and `/push`; replace `X-Forwarded-For`; unbuffered MJPEG; HTTP/2 if
       available; no-cache for `index.html`, manifest and `sw.js`; Windows service. Order
       016's tasks so those land first
-- [ ] T002 **(no gate)** Ask Mohamed to approve the one new library, `pywebpush` (plan,
+- [x] T002 **(no gate)** Ask Mohamed to approve the one new library, `pywebpush` (plan,
       Complexity Tracking). On yes, add it pinned to `engine/requirements.txt`
-- [ ] T003 Add the `remote:` block (`lan_networks`, `tile_interval_s`, `live_width`,
+- [x] T003 Add the `remote:` block (`lan_networks`, `tile_interval_s`, `live_width`,
       `live_fps`, `live_views`), the auth block (`lockout_attempts`, `lockout_window_min`,
       `lockout_min`, `address_attempts`) and `push.allowed_hosts` to `engine/vg/config.py`,
       with validation and the plan's defaults. Seed them in `engine/engine.yaml`. Tests in
       `engine/tests/test_config.py`: a bad CIDR or host pattern and zero or negative numbers
       are refused; an absent block gives the defaults
+  - Done 19 Oct 2026. `pywebpush==2.5.0` (Aug 2026; pulls `py-vapid`, `http-ece`,
+    `aiohttp`). An empty `lan_networks` or `allowed_hosts` is refused too
 
 ## Phase 2: Foundational (blocks US2, US3, US6)
 

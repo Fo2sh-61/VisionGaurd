@@ -78,6 +78,9 @@ google-genai>=1.0
 cryptography>=50            # tools/site_cert.py makes the site's root and
                             # HTTPS certificate. Already pulled in by
                             # google-auth; named here so it cannot vanish
+pywebpush==2.5.0            # phone notifications (spec 020): Web Push with the
+                            # site's own VAPID keys, encrypted for each phone
+                            # (RFC 8291). MPL-2.0. No Google or Firebase account
 
 # --- dev / CI --------------------------------------------------------------
 pytest>=8.0

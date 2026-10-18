@@ -742,6 +742,148 @@ class TlsConfig:
         )
 
 
+def _positive(raw: dict[str, Any], key: str, default: float, where: str,
+              kind: type = float) -> Any:
+    """A number above zero, or a ConfigError naming the key."""
+    value = raw.get(key, default)
+    try:
+        number = kind(value)
+    except (TypeError, ValueError):
+        raise ConfigError(f"{where}.{key}: expected a number, got {value!r}") from None
+    if number <= 0:
+        raise ConfigError(f"{where}.{key}: must be above zero, got {number}")
+    return number
+
+
+#: The usual private ranges, plus this machine. Anything else is remote.
+DEFAULT_LAN_NETWORKS = ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
+                        "127.0.0.0/8", "::1/128")
+
+
+@dataclass(frozen=True)
+class RemoteConfig:
+    """Who counts as the factory network, and what everyone else gets (spec 020).
+
+    A request is **local only when** its address is inside `lan_networks`.
+    NetBird's 100.64/10, IPv6, a second adapter or an unreadable address are
+    all remote. A wrong list costs video quality and self sign-up, never
+    exposure. A factory whose network uses other addresses lists its own.
+    """
+
+    lan_networks: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...] = tuple(
+        ipaddress.ip_network(n) for n in DEFAULT_LAN_NETWORKS)
+    #: A remote camera tile is a still picture this often.
+    tile_interval_s: float = 2.0
+    #: A remote live view: this wide, this many pictures a second.
+    live_width: int = 480
+    live_fps: float = 5.0
+    #: Live views one remote account may have open at once.
+    live_views: int = 2
+
+    @classmethod
+    def parse(cls, raw: dict[str, Any] | None, where: str) -> "RemoteConfig":
+        raw = raw or {}
+        unknown = sorted(set(raw) - {
+            "lan_networks", "tile_interval_s", "live_width", "live_fps", "live_views"})
+        if unknown:
+            raise ConfigError(f"{where}: unknown key(s) {unknown}")
+        networks = raw.get("lan_networks", list(DEFAULT_LAN_NETWORKS))
+        if not isinstance(networks, list) or not networks:
+            raise ConfigError(
+                f"{where}.lan_networks: list at least one network, such as "
+                f"192.168.0.0/16. With none, even the office would be remote")
+        parsed = []
+        for i, text in enumerate(networks):
+            try:
+                parsed.append(ipaddress.ip_network(str(text).strip(), strict=False))
+            except ValueError:
+                raise ConfigError(
+                    f"{where}.lan_networks[{i}]: {text!r} is not a network "
+                    f"such as 192.168.0.0/16") from None
+        return cls(
+            lan_networks=tuple(parsed),
+            tile_interval_s=_positive(raw, "tile_interval_s", 2.0, where),
+            live_width=_positive(raw, "live_width", 480, where, int),
+            live_fps=_positive(raw, "live_fps", 5.0, where),
+            live_views=_positive(raw, "live_views", 2, where, int),
+        )
+
+
+@dataclass(frozen=True)
+class AuthConfig:
+    """Sign-in lockout (spec 020 P10-FR-118). The numbers, never the policy."""
+
+    #: Wrong passwords for one account within the window that lock it.
+    lockout_attempts: int = 5
+    lockout_window_min: float = 15.0
+    #: How long the lock lasts. More attempts do not extend it.
+    lockout_min: float = 15.0
+    #: Failures from one address, across any accounts, that make it wait.
+    address_attempts: int = 20
+
+    @classmethod
+    def parse(cls, raw: dict[str, Any] | None, where: str) -> "AuthConfig":
+        raw = raw or {}
+        unknown = sorted(set(raw) - {
+            "lockout_attempts", "lockout_window_min", "lockout_min", "address_attempts"})
+        if unknown:
+            raise ConfigError(f"{where}: unknown key(s) {unknown}")
+        return cls(
+            lockout_attempts=_positive(raw, "lockout_attempts", 5, where, int),
+            lockout_window_min=_positive(raw, "lockout_window_min", 15.0, where),
+            lockout_min=_positive(raw, "lockout_min", 15.0, where),
+            address_attempts=_positive(raw, "address_attempts", 20, where, int),
+        )
+
+
+#: The browsers' own push services. A phone's subscription address must be on
+#: one of these, or the workstation could be made to call into the factory.
+DEFAULT_PUSH_HOSTS = ("fcm.googleapis.com", "*.push.services.mozilla.com",
+                      "*.notify.windows.com", "web.push.apple.com")
+
+_HOST_LABEL = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
+
+
+@dataclass(frozen=True)
+class PushConfig:
+    """Where phone notifications may be sent (spec 020 P9-FR-108).
+
+    Host names, or `*.` and a name with at least two parts after it. Never an
+    address, never `localhost`, never a scheme or a port: the check this feeds
+    is what stops a signed-in user pointing the workstation at the factory
+    network.
+    """
+
+    allowed_hosts: tuple[str, ...] = DEFAULT_PUSH_HOSTS
+
+    @classmethod
+    def parse(cls, raw: dict[str, Any] | None, where: str) -> "PushConfig":
+        raw = raw or {}
+        unknown = sorted(set(raw) - {"allowed_hosts"})
+        if unknown:
+            raise ConfigError(f"{where}: unknown key(s) {unknown}")
+        hosts = raw.get("allowed_hosts", list(DEFAULT_PUSH_HOSTS))
+        if not isinstance(hosts, list) or not hosts:
+            raise ConfigError(
+                f"{where}.allowed_hosts: list at least one push service, such "
+                f"as fcm.googleapis.com. Phone notifications are switched off "
+                f"in the alert rules, not here")
+        out = []
+        for i, host in enumerate(hosts):
+            text = str(host).strip().lower()
+            name = text[2:] if text.startswith("*.") else text
+            labels = name.split(".")
+            if (len(labels) < 2
+                    or not all(_HOST_LABEL.match(l) for l in labels)
+                    or labels[-1].isdigit() or name == "localhost"):
+                raise ConfigError(
+                    f"{where}.allowed_hosts[{i}]: {host!r} is not a push "
+                    f"service's host name, such as fcm.googleapis.com or "
+                    f"*.notify.windows.com")
+            out.append(text)
+        return cls(allowed_hosts=tuple(out))
+
+
 @dataclass(frozen=True)
 class StorageConfig:
     database_url: str = "sqlite:///engine/data/visionguard.db"
@@ -1334,6 +1476,11 @@ class EngineConfig:
     # The site certificate's names. None on a development machine, where
     # there is no HTTPS front and System Health says "not set up".
     tls: TlsConfig | None = None
+    # Spec 020: what counts as the factory network and the remote limits; the
+    # sign-in lockout's numbers; where phone notifications may go.
+    remote: RemoteConfig = field(default_factory=RemoteConfig)
+    auth: AuthConfig = field(default_factory=AuthConfig)
+    push: PushConfig = field(default_factory=PushConfig)
 
     def camera(self, camera_id: str) -> CameraConfig | None:
         return next((c for c in self.cameras if c.id == camera_id), None)
@@ -1498,6 +1645,9 @@ def load(path: Path | str | None = None) -> EngineConfig:
                 (home / "tls") if home is not None else TlsConfig.cert_dir)
             if raw.get("tls") is not None else None
         ),
+        remote=RemoteConfig.parse(raw.get("remote"), "remote"),
+        auth=AuthConfig.parse(raw.get("auth"), "auth"),
+        push=PushConfig.parse(raw.get("push"), "push"),
     )
 
 

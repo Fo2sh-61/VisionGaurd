@@ -49,6 +49,36 @@ api:
 #   names: [192.168.1.20, 127.0.0.1, localhost]
 #   cert_dir: C:\VisionGuard\data\tls   # default: <VG_HOME>/tls, else engine/data/tls
 
+# Remote access (spec 020). A request is local only when its address is in
+# lan_networks; everything else - NetBird's 100.64.x.x, IPv6, an address the
+# engine cannot read - is remote, gets the lighter video below, and cannot
+# self-sign-up. A factory whose own network uses other addresses lists them.
+# These are the defaults; the block may be left out.
+remote:
+  lan_networks: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.0/8, "::1/128"]
+  tile_interval_s: 2      # a remote camera tile is a still picture this often
+  live_width: 480         # a remote live view: this wide...
+  live_fps: 5             # ...and this many pictures a second
+  live_views: 2           # live views one remote account may have open at once
+
+# Sign-in lockout (spec 020): this many wrong passwords for one account within
+# the window lock it for lockout_min. One address failing this often across
+# any accounts waits too. Defaults; the block may be left out.
+auth:
+  lockout_attempts: 5
+  lockout_window_min: 15
+  lockout_min: 15
+  address_attempts: 20
+
+# Where phone notifications may be sent (spec 020): the browsers' own push
+# services only. Never an address, never anything on the factory network.
+push:
+  allowed_hosts:
+    - fcm.googleapis.com
+    - "*.push.services.mozilla.com"
+    - "*.notify.windows.com"
+    - web.push.apple.com
+
 storage:
   database_url: sqlite:///engine/data/visionguard.db
   clips_dir: engine/data/clips

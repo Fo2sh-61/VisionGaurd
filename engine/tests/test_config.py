@@ -583,3 +583,87 @@ class TestSiteHome:
         monkeypatch.delenv("VG_HOME", raising=False)
         assert cfg.site_home() is None
         assert cfg.load().tls is None
+
+
+# --- remote access, sign-in lockout, push hosts (spec 020, T003) ------------
+
+class TestRemote:
+    """What counts as the factory network, and the limits for everyone else."""
+
+    def test_an_absent_block_gives_the_defaults(self):
+        remote = cfg.RemoteConfig.parse(None, "remote")
+        assert remote == cfg.RemoteConfig()
+        assert [str(n) for n in remote.lan_networks] == [
+            "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8", "::1/128"]
+        assert (remote.tile_interval_s, remote.live_width, remote.live_fps,
+                remote.live_views) == (2.0, 480, 5.0, 2)
+
+    def test_the_shipped_file_carries_the_defaults(self, loaded):
+        assert loaded.remote == cfg.RemoteConfig()
+        assert loaded.auth == cfg.AuthConfig()
+        assert loaded.push == cfg.PushConfig()
+
+    def test_a_site_sets_its_own_networks(self):
+        remote = cfg.RemoteConfig.parse(
+            {"lan_networks": ["10.20.0.0/16", "192.168.1.20"]}, "remote")
+        assert [str(n) for n in remote.lan_networks] == ["10.20.0.0/16", "192.168.1.20/32"]
+
+    def test_a_bad_network_is_refused_with_its_position(self):
+        with pytest.raises(cfg.ConfigError, match=r"remote\.lan_networks\[1\]"):
+            cfg.RemoteConfig.parse(
+                {"lan_networks": ["192.168.0.0/16", "192.168.300.0/24"]}, "remote")
+
+    def test_no_networks_at_all_is_refused(self):
+        with pytest.raises(cfg.ConfigError, match="at least one"):
+            cfg.RemoteConfig.parse({"lan_networks": []}, "remote")
+
+    @pytest.mark.parametrize("key", ["tile_interval_s", "live_width", "live_fps", "live_views"])
+    @pytest.mark.parametrize("value", [0, -1])
+    def test_zero_or_negative_numbers_are_refused(self, key, value):
+        with pytest.raises(cfg.ConfigError, match=rf"remote\.{key}"):
+            cfg.RemoteConfig.parse({key: value}, "remote")
+
+    def test_an_unknown_key_is_refused(self):
+        with pytest.raises(cfg.ConfigError, match="unknown key"):
+            cfg.RemoteConfig.parse({"live_height": 270}, "remote")
+
+
+class TestAuthLockout:
+    def test_an_absent_block_gives_the_defaults(self):
+        auth = cfg.AuthConfig.parse(None, "auth")
+        assert (auth.lockout_attempts, auth.lockout_window_min, auth.lockout_min,
+                auth.address_attempts) == (5, 15.0, 15.0, 20)
+
+    @pytest.mark.parametrize("key", ["lockout_attempts", "lockout_window_min",
+                                     "lockout_min", "address_attempts"])
+    @pytest.mark.parametrize("value", [0, -3])
+    def test_zero_or_negative_numbers_are_refused(self, key, value):
+        with pytest.raises(cfg.ConfigError, match=rf"auth\.{key}"):
+            cfg.AuthConfig.parse({key: value}, "auth")
+
+    def test_an_unknown_key_is_refused(self):
+        with pytest.raises(cfg.ConfigError, match="unknown key"):
+            cfg.AuthConfig.parse({"lockout": 5}, "auth")
+
+
+class TestPushHosts:
+    def test_an_absent_block_gives_the_known_push_services(self):
+        assert cfg.PushConfig.parse(None, "push").allowed_hosts == (
+            "fcm.googleapis.com", "*.push.services.mozilla.com",
+            "*.notify.windows.com", "web.push.apple.com")
+
+    def test_names_are_lower_cased(self):
+        push = cfg.PushConfig.parse({"allowed_hosts": ["FCM.googleapis.com"]}, "push")
+        assert push.allowed_hosts == ("fcm.googleapis.com",)
+
+    @pytest.mark.parametrize("bad", [
+        "192.168.1.1", "127.0.0.1", "::1", "localhost", "*", "*.com",
+        "https://fcm.googleapis.com", "fcm.googleapis.com:443", "a..b.com", "",
+    ])
+    def test_anything_but_a_public_host_pattern_is_refused(self, bad):
+        with pytest.raises(cfg.ConfigError, match=r"push\.allowed_hosts\[0\]"):
+            cfg.PushConfig.parse({"allowed_hosts": [bad]}, "push")
+
+    def test_an_empty_list_is_refused(self):
+        with pytest.raises(cfg.ConfigError, match="at least one"):
+            cfg.PushConfig.parse({"allowed_hosts": []}, "push")
