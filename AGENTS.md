@@ -122,7 +122,7 @@ turns a six-line change into a whole-file diff. Read/write bytes, or check
 .\dev.ps1 doctor          # pre-flight
 .\dev.ps1 up -Mock        # UI work — starts in under a second, no models
 .\dev.ps1 up -Clip        # pipeline work — deterministic, uses the labelled clip
-.\dev.ps1 down            # frees ports 8000 / 5173
+.\dev.ps1 down            # frees ports 8001 / 5173
 ```
 
 **There is no `.venv` yet** (DEV_PLAN.md 1.4, blocked on the re-ID handover),

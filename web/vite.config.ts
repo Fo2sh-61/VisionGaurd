@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 import { fileURLToPath, URL } from 'node:url';
 
 /** Where the engine is listening. The dev server forwards to it. */
-const ENGINE = process.env.VITE_ENGINE_ORIGIN ?? 'http://127.0.0.1:8000';
+const ENGINE = process.env.VITE_ENGINE_ORIGIN ?? 'http://127.0.0.1:8001';
 
 /** Every top-level path the engine serves.
  *

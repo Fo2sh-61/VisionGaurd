@@ -1,6 +1,6 @@
 # VisionGuard - the double-click launcher.
 #
-# What `.\dev.ps1 up` already does: frees ports 8000 and 5173, starts the
+# What `.\dev.ps1 up` already does: frees ports 8001 and 5173, starts the
 # engine and the front end in one window, and stops both on Ctrl-C.
 #
 # What this adds, and the only reasons it exists:
@@ -38,7 +38,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$ApiPort = 8000
+$ApiPort = 8001   # dev engine; 8000 is the installed service's
 $WebPort = 5173
 $MobilePort = 5174
 

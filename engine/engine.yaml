@@ -32,7 +32,8 @@ hours:
 
 api:
   host: 127.0.0.1
-  port: 8000
+  # 8001 in development; a site's own engine.yaml uses 8000, behind Caddy
+  port: 8001
   # Vite dev servers for web/ and mobile/
   cors_origins:
     - http://localhost:5173

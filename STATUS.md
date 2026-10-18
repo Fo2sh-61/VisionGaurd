@@ -258,7 +258,7 @@ ONVIF. Camera count remains an input, never a constant.
 .\dev.ps1 up -Mock                   # UI work — instant, no models
 .\dev.ps1 up -Clip                   # pipeline work — deterministic
 .\dev.ps1 up -AllowSystemPython      # real cameras — final check only
-.\dev.ps1 down                       # panic button, frees 8000/5173
+.\dev.ps1 down                       # panic button, frees 8001/5173
 ```
 
 **Two launcher bugs fixed 5 Sep 2026**, both reported as "the icon doesn't work properly and no browser opens".

@@ -18,7 +18,7 @@ Two terminals. Note there are no `#` comments on these lines — `cmd.exe` does
 not strip them the way a POSIX shell does, and will pass them to the program as
 arguments.
 
-Terminal 1, the engine (serves on `http://127.0.0.1:8000`):
+Terminal 1, the engine (serves on `http://127.0.0.1:8001`; 8000 belongs to an installed engine service):
 
 ```
 pip install -r engine/requirements.txt
@@ -35,11 +35,11 @@ cd web
 npm run dev
 ```
 
-`web/.env.local` already points at port 8000. If you change it, **restart
+The web dev server already forwards to port 8001. If you change it, **restart
 Vite** — env files are read once at startup, so an edit while it is running has
 no effect.
 
-`http://127.0.0.1:8000/docs` is the generated OpenAPI page. **That page is the
+`http://127.0.0.1:8001/docs` is the generated OpenAPI page. **That page is the
 contract.** If the front end and the engine disagree, it decides.
 
 ## Where the data comes from

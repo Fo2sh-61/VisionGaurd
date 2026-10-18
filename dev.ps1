@@ -10,7 +10,7 @@
     .\dev.ps1 engine        engine only
     .\dev.ps1 web           front end only
     .\dev.ps1 mobile        the phone app only
-    .\dev.ps1 down          free ports 8000/5173/5174 and release the webcam
+    .\dev.ps1 down          free ports 8001/5173/5174 and release the webcam
     .\dev.ps1 doctor        pre-flight checks. Run this each morning
     .\dev.ps1 test          pyflakes + pytest + smoke + tsc x2 + parity (same as CI)
 
@@ -44,7 +44,7 @@ $EngineDir = Join-Path $Root 'engine'
 $WebDir    = Join-Path $Root 'web'
 $MobileDir = Join-Path $Root 'mobile'
 $VenvPy    = Join-Path $Root '.venv\Scripts\python.exe'
-$ApiPort   = 8000
+$ApiPort   = 8001   # not 8000: that is the installed engine service's
 $WebPort   = 5173
 $MobilePort = 5174
 

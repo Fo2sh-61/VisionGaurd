@@ -23,7 +23,7 @@ docs/      Plan, architecture decisions, and archived history
 .\dev.ps1 down                       # stop everything, free the ports
 ```
 
-Console at `http://localhost:5173`, engine at `http://127.0.0.1:8000`, API docs at `/docs`.
+Console at `http://localhost:5173`, engine at `http://127.0.0.1:8001`, API docs at `/docs`.
 
 There is no `.venv` yet — deliberately, until the re-ID model handover decides the Python version. System Python 3.14 works (torch 2.11.0+cu128, CUDA on an RTX 2080).
 
