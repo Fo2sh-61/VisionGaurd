@@ -409,9 +409,9 @@ class PlateReader:
 
         self.accelerate = accelerate
         self.plates, self.plates_loaded, plate_form = load_model(
-            self.plate_weights, imgsz, accelerate=accelerate)
+            self.plate_weights, imgsz, accelerate=accelerate, device=self.device)
         self.chars, self.chars_loaded, char_form = load_model(
-            self.char_weights, imgsz, accelerate=accelerate)
+            self.char_weights, imgsz, accelerate=accelerate, device=self.device)
 
         # One form for the pair. A half-accelerated reader is still limited by
         # its slower half, and System Health has one row to say it in.

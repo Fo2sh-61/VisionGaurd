@@ -987,7 +987,8 @@ class FallDetector:
         from vg.infer.shared import load_model
 
         self.model, self.loaded, self.form = load_model(
-            self.weights, imgsz, task="pose", accelerate=accelerate)
+            self.weights, imgsz, task="pose", accelerate=accelerate,
+            device=self.device)
         self.version = self.classifier.version
         self.pose_version = self.weights.stem
 

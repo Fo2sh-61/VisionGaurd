@@ -79,6 +79,19 @@ def fp16_available() -> bool:
     return autocast is not None
 
 
+#: What a plan that cannot be deserialised looks like. TensorRT hands back None
+#: and ultralytics then fails on `create_execution_context`; the log line says
+#: "Serialization" or "Version tag does not match". Anything else (out of
+#: memory because the engine service holds the GPU, no CUDA here) says nothing
+#: about the plan, so it is never grounds to rebuild it.
+_STALE_MARKERS = ("create_execution_context", "serialization", "version tag")
+
+
+def is_stale_reason(why: str) -> bool:
+    text = why.lower()
+    return any(marker in text for marker in _STALE_MARKERS)
+
+
 def build(name: str, weights: Path, imgsz: int, half: bool, force: bool,
           task: str = "detect") -> tuple[str, str]:
     """Build one engine. Returns (status, detail). Never raises."""
@@ -97,6 +110,10 @@ def build(name: str, weights: Path, imgsz: int, half: bool, force: bool,
         if why is None:
             size_mb = target.stat().st_size / 1e6
             return "present", f"{target.name} already built ({size_mb:.0f} MB)"
+        if not is_stale_reason(why):
+            # Could not look, which is not the same as stale. Keep the plan.
+            return "unchecked", (
+                f"{target.name} kept; could not open it here to check ({why})")
         print(f"  {name:14} stale    {target.name} will not open here ({why}); rebuilding",
               flush=True)
 
@@ -185,18 +202,24 @@ def main() -> int:
     print()
     print("  " + "-" * 66)
     for name, status, detail in results:
-        mark = {"built": "ok", "present": "ok", "skipped": "--"}.get(status, "!!")
+        mark = {"built": "ok", "present": "ok", "skipped": "--",
+                "unchecked": "!!"}.get(status, "!!")
         print(f"  [{mark}] {name:14} {status:8} {detail}")
 
     failed = [n for n, s, _ in results if s in ("failed", "missing")]
+    unchecked = [n for n, s, _ in results if s == "unchecked"]
     print()
+    if unchecked:
+        print(f"  {len(unchecked)} plan(s) kept but NOT verified: {', '.join(unchecked)}")
+        print("  They could not be opened here (the engine service may hold the GPU).")
+        print("  Stop the service and re-run to check them.")
     if failed:
         # Not a hard error. P6-FR-033: a model with no engine runs on .pt over
         # CUDA and System Health says so. Reporting it is the requirement;
         # stopping the deployment over it is not.
         print(f"  {len(failed)} model(s) have no engine: {', '.join(failed)}")
         print("  Those run unaccelerated on the GPU. The console will say so.")
-    else:
+    elif not unchecked:
         print("  every configured model has an engine for its input size")
     return 0
 

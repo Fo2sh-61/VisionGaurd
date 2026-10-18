@@ -90,3 +90,38 @@ class TestInstall:
                 if line.lstrip().startswith("robocopy $Models")]
         assert len(copy) == 1
         assert "/XF *.engine" in copy[0]
+
+    def test_second_run_installs_the_matcher_from_the_installed_copy(self):
+        """First drill: step 1 left models out, so a re-run from the installed
+        copy had no kit folder to install the appearance matcher from."""
+        text = (REPO_DIR / "deploy" / "install.ps1").read_text(encoding="utf-8")
+        copy = [line for line in text.splitlines()
+                if line.lstrip().startswith("robocopy $KitApp")]
+        assert len(copy) == 1
+        assert "/XD .venv" in copy[0] and "models" not in copy[0]
+        pip = [line for line in text.splitlines() if r"reid\loiterwatch" in line
+               and "Join-Path" in line]
+        assert len(pip) == 1
+        assert "$App " in pip[0] and "$KitApp" not in pip[0]
+
+    def test_start_wait_stops_at_a_reported_failure(self):
+        """First drill: the engine failed, WinSW gave up, and step 9 polled a
+        502 until Ctrl-C. serve.py leaves start-failure.txt; step 9 reads it."""
+        text = (REPO_DIR / "deploy" / "install.ps1").read_text(encoding="utf-8")
+        step9 = text.split("Step 9", 1)[1]
+        assert "start-failure.txt" in step9
+        assert "LastWriteTime" in step9
+        assert "Start-Service visionguard-engine" in step9
+
+    def test_service_rights_message_does_not_claim_only(self):
+        """C:/VisionGuard inherits Authenticated Users: Modify, so 'only' was false."""
+        text = (REPO_DIR / "deploy" / "install.ps1").read_text(encoding="utf-8")
+        said = [line for line in text.splitlines() if "LocalService" in line and "Ok " in line]
+        assert said and all("only" not in line for line in said)
+
+    def test_firewall_stays_private_and_warns_on_a_public_network(self):
+        text = (REPO_DIR / "deploy" / "install.ps1").read_text(encoding="utf-8")
+        assert "Set-NetFirewallRule" in text
+        assert "Get-NetConnectionProfile" in text
+        assert "Set-NetConnectionProfile" in text
+        assert text.count("-Profile Private,Domain") == 2

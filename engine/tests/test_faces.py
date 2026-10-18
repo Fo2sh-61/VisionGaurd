@@ -275,6 +275,32 @@ class TestFaceSizeGate:
         assert SFACE_COSINE_THRESHOLD == pytest.approx(0.363)
 
 
+class TestNonFiniteRows:
+    def test_one_infinite_row_does_not_cost_the_frame_its_good_face(self):
+        # Seen on the first site install (18 Oct 2026): YuNet returned a row
+        # with inf, int(inf) raised OverflowError, and every face in that
+        # frame was lost. No weights needed - the detector is a stand-in.
+        from vg.infer.faces import FaceDetector
+
+        def row(x: float, w: float) -> np.ndarray:
+            return np.array([x, 20, w, w, *range(10), 0.9], dtype=np.float32)
+
+        class FakeYuNet:
+            def setInputSize(self, size):
+                pass
+
+            def detect(self, image):
+                return 1, np.stack([row(np.inf, 100), row(30, 100)])
+
+        detector = FaceDetector.__new__(FaceDetector)
+        detector._size = (320, 240)
+        detector._detector = FakeYuNet()
+
+        faces = detector.detect(np.zeros((240, 320, 3), np.uint8))
+
+        assert [(f.x, f.w) for f in faces] == [(30, 100)]
+
+
 @pytest.mark.camera
 class TestRealFaces:
     def test_pipeline_produces_normalised_embeddings(self):

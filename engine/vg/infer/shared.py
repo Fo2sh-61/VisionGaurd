@@ -160,7 +160,7 @@ def weights_to_load(weights: Path, imgsz: int) -> tuple[Path, str]:
     return engine, TENSORRT
 
 
-def _open_now(model, imgsz: int) -> None:
+def _open_now(model, imgsz: int, device=None) -> None:
     """Make ultralytics actually open the plan, here, inside the caller's try.
 
     `YOLO("x.engine")` only remembers the path. The plan is deserialised on
@@ -168,14 +168,20 @@ def _open_now(model, imgsz: int) -> None:
     the try in `load_model` and fail later, in a runner's warm-up, where
     nothing falls back. On the first site install that stopped the engine:
     plans built by TensorRT 11.2 were read by 11.4 and deserialised to None.
+
+    The device matters: ultralytics builds its backend on this first predict
+    and later `predict(device=...)` calls do not rebind it. A probe with no
+    device would pin a runner configured for cuda:1 to GPU 0.
     """
     import numpy as np
 
+    extra = {} if device is None else {"device": device}
     model.predict(np.zeros((imgsz, imgsz, 3), dtype=np.uint8),
-                  imgsz=imgsz, verbose=False)
+                  imgsz=imgsz, verbose=False, **extra)
 
 
-def engine_opens(engine: Path, imgsz: int, task: str = "detect") -> str | None:
+def engine_opens(engine: Path, imgsz: int, task: str = "detect",
+                 device=None) -> str | None:
     """None when this plan opens with the TensorRT installed here, else why not.
 
     `build_engines.py` asks this before calling a plan "already built": a file
@@ -184,14 +190,14 @@ def engine_opens(engine: Path, imgsz: int, task: str = "detect") -> str | None:
     from ultralytics import YOLO
 
     try:
-        _open_now(YOLO(str(engine), task=task), imgsz)
-    except Exception as exc:  # noqa: BLE001 - any failure means "rebuild it"
+        _open_now(YOLO(str(engine), task=task), imgsz, device)
+    except Exception as exc:  # noqa: BLE001 - the caller decides what it means
         return f"{type(exc).__name__}: {exc}"
     return None
 
 
 def load_model(weights: Path, imgsz: int, task: str = "detect",
-               accelerate: bool = True):
+               accelerate: bool = True, device=None):
     """Open the fastest form of these weights that actually loads.
 
     Returns `(model, path, form)`. Tries the accelerated build first and falls
@@ -203,6 +209,9 @@ def load_model(weights: Path, imgsz: int, task: str = "detect",
     A failed engine load must never take the product down with it. Knife
     detection going dark because somebody upgraded a driver would be a far
     worse outcome than running six milliseconds slower.
+
+    `device` is the one the runner will predict on; the opening probe uses it
+    so the backend is built there (see `_open_now`).
     """
     from ultralytics import YOLO
 
@@ -217,7 +226,7 @@ def load_model(weights: Path, imgsz: int, task: str = "detect",
 
     try:
         model = YOLO(str(chosen), task=task)
-        _open_now(model, imgsz)
+        _open_now(model, imgsz, device)
         return model, chosen, TENSORRT
     except Exception as exc:
         # Stale plan, wrong GPU, wrong library version. Say it once, loudly,

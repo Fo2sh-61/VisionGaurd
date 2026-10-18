@@ -127,7 +127,8 @@ class BagDetector:
         # lost acceleration is visible on a page (P6-FR-035).
         from vg.infer.shared import load_model
 
-        self.model, self.loaded, self.form = load_model(self.weights, imgsz)
+        self.model, self.loaded, self.form = load_model(
+            self.weights, imgsz, device=self.device)
         self.version = self.weights.stem
 
         # Read the vocabulary off the checkpoint itself.

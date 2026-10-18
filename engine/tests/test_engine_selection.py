@@ -206,7 +206,7 @@ class TestAStalePlanFallsBack:
         import build_engines
 
         engine_path_for(weights, 640).write_bytes(b"stale")
-        monkeypatch.setattr(build_engines, "engine_opens", lambda *a: "will not open")
+        monkeypatch.setattr(build_engines, "engine_opens", lambda *a: "Version tag does not match")
         import ultralytics
 
         class Exporter:
@@ -224,6 +224,104 @@ class TestAStalePlanFallsBack:
 
         assert status == "built"
         assert engine_path_for(weights, 640).read_bytes() == b"fresh plan"
+
+
+class TestTheProbeUsesTheRunnersDevice:
+    """ultralytics builds its backend on the first predict, so the opening
+    probe must already be on the device the runner will predict on."""
+
+    def test_the_device_reaches_the_probe_predict(self, weights, with_tensorrt,
+                                                  monkeypatch):
+        import ultralytics
+
+        seen = []
+
+        class Recorder(_FakeYOLO):
+            def predict(self, *args, **kwargs):
+                seen.append(kwargs)
+                return []
+
+        monkeypatch.setattr(ultralytics, "YOLO", Recorder)
+        engine_path_for(weights, 640).write_bytes(b"plan")
+
+        _, _, form = shared.load_model(weights, 640, device="cuda:1")
+
+        assert form == TENSORRT
+        assert seen[0]["device"] == "cuda:1"
+
+    def test_no_device_means_none_is_passed(self, weights, monkeypatch):
+        import ultralytics
+
+        seen = []
+
+        class Recorder(_FakeYOLO):
+            def predict(self, *args, **kwargs):
+                seen.append(kwargs)
+                return []
+
+        monkeypatch.setattr(ultralytics, "YOLO", Recorder)
+
+        assert shared.engine_opens(weights, 640) is None
+        assert shared.engine_opens(weights, 640, device="cuda:1") is None
+        assert "device" not in seen[0]
+        assert seen[1]["device"] == "cuda:1"
+
+
+class TestOnlyAStalePlanIsRebuilt:
+    def _exporter(self, weights, monkeypatch, built):
+        import ultralytics
+
+        class Exporter:
+            def __init__(self, path):
+                pass
+
+            def export(self, **kwargs):
+                built.append(True)
+                out = weights.with_suffix(".engine")
+                out.write_bytes(b"fresh plan")
+                return str(out)
+
+        monkeypatch.setattr(ultralytics, "YOLO", Exporter)
+
+    def test_a_gpu_that_is_busy_keeps_the_plan_and_says_unchecked(
+        self, weights, monkeypatch
+    ):
+        import build_engines
+
+        plan = engine_path_for(weights, 640)
+        plan.write_bytes(b"good plan")
+        built = []
+        self._exporter(weights, monkeypatch, built)
+        monkeypatch.setattr(build_engines, "engine_opens",
+                            lambda *a: "OutOfMemoryError: CUDA out of memory")
+
+        status, detail = build_engines.build("person", weights, 640, False, False)
+
+        assert status == "unchecked"
+        assert not built
+        assert plan.read_bytes() == b"good plan"
+        assert detail.startswith(f"{plan.name} kept; could not open it here to check (")
+        assert "out of memory" in detail
+
+    @pytest.mark.parametrize("why", [
+        "AttributeError: 'NoneType' object has no attribute 'create_execution_context'",
+        "RuntimeError: Serialization assertion failed",
+        "Version tag does not match",
+    ])
+    def test_a_plan_that_cannot_be_deserialised_is_rebuilt(
+        self, weights, monkeypatch, why
+    ):
+        import build_engines
+
+        engine_path_for(weights, 640).write_bytes(b"stale")
+        built = []
+        self._exporter(weights, monkeypatch, built)
+        monkeypatch.setattr(build_engines, "engine_opens", lambda *a: why)
+
+        status, _ = build_engines.build("person", weights, 640, False, False)
+
+        assert status == "built"
+        assert built
 
 
 class TestProbingThisMachine:

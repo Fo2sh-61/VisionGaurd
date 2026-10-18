@@ -170,6 +170,10 @@ class FaceDetector:
 
         faces = []
         for row in raw:
+            # YuNet can emit a row with inf/nan; int() on it raised and cost
+            # the whole frame's faces (seen on the first site install, 18 Oct 2026).
+            if not np.isfinite(row).all():
+                continue
             fx, fy, fw, fh = (int(v) for v in row[:4])
             if fw < min_size or fh < min_size:
                 continue

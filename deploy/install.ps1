@@ -75,8 +75,10 @@ foreach ($name in $Services) {
     if ($svc -and $svc.Status -ne 'Stopped') { Stop-Service -Name $name -Force; Ok "stopped $name" }
 }
 if ((Resolve-Path $KitApp).Path -ne $App) {
-    # /MIR would delete the models and the venv, which are not in the kit.
-    robocopy $KitApp $App /E /NFL /NDL /NJH /NJS /NP /XD .venv models | Out-Null
+    # /E without /MIR deletes nothing, so the venv and the models already in
+    # $App stay. The kit carries the appearance matcher's code under app\models
+    # (and no weights), so models is copied; .venv is left out.
+    robocopy $KitApp $App /E /NFL /NDL /NJH /NJS /NP /XD .venv | Out-Null
     if ($LASTEXITCODE -ge 8) { Stop-Install "copying the program to $App failed (robocopy $LASTEXITCODE)" }
     Ok "program copied to $App"
 } else {
@@ -127,8 +129,8 @@ Run $Python @('-m', 'pip', 'install', '-r', (Join-Path $App 'engine\requirements
 # The cu12 line only: the cu13 wheel segfaults while building (models/README.md).
 Run $Python @('-m', 'pip', 'install', 'tensorrt_cu12_bindings', 'tensorrt_cu12_libs', 'tensorrt-cu12') 'installing TensorRT failed'
 # The appearance matcher person tracking uses. Code, not a model (P10-FR-002).
-# From the kit: step 1 leaves app\models out, and the models arrive in step 4.
-Run $Python @('-m', 'pip', 'install', (Join-Path $KitApp 'models\reid\loiterwatch')) 'installing the appearance matcher failed'
+# From $App, where step 1 put the kit's copy: this also works on a second run.
+Run $Python @('-m', 'pip', 'install', (Join-Path $App 'models\reid\loiterwatch')) 'installing the appearance matcher failed'
 Ok 'packages installed'
 
 # --- 4. models -----------------------------------------------------------------
@@ -171,18 +173,29 @@ foreach ($name in $Services) {
         Ok "$name installed"
     }
 }
-# Least privilege: the services write to data\ and logs\ and nowhere else.
+# The service account is given write access to data\ and logs\, where it writes.
 foreach ($dir in @($Data, $Logs)) {
     Run icacls @($dir, '/grant', 'NT AUTHORITY\LocalService:(OI)(CI)M', '/Q') "giving the service rights on $dir failed"
 }
-Ok 'LocalService may write to data\ and logs\ only'
+Ok 'LocalService was given write access to data\ and logs\'
 foreach ($port in 443, 8443) {
     $rule = "VisionGuard HTTPS $port"
-    if (-not (Get-NetFirewallRule -DisplayName $rule -ErrorAction SilentlyContinue)) {
+    if (Get-NetFirewallRule -DisplayName $rule -ErrorAction SilentlyContinue) {
+        # An older run, or someone, may have left it open on Public too.
+        Set-NetFirewallRule -DisplayName $rule -Profile Private,Domain
+        Skip "firewall: TCP $port rule is already there (kept on private networks)"
+    } else {
         New-NetFirewallRule -DisplayName $rule -Direction Inbound -Protocol TCP `
             -LocalPort $port -Action Allow -Profile Private,Domain | Out-Null
         Ok "firewall: TCP $port open on private networks"
     }
+}
+# Public stays closed on purpose. Say so when this machine is on such a network.
+foreach ($net in @(Get-NetConnectionProfile | Where-Object NetworkCategory -eq 'Public')) {
+    Write-Host ("    WARNING  '$($net.Name)' is a Public network, so phones and other PCs " +
+                'cannot reach the console until Windows marks it Private. To do that: ' +
+                "Set-NetConnectionProfile -InterfaceAlias '$($net.InterfaceAlias)' -NetworkCategory Private") `
+        -ForegroundColor Yellow
 }
 
 # --- 7. first administrator -------------------------------------------------------
@@ -211,16 +224,27 @@ Ok "$link (opens the console; starts and stops nothing)"
 
 # --- 9. start ----------------------------------------------------------------------
 Step 9 'Start'
+# Before Start-Service: a start that fails at once writes its file within a
+# second, and a later timestamp would miss it.
+$started = Get-Date
 foreach ($name in $Services) { Start-Service -Name $name; Ok "$name started" }
-$deadline = (Get-Date).AddMinutes(3)
+$deadline = $started.AddMinutes(3)
+$failure = Join-Path $Logs 'start-failure.txt'
 do {
+    # serve.py deletes this file when it starts and writes it when the start
+    # fails, so one written since $started describes this start.
+    if ((Test-Path $failure) -and (Get-Item $failure).LastWriteTime -ge $started) {
+        Stop-Install ("the engine failed to start: $((Get-Content $failure -Raw).Trim()) " +
+                      'The service retries 3 times by itself. Fix the cause, then run: ' +
+                      'Start-Service visionguard-engine')
+    }
     try {
         $r = Invoke-WebRequest -UseBasicParsing -Uri 'https://localhost/healthz' -TimeoutSec 5
         if ($r.StatusCode -eq 200) { Ok 'https://localhost/healthz answers'; break }
-    } catch { Start-Sleep -Seconds 3 }
+    } catch { }
+    Start-Sleep -Seconds 3
 } while ((Get-Date) -lt $deadline)
 if ((Get-Date) -ge $deadline) {
-    $failure = Join-Path $Logs 'start-failure.txt'
     $why = if (Test-Path $failure) { Get-Content $failure -Raw } else { "see $Logs" }
     Stop-Install "the engine did not answer within 3 minutes: $why"
 }
