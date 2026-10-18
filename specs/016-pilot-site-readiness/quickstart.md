@@ -77,3 +77,24 @@ D4 is set aside for now by Mohamed's decision (the laptop is not kept on day and
   TensorRT. "Safe to run twice" holds.
 - `search` (the old bag model nothing loads) fails to build because the `clip` package is
   missing. The step goes on and the summary says so; nothing depends on it.
+
+**Q1–Q3, 19 Oct 2026, on the recorded clip (`ced3b63`).** The dev engine on 8001 with
+`VG_CAMERAS=cam-clip`, and `deploy/Caddyfile` with only its ports (9443/9444, beside the
+installed service), engine port and file paths swapped. Certificate from `site_cert.py`
+with a throwaway root; every HTTPS request was verified against that root, never `-k`.
+Face recognition was off in this run (no face model in the worktree); nothing here uses it.
+
+- **Q1, 12 checks pass**: both apps open, and they are different builds; reloads on
+  `/people` and `/weapons` show the page (`no-cache`) on both ports; sign-in and
+  `/people` JSON through the front; a camera snapshot through the front is a JPEG, and
+  401 without a session; `/assets/*` is cached for a year. The walk-through clip has no
+  knife, so the clip link was checked with an unknown id: opened as a page
+  (`Accept: text/html`) it still reaches the engine (its 404), never the console's page.
+- **Q2 passes**: with `X-Forwarded-For: 1.2.3.4`, the engine log shows `127.0.0.1` for a
+  request to `127.0.0.1`, and `::1` for one to `localhost`, the true address either way.
+  `1.2.3.4` never appears.
+- **Q3**: median of 40 snapshots, direct 2.4 ms, through the front 3.2 ms (+0.8 ms).
+  Live view, time to the first whole picture (median of 5), direct 7.4 ms, through the
+  front 9.2 ms (+1.8 ms; +9.9 ms in an earlier run). Within the 100 ms allowed.
+- The automated block at the top of this file: pytest 2205 passed, 14 skipped; both `tsc`
+  clean; pyflakes clean; parity 28 files; the SC-007 grep prints nothing.

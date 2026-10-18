@@ -11,6 +11,24 @@ merged: HTTPS front with two app addresses, Windows service, served apps, develo
 removed, account role change and disable, persistent audit with sign-ins. Nothing in this
 file starts before that gate unless it is marked **(no gate)**.
 
+**Gate met 19 Oct 2026** (016 T030): 016's Phase 1 is in, on `claude/serene-rosalind-d391c0`
+up to `ced3b63`; 020's T006 `serve.py` pin was done by 016 T009. Spec 018 is not built: the
+audit is still in memory, so T016's address goes into the in-memory audit's `detail`.
+
+**Decided with Mohamed on 19 Oct 2026**
+1. All of 020 now, phone notifications included; `pywebpush` approved (T002).
+2. NetBird Free is set up now, **without waiting** for NetBird's written answers (checklist
+   A1 becomes optional). If NetBird later says no, remote access stops and the fallback is
+   self-hosted NetBird with the same apps; nothing on site is affected.
+3. 016's by-eye drills (D1, D2, D8) are done with the same phone during this spec's remote
+   check.
+4. Nobody at the site types a command: Setup.exe does the workstation's part (installs
+   NetBird, joins it with a setup key, opens the firewall for the NetBird adapter only,
+   adds the NetBird address to the certificate). This replaces running
+   `tools/remote-firewall.ps1` by hand (T018). The LAN rule stays as 016 made it (Private
+   and Domain networks only).
+5. Test devices: an Android phone and a Windows PC, both away from the site.
+
 **Two apps**: `tools/check_parity.py` keeps only `types.ts`, `services/*.ts` and `i18n/*`
 identical in `web/` and `mobile/`. Pages and components are separate copies. Every UI task
 below names both apps and is done when **both** pass their check.

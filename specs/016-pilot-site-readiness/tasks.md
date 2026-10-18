@@ -136,11 +136,13 @@ the recorded clip with a certificate from `site_cert.py`.
     `public/` folders;
   - `<link rel="manifest">` and `theme-color` in `web/index.html` and `mobile/index.html`;
   - no `sw.js` (that stays in 020)
-- [ ] T013 [US1] Run quickstart Q1–Q3 on the recorded clip:
+- [x] T013 [US1] Run quickstart Q1–Q3 on the recorded clip:
   - Caddy from `deploy/bin/` and a certificate from T006;
   - reloads on `/people` and `/weapons` show the page, and a knife clip link plays;
   - a forged `X-Forwarded-For` never reaches the engine log;
   - write Q3's measured delay into `quickstart.md`
+  - Done 19 Oct 2026, quickstart Results: all pass; the front adds 1–10 ms. The clip has
+    no knife, so the clip link's routing was proved with an unknown id
 
 ### 1c. US2: Runs by itself
 
@@ -276,9 +278,12 @@ next click.
   - a 409 shows the engine's reason;
   - an unreachable engine says "not saved";
   - both `tsc` are clean
-- [ ] T030 Gate check: run quickstart's automated block. Then mark in
+- [x] T030 Gate check: run quickstart's automated block. Then mark in
       `specs/020-private-remote-access/tasks.md` that 016's Phase 1 is merged, and that
       020's T006 `serve.py` pin was done by T009 here
+  - Done 19 Oct 2026: the automated block is clean (quickstart Results). Mohamed's call:
+    the by-eye drills still open (T021's D1, quickstart D2 and D8) are done with the
+    same phone during 020's remote check instead of before it
 
 ### 1f. Setup.exe and the control icon (decided 18 Oct 2026)
 

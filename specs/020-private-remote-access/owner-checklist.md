@@ -38,14 +38,15 @@ Use the private address away from the factory, or the LAN address inside it.
 
 ## A. Once per factory, before anything else (about 30 minutes plus NetBird's reply)
 
-1. **Ask NetBird in writing.**
+1. **Ask NetBird in writing (optional, do not wait for it).**
    1. Send an email to NetBird's support or sales address (on netbird.io) with the four
       questions at the end of `research.md`: is the Free plan OK for a company's own use;
       do key-joined devices count as users; is a card ever asked for; may you hold one free
       account per factory.
    2. Keep their reply.
-   3. **Do not add any real device until they answer.** If they say no to question 1 or 4,
-      stop and tell the developer.
+   3. Carry on without it (decided 19 Oct 2026). If they ever say no to question 1 or 4,
+      tell the developer: remote access then moves to a self-hosted NetBird server, and
+      nothing on site is affected.
 2. **Make a Google account just for this factory**, e.g. `vg.<factory>@gmail.com`.
    1. Google may ask for a phone number; use yours.
    2. Turn on 2-Step Verification.
