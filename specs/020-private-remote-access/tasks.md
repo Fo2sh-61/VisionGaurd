@@ -216,7 +216,7 @@ etbird_installer_*.msi`, pinned in `deploy/versions.txt`), sets its service to
 **Independent test**: pytest for the limits; drill D10 for real bytes and the words on
 screen.
 
-- [ ] T022 [P] [US3] Write `engine/tests/test_remote_video.py`:
+- [x] T022 [P] [US3] Write `engine/tests/test_remote_video.py`:
   - remote snapshot width capped at 480 and the `fps` hint capped;
   - a request inside 0.8 × `tile_interval_s` waits, then gets a new picture, with no error;
   - more than 4 waiting requests on one session → 429;
@@ -225,9 +225,9 @@ screen.
   - the third concurrent remote stream for one account → 429;
   - a client that vanishes without closing frees its slot within 15 s;
   - a remote caller gets an unreduced event snapshot and clip (one of weapons or falls)
-- [ ] T023 [US3] Apply the limits in the snapshot route (`app.py:2113`) and the stream route
+- [x] T023 [US3] Apply the limits in the snapshot route (`app.py:2113`) and the stream route
       (`app.py:2176`) using `remote.py`. Frames are skipped, never queued. T022 passes
-- [ ] T024 [US3] In `frame.ts` (shared) and in `web/src/components/CameraFrame.tsx` **and**
+- [x] T024 [US3] In `frame.ts` (shared) and in `web/src/components/CameraFrame.tsx` **and**
       `mobile/src/components/CameraFrame.tsx`:
   - when `getConnection().remote`, tiles poll every `tileIntervalSeconds` and show "every 2
     s" instead of LIVE;
@@ -236,11 +236,23 @@ screen.
   - the enlarged view shows "Live, reduced for remote";
   - a refused stream shows "Close another live view first".
   - Words in `i18n/*`, sentences in `format.ts`; parity check; `tsc` in both apps
+  - Done 19 Oct 2026, checked by eye in the browser on the recorded clip with every
+    address counted as remote: tiles say "every 2 s" and ask every 2 s; the enlarged
+    view's header says "Live, reduced for remote" (480x360); a third live view shows
+    "Close another live view first"; with the site cut off, the banner "Cannot reach
+    the site right now." shows and no tile says live. New shared `app/useConnection.ts`
+    (on the parity list); `http.ts` records whether the last request got any answer.
+    Not re-checked by eye after the last fix (a remote tile that lost the site keeps
+    its last picture's time)
 - [ ] T025 [US3] Create `engine/tools/measure_remote_video.py`. Against the recorded clip
       (`dev.ps1 up -Clip`) it reads 60 s of the remote stream and 60 s of a 12-tile remote
       page and prints Mbit/s, plus the workstation's extra load in cores kept busy, at 2
       remote viewers × 2 live views. Write the measured figures into plan.md's bandwidth
       table and workstation-cost line in place of the estimates
+  - 19 Oct 2026: tool written, **not yet run** (no figures in plan.md yet). It acts as a
+    remote phone by sending a NetBird address in `X-Forwarded-For`, which the engine
+    believes only from the workstation itself. Seen in the browser on the clip: a remote
+    tile is about 16 KB every 2 s at 480 px (about 0.06 Mbit/s), the live view 480x360
 - [ ] T026 [US3] Drill D10 on a real phone over mobile data, including the latency check
       against a running clock (SC-111); record in `drills.md`
 

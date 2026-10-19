@@ -179,6 +179,10 @@ export const arDraft: Partial<Record<MessageKey, string>> = {
   'camera.previous': 'السابق',
   'camera.next': 'التالي',
   'camera.noSignal': 'لا إشارة',
+  'camera.everySeconds': 'كل {n} ث',
+  'camera.liveReduced': 'مباشر، مخفَّض للاتصال عن بُعد',
+  'camera.noPictureSince': 'لا صورة منذ {time}',
+  'camera.closeAnotherLiveView': 'أغلق عرضًا مباشرًا آخر أولًا',
   'camera.unknownPerson': 'شخص غير معروف',
 
   // -- camera sources -------------------------------------------------------
@@ -354,6 +358,7 @@ export const arDraft: Partial<Record<MessageKey, string>> = {
   'users.unlock': 'فتح القفل',
   'users.unlocking': 'جارٍ فتح القفل…',
   'users.notUnlocked': 'لم يُفتح القفل: {reason}',
+  'state.siteUnreachable': 'تعذّر الوصول إلى الموقع الآن.',
   'state.engineNotRunning': 'محرك VisionGuard لا يعمل. السبب مكتوب في C:\\VisionGuard\\logs على جهاز التشغيل.',
   'common.yes': 'نعم',
   'common.engineRefused': 'لم يقبله المحرك',

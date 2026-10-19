@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import time
 from pathlib import Path
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta, timezone
@@ -2280,14 +2281,32 @@ def _mount(app: FastAPI) -> None:
         if worker is None:
             raise HTTPException(404, f"no camera {camera_id!r}")
 
+        # Spec 020: outside the factory network a tile is a still picture no
+        # wider than `live_width`, one per `tile_interval_s`. An early ask
+        # waits its turn here (a plain `def`: a worker thread waits, not the
+        # event loop) and then gets a new picture, so a slowed refresh never
+        # reaches the screen as an error. The camera is never asked to decode
+        # faster on a remote viewer's behalf.
+        max_width = None if width is None else _tile_width(width)
+        if remote.is_remote(request):
+            limits = remote.remote_config(request)
+            max_width = min(max_width or TILE_WIDTHS[-1], limits.live_width)
+            if fps is not None:
+                fps = min(fps, 1 / limits.tile_interval_s)
+            pacer = request.app.state.snapshot_pacer
+            if not pacer.wait_turn(auth_deps.token_from(request) or "?", camera_id,
+                                   max_width, limits.tile_interval_s):
+                raise HTTPException(
+                    429, "Too many pictures asked for at once from this device. "
+                         "Close some camera pages, then try again.")
+
         if fps is not None:
             worker.source.note_tile(fps)
 
-        if width is None:
+        if max_width is None:
             jpeg = worker.snapshot_jpeg()
         else:
-            jpeg = worker.snapshot_jpeg(
-                quality=TILE_QUALITY, max_width=_tile_width(width))
+            jpeg = worker.snapshot_jpeg(quality=TILE_QUALITY, max_width=max_width)
         if jpeg is None:
             raise HTTPException(404, f"camera {camera_id!r} has produced no frames")
 
@@ -2308,6 +2327,13 @@ def _mount(app: FastAPI) -> None:
         signalling, no codec negotiation and no extra dependency. It is
         bandwidth-hungry, which is fine for one operator watching one camera
         and is why it is not used for the tile grid.
+
+        **Outside the factory network** (spec 020) it is `live_width` wide and
+        at most `live_fps` pictures a second: pictures in between are skipped,
+        never queued, so it can only fall behind by one picture. Each remote
+        account holds at most `live_views` at once; one more is a 429 with the
+        reason. A view that has sent nothing for 15 seconds (the phone lost
+        signal) loses its place, and stops if it wakes up again.
         """
         registry = request.app.state.registry
         if registry is None or registry.worker(camera_id) is None:
@@ -2315,6 +2341,17 @@ def _mount(app: FastAPI) -> None:
 
         worker = registry.worker(camera_id)
         boundary = "vgframe"
+
+        far = remote.is_remote(request)
+        limits = remote.remote_config(request)
+        width = limits.live_width if far else 960
+        period = 1 / limits.live_fps
+        slots = request.app.state.remote_streams
+        slot = None
+        if far:
+            slot = slots.open(request.state.user.id, limits.live_views)
+            if slot is None:
+                raise HTTPException(429, "Close another live view first.")
 
         async def frames():
             """Push each new frame as it arrives.
@@ -2342,30 +2379,47 @@ def _mount(app: FastAPI) -> None:
             # A context manager because the usual ending here is the client
             # vanishing mid-frame; a leaked watcher would pin the camera at
             # full decode for the life of the process, invisibly.
-            with worker.source.watched():
-                while not SHUTTING_DOWN.is_set():
-                    if await request.is_disconnected():
-                        break
-
-                    frame = await asyncio.to_thread(
-                        worker.source.wait_for_frame, last_sequence, 2.0
-                    )
-                    if frame is None:
-                        # No new frame within the timeout — the stream is down.
-                        # Send the last one so the viewer sees NO SIGNAL over a
-                        # still image rather than a dead connection.
-                        jpeg = worker.snapshot_jpeg(quality=70, max_width=960)
-                        if jpeg is None:
+            next_due = 0.0
+            try:
+                with worker.source.watched():
+                    while not SHUTTING_DOWN.is_set():
+                        if await request.is_disconnected():
                             break
-                    else:
-                        last_sequence = frame.sequence
-                        jpeg = worker.encode_jpeg(frame, quality=70, max_width=960)
 
-                    if jpeg:
-                        yield (
-                            f"--{boundary}\r\nContent-Type: image/jpeg\r\n"
-                            f"Content-Length: {len(jpeg)}\r\n\r\n"
-                        ).encode() + jpeg + b"\r\n"
+                        frame = await asyncio.to_thread(
+                            worker.source.wait_for_frame, last_sequence, 2.0
+                        )
+                        if frame is None:
+                            # No new frame within the timeout — the stream is down.
+                            # Send the last one so the viewer sees NO SIGNAL over a
+                            # still image rather than a dead connection.
+                            jpeg = worker.snapshot_jpeg(quality=70, max_width=width)
+                            if jpeg is None:
+                                break
+                        else:
+                            last_sequence = frame.sequence
+                            if far:
+                                # Skipped, never queued. A tenth of a picture's
+                                # time early still counts, so a camera at the
+                                # same rate is not halved by its jitter.
+                                now = time.monotonic()
+                                if now < next_due - period * 0.1:
+                                    continue
+                                next_due = max(next_due + period, now + period * 0.5)
+                            jpeg = worker.encode_jpeg(frame, quality=70, max_width=width)
+
+                        if jpeg:
+                            yield (
+                                f"--{boundary}\r\nContent-Type: image/jpeg\r\n"
+                                f"Content-Length: {len(jpeg)}\r\n\r\n"
+                            ).encode() + jpeg + b"\r\n"
+                            # Its place was given away after 15 s of silence:
+                            # carrying on would make it one view too many.
+                            if slot is not None and not slots.touch(slot):
+                                break
+            finally:
+                if slot is not None:
+                    slots.close(slot)
 
         return StreamingResponse(
             frames(),

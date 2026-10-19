@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useLanguage } from '@/app/LanguageContext';
+import { useConnection } from '@/app/useConnection';
 import type { CameraFeature } from '@/services/api';
 import { describeCount } from '@/services/format';
 import type { Camera } from '@/types';
@@ -20,7 +21,9 @@ export function CameraModal({
   feature?: CameraFeature;
   colour?: string;
 }) {
-  const { language } = useLanguage();
+  const { language, t } = useLanguage();
+  // Away from the factory network the stream is smaller and slower (spec 020).
+  const remote = useConnection()?.remote === true;
   const [count, setCount] = useState<number | null>(null);
 
   // The frame already polls detections ~10x a second; it hands the headcount
@@ -89,7 +92,7 @@ export function CameraModal({
                 }}
               >
                 <span className="dot" style={{ width: 6, height: 6, background: 'var(--det-red)' }} />
-                LIVE
+                {remote ? t('camera.liveReduced') : 'LIVE'}
               </span>
             )}
             <button

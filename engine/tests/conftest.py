@@ -112,12 +112,23 @@ def sign_in(user_store):
     return _sign_in
 
 
+#: Where a test's requests come from (spec 020). The engine treats only the
+#: factory network as local; TestClient's own "testclient" host is not an
+#: address, so it would count as outside. Tests are about the factory network
+#: unless they say otherwise.
+LAN = ("192.168.1.20", 50000)
+NETBIRD = ("100.81.4.7", 50000)
+
+
 @pytest.fixture
 def authed(sign_in):
-    """`client(app)` -> a TestClient already carrying an admin session."""
+    """`client(app)` -> a TestClient already carrying an admin session.
+
+    From the factory network; `client(app, where=NETBIRD)` asks from outside.
+    """
     from fastapi.testclient import TestClient
 
-    def _client(app, role: str = "admin"):
+    def _client(app, role: str = "admin", where: tuple[str, int] = LAN):
         token = sign_in(app, role)
-        return TestClient(app, headers={"Authorization": f"Bearer {token}"})
+        return TestClient(app, client=where, headers={"Authorization": f"Bearer {token}"})
     return _client

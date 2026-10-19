@@ -112,6 +112,19 @@ export function formatClock(instant: Instant | null | undefined): string | undef
     .join(':');
 }
 
+/** "every 2 s": how often a remote camera tile's picture changes (spec 020).
+ *  Said instead of LIVE, because a picture every two seconds is not live. */
+export function tilePaceLabel(seconds: number, lang: Language): string {
+  return translate(lang, 'camera.everySeconds', { n: Number(seconds.toFixed(1)) });
+}
+
+/** "No picture since 14:05:12", in the site's time: what a remote tile says
+ *  once its pictures stop coming, instead of a pace it is no longer keeping. */
+export function noPictureSince(atMs: number, tzOffsetMinutes: number, lang: Language): string {
+  const time = formatClock({ utc: new Date(atMs).toISOString(), tzOffsetMinutes }) ?? '—';
+  return translate(lang, 'camera.noPictureSince', { time });
+}
+
 function isSameDay(a: Date, b: Date): boolean {
   return (
     a.getUTCFullYear() === b.getUTCFullYear() &&

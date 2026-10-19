@@ -1116,6 +1116,20 @@ class TestClipEndpoint:
         assert response.headers["content-type"] == "video/mp4"
         assert response.content == b"pretend mp4"
 
+    def test_a_remote_caller_gets_the_clip_in_full(self, app, authed, scenes, clips_dir):
+        """Spec 020 P10-FR-117: only live video is reduced away from the site;
+        an event's clip is the evidence and goes out byte for byte."""
+        from conftest import NETBIRD
+
+        clip = clips_dir / "cam-a_9.mp4"
+        clip.write_bytes(b"the whole clip " * 4096)
+        scene_id = scenes.open("cam-a", datetime.now(timezone.utc))
+        scenes.attach_clip(scene_id, clip)
+
+        response = authed(app, where=NETBIRD).get(f"/breaches/{scene_id}/clip")
+        assert response.status_code == 200
+        assert response.content == clip.read_bytes()
+
     def test_clip_endpoint_404s_for_an_unknown_scene(self, app, authed):
         response = authed(app).get("/breaches/nope/clip")
         assert response.status_code == 404

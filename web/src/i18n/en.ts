@@ -170,6 +170,12 @@ export const en: Record<MessageKey, string> = {
   'camera.previous': 'Previous',
   'camera.next': 'Next',
   'camera.noSignal': 'NO SIGNAL',
+  // Spec 020: away from the factory a tile is a still picture this often, the
+  // live view is smaller and slower, and an account holds two live views.
+  'camera.everySeconds': 'every {n} s',
+  'camera.liveReduced': 'Live, reduced for remote',
+  'camera.noPictureSince': 'No picture since {time}',
+  'camera.closeAnotherLiveView': 'Close another live view first',
   'camera.unknownPerson': 'Unknown person',
 
   // -- camera sources -------------------------------------------------------
@@ -346,6 +352,7 @@ export const en: Record<MessageKey, string> = {
   'users.unlock': 'Unlock',
   'users.unlocking': 'Unlocking…',
   'users.notUnlocked': 'Not unlocked: {reason}',
+  'state.siteUnreachable': 'Cannot reach the site right now.',
   'state.engineNotRunning': 'VisionGuard’s engine is not running. The reason is in C:\\VisionGuard\\logs on the workstation.',
   'common.yes': 'Yes',
   'common.engineRefused': 'the engine did not accept it',

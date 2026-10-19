@@ -7,6 +7,7 @@ import { PageChromeProvider, usePageChrome } from './PageChrome';
 import { TABS, isTabRoot, screenFor, tabFor } from './tabs';
 import { useAuth } from './AuthContext';
 import { useT } from './LanguageContext';
+import { useSiteReachable } from './useConnection';
 
 /** The phone's frame: a header, a scrolling screen, and five tabs.
  *
@@ -63,6 +64,7 @@ function Frame() {
         {/* Every screen gets the same gutter and rhythm; a screen that wants a
             picture edge to edge steps out of it with negative margins. */}
         <div className="screen">
+          <SiteUnreachable />
           <Outlet />
         </div>
       </main>
@@ -92,6 +94,27 @@ function Frame() {
           );
         })}
       </nav>
+    </div>
+  );
+}
+
+/** Spec 020: said at the top of every page while the site cannot be reached,
+ *  and gone with the next answer. It does not guess why (P10-FR-112): away
+ *  from the factory that is usually the VPN, on site the network. */
+function SiteUnreachable() {
+  const t = useT();
+  const reachable = useSiteReachable();
+  if (reachable) return null;
+  return (
+    <div
+      role="status"
+      style={{
+        padding: '11px 14px', borderRadius: 10, marginBottom: 14,
+        background: 'var(--rd-bg)', color: 'var(--rd)',
+        fontSize: 13.5, lineHeight: 1.45, fontWeight: 600,
+      }}
+    >
+      {t('state.siteUnreachable')}
     </div>
   );
 }

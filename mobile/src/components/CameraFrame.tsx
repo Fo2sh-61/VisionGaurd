@@ -1,10 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { ImgHTMLAttributes, RefObject } from 'react';
-import { useT } from '@/app/LanguageContext';
+import { useLanguage, useT } from '@/app/LanguageContext';
+import { refreshConnection, useConnection, useSiteReachable } from '@/app/useConnection';
 import { useSite } from '@/app/SiteContext';
 import type { CameraFeature } from '@/services/api';
 import { getCameraDetections } from '@/services/api';
-import { plateWidthTone, siteClock } from '@/services/format';
+import { noPictureSince, plateWidthTone, siteClock, tilePaceLabel } from '@/services/format';
 import type { PictureRect } from '@/services/frame';
 import { pictureRect, tileBoxRefreshMs, tileRefreshMs } from '@/services/frame';
 import type { BoxColor, Camera, DetectionBox } from '@/types';
@@ -272,6 +273,21 @@ export function CameraFrame({
 
   const [tick, setTick] = useState(0);
   const [imageFailed, setImageFailed] = useState(false);
+
+  // Spec 020. Away from the factory network the engine sends a tile one still
+  // picture every `tileIntervalSeconds`, so it asks that often and says so
+  // ("every 2 s"), never LIVE; the live view says it is reduced. A remote
+  // picture that did not come is not a broken camera: the tile keeps asking
+  // and says when its last picture was. A live view refused for being one too
+  // many says to close another.
+  const connection = useConnection();
+  const remote = connection?.remote === true;
+  const siteReachable = useSiteReachable();
+  const { language } = useLanguage();
+  const [remoteFailed, setRemoteFailed] = useState(false);
+  const [streamFull, setStreamFull] = useState(false);
+  const lastPictureAt = useRef<number | null>(null);
+  const [pictureClock, setPictureClock] = useState<string | null>(null);
   const [liveBoxes, setLiveBoxes] = useState<DetectionBox[] | null>(null);
 
   // The tile's size, and the picture's shape.
@@ -312,7 +328,9 @@ export function CameraFrame({
     subscribeTilesOnScreen,
     () => (polling ? countTilesOnScreen() : 0),
   );
-  const refreshMs = tileRefreshMs(tilesShowing);
+  const refreshMs = remote && connection
+    ? connection.tileIntervalSeconds * 1_000
+    : tileRefreshMs(tilesShowing);
 
   // Measured, not assumed. A tile is sized by the page's grid and changes
   // with the window, and a box drawn against a stale size is a box on nobody.
@@ -490,17 +508,36 @@ export function CameraFrame({
   // stays with the picture it is still holding.
   const [clock, setClock] = useState(() => siteClock(tzOffsetMinutes));
 
+  // A remote tile's picture is up to two seconds old, so its time is the time
+  // the picture came, not a clock ticking over it.
+  const remoteTile = remote && !useStream;
   useEffect(() => {
-    if (camera.offline || !showing) return;
+    if (camera.offline || !showing || remoteTile) return;
     setClock(siteClock(tzOffsetMinutes));
     const timer = setInterval(
       () => setClock(siteClock(tzOffsetMinutes)),
       CLOCK_TICK_MS,
     );
     return () => clearInterval(timer);
-  }, [camera.offline, tzOffsetMinutes, showing]);
+  }, [camera.offline, tzOffsetMinutes, showing, remoteTile]);
 
-  const timestamp = camera.offline ? (camera.time ?? '—') : clock;
+  // No picture at all (a refused live view): no time either. A remote tile
+  // that lost the site keeps the time its last picture came (spec 020).
+  const timestamp = camera.offline
+    ? (camera.time ?? (remoteTile ? pictureClock : null) ?? '—')
+    : streamFull ? '—' : remoteTile ? (pictureClock ?? '—') : clock;
+
+  // What the chip in the corner says. LIVE is a claim; a remote tile makes a
+  // smaller one, and a remote tile whose pictures stopped makes none about now.
+  const stale = remoteTile && (remoteFailed || !siteReachable);
+  const chip = stale
+    ? (lastPictureAt.current !== null
+      ? noPictureSince(lastPictureAt.current, tzOffsetMinutes, language)
+      : null)
+    : remote && connection && badge === 'LIVE'
+      ? (useStream ? t('camera.liveReduced') : tilePaceLabel(connection.tileIntervalSeconds, language))
+      : badge;
+  const chipIsLive = !stale && !remoteTile;
 
   // Cache-busting: the URL is stable, so without this the browser would serve
   // the first frame forever.
@@ -559,9 +596,28 @@ export function CameraFrame({
   // and snapshots a new element rather than a new address on the old one.
   const pictureProps: Omit<ImgHTMLAttributes<HTMLImageElement>, 'src'> = {
     alt: camera.name,
-    onError: () => setImageFailed(true),
+    onError: () => {
+      if (!remote) {
+        setImageFailed(true);
+        return;
+      }
+      if (useStream) {
+        // One live view too many, or the site went away: ask which.
+        void refreshConnection().then((answer) => {
+          if (answer?.remote && answer.liveViewsOpen >= answer.liveViews) setStreamFull(true);
+          else setImageFailed(true);
+        });
+        return;
+      }
+      setRemoteFailed(true);
+    },
     onLoad: (e) => {
       loadedTick.current = tick;
+      if (remoteTile) {
+        lastPictureAt.current = Date.now();
+        setPictureClock(siteClock(tzOffsetMinutes));
+        if (remoteFailed) setRemoteFailed(false);
+      }
       const { naturalWidth, naturalHeight } = e.currentTarget;
       if (naturalWidth > 0 && naturalHeight > 0) {
         setAspect(naturalWidth / naturalHeight);
@@ -579,6 +635,8 @@ export function CameraFrame({
       // Dim a frame that is no longer current, so a still corridor does
       // not read as a live one.
       filter: camera.offline ? 'grayscale(1) brightness(.45)' : undefined,
+      // A failed remote picture would show the browser's broken-image box.
+      visibility: remoteFailed || streamFull ? 'hidden' : undefined,
     },
   };
 
@@ -606,13 +664,7 @@ export function CameraFrame({
         minHeight: s.minHeight,
       }}
     >
-      {frameSrc ? (
-        useStream ? (
-          <StreamImage src={frameSrc} {...pictureProps} />
-        ) : (
-          <img src={frameSrc} {...pictureProps} />
-        )
-      ) : (
+      {(!frameSrc || remoteFailed || streamFull) && (
         <>
           <div
             className="camframe__grid"
@@ -620,6 +672,13 @@ export function CameraFrame({
           />
           <div className="camframe__floor" />
         </>
+      )}
+      {frameSrc && (
+        useStream ? (
+          <StreamImage src={frameSrc} {...pictureProps} />
+        ) : (
+          <img src={frameSrc} {...pictureProps} />
+        )
       )}
 
       {/* From here down, everything is positioned inside the PICTURE.
@@ -743,13 +802,21 @@ export function CameraFrame({
 
       {/* LIVE only while the picture really is moving: a paused tile held
           under the enlarged view is a still, and must not be badged live. */}
-      {!camera.offline && badge !== null && showing && (
+      {!camera.offline && chip !== null && (showing || stale) && (
         <div
           className="camframe__live"
           style={{ top: s.inset, left: s.insetX, fontSize: s.chrome }}
         >
-          <span className="dot" style={{ width: 6, height: 6 }} />
-          {badge}
+          {chipIsLive && <span className="dot" style={{ width: 6, height: 6 }} />}
+          {chip}
+        </div>
+      )}
+
+      {streamFull && (
+        <div className="camframe__nosignal">
+          <span style={{ color: '#e4eae5', fontSize: 13, fontWeight: 700 }}>
+            {t('camera.closeAnotherLiveView')}
+          </span>
         </div>
       )}
 

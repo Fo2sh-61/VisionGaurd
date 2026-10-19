@@ -69,6 +69,34 @@ export function setUnauthorisedHandler(handler: Unauthorised | null): void {
   onUnauthorised = handler;
 }
 
+/* ---------- can the site be reached at all (spec 020) ---------- */
+
+/** False after a request got no answer of any kind - no page, no error page -
+ *  and true again after the next one that did. Away from the factory that is
+ *  the VPN being off or the factory's internet being down; on site, the
+ *  network. It never guesses which: the page says only that the site cannot
+ *  be reached. A 502 from the HTTPS front is an answer (the engine is down,
+ *  which `engineNotRunning` says), so it counts as reachable. */
+let siteReachable = true;
+const reachableListeners = new Set<() => void>();
+
+function setSiteReachable(value: boolean): void {
+  if (siteReachable === value) return;
+  siteReachable = value;
+  reachableListeners.forEach((listener) => listener());
+}
+
+export function isSiteReachable(): boolean {
+  return siteReachable;
+}
+
+export function subscribeSiteReachable(listener: () => void): () => void {
+  reachableListeners.add(listener);
+  return () => {
+    reachableListeners.delete(listener);
+  };
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -127,7 +155,11 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   const { method = 'GET', body, query, timeoutMs = DEFAULT_TIMEOUT_MS, signal } = options;
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
   // Let a caller cancel too — the lost-item search is long enough that the user
   // may navigate away mid-flight.
   if (signal) signal.addEventListener('abort', () => controller.abort(), { once: true });
@@ -152,6 +184,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
       // a page refresh would look like being signed out.
       credentials: 'include',
     });
+    setSiteReachable(true);
 
     if (!response.ok) {
       let message = `${method} ${path} failed (${response.status})`;
@@ -214,9 +247,12 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   } catch (error) {
     if (error instanceof ApiError) throw error;
     if (error instanceof DOMException && error.name === 'AbortError') {
+      // Its own timer, not a page that went away: nothing came back in time.
+      if (timedOut) setSiteReachable(false);
       throw new ApiError(`${path} timed out`, 0, true);
     }
     // Network-level failure: the engine is not running, or CORS blocked it.
+    setSiteReachable(false);
     throw new ApiError(
       'Cannot reach the engine. Is it running?',
       0,

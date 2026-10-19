@@ -93,6 +93,8 @@ PARITY_FILES = [
     "app/useAsync.ts",
     "app/useAttention.ts",
     "app/useAutoRun.ts",
+    # How this device reaches the site, and whether it can (spec 020).
+    "app/useConnection.ts",
     "app/useOptions.ts",
     # The alert bell's count - what is new since this person last looked.
     # The console draws it as a dropdown and the phone as a screen of its

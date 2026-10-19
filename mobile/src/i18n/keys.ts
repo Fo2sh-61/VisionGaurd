@@ -189,6 +189,10 @@ export type UiKey =
   | 'camera.previous'
   | 'camera.next'
   | 'camera.noSignal'
+  | 'camera.everySeconds'
+  | 'camera.liveReduced'
+  | 'camera.noPictureSince'
+  | 'camera.closeAnotherLiveView'
   | 'camera.unknownPerson'
 
   // -- camera sources -------------------------------------------------------
@@ -351,6 +355,7 @@ export type UiKey =
   | 'users.unlocking'
   | 'users.notUnlocked'
   | 'state.engineNotRunning'
+  | 'state.siteUnreachable'
   | 'common.yes'
   | 'common.engineRefused'
   | 'common.no'
