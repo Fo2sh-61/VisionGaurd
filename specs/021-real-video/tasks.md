@@ -33,13 +33,14 @@ any code is written. If the phone cannot play it, stop and re-plan (plan.md, Fal
 - [ ] T001 Merge spec 020's branch `claude/remote-access-020-eb54ac` into this branch, **only
   on Mohamed's OK**; re-run `python -m pytest engine` and record the new baseline in
   `specs/021-real-video/context.md` §4
-- [ ] T002 Mohamed downloads `mediamtx_v1.21.2_windows_amd64.zip` (28.6 MB) from
-  github.com/bluenviron/mediamtx releases into `deploy\bin\`, and checks its SHA-256 against
-  the release's checksum file
+- [x] T002 Download `mediamtx_v1.21.2_windows_amd64.zip` (28.6 MB) from
+  github.com/bluenviron/mediamtx releases into `deploy\bin\` and check its SHA-256 against the
+  release's checksum file — **done 20 Oct 2026** on Mohamed's word, hash in research.md (this
+  worktree's `deploy\bin\` only; another checkout needs its own copy)
 - [ ] T003 Mohamed adds **UDP 8189** to the site's NetBird policy (next to TCP 443/8443)
-- [ ] T004 Read the downloaded release's own `mediamtx.yml`; write `deploy/mediamtx.yml` from
-  plan.md §A with every key name checked against it (unused servers off, API and WHEP on
-  127.0.0.1, read and api only from 127.0.0.1)
+- [ ] T004 Write `deploy/mediamtx.yml` from plan.md §A (key names already checked against the
+  release on 20 Oct 2026): RTSP, RTMP, HLS, SRT and **MoQ** off (RTSP's RTP port defaults to
+  8000, the engine's), API and WHEP on 127.0.0.1, read and api only from 127.0.0.1
 - [ ] T005 Gate 0 trial per `specs/021-real-video/quickstart.md`: MediaMTX by hand, one real
   camera's sub-stream, office PC and phone on mobile data; record plays / pictures a second /
   delay / Mbit/s / time to first picture in `specs/021-real-video/drills.md`
@@ -56,7 +57,9 @@ any code is written. If the phone cannot play it, stop and re-plan (plan.md, Fal
 - [ ] T008 [P] `deploy/service/visionguard-video.xml` (copy of `visionguard-front.xml`:
   WinSW, LocalService, restart ×3, logs) and a check in `engine/tests/test_deploy.py`
 - [ ] T009 [P] `engine/tests/test_deploy.py`: `deploy/mediamtx.yml` keeps API and WHEP on
-  127.0.0.1, every unused server off, no `publish` permission, no path in the file
+  127.0.0.1; `rtsp`, `rtmp`, `hls`, `srt`, `moq`, `playback`, `metrics`, `pprof` all off; no
+  `publish` permission; no address that is not loopback in `authInternalUsers`; no path in
+  the file
 - [ ] T010 `deploy/install.ps1`: `visionguard-video` in `$Services`; firewall rule UDP 8189 on
   Private/Domain and on NetBird's adapter from 100.64.0.0/10; NetBird address into
   `webrtcAdditionalHosts`. `deploy/uninstall.ps1`: remove both
@@ -110,8 +113,11 @@ away, and stops when off screen.
   `object-fit: fill`; the last snapshot under it with its own time and "Starting" until the
   first frame; `close()` when not `showing`
 - [ ] T022 [US1] Same files: LIVE only while a frame arrived in the last 2 s, else
-  "No picture since <time>"; NO SIGNAL from `camera.offline` as today; "not analysed" stays
-  its own line
+  "No picture since <time>". `camera.offline` describes the **main** stream the AI reads, the
+  video is the second stream, so: video moving + `camera.offline` → LIVE plus
+  "Not being analysed: <reason>"; NO SIGNAL only when the picture shown has no new frames
+  (video stalled, or the picture fallback with `camera.offline` as today). Never NO SIGNAL
+  over moving video (spec scenarios 12, 13)
 - [ ] T023 [US1] Same files: 5 s without a frame, or a refused offer → `close()`, today's
   polling, reason shown; retry video every 15 s while on screen
 - [ ] T024 [P] [US1] `web/src/services/frame.ts` (shared): `tileRefreshMs` counts picture tiles
@@ -119,7 +125,8 @@ away, and stops when off screen.
 - [ ] T025 [P] [US1] Words in `web|mobile/src/i18n/*` (English + draft Arabic) and
   `web|mobile/src/services/format.ts` (shared): Starting, No picture since, video reasons
 - [ ] T026 [US1] Gates (both `tsc -b --force`, parity, pytest, pyflakes); then drills V1, V3,
-  V4, V6, V9 into `specs/021-real-video/drills.md`
+  V4, V6, V9, V12 and V13 (enrolment shows no identities with video, P10-FR-214) into
+  `specs/021-real-video/drills.md`
 
 **Checkpoint**: tiles move; boxes land on people; LIVE never on a frozen picture.
 
@@ -186,13 +193,16 @@ camera setup.
 - [ ] T040 [P] `STATUS.md` (CRLF — keep it) and `docs/PLAN.md`: what is real, with the measured
   figures from `drills.md`
 - [ ] T041 Final gates: `python -m pytest engine` (count up from the T001 baseline), both
-  `npx.cmd tsc -b --force`, `python tools/check_parity.py`, pyflakes
+  `npx.cmd tsc -b --force`, `python tools/check_parity.py`, pyflakes; and
+  `git diff --stat <T001 merge>..HEAD -- engine/vg/ingest/source.py engine/vg/ingest/recorder.py`
+  is empty (P10-FR-220: capture, AI and recording unchanged)
 
 ---
 
 ## Dependencies & order
 
-- **Phase 0 blocks everything.** T001–T003 are Mohamed's; T004 needs T002; T005 needs T002–T004.
+- **Phase 0 blocks everything.** T001 (merge 020: Mohamed chose to wait until 020 is done)
+  and T003 are Mohamed's; T002 is done; T005 needs T003–T004 and a real camera.
 - **Phase 1** after Gate 0. T006 needs T002. The rest are independent files ([P]).
 - **Phase 2** after Phase 1's T012 (route reachable). T016 needs T014–T015; T017 needs T016.
 - **US1** needs Phase 2. **US2** needs US1's `CameraFrame` video branch (T021). **US3** and

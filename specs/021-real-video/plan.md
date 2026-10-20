@@ -112,7 +112,8 @@ factory; pilot-size camera counts (the 208-camera load is phase P8).
 |---|---|
 | I. Real-time | LIVE only while frames arrive (2 s rule); delay measured against a clock; no queue anywhere — WebRTC drops late frames |
 | II. Isolation | boxes per feature, unchanged; video needs no feature; a stopped video service touches nothing else |
-| III. Truthful | fallback names its reason (enum, worded in `format.ts`); System Health row from a real poll with its time; a tile never shows a starting or stalled video as LIVE |
+| III. Truthful | fallback names its reason (enum, worded in `format.ts`); System Health row from a real poll with its time; a tile never shows a starting or stalled video as LIVE, and never NO SIGNAL over moving video; a stream heavier than 0.5 Mbit/s is flagged, not claimed lighter |
+| Accessibility | every new state is a text label, never colour alone, in both languages; the switch is two labelled buttons |
 | IV. Security | `/video` needs a session like every route; MediaMTX reachable only from the workstation except its media port; passwords only in memory and the existing database |
 | V. Complete | Setup installs, starts, restarts and removes it; camera setup checks the stream; the owner checklist gains the one NetBird policy change |
 | Workflow | regression tests for both traps found (admin-write prefix, media-auth regex) ship with the change |
@@ -129,7 +130,10 @@ Tracking).
 - `tools/make_release.ps1`: unzip by name — `caddy_*.zip` gives `caddy.exe`,
   `mediamtx_*.zip` gives `mediamtx.exe` (and its `LICENSE`) — and require `bin\mediamtx.exe`.
 - `deploy/mediamtx.yml` (new, committed, no camera in it). Everything not used is off, and
-  only the workstation itself may read or use the API:
+  only the workstation itself may read or use the API. Every key below was checked against
+  v1.21.2's own `mediamtx.yml` on 20 Oct 2026. Its defaults switch on RTSP, RTMP, HLS, SRT
+  and MoQ, let **any address publish and read**, and put the RTSP server's RTP port on
+  **8000 — the engine's port** — so all of them must stay off:
 
   ```yaml
   logLevel: warn
@@ -141,6 +145,7 @@ Tracking).
   rtmp: no
   hls: no
   srt: no
+  moq: no                        # Media over QUIC: on by default, ports 8892/8893
   playback: no
   metrics: no
   pprof: no
@@ -228,6 +233,11 @@ Tracking).
   - while starting, the last snapshot under it with its own time and "Starting";
   - not `showing` → `close()`;
   - LIVE only while a frame came in the last 2 s, else "No picture since 14:05:31";
+  - `camera.offline` is about the main stream the AI reads: moving video with
+    `camera.offline` shows LIVE and "Not being analysed: reason", never NO SIGNAL;
+  - every new state is a word on the chip or under the picture (`Badge`, `DataNotice`),
+    never colour alone, in English and Arabic; the Smooth / Clear switch is two labelled
+    buttons;
   - 5 s without a frame, or a refusal → `close()`, today's polling, the reason shown, a
     retry every 15 s;
   - video tiles leave the 120/s picture budget, so picture tiles share it among themselves.

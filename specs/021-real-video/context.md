@@ -60,10 +60,13 @@ Read this **before** opening any source file. Then open the named anchors only.
 - **The media-auth test only walks GET routes** matching its regex; a new POST route would
   pass unnoticed.
 - **`make_release.ps1` treats every zip as Caddy.**
-- **MediaMTX's example config lets any address read and publish.** Our `mediamtx.yml` must
-  replace `authInternalUsers` entirely, and switch off RTSP, RTMP, HLS, SRT, playback, metrics,
-  pprof. Check every key name against v1.21.2's own `mediamtx.yml` before committing — the
-  names in plan.md are from its docs, not from a run.
+- **MediaMTX's own defaults (v1.21.2, read 20 Oct 2026)**: `authInternalUsers` lets
+  `any` user from any address `publish`, `read` and `playback`; RTSP, RTMP, HLS, SRT, WebRTC
+  and **MoQ** are on (`moq: true`, ports 8892/8893, writes `auto.key` in the working folder);
+  the RTSP server's `rtpAddress` is **`:8000`, the engine's port**. Our `mediamtx.yml` must
+  replace `authInternalUsers` entirely and switch every one of those off. All key names in
+  plan.md §A exist in that file; `ips` takes addresses or networks.
+- **The exe is unsigned** (`Get-AuthenticodeSignature`: NotSigned), 57 MB, file version 1.21.2.
 - **Camera passwords**: `source` may carry `user:pass@`. Add paths through the API only; never
   write them to `mediamtx.yml`, a log line or a wire type. Confirm that MediaMTX's API does not
   write its config back to disk.
@@ -87,8 +90,8 @@ Read this **before** opening any source file. Then open the named anchors only.
 
 ## 5. Still unknown
 
-- Exact MediaMTX v1.21.2 config key names and the JSON shape of `/v3/paths/list` and
-  `/v3/webrtcsessions/list` (read them from the downloaded release, not the web).
+- The JSON shape of `/v3/paths/list` and `/v3/webrtcsessions/list` (the zip carries no API
+  description; read it off the running program during Gate 0). Config key names are settled.
 - Whether MediaMTX lists NetBird's adapter address on its own (`webrtcIPsFromInterfaces`), or
   needs `webrtcAdditionalHosts` — Gate 0 shows it.
 - Whether the site's cameras use B-frames or H.264+ on the second stream.

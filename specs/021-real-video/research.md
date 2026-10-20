@@ -2,7 +2,14 @@
 
 **Decision (Mohamed, 20 Oct 2026): MediaMTX**, installed on the workstation by Setup as part
 of VisionGuard. His condition — free, and on the workstation — holds: MIT, runs as a local
-service. Nothing has been downloaded yet.
+service.
+
+**Downloaded 20 Oct 2026, on Mohamed's word**: `mediamtx_v1.21.2_windows_amd64.zip` from the
+official GitHub release, 28,583,662 bytes, SHA-256
+`a84224f5a490855684e62ba6fb71e80ea2a5e16aed61883bb58380290e93e467` — the same in the
+release's `checksums.sha256` and in GitHub's own digest. It holds `mediamtx.exe` (57 MB,
+version 1.21.2, **not code-signed**), `mediamtx.yml` and the MIT `LICENSE`. Kept in this
+worktree's `deploy\bin\` (git-ignored); not run yet.
 
 20 Oct 2026. Desk research only — nothing downloaded, installed or run. Full notes with every
 source: the session notes file `021-video-program-research.md` (outside the repo); the facts

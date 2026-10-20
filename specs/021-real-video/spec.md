@@ -90,8 +90,9 @@ says why and shows moving pictures as today, never pretending.
 11. **Given** a camera whose second stream is missing or H.265, **When** it is added or
     edited in camera setup, **Then** setup says so in plain words and what to change on the
     camera, and its tiles fall back to pictures with that reason.
-12. **Given** a camera that is down, **When** its tile is on screen, **Then** it shows NO
-    SIGNAL with the time of the last picture, as today.
+12. **Given** a camera that is down — no new pictures arriving on the stream the tile shows
+    — **When** its tile is on screen, **Then** it shows NO SIGNAL with the time of the last
+    picture, as today. NO SIGNAL is never drawn over video that is still moving.
 13. **Given** video that is live while the AI is not analysing that camera, **When** the
     tile is on screen, **Then** the picture is marked LIVE and the page says the camera is
     not being analysed, with the reason — two separate facts, never merged.
@@ -151,9 +152,11 @@ spec 020 (P10-FR-1xx).
 
 ### Light enough for mobile data
 
-- **P10-FR-207**: From outside, a moving tile MUST use no more than 0.5 Mbit/s on average,
-  and an opened camera on Smooth no more than 1.5 Mbit/s. Clear costs what the camera's main
-  stream costs; it is the operator's choice and is labelled so.
+- **P10-FR-207**: The workstation passes each camera's stream on unchanged, so its weight is
+  set on the camera. The workstation MUST measure each second stream while it is watched and
+  flag any above 0.5 Mbit/s on average in camera setup and System Health, with what to change
+  on the camera. Clear costs what the camera's main stream costs; it is the operator's choice
+  and is labelled so.
 - **P10-FR-208**: The workstation MUST decide what a remote viewer gets, as spec 020 does
   (P10-FR-113): a screen that ignores the rules still gets only what they allow. A remote
   account MUST have at most 8 videos open at once (a setting, default 8); one more is
@@ -219,8 +222,9 @@ Each is checked on a real site camera, not only the recorded clip.
   away.
 - **SC-205**: A tile off screen receives no video after 2 seconds; a camera nobody watches
   is let go within 30 seconds.
-- **SC-206**: Away from site, four moving tiles use no more than 2 Mbit/s together, and an
-  opened camera on Smooth no more than 1.5 Mbit/s.
+- **SC-206**: Away from site, with cameras set as in Assumptions, four moving tiles use no
+  more than 2 Mbit/s together, and an opened camera on Smooth no more than 1.5 Mbit/s; a
+  camera set heavier is flagged.
 - **SC-207**: Video is no more than 1 second behind the camera on site and 1.5 seconds away,
   measured by pointing a camera at a running clock.
 - **SC-208**: With 16 cameras watched as video, the workstation uses no more than one extra
@@ -266,8 +270,11 @@ Each is checked on a real site camera, not only the recorded clip.
 ## Assumptions
 
 - Site cameras have a second stream (PLAN §9 D3, answered 20 Aug 2026). The installer sets it
-  on each camera to H.264, about 640 pixels wide, 15 pictures a second, no more than 0.5
-  Mbit/s, as the camera makers' own apps expect.
+  on each camera to H.264 (H.264+ and other "smart" codecs off), about 640 pixels wide, 15
+  pictures a second, a key picture (I-frame) every 15 pictures — one a second — and no more
+  than 0.5 Mbit/s. The start times in P10-FR-202 depend on that key-picture setting: a new
+  viewer sees nothing until the next one. The main stream's key-picture interval sets how
+  fast Clear starts the same way.
 - The limits (8 videos per remote account, 0.5 Mbit/s a tile, 1.5 Mbit/s an opened camera)
   are defaults the owner can change in configuration.
 - Each remote viewer watching four tiles needs about 2 Mbit/s of the factory's upload. The

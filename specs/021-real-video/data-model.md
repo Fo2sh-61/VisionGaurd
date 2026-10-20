@@ -21,7 +21,7 @@ Clear always uses the existing `source` (the main stream the AI reads). No colum
 | `api` | `http://127.0.0.1:9997` | must be a loopback address |
 | `whep` | `http://127.0.0.1:8889` | must be a loopback address |
 | `remote_per_account` | `8` | 1–32 |
-| `idle_kick_s` | `10` | 5–60; a session whose bytes have not moved this long is closed |
+| `idle_kick_s` | `10` | 5–10; a session whose bytes have not moved this long is closed. With the 5 s poll this frees a vanished viewer's place within 15 s (P10-FR-208), so more than 10 is refused |
 
 ## In memory (engine, `VideoService`)
 
