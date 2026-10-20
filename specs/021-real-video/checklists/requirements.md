@@ -13,7 +13,8 @@
 
 ## Requirement Completeness
 
-- [ ] No [NEEDS CLARIFICATION] markers remain — one left: what an opened camera shows (P10-FR-205)
+- [x] No [NEEDS CLARIFICATION] markers remain — the last one (what an opened camera shows)
+  was answered by Mohamed on 20 Oct 2026: a Smooth / Clear switch
 - [x] Requirements are testable and unambiguous
 - [x] Success criteria are measurable
 - [x] Success criteria are technology-agnostic (no implementation details)
@@ -33,5 +34,5 @@
 
 - "H.264" appears once, in Assumptions, as the camera setting the installer chooses on the
   camera's own page. It is a camera-side fact the owner already uses, not a build choice.
-- The program choice is deliberately not in the spec; it is the plan's one open question
-  until the owner picks.
+- The program choice is a plan decision. Mohamed picked MediaMTX on 20 Oct 2026; the spec
+  records it under Clarifications only.

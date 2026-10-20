@@ -12,6 +12,20 @@ scrolled into view. It must be light enough for mobile data through the private 
 relay. The kit may carry **one** more free, open-source program that turns the camera
 streams into video a browser plays; the owner picks it from researched candidates.
 
+## Clarifications
+
+### Session 2026-10-20 (Mohamed)
+
+- Q: Which program does the kit carry? → A: **MediaMTX** — "if it's a new added free app but in
+  the VisionGuard project or on the workstation, do the recommendation". It is free (MIT) and
+  is installed on the workstation by Setup, inside VisionGuard. See [research.md](research.md).
+- Q: What does an opened camera show? → A: a **Smooth / Clear switch** like the Hikvision app
+  (P10-FR-205).
+- Q: What does a tile do when video cannot play? → A: **today's pictures, labelled** with the
+  reason, and back to video by itself (P10-FR-210).
+- Q: A camera whose second stream is H.265? → A: **the installer sets it to H.264** on the
+  camera; camera setup checks and says so. VisionGuard never converts video (P10-FR-212).
+
 ## Why this feature *(mandatory)*
 
 Today every camera picture is a separate full photo. On site a grid tile reaches 15 a second
@@ -53,35 +67,40 @@ says why and shows moving pictures as today, never pretending.
    phone whose screen is off, **When** time passes, **Then** that tile receives no video.
 6. **Given** nobody is watching a camera any more, **When** 30 seconds have passed, **Then**
    the workstation no longer fetches video from it.
+7. **Given** an opened camera on Smooth, **When** the operator taps Clear, **Then** within 2
+   seconds the camera's main stream plays, marked Clear; if this device or camera cannot
+   play it, the switch says why and the view stays on Smooth. The next camera opened on that
+   device opens on Clear.
 
 *Light enough for mobile data*
 
-7. **Given** a phone away from site showing four moving tiles, **When** it plays for an
+8. **Given** a phone away from site showing four moving tiles, **When** it plays for an
    hour, **Then** it uses no more than 2 Mbit/s and under 1 GB in total.
-8. **Given** a phone on a slow connection, **When** the video cannot keep up, **Then** the
+9. **Given** a phone on a slow connection, **When** the video cannot keep up, **Then** the
    tile drops LIVE and shows the time of its last picture; a slow connection is never shown
    as a broken camera.
 
 *Honest when video is not possible*
 
-9. **Given** the video program on the workstation is stopped or missing, **When** any
-   camera page is open, **Then** within 5 seconds every tile shows moving pictures as today,
-   labelled with their real pace; the opened camera and System Health say plainly that video
-   is not running and why; detection, recording and alerts carry on.
-10. **Given** a camera whose second stream is missing or in a format browsers cannot play,
-    **When** it is added or edited in camera setup, **Then** setup says so in plain words,
-    and its tiles fall back to pictures with that reason.
-11. **Given** a camera that is down, **When** its tile is on screen, **Then** it shows NO
+10. **Given** the video program on the workstation is stopped or missing, **When** any
+    camera page is open, **Then** within 5 seconds every tile shows moving pictures as
+    today, labelled with their real pace; the opened camera and System Health say plainly
+    that video is not running and why; detection, recording and alerts carry on. When the
+    program is back, the tiles return to video by themselves.
+11. **Given** a camera whose second stream is missing or H.265, **When** it is added or
+    edited in camera setup, **Then** setup says so in plain words and what to change on the
+    camera, and its tiles fall back to pictures with that reason.
+12. **Given** a camera that is down, **When** its tile is on screen, **Then** it shows NO
     SIGNAL with the time of the last picture, as today.
-12. **Given** video that is live while the AI is not analysing that camera, **When** the
+13. **Given** video that is live while the AI is not analysing that camera, **When** the
     tile is on screen, **Then** the picture is marked LIVE and the page says the camera is
     not being analysed, with the reason — two separate facts, never merged.
 
 *Safe*
 
-13. **Given** a request for any camera video with no session, **When** it reaches the
+14. **Given** a request for any camera video with no session, **When** it reaches the
     workstation from the factory network or from outside, **Then** it is refused.
-14. **Given** a device that is not enrolled in the private network, **When** it tries to
+15. **Given** a device that is not enrolled in the private network, **When** it tries to
     reach the video from outside, **Then** it gets no answer at all.
 
 ### Edge cases
@@ -121,17 +140,20 @@ spec 020 (P10-FR-1xx).
 - **P10-FR-203**: The workstation MUST fetch a camera's video only while someone is
   watching it, once however many people watch, and MUST let go within 30 seconds of the
   last viewer leaving.
-- **P10-FR-204**: Tiles MUST use the camera's own smaller second stream.
-- **P10-FR-205**: An opened camera MUST show [NEEDS CLARIFICATION: the second stream
-  everywhere, the full-quality main stream on site and the second stream away, or a
-  Clear/Smooth switch like the Hikvision app?].
+- **P10-FR-204**: Tiles MUST use the camera's own smaller second stream ("Smooth").
+- **P10-FR-205**: An opened camera MUST offer a **Smooth / Clear** switch, like the Hikvision
+  app: Smooth is the second stream, Clear the camera's main stream. It opens on Smooth the
+  first time on each device, then on whatever that device last chose. When Clear cannot play
+  on this device or for this camera, the switch MUST say why and stay on Smooth. From
+  outside, Clear MUST say it uses more data.
 - **P10-FR-206**: Watching video MUST NOT slow the AI's analysis, and 16 cameras watched at
   once MUST cost the workstation no more than one processor core kept busy flat out.
 
 ### Light enough for mobile data
 
 - **P10-FR-207**: From outside, a moving tile MUST use no more than 0.5 Mbit/s on average,
-  and an opened camera no more than 1.5 Mbit/s.
+  and an opened camera on Smooth no more than 1.5 Mbit/s. Clear costs what the camera's main
+  stream costs; it is the operator's choice and is labelled so.
 - **P10-FR-208**: The workstation MUST decide what a remote viewer gets, as spec 020 does
   (P10-FR-113): a screen that ignores the rules still gets only what they allow. A remote
   account MUST have at most 8 videos open at once (a setting, default 8); one more is
@@ -154,7 +176,8 @@ spec 020 (P10-FR-1xx).
   (AGENTS rule 7), and a program that fails to start MUST show in the UI (rule 8).
 - **P10-FR-212**: Camera setup MUST check a camera's second stream when the camera is added
   or edited, and say in plain words whether it can play as video and, if not, what to change
-  on the camera.
+  on the camera — for example "Set the sub-stream to H.264 on the camera's own page". The
+  same check MUST say whether the main stream can play as Clear.
 
 ### Overlays
 
@@ -197,7 +220,7 @@ Each is checked on a real site camera, not only the recorded clip.
 - **SC-205**: A tile off screen receives no video after 2 seconds; a camera nobody watches
   is let go within 30 seconds.
 - **SC-206**: Away from site, four moving tiles use no more than 2 Mbit/s together, and an
-  opened camera no more than 1.5 Mbit/s.
+  opened camera on Smooth no more than 1.5 Mbit/s.
 - **SC-207**: Video is no more than 1 second behind the camera on site and 1.5 seconds away,
   measured by pointing a camera at a running clock.
 - **SC-208**: With 16 cameras watched as video, the workstation uses no more than one extra
@@ -207,7 +230,9 @@ Each is checked on a real site camera, not only the recorded clip.
   program is running again by itself within 1 minute.
 - **SC-210**: When the video freezes, LIVE disappears within 2 seconds.
 - **SC-211**: Boxes land on the same people on video as on pictures, checked side by side on
-  the recorded clip and on a real camera.
+  a real camera.
+- **SC-212**: Switching an opened camera between Smooth and Clear shows the other stream
+  moving within 2 seconds on site.
 
 ## Out of scope
 
@@ -217,6 +242,8 @@ Each is checked on a real site camera, not only the recorded clip.
 - Changing a camera's own settings from VisionGuard: the installer sets the second stream on
   the camera's own page; VisionGuard checks it and says what to change.
 - More than one extra program in the kit.
+- Converting video from one format to another (for example H.265 to H.264) on the
+  workstation.
 - A screen for editing the video settings.
 
 ## Constitution check *(mandatory)*
@@ -247,5 +274,7 @@ Each is checked on a real site camera, not only the recorded clip.
   owner checks the factory's upload speed; a slow upload shows as slow video, labelled.
 - This builds on spec 020 (remote access, not yet merged) and spec 016 (Setup, HTTPS front,
   services). Spec 020's remote picture limits stay for the fallback only.
-- The program is chosen by the owner from [research.md](research.md); the requirements
-  above hold for whichever is chosen.
+- The Smooth / Clear choice is remembered per device (the office PC can stay on Clear, the
+  phone on Smooth). Tiles are always Smooth.
+- The program (MediaMTX, owner's choice) is a plan decision; the requirements above would
+  hold for any program that meets them.

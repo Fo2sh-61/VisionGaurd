@@ -1,5 +1,9 @@
 # Research: which program turns camera streams into browser video
 
+**Decision (Mohamed, 20 Oct 2026): MediaMTX**, installed on the workstation by Setup as part
+of VisionGuard. His condition — free, and on the workstation — holds: MIT, runs as a local
+service. Nothing has been downloaded yet.
+
 20 Oct 2026. Desk research only — nothing downloaded, installed or run. Full notes with every
 source: the session notes file `021-video-program-research.md` (outside the repo); the facts
 that decide the choice are repeated here. Latest releases and MediaMTX's sign-in hook were
