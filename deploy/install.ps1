@@ -241,6 +241,11 @@ if (Test-Path $netbird) {
             'adding the NetBird address to the certificate''s names failed'
         Ok "remote addresses: https://$netbirdIp/ (console) and https://${netbirdIp}:8443/ (phone app)"
     }
+} elseif ($netbirdKey) {
+    # A key was given, so "not set up" would be untrue. On 20 Oct 2026 a 32-bit
+    # PowerShell looked in "Program Files (x86)" here and said exactly that.
+    Stop-Install ("a NetBird setup key was given, but NetBird is not at $netbird after installing it, " +
+                  'so this PC did not join the private network.')
 } else {
     Skip 'remote access is not set up (no NetBird setup key was given)'
 }

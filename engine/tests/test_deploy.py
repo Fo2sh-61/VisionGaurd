@@ -449,6 +449,17 @@ class TestRemoteAccess:
         assert "Stop-Install (\"NetBird did not connect: $why." in step5
         assert "each key works once, for one day" in step5
 
+    def test_a_key_with_no_netbird_to_use_it_stops_never_says_no_key(self):
+        """20 Oct 2026: NetBird was installed but not found where the script
+        looked, and Setup said "no NetBird setup key was given" and finished."""
+        step5 = self.step5()
+        missing = step5.split("if (Test-Path $netbird) {", 1)[1]
+        with_key = missing.index("\n} elseif ($netbirdKey) {")    # the outer one, not the join's
+        assert "Stop-Install (\"a NetBird setup key was given, but NetBird is not at $netbird" in missing[with_key:]
+        no_key = missing.index("Skip 'remote access is not set up (no NetBird setup key was given)'")
+        assert no_key > with_key
+        assert missing[with_key:no_key].count("} else {") == 1
+
     def test_the_firewall_opens_the_two_ports_to_netbird_only(self):
         step6 = _step6()
         rule = step6.split("New-NetFirewallRule -DisplayName $remoteRule", 1)[1].split("| Out-Null", 1)[0]

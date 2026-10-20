@@ -298,9 +298,13 @@ begin
     SetEnvironmentVariableW('VG_ADMIN_PASSWORD', AdminPage.Values[2]);
   if Trim(RemotePage.Values[0]) <> '' then
     SetEnvironmentVariableW('VG_NETBIRD_SETUP_KEY', Trim(RemotePage.Values[0]));
+  // sysnative, never sys: Setup is a 32-bit program, and from it the sys
+  // folder starts the 32-bit PowerShell, whose Program Files is "Program Files
+  // (x86)". On 20 Oct 2026 that hid the NetBird it had just installed, so the
+  // PC never joined.
   try
     try
-      ExecAndLogOutput(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), Params, '',
+      ExecAndLogOutput(ExpandConstant('{sysnative}\WindowsPowerShell\v1.0\powershell.exe'), Params, '',
         SW_HIDE, ewWaitUntilTerminated, Code, @InstallLine);
     except
       Code := -1;
@@ -344,6 +348,15 @@ begin
     RunInstallScript;
 end;
 
+{ The text below is set after Inno Setup has placed the two choices under the
+  shorter text it had, so a long one ran under them (20 Oct 2026: the
+  Public-network warning lost its last line). Grow it and move them down. }
+procedure FitFinishedText;
+begin
+  WizardForm.RunList.Top := WizardForm.RunList.Top +
+    WizardForm.AdjustLabelHeight(WizardForm.FinishedLabel);
+end;
+
 procedure CurPageChanged(CurPageID: Integer);
 begin
   if CurPageID = wpFinished then begin
@@ -361,6 +374,7 @@ begin
         WizardForm.FinishedLabel.Caption := WizardForm.FinishedLabel.Caption + #13#10#13#10 +
           'Please read:' + WarningLines;
     end;
+    FitFinishedText;
   end;
 end;
 

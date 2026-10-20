@@ -161,6 +161,25 @@ class TestScript:
         assert "Pos('remote addresses:', S)" in iss
         assert "Away from the site, enrolled devices open: ' + RemoteLine" in iss
 
+    def test_the_install_script_runs_in_64_bit_powershell(self, iss):
+        """20 Oct 2026: from 32-bit Setup, {sys} started the 32-bit PowerShell,
+        whose Program Files is "Program Files (x86)", so install.ps1 could not
+        see the NetBird it had just installed and the PC never joined."""
+        code = "\n".join(section(iss, "Code"))
+        (call,) = [ln for ln in code.splitlines() if "ExecAndLogOutput(" in ln]
+        assert r"ExpandConstant('{sysnative}\WindowsPowerShell\v1.0\powershell.exe')" in call
+        assert r"{sys}\WindowsPowerShell" not in code
+
+    def test_the_finish_page_text_never_runs_under_the_choices(self, iss):
+        """20 Oct 2026: the Public-network warning lost its last line under the
+        two checkboxes, because the text is set after they were placed."""
+        fit = iss.split("procedure FitFinishedText;", 1)[1].split("end;", 1)[0]
+        assert "WizardForm.AdjustLabelHeight(WizardForm.FinishedLabel)" in fit
+        assert "WizardForm.RunList.Top := WizardForm.RunList.Top +" in fit
+        finished = iss.split("procedure CurPageChanged", 1)[1].split("\nend;", 1)[0]
+        # after both captions (failed and installed), never before
+        assert finished.rindex("FitFinishedText;") > finished.rindex("FinishedLabel.Caption :=")
+
     def test_the_uninstall_says_netbird_stays(self, iss):
         assert r"{commonpf}\NetBird\netbird.exe" in iss
         assert "delete it in the NetBird dashboard" in iss
