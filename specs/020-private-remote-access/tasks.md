@@ -397,13 +397,18 @@ real locked phone.
 
 ## Phase 9: Polish and gates
 
-- [ ] T043 Update `STATUS.md` with what remote access does and what the drills showed
-- [ ] T044 `python -m pytest engine`: green, and the count did not drop
-- [ ] T045 `npx.cmd tsc -b --force` in `web/` and `mobile/`, and `python tools/check_parity.py`:
+- [x] T043 Update `STATUS.md` with what remote access does and what the drills showed
+- [x] T044 `python -m pytest engine`: green, and the count did not drop
+- [x] T045 `npx.cmd tsc -b --force` in `web/` and `mobile/`, and `python tools/check_parity.py`:
       clean
-- [ ] T046 `python -m pyflakes engine/vg engine/tools engine/tests`: clean
-- [ ] T047 `.\dev.ps1 up -Clip`: LAN video unchanged, and remote limits applied for a caller
+- [x] T046 `python -m pyflakes engine/vg engine/tools engine/tests`: clean
+- [x] T047 `.\dev.ps1 up -Clip`: LAN video unchanged, and remote limits applied for a caller
       outside `lan_networks` (for example a test address)
+  - Gates 20 Oct 2026: pytest 2463 passed, 14 skipped (2205 at the start); both `tsc`
+    clean; parity 29 files; pyflakes clean. T047 on the clip with an engine that counted
+    every address as remote (tiles every 2 s, live view 480x360, third view refused,
+    offline banner), and T025's tool as a NetBird address through `X-Forwarded-For`; the
+    LAN side is unchanged in `test_remote_video.py`. STATUS.md T043: drills still to add
 - [ ] T048 Every drill in `drills.md` (D1–D12, D1-PC) has a date and a pass, or an
       owner-approved waiver naming the risk
 
