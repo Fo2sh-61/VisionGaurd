@@ -176,8 +176,7 @@ with 016 installed.
 - [x] T018 [US1] ~~Create `tools/remote-firewall.ps1`~~ **Replaced by Setup (decision 4,
       19 Oct 2026)**: nobody at the site types a command, so `deploy/install.ps1` does it.
   - Step 5: with a key from Setup's "Remote access" page, installs NetBird from the kit
-    (`appin
-etbird_installer_*.msi`, pinned in `deploy/versions.txt`), sets its service to
+    (`app\bin\netbird_installer_*.msi`, pinned in `deploy/versions.txt`), sets its service to
     start with Windows, joins with the key in `NB_SETUP_KEY` (never a command line), and
     adds the NetBird address to `tls.names` (`engine/tools/tls_names.py`) before the
     certificate is made.
@@ -203,6 +202,18 @@ etbird_installer_*.msi`, pinned in `deploy/versions.txt`), sets its service to
       times him and notes where he stumbles. Fix every step whose screen or wording
       differs, including how the NetBird app switches between two factories' accounts.
       Record the phone enrolment time in `drills.md` (SC-108)
+  - 20 Oct 2026, in progress. **A** done (account, both groups, the one policy TCP 443
+    and 8443 one direction, Default deleted). **B3–B7 and B11** on this laptop with Setup
+    v0.16.0-setup6: joined as 100.121.190.241, the certificate carries it, System Health
+    "Connected as 100.121.190.241" (so the client answers the service account), the two
+    stray Caddy rules are off. Not done: B1 (reservation), B2 (BIOS), B8 (office PC).
+  - Setup bugs found on the way, each fixed with its test: setup5 ran install.ps1 in
+    32-bit PowerShell, which could not see NetBird in Program Files and said "no key was
+    given" (65bda0a); the finish page hid its last lines under the checkboxes (65bda0a);
+    it told the owner to make NetBird's adapter `wt0` Private, untrue (565dade).
+  - Screens that differ from the checklist: Create Setup Key also asks **Ephemeral
+    peers** and **Allow extra DNS labels** (both off), and the key's window offers
+    **Install NetBird** (close it instead). Checklist B5, C2 and D3 updated.
 - [ ] T021 [US1] Run drills D1 (with NetBird on), D1-PC, D2, D3, D4, D5, D6, D7 and D11;
       record date, device, result and time taken in `drills.md`. A failure stops this
       story until it is fixed or re-planned

@@ -84,9 +84,14 @@ Use the private address away from the factory, or the LAN address inside it.
    every device reach every other device). Do this only after step 3 is saved, or nothing
    will connect.
 5. **Make a setup key for the workstation.** Sit at the workstation while you do this.
-   1. In the dashboard open **Setup Keys → Create setup key**.
+   1. In the dashboard open **Setup Keys → Create Setup Key**.
    2. Name it `workstation`. Leave "reusable" **off**. Set expiry to **1 day**.
-   3. Set the auto-assigned group to **workstation**, then create it and copy it.
+   3. Set the auto-assigned group to **workstation**. Leave **Ephemeral peers** and
+      **Allow extra DNS labels** **off** (an ephemeral device is removed whenever it is
+      offline for a while).
+   4. Create it and copy it. The window offers **Install NetBird**: choose **Close** instead,
+      because Setup installs NetBird. The key is shown only once; never put it in a
+      screenshot or a message.
 6. **Run VisionGuard Setup on the workstation** (the newest `VisionGuard-Setup-….exe`).
    1. Go through the pages as usual. On **Remote access (optional)**, paste the key.
    2. Setup installs NetBird, joins this PC with the key (never through a sign-in page: a
@@ -116,9 +121,9 @@ Use the private address away from the factory, or the LAN address inside it.
 
 1. **The person's account.** They sign up in VisionGuard on the factory network, or you
    create one. Then in **Users**, give it the right role (spec 016).
-2. In the NetBird dashboard: **Setup Keys → Create setup key**. Name it after the person and
-   device (e.g. `ali-laptop`). Reusable **off**, expiry **1 day**, auto-group **operators**.
-   Copy it.
+2. In the NetBird dashboard: **Setup Keys → Create Setup Key**. Name it after the person and
+   device (e.g. `ali-laptop`). Reusable **off**, expiry **1 day**, auto-group **operators**,
+   Ephemeral peers **off**, Allow extra DNS labels **off**. Copy it, then **Close**.
 3. On the laptop: install NetBird from netbird.io. **If it opens a sign-in page, close it.**
 4. Open a new PowerShell window **as administrator**. Type `netbird up --setup-key `, paste
    the key, press Enter. `netbird status` should say connected.
@@ -147,8 +152,9 @@ A laptop that never leaves the factory needs only steps 1 and 6. It opens `https
 1. **The person's account**: as C1.
 2. **The phone needs a screen lock** (PIN, pattern or fingerprint). Android will not install
    a certificate without one.
-3. In the NetBird dashboard: **Setup Keys → Create setup key**. Name it after the person and
-   device (e.g. `ali-phone`). Reusable **off**, expiry **1 day**, auto-group **operators**.
+3. In the NetBird dashboard: **Setup Keys → Create Setup Key**. Name it after the person and
+   device (e.g. `ali-phone`). Reusable **off**, expiry **1 day**, auto-group **operators**,
+   Ephemeral peers **off**, Allow extra DNS labels **off**.
    To get it onto the phone, send it to yourself in a message and **delete the message once
    the phone has joined**.
 4. On the phone, install **NetBird** from the Play Store. Open it. **Do not sign in.**
