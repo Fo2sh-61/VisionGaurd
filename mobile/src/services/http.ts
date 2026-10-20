@@ -80,10 +80,35 @@ export function setUnauthorisedHandler(handler: Unauthorised | null): void {
 let siteReachable = true;
 const reachableListeners = new Set<() => void>();
 
+/** How long nothing may come back before the page says so. One lost request
+ *  is not the site being away: through NetBird's relay on mobile data a few
+ *  get lost, and the enlarged view asks ten times a second, so the banner
+ *  flashed on and off while everything worked (20 Oct 2026). Any answer in
+ *  the meantime cancels it; a site that is really gone fails every request,
+ *  so the banner still comes, this much later. */
+export const UNREACHABLE_AFTER_MS = 5_000;
+let unreachableTimer: ReturnType<typeof setTimeout> | null = null;
+
 function setSiteReachable(value: boolean): void {
   if (siteReachable === value) return;
   siteReachable = value;
   reachableListeners.forEach((listener) => listener());
+}
+
+function gotAnswer(): void {
+  if (unreachableTimer !== null) {
+    clearTimeout(unreachableTimer);
+    unreachableTimer = null;
+  }
+  setSiteReachable(true);
+}
+
+function gotNoAnswer(): void {
+  if (unreachableTimer !== null || !siteReachable) return;
+  unreachableTimer = setTimeout(() => {
+    unreachableTimer = null;
+    setSiteReachable(false);
+  }, UNREACHABLE_AFTER_MS);
 }
 
 export function isSiteReachable(): boolean {
@@ -184,7 +209,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
       // a page refresh would look like being signed out.
       credentials: 'include',
     });
-    setSiteReachable(true);
+    gotAnswer();
 
     if (!response.ok) {
       let message = `${method} ${path} failed (${response.status})`;
@@ -248,11 +273,11 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     if (error instanceof ApiError) throw error;
     if (error instanceof DOMException && error.name === 'AbortError') {
       // Its own timer, not a page that went away: nothing came back in time.
-      if (timedOut) setSiteReachable(false);
+      if (timedOut) gotNoAnswer();
       throw new ApiError(`${path} timed out`, 0, true);
     }
     // Network-level failure: the engine is not running, or CORS blocked it.
-    setSiteReachable(false);
+    gotNoAnswer();
     throw new ApiError(
       'Cannot reach the engine. Is it running?',
       0,
