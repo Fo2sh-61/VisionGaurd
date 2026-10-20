@@ -86,7 +86,11 @@ class TestNoPageSetsItsOwnRate:
         assert not re.search(r"^\s*refreshMs\?:", source, re.M), (
             "a rate handed in by the page is worked out from a count that "
             "goes stale as tiles scroll; the tile works it out itself")
-        assert "const refreshMs = tileRefreshMs(tilesShowing);" in source
+        # On the factory network from the tiles on screen; away from it the
+        # engine's own pace (spec 020) - never a number a page passed in.
+        assert ("const refreshMs = remote && connection\n"
+                "    ? connection.tileIntervalSeconds * 1_000\n"
+                "    : tileRefreshMs(tilesShowing);") in source
 
     def test_no_page_hands_a_tile_a_rate(self, app):
         offenders = [

@@ -772,8 +772,11 @@ class RemoteConfig:
 
     lan_networks: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...] = tuple(
         ipaddress.ip_network(n) for n in DEFAULT_LAN_NETWORKS)
-    #: A remote camera tile is a still picture this often.
+    #: A remote camera tile is a still picture this often, at most this wide.
+    #: 320: measured on the recorded clip, twelve tiles at 480 would need
+    #: about 0.77 Mbit/s of the factory's upload, at 320 about 0.43.
     tile_interval_s: float = 2.0
+    tile_width: int = 320
     #: A remote live view: this wide, this many pictures a second.
     live_width: int = 480
     live_fps: float = 5.0
@@ -784,7 +787,8 @@ class RemoteConfig:
     def parse(cls, raw: dict[str, Any] | None, where: str) -> "RemoteConfig":
         raw = raw or {}
         unknown = sorted(set(raw) - {
-            "lan_networks", "tile_interval_s", "live_width", "live_fps", "live_views"})
+            "lan_networks", "tile_interval_s", "tile_width", "live_width", "live_fps",
+            "live_views"})
         if unknown:
             raise ConfigError(f"{where}: unknown key(s) {unknown}")
         networks = raw.get("lan_networks", list(DEFAULT_LAN_NETWORKS))
@@ -803,6 +807,7 @@ class RemoteConfig:
         return cls(
             lan_networks=tuple(parsed),
             tile_interval_s=_positive(raw, "tile_interval_s", 2.0, where),
+            tile_width=_positive(raw, "tile_width", 320, where, int),
             live_width=_positive(raw, "live_width", 480, where, int),
             live_fps=_positive(raw, "live_fps", 5.0, where),
             live_views=_positive(raw, "live_views", 2, where, int),

@@ -575,6 +575,12 @@ async def lifespan(app: FastAPI):
                 log.exception("alert sender failed to start")
                 store.alerts_error = f"the alert sender failed to start: {exc}"
                 app.state.alerts = store.alerts = None
+
+        # Spec 020: the NetBird client is read on its own thread, so System
+        # Health never waits on it. Needs no feature and no camera (rule 9).
+        from vg.remote.status import StatusReader
+        app.state.remote_status = store.remote_status = StatusReader()
+        app.state.remote_status.start()
         set_store(store)
 
         # The banner. A console showing invented attendance next to real camera
@@ -602,6 +608,10 @@ async def lifespan(app: FastAPI):
         stop_counts = getattr(app.state, "counts_stop", None)
         if stop_counts is not None:
             stop_counts.set()
+
+        remote_reader = getattr(app.state, "remote_status", None)
+        if remote_reader is not None:
+            remote_reader.stop()
 
         # Before the cameras go: an mp4 whose writer was never released is an
         # unplayable one, and it would be the file somebody went looking for.
@@ -2282,7 +2292,7 @@ def _mount(app: FastAPI) -> None:
             raise HTTPException(404, f"no camera {camera_id!r}")
 
         # Spec 020: outside the factory network a tile is a still picture no
-        # wider than `live_width`, one per `tile_interval_s`. An early ask
+        # wider than `tile_width`, one per `tile_interval_s`. An early ask
         # waits its turn here (a plain `def`: a worker thread waits, not the
         # event loop) and then gets a new picture, so a slowed refresh never
         # reaches the screen as an error. The camera is never asked to decode
@@ -2290,7 +2300,7 @@ def _mount(app: FastAPI) -> None:
         max_width = None if width is None else _tile_width(width)
         if remote.is_remote(request):
             limits = remote.remote_config(request)
-            max_width = min(max_width or TILE_WIDTHS[-1], limits.live_width)
+            max_width = min(max_width or TILE_WIDTHS[-1], limits.tile_width)
             if fps is not None:
                 fps = min(fps, 1 / limits.tile_interval_s)
             pacer = request.app.state.snapshot_pacer

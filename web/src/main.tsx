@@ -56,3 +56,16 @@ createRoot(document.getElementById('root')!).render(
     </ThemeProvider>
   </StrictMode>,
 );
+
+// Spec 020: the service worker that makes the app installable and shows a plain
+// "cannot be reached" page when a page cannot load at all. It caches nothing
+// (public/sw.js). Built apps only: the dev server never registers it, so a
+// developer never debugs a page a worker answered.
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {
+      /* No worker means no install prompt and the browser's own error page
+         when offline; the app itself works the same. */
+    });
+  });
+}

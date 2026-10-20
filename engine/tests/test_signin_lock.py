@@ -125,9 +125,12 @@ class TestTheLockTable:
 
     def test_unlock_lifts_it_and_says_whether_there_was_one(self, users):
         self.lock_after(users, "a@x.com", 5)
-        assert users.unlock("A@x.com") is True
-        assert users.locked_until("a@x.com", now=T0 + timedelta(minutes=1)) is None
-        assert users.unlock("a@x.com") is False
+        # The clock is the test's, as everywhere here: a fixed date read
+        # against today's clock made this pass on 19 Oct and fail on the 20th.
+        soon = T0 + timedelta(minutes=1)
+        assert users.unlock("A@x.com", now=soon) is True
+        assert users.locked_until("a@x.com", now=soon) is None
+        assert users.unlock("a@x.com", now=soon) is False
 
     def test_active_locks_are_listed_by_key(self, users):
         until = self.lock_after(users, "a@x.com", 5)

@@ -244,7 +244,7 @@ screen.
     (on the parity list); `http.ts` records whether the last request got any answer.
     Not re-checked by eye after the last fix (a remote tile that lost the site keeps
     its last picture's time)
-- [ ] T025 [US3] Create `engine/tools/measure_remote_video.py`. Against the recorded clip
+- [x] T025 [US3] Create `engine/tools/measure_remote_video.py`. Against the recorded clip
       (`dev.ps1 up -Clip`) it reads 60 s of the remote stream and 60 s of a 12-tile remote
       page and prints Mbit/s, plus the workstation's extra load in cores kept busy, at 2
       remote viewers × 2 live views. Write the measured figures into plan.md's bandwidth
@@ -253,6 +253,9 @@ screen.
     remote phone by sending a NetBird address in `X-Forwarded-For`, which the engine
     believes only from the workstation itself. Seen in the browser on the clip: a remote
     tile is about 16 KB every 2 s at 480 px (about 0.06 Mbit/s), the live view 480x360
+  - Run 20 Oct 2026, figures in plan.md: live view 0.61 Mbit/s; tile 0.036 Mbit/s at 320 px,
+    twelve 0.43; no measurable extra processor use. Twelve 480 px tiles would have been
+    ~0.77 Mbit/s, so remote tiles got their own `remote.tile_width: 320`
 - [ ] T026 [US3] Drill D10 on a real phone over mobile data, including the latency check
       against a running clock (SC-111); record in `drills.md`
 
@@ -266,24 +269,32 @@ the screen says honestly what it is showing.
 **Independent test**: drill D1 shows "Install app" on Chrome Android and on Chrome and Edge
 for Windows; with NetBird off, the plain offline page.
 
-- [ ] T027 [P] [US4] Extend `tools/make_icon.py` to write 192 px, 512 px and 512 px
+- [x] T027 [P] [US4] Extend `tools/make_icon.py` to write 192 px, 512 px and 512 px
       maskable PNGs for each app from `web/src/components/Logo.tsx` into `web/public/` and
       `mobile/public/`
-- [ ] T028 [P] [US4] Add `manifest.webmanifest` to `web/public/` and `mobile/public/`:
+  - Done by 016 T012
+- [x] T028 [P] [US4] Add `manifest.webmanifest` to `web/public/` and `mobile/public/`:
   - name, short_name, `start_url` "/", `scope` "/", `display` "standalone";
   - theme and background colours;
   - the icons.
   - Link it and add `theme-color` in both `index.html`
-- [ ] T029 [US4] Add `sw.js` to `web/public/` and `mobile/public/`:
+  - Done by 016 T012
+- [x] T029 [US4] Add `sw.js` to `web/public/` and `mobile/public/`:
   - the `fetch` handler passes every request through;
   - on a failed page load it returns one cached plain page in English and Arabic: "cannot
     be reached right now; away from the factory, check NetBird; in the factory, check the
     network";
   - it caches nothing else, never an API answer.
   - Register it from both apps' entry files
+  - Done 20 Oct 2026. The page is built in the worker, in memory: no Cache API at all.
+    **English only**: P11-FR-004 keeps unreviewed Arabic out of a release, and this page
+    has no draft Arabic to review yet. Registered in built apps only. Checked by eye: the
+    built console registered it, and with the server stopped a reload showed the page.
+    `test_service_worker.py` runs both workers in Node
 - [ ] T030 [US4] `npx.cmd tsc -b --force` in `web/` and `mobile/`; build both; then the
       checklist steps C8 and D8, and the second half of drill D1 (NetBird off), on the pilot
       devices; record in `drills.md`
+  - `tsc` and both builds clean 20 Oct 2026. The device steps wait for the remote check
 
 ---
 
@@ -343,7 +354,7 @@ real locked phone.
 
 **Independent test**: pytest with canned client output; drill D6 shows "not connected".
 
-- [ ] T040 [P] [US6] Write `engine/tests/test_remote_status.py` with canned
+- [x] T040 [P] [US6] Write `engine/tests/test_remote_status.py` with canned
       `netbird status --json` outputs and the plain-text fallback:
   - no client → "not set up";
   - a client that cannot be run → "not connected — cannot read the NetBird client:
@@ -354,13 +365,18 @@ real locked phone.
   - every state shows the time checked;
   - `health()` never runs the client itself;
   - System Health is 200 in every case
-- [ ] T041 [US6] Create `engine/vg/remote/status.py`: a background thread runs the client
+- [x] T041 [US6] Create `engine/vg/remote/status.py`: a background thread runs the client
       every 30 s (3 s timeout), keeps the last result and its time, and parses the fields
       in research R4. Note the client version the parser was tested against
-- [ ] T042 [US6] Add the `remote_access` `PipelineStage` to `LiveStore.health()`
+  - Done: `engine/vg/remote/status.py`, written against NetBird 0.81.2 (JSON, with the
+    plain-text status as a fallback); started and stopped by the app's lifespan
+- [x] T042 [US6] Add the `remote_access` `PipelineStage` to `LiveStore.health()`
       (`engine/vg/api/live.py:3835`). Render it in `web/src/pages/SystemHealth.tsx`
       **and** `mobile/src/pages/SystemHealth.tsx`. T040 passes. Then checklist step B11 on
       the pilot
+  - Done, except B11 (needs NetBird on the workstation). Both pages already list every
+    engine row, so no page changed. Seen on the running engine: "Not set up - NetBird is
+    not installed on this machine, ... Checked 09:54:18."
 
 ---
 

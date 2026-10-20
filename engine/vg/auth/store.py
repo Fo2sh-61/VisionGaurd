@@ -503,13 +503,13 @@ class UserStore:
                                (email_key(email),))
             self._conn.commit()
 
-    def unlock(self, email: str) -> bool:
+    def unlock(self, email: str, now: datetime | None = None) -> bool:
         """Lift a lock now. True when there was one to lift."""
-        now = _now().isoformat()
+        now = now or _now()
         with self._lock:
             locked = self._conn.execute(
                 "SELECT 1 FROM signin_lock WHERE email_key = ? AND locked_until > ?",
-                (email_key(email), now)).fetchone() is not None
+                (email_key(email), now.isoformat())).fetchone() is not None
             self._conn.execute("DELETE FROM signin_lock WHERE email_key = ?",
                                (email_key(email),))
             self._conn.commit()

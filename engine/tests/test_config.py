@@ -595,8 +595,8 @@ class TestRemote:
         assert remote == cfg.RemoteConfig()
         assert [str(n) for n in remote.lan_networks] == [
             "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8", "::1/128"]
-        assert (remote.tile_interval_s, remote.live_width, remote.live_fps,
-                remote.live_views) == (2.0, 480, 5.0, 2)
+        assert (remote.tile_interval_s, remote.tile_width, remote.live_width,
+                remote.live_fps, remote.live_views) == (2.0, 320, 480, 5.0, 2)
 
     def test_the_shipped_file_carries_the_defaults(self, loaded):
         assert loaded.remote == cfg.RemoteConfig()
@@ -617,7 +617,8 @@ class TestRemote:
         with pytest.raises(cfg.ConfigError, match="at least one"):
             cfg.RemoteConfig.parse({"lan_networks": []}, "remote")
 
-    @pytest.mark.parametrize("key", ["tile_interval_s", "live_width", "live_fps", "live_views"])
+    @pytest.mark.parametrize("key", ["tile_interval_s", "tile_width", "live_width",
+                                     "live_fps", "live_views"])
     @pytest.mark.parametrize("value", [0, -1])
     def test_zero_or_negative_numbers_are_refused(self, key, value):
         with pytest.raises(cfg.ConfigError, match=rf"remote\.{key}"):

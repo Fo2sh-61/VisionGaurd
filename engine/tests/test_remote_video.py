@@ -1,7 +1,7 @@
 """Video that fits a remote link (spec 020 US3, T022).
 
 A caller outside the factory network gets camera tiles as still pictures no
-wider than `live_width`, one per `tile_interval_s`, and live views at
+wider than `tile_width`, one per `tile_interval_s`, and live views at
 `live_width` and at most `live_fps` pictures a second, two at a time per
 account. The engine applies all of it, so a screen that ignores the limits
 still gets only what they allow. A tile that asks early waits its turn; it is
@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import itertools
 import time
+from dataclasses import replace
 from datetime import datetime, timezone
 
 import cv2
@@ -23,6 +24,7 @@ from fastapi.testclient import TestClient
 
 from vg.api import app as app_module
 from vg.api import remote
+from vg import config as vgconfig
 from vg.api.store import MockStore
 from vg.config import CameraConfig
 from vg.ingest.registry import CameraRegistry
@@ -93,14 +95,15 @@ def snapshot_width(response) -> int:
 # --- tiles ---------------------------------------------------------------------
 
 class TestRemoteTiles:
-    @pytest.mark.parametrize("query", ["", "?width=1280", "?width=640"])
+    @pytest.mark.parametrize("query", ["", "?width=1280", "?width=640", "?width=480"])
     def test_a_remote_picture_is_never_wider_than_the_limit(self, video_app, session, query):
         token, _ = session
-        assert snapshot_width(client(video_app, token, NETBIRD).get(f"/cameras/c1/snapshot{query}")) == 480
+        assert snapshot_width(client(video_app, token, NETBIRD).get(f"/cameras/c1/snapshot{query}")) == 320
 
-    def test_a_smaller_tile_keeps_its_own_size(self, video_app, session):
+    def test_a_site_sets_its_own_tile_width(self, video_app, session):
         token, _ = session
-        assert snapshot_width(client(video_app, token, NETBIRD).get("/cameras/c1/snapshot?width=320")) == 320
+        video_app.state.config = replace(vgconfig.load(), remote=vgconfig.RemoteConfig(tile_width=480))
+        assert snapshot_width(client(video_app, token, NETBIRD).get("/cameras/c1/snapshot?width=640")) == 480
 
     def test_the_rate_a_remote_tile_asks_of_the_camera_is_capped(self, video_app, session):
         token, _ = session

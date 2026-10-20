@@ -3252,6 +3252,50 @@ class LiveStore(MockStore):
                          S.Severity.WARN)
         return stage(f"Valid until {when} for {names}.", S.Severity.INFO)
 
+    #: Spec 020: the background reader of the NetBird client
+    #: (`vg.remote.status.StatusReader`), set by the app at start-up. None
+    #: where nothing reads it (tests, a store built by hand).
+    remote_status = None
+
+    def _remote_access_stage(self) -> S.PipelineStage:
+        """Is this workstation on the site's private network (spec 020)?
+
+        Reads only what the background reader last saw - it never runs the
+        client itself, so a hung client cannot hold up System Health. Not set
+        up is not a fault: most sites start without remote access.
+        """
+        def stage(detail: str, severity: S.Severity) -> S.PipelineStage:
+            return S.PipelineStage(
+                key="remote_access", name="Remote access", detail=detail,
+                healthy=severity is S.Severity.INFO, severity=severity,
+                restartable=False)
+
+        reader = self.remote_status
+        if reader is None:
+            return stage("Not checked - nothing on this engine reads the NetBird client.",
+                         S.Severity.INFO)
+        seen = reader.latest
+        if seen is None:
+            return stage("Checking now.", S.Severity.INFO)
+        checked = f"Checked {self.clock.local(seen.checked_at):%H:%M:%S}."
+        if seen.state == "not_set_up":
+            return stage("Not set up - NetBird is not installed on this machine, so "
+                         f"nothing can reach VisionGuard from outside the site. {checked}",
+                         S.Severity.INFO)
+        if seen.state == "unreadable":
+            return stage(f"Not connected - cannot read the NetBird client: {seen.reason}. "
+                         f"{checked}", S.Severity.WARN)
+        if seen.state == "not_connected":
+            return stage(f"Not connected - {seen.reason}. {checked}", S.Severity.WARN)
+        tls = self.config.tls
+        if tls is not None and seen.address and seen.address not in tls.names:
+            return stage(f"Connected as {seen.address}, but that address is not on the "
+                         "site certificate, so phones and PCs away from the site will see "
+                         f"a certificate warning. Run Setup again. {checked}",
+                         S.Severity.WARN)
+        return stage(f"Connected as {seen.address or 'an unknown address'}. {checked}",
+                     S.Severity.INFO)
+
     def _attendance_counts(self, day: str):
         """The noon report's figures: one count per group, from the register.
 
@@ -3968,6 +4012,7 @@ class LiveStore(MockStore):
             self._lost_stage(),
             self._alerts_stage(),
             self._certificate_stage(),
+            self._remote_access_stage(),
             self._workers_stage(),
         ]
 

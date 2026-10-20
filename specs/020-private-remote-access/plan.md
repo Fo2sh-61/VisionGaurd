@@ -272,6 +272,7 @@ These go into spec 016's plan as requirements from this spec (T001):
   remote:
     lan_networks: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8", "::1/128"]
     tile_interval_s: 2
+    tile_width: 320     # added 20 Oct 2026 after T025's measurement
     live_width: 480
     live_fps: 5
     live_views: 2
@@ -331,22 +332,28 @@ These go into spec 016's plan as requirements from this spec (T001):
 
 **Clips and event snapshots**: untouched (P10-FR-117).
 
-**Bandwidth (estimates, to be measured — task T025):**
+**Bandwidth, measured 20 Oct 2026** (task T025, `engine/tools/measure_remote_video.py`, 60 s
+each on the recorded clip, the walk-through camera at 5 pictures a second; the LAN row is still
+the earlier estimate):
 
-| View | Size, quality | Rate | Estimate |
+| View | Size, quality | Rate | Measured |
 |---|---|---|---|
-| LAN live view today | 960 px, q70, ~60–90 KB | camera rate, 15–25/s | ~7–18 Mbit/s |
-| Remote live view | 480 px, q70, ~20–30 KB | 5/s | ~0.8–1.2 Mbit/s |
-| Remote tile | 320 px, q70, ~8–12 KB | 1 per 2 s | ~0.04 Mbit/s each; 12 tiles ≈ 0.5 Mbit/s |
+| LAN live view today | 960 px, q70, ~60–90 KB | camera rate, 15–25/s | ~7–18 Mbit/s (estimate) |
+| Remote live view | 480 px, q70 | 5/s | **0.61 Mbit/s** |
+| Remote tile | 320 px, q70, ~9 KB | 1 per 2 s | **0.036 Mbit/s each; 12 tiles 0.43 Mbit/s** |
 
-So one person away from site with two live views and a tile page needs about 2–3 Mbit/s of
-the factory's upload. The measurement on the recorded clip replaces these figures before the
-limits are called done.
+A tile asks for a picture the size it is drawn, and in the browser that was 480 px (~16 KB,
+about 0.064 Mbit/s; twelve would be ~0.77 Mbit/s, over SC-106's 0.5). So remote tiles are
+capped by their own setting, `remote.tile_width: 320`, not by the live view's 480.
 
-**Workstation cost**: each remote live view adds one 480 px JPEG encode 5 times a second,
-and each remote tile one 320 px encode every 2 seconds. That is small next to decoding the
-cameras, which is unchanged. T025 measures it in cores kept busy, at 2 remote viewers × 2
-live views.
+So one person away from site with two live views and a page of twelve tiles needs about
+1.7 Mbit/s of the factory's upload. A camera faster than the clip's 5 a second does not change
+the live view (it is capped at 5 a second) and changes a tile only by how busy the picture is.
+
+**Workstation cost, measured**: two viewers with two remote live views each added nothing
+measurable to the engine's processor use (−0.03 cores, noise, on top of its own 0.84 cores
+kept busy flat out on the clip). The pictures are skipped, not encoded, between the five a
+second, and decoding the cameras is unchanged.
 
 **Latency budget** (SC-111, constitution I):
 - The remote live view is at most 1.5 s behind the camera over mobile data.

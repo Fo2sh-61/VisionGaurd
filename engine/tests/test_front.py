@@ -272,7 +272,9 @@ class TestInstallable:
         assert '<meta name="theme-color"' in html
 
     @pytest.mark.parametrize("app", ["web", "mobile"])
-    def test_no_service_worker_yet(self, app):
-        # sw.js is spec 020's. One here without its update rules would pin
-        # an installed app to an old build.
-        assert not (REPO_DIR / app / "public" / "sw.js").exists()
+    def test_the_service_worker_never_pins_an_old_build(self, app):
+        # sw.js is spec 020's (test_service_worker.py says what it does). A
+        # worker that waited for every tab to close, or that the front let a
+        # browser keep, would pin an installed app to an old build.
+        worker = (REPO_DIR / app / "public" / "sw.js").read_text(encoding="utf-8")
+        assert "self.skipWaiting()" in worker and "self.clients.claim()" in worker
