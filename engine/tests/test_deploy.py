@@ -460,6 +460,17 @@ class TestRemoteAccess:
         assert no_key > with_key
         assert missing[with_key:no_key].count("} else {") == 1
 
+    def test_the_public_network_warning_skips_netbirds_own_adapter(self):
+        """20 Oct 2026: Setup told the owner to make 'wt0' (NetBird) Private,
+        which was untrue - its rule works on every profile - and would have
+        opened the two LAN rules to it too."""
+        step6 = _step6()
+        warn = step6.split("foreach ($net in @(Get-NetConnectionProfile", 1)[1].split("{", 2)[1]
+        assert "$_.NetworkCategory -eq 'Public'" in warn
+        assert "$_.InterfaceAlias -ne $nbAlias" in warn
+        # $nbAlias is known before the warning is given
+        assert step6.index("$nbAlias = (Get-NetIPAddress") < step6.index("foreach ($net in @(Get-NetConnectionProfile")
+
     def test_the_firewall_opens_the_two_ports_to_netbird_only(self):
         step6 = _step6()
         rule = step6.split("New-NetFirewallRule -DisplayName $remoteRule", 1)[1].split("| Out-Null", 1)[0]

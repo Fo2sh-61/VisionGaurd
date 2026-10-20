@@ -391,7 +391,11 @@ if ($nbAlias) {
     Skip 'firewall: no remote access rule (remote access is not set up)'
 }
 # Public stays closed on purpose. Say so when this machine is on such a network.
-foreach ($net in @(Get-NetConnectionProfile | Where-Object NetworkCategory -eq 'Public')) {
+# Never for NetBird's own adapter: the rule above works on every profile, so the
+# warning would be untrue there, and making it Private would open the two LAN
+# rules to it as well (seen on 20 Oct 2026, its adapter 'wt0' was Public).
+foreach ($net in @(Get-NetConnectionProfile | Where-Object {
+                       $_.NetworkCategory -eq 'Public' -and $_.InterfaceAlias -ne $nbAlias })) {
     Write-Host ("    WARNING  '$($net.Name)' is a Public network, so phones and other PCs " +
                 'cannot reach the console until Windows marks it Private. To do that: ' +
                 "Set-NetConnectionProfile -InterfaceAlias '$($net.InterfaceAlias)' -NetworkCategory Private") `
