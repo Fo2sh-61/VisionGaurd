@@ -175,19 +175,28 @@ A laptop that never leaves the factory needs only steps 1 and 6. It opens `https
    & credentials → Install a certificate → CA certificate. Android then shows a lasting
    notice like "network may be monitored"; that is normal for a certificate you added
    yourself.
-7. Open **Chrome**, go to `https://` + the private address + `:8443`. The sign-in page
-   should open with no warning. *(Not yet tested on a real phone, drill D1. If you see a
-   warning, stop and tell the developer.)*
-8. **(after 020 is built)** In Chrome's menu (⋮) choose **Install app** (or **Add to Home
-   screen**). Open VisionGuard from the new icon and sign in with that person's account.
+7. Open the phone's browser (**Samsung Internet** on a Samsung phone, otherwise
+   **Chrome**) and go to `https://` + the private address + `:8443`, typing the
+   `https://` part. The sign-in page should open with no warning. *(Seen on 20 Oct 2026,
+   drill D1. If you see a warning, stop and tell the developer.)*
+8. **Make it an app.** Opened in the browser, VisionGuard has the browser's address bar
+   and buttons; installed, it opens full screen from its own icon.
+   - **Samsung Internet**: tap **≡** (bottom right) → **Add page to** → **Home screen**.
+   - **Chrome**: tap **⋮** (top right) → **Add to Home screen** → **Install**. *(On
+     20 Oct 2026 this showed "installing…" and then made nothing, for this private
+     address. If no icon appears within a minute, use Samsung Internet or tell the
+     developer.)*
+
+   From now on, open VisionGuard from that icon and sign in with that person's account.
 9. **(after 020 is built) Notifications.**
    1. On the phone, in VisionGuard: **Settings → Notifications on this phone** → allow. It
       says "Waiting for an administrator".
    2. As an administrator, in **Settings → Alerts**: tick **Phone** for the kinds of alert
       wanted (e.g. Knife), then find this phone in the recipient list and switch it **on**.
    3. Press **Send test** on that phone's row. A notification should arrive.
-   4. In Android settings, set **Battery** to **Unrestricted** for **Chrome** and for
-      **NetBird**, so alerts arrive and the VPN stays up while the phone sleeps.
+   4. In Android settings, set **Battery** to **Unrestricted** for the browser VisionGuard
+      was installed from (step 8) and for **NetBird**, so alerts arrive and the VPN stays
+      up while the phone sleeps.
 10. **Test it outside.** Turn Wi-Fi off and open VisionGuard on mobile data. It should open.
 11. **First phone only: test a power cut**, once, at a quiet time, after a backup.
     1. Pull the workstation's power plug, wait 10 seconds, plug it back in. Do not sign in
