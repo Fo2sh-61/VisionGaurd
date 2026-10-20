@@ -242,7 +242,7 @@ ONVIF. Camera count remains an input, never a constant.
 
 ## Blocked on the owner
 
-- **NetBird account and its Windows installer** → blocks remote access on the workstation and every spec 020 drill (`specs/020-private-remote-access/owner-checklist.md` part A, and `netbird_installer_0.81.2_windows_amd64.msi` into `deploy/bin/`)
+- **Remote access on real devices** → the NetBird account, its policy and its Windows installer are in place (20 Oct); the workstation still has to join with a setup key and the remote phone and PC be enrolled before any spec 020 drill can run (`specs/020-private-remote-access/owner-checklist.md` parts B–D)
 - **Re-ID model** + architecture + how it loads + Python version → blocks `.venv` and track
 - **A recorded clip with a knife in it** → the regression suite has 21 labelled ground-truth marks and not one knife, so knife accuracy on real footage is still unmeasured
 - **A fall on a school camera** → the fall model is proven against the owner's own code and on synthetic skeletons, never on a person actually falling in front of one of our cameras. A staged fall (and a sit-down that is not one) on the clip camera is the first real check

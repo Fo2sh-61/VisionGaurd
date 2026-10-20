@@ -1,4 +1,5 @@
-# The two programs the kit carries, pinned by SHA-256 (spec 016, T004).
+# The three programs the kit carries, pinned by SHA-256 (spec 016 T004; NetBird
+# from spec 020).
 # Files live in deploy/bin/ (git-ignored); tools/make_release.ps1 refuses any
 # file whose hash differs from the one here.
 # <file> <version> <sha256>
@@ -15,5 +16,10 @@
 # WinSW: github.com/winsw/winsw releases v2.12.0. The release publishes no
 #   checksum and the exe is unsigned; size matches the release asset and the
 #   file version reads 2.12.0.0.
+# NetBird: github.com/netbirdio/netbird releases v0.81.2, downloaded 20 Oct 2026.
+#   Size (23,666,688 bytes) and SHA-256 match the digest GitHub publishes for
+#   the release asset; the MSI is signed by NetBird GmbH and the signature is
+#   valid.
 caddy_2.11.7_windows_amd64.zip 2.11.7 0A1EDC0B799512051C57071CE0E798D3F2CF67DC98171366F1D2B326072E3B06
 WinSW-x64.exe 2.12.0 05B82D46AD331CC16BDC00DE5C6332C1EF818DF8CEEFCD49C726553209B3A0DA
+netbird_installer_0.81.2_windows_amd64.msi 0.81.2 5AA2F63BF09FCB3332BA2FB3F6ECB5425F9E3509D229557F831780EF12123140
