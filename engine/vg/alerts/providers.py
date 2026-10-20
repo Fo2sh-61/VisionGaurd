@@ -38,6 +38,9 @@ GMAIL_PORT = 465
 #: administrator when missing; the values never are.
 REQUIRED_ENV: dict[str, tuple[str, ...]] = {
     "email": ("GMAIL_USER", "GMAIL_APP_PASSWORD"),
+    # Spec 020: the site's own Web Push keys, made at install time
+    # (engine/tools/make_vapid_keys.py), and who the push services may contact.
+    "push": ("VG_VAPID_PUBLIC_KEY", "VG_VAPID_PRIVATE_KEY", "VG_VAPID_SUBJECT"),
 }
 
 SECRET_ENV: tuple[str, ...] = tuple(sorted({v for vs in REQUIRED_ENV.values() for v in vs}))
@@ -148,8 +151,21 @@ class GmailSender:
         return SendResult.accepted(message_id)
 
 
-def for_channel(channel: str, timeout: float = 10.0) -> Sender | None:
-    """The sender for a channel, or None when its keys are not all set."""
+def for_channel(channel: str, timeout: float = 10.0, *,
+                push: dict | None = None) -> Sender | None:
+    """The sender for a channel, or None when its keys are not all set.
+
+    `push` is what the phone sender needs from the engine: the alert store
+    (to find a phone), `allowed_hosts`, and `user_active`. Without it there is
+    no phone to find, so the channel counts as not set up.
+    """
     if channel not in REQUIRED_ENV or missing_env(channel):
         return None
+    if channel == "push":
+        if not push or push.get("store") is None:
+            return None
+        from vg.alerts.push import PushSender
+        return PushSender(timeout=timeout, store=push["store"],
+                          allowed_hosts=push.get("allowed_hosts", ()),
+                          user_active=push.get("user_active"))
     return GmailSender(timeout)

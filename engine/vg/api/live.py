@@ -2815,6 +2815,10 @@ class LiveStore(MockStore):
             disabled=body.disabled)
         if u is None:
             return None
+        if u.disabled and self.alerts_store is not None:
+            # Spec 020 P9-FR-105: a disabled account's phones get nothing,
+            # and are gone from the recipient list.
+            self.alerts_store.remove_devices_of(u.id)
         return S.User(id=u.id, name=u.name, email=u.email, role=u.role,
                       disabled=u.disabled)
 
@@ -3001,7 +3005,7 @@ class LiveStore(MockStore):
     @staticmethod
     def _wire_rule(rule) -> S.AlertRule:
         return S.AlertRule(
-            kind=rule.kind, in_app=rule.in_app, email=rule.email,
+            kind=rule.kind, in_app=rule.in_app, email=rule.email, push=rule.push,
             vehicle_blacklist=rule.vehicle_blacklist,
             vehicle_unknown=rule.vehicle_unknown,
             vehicle_expired=rule.vehicle_expired,
@@ -3128,6 +3132,58 @@ class LiveStore(MockStore):
                 + ", so no test can be sent.")
         row_id = self.alerts.test_send(recipient_id)
         return self._wire_delivery(store.row(row_id))
+
+    # -- phones (spec 020) ----------------------------------------------------
+    #
+    # Any signed-in person registers their own phones; only an administrator
+    # switches one on, in the recipient list above. Audited first, like every
+    # alert write.
+
+    def push_key(self) -> S.PushKey:
+        import os
+
+        from vg.alerts import providers
+
+        missing = providers.missing_env("push")
+        if missing:
+            return S.PushKey(available=False, reason=(
+                "Phone notifications are not set up on this workstation: "
+                f"{', '.join(missing)} missing from .env. Run Setup again."))
+        if self.alerts_store is None:
+            return S.PushKey(available=False, reason=(
+                self.alerts_error or "The alert database is not available."))
+        return S.PushKey(available=True,
+                         public_key=os.environ["VG_VAPID_PUBLIC_KEY"].strip())
+
+    def _wire_device(self, device) -> S.PushDevice:
+        return S.PushDevice(
+            id=device.id, label=device.label, enabled=device.enabled,
+            created_at=_instant(device.created_at, self.clock),
+            last_sent_at=_instant(device.last_sent_at, self.clock),
+            last_error=device.last_error)
+
+    def register_push_device(self, user, body: S.PushSubscription) -> S.PushDevice:
+        from vg.alerts.push import endpoint_allowed
+
+        store = self._need_alerts()
+        if not endpoint_allowed(body.endpoint, self.config.push.allowed_hosts):
+            raise ValueError("That is not a push service this site sends to.")
+        self._log(user.name, "push.register", body.label, self._masked(body.endpoint))
+        device, _ = store.register_push_device(
+            user_id=user.id, user_name=user.name, label=body.label,
+            endpoint=body.endpoint, p256dh=body.keys.p256dh, auth=body.keys.auth)
+        return self._wire_device(device)
+
+    def push_devices(self, user) -> list[S.PushDevice]:
+        return [self._wire_device(d) for d in self._need_alerts().push_devices(user.id)]
+
+    def remove_push_device(self, user, device_id: str) -> None:
+        store = self._need_alerts()
+        device = store.push_device(device_id)
+        if device is None or device.user_id != user.id:
+            raise KeyError(device_id)
+        self._log(user.name, "push.remove", device.label, None)
+        store.remove_push_device(device_id)
 
     def deliveries(self, limit: int) -> S.DeliveryLog:
         """The log, or why it cannot be read - never a 5xx."""

@@ -29,8 +29,9 @@ from typing import Any, Mapping
 KINDS: tuple[str, ...] = ("weapon", "intrusion", "vehicles", "camera", "attendance")
 
 #: The channels that leave the building. In-app is not one: it is Home's list.
-#: WhatsApp and SMS were removed on 11 Sep 2026; email is the only courier.
-CHANNELS: tuple[str, ...] = ("email",)
+#: WhatsApp and SMS were removed on 11 Sep 2026. Push - a notification on a
+#: registered phone - joined email with spec 020.
+CHANNELS: tuple[str, ...] = ("email", "push")
 
 #: Why a gate pass is an alert, as `VehicleStore` decides it.
 GATE_REASONS: tuple[str, ...] = ("blacklist", "unknown", "expired")
@@ -47,6 +48,12 @@ ALLOWED_FACTS: frozenset[str] = frozenset({
     "weak_read",    # the plate reader was not sure of its reading
     "since",        # when an entry or an outage began
 })
+
+#: What a phone notification may say (spec 020, P9-FR-102), narrower than
+#: `ALLOWED_FACTS`: which kind of thing, on which camera, at what site time.
+#: Never a name, a face, a picture, a plate, a confidence or a reviewer - it
+#: is shown on a lock screen. `catalogue.build_push` uses these and no other.
+PUSH_FACTS: tuple[str, ...] = ("kind", "camera", "time")
 
 #: `date.weekday()` numbers for Sunday to Thursday - the Egyptian school week.
 SCHOOL_WEEKDAYS: frozenset[int] = frozenset({6, 0, 1, 2, 3})

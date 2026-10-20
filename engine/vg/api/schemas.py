@@ -1391,13 +1391,16 @@ class SchoolProfile(Wire):
 # ---------------------------------------------------------------------------
 
 AlertKind = Literal["weapon", "intrusion", "vehicles", "camera", "attendance"]
-AlertChannel = Literal["email"]
+AlertChannel = Literal["email", "push"]
 AlertLanguage = Literal["en", "ar"]
 DeliveryOutcome = Literal["queued", "sent", "failed", "skipped"]
 DeliveryReason = Literal[
     "no_recipients", "provider_missing", "recipient_off", "engine_down_at_noon",
     "attendance_unavailable", "queue_full", "engine_stopped", "provider_refused",
     "timeout", "unreachable",
+    # Spec 020, phone notifications: the push service forgot the phone (it
+    # was removed), or the phone's account is disabled.
+    "device_gone", "account_disabled",
 ]
 
 
@@ -1413,6 +1416,8 @@ class AlertRule(Wire):
     kind: AlertKind
     in_app: bool | None = None
     email: bool = False
+    #: A notification on every registered phone that is switched on (spec 020).
+    push: bool = False
     vehicle_blacklist: bool | None = None
     vehicle_unknown: bool | None = None
     vehicle_expired: bool | None = None
@@ -1423,9 +1428,44 @@ class AlertRuleUpdate(Wire):
 
     in_app: bool | None = None
     email: bool | None = None
+    push: bool | None = None
     vehicle_blacklist: bool | None = None
     vehicle_unknown: bool | None = None
     vehicle_expired: bool | None = None
+
+
+class PushKey(Wire):
+    """`GET /push/key`: what a phone subscribes with, or why it cannot (spec 020)."""
+
+    available: bool
+    #: The site's VAPID public key (base64url): the browser's applicationServerKey.
+    public_key: str | None = None
+    reason: str | None = None
+
+
+class PushSubscriptionKeys(Wire):
+    p256dh: str = Field(min_length=1, max_length=200)
+    auth: str = Field(min_length=1, max_length=100)
+
+
+class PushSubscription(Wire):
+    """`POST /push/devices`: this phone's subscription, as the browser gave it."""
+
+    endpoint: str = Field(min_length=1, max_length=2048)
+    keys: PushSubscriptionKeys
+    #: What the phone is called in the list, by its owner: "Pixel 8".
+    label: str = Field(default="Phone", max_length=40)
+
+
+class PushDevice(Wire):
+    """One of my phones. `enabled` is the administrator's switch for it."""
+
+    id: str
+    label: str
+    enabled: bool
+    created_at: Instant
+    last_sent_at: Instant | None = None
+    last_error: str | None = None
 
 
 class Recipient(Wire):

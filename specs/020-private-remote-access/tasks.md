@@ -303,7 +303,7 @@ for Windows; with NetBird off, the plain offline page.
 **Independent test**: pytest for rules, content, addresses and failures; drill D9 for a
 real locked phone.
 
-- [ ] T031 [P] [US5] Write `engine/tests/test_push.py`:
+- [x] T031 [P] [US5] Write `engine/tests/test_push.py`:
   - the push rule is off by default;
   - a newly registered phone's recipient is disabled until an admin enables it;
   - only `https` endpoints on `push.allowed_hosts` are accepted (`http://…`, an IP literal,
@@ -317,26 +317,34 @@ real locked phone.
   - no network logs `failed: no internet`;
   - an existing alerts database gains the `push` column without losing rules;
   - with email off and push on for a kind, only the push is sent (P9-FR-107)
-- [ ] T032 [US5] `engine/vg/alerts/events.py`: `CHANNELS = ("email", "push")` and
+  - Done 20 Oct 2026, 53 tests. "Blacklisted car" is the kind and may be in the title;
+    the plate, gate number, confidence and the reader's doubt never are
+- [x] T032 [US5] `engine/vg/alerts/events.py`: `CHANNELS = ("email", "push")` and
       `PUSH_FACTS`. `engine/vg/alerts/catalogue.py`: the push title per template
-- [ ] T033 [US5] `engine/vg/alerts/store.py`:
+- [x] T033 [US5] `engine/vg/alerts/store.py`:
   - an ADD COLUMN step for `alert_rule.push` (modelled on `auth/store.py:155`), and
     `DEFAULT_RULES`, `RULE_FLAGS` and the rule insert updated;
   - the `push_device` table;
   - `normalise_destination` for `push` (destination = device id);
   - phone recipients created with `enabled = 0`; removing one deletes its device row
-- [ ] T034 [US5] `engine/vg/alerts/providers.py`: `REQUIRED_ENV["push"]` (the three VAPID
+- [x] T034 [US5] `engine/vg/alerts/providers.py`: `REQUIRED_ENV["push"]` (the three VAPID
       variables), `for_channel("push")`, and a sender that looks up the device's keys and
       sends with `pywebpush`. A missing key reports the channel as not configured, as email
       does today
-- [ ] T035 [US5] In `engine/vg/api/schemas.py`, add `push` to `AlertChannel`, `AlertRule`
+- [x] T035 [US5] In `engine/vg/api/schemas.py`, add `push` to `AlertChannel`, `AlertRule`
       and `AlertRuleUpdate`; mirror in `types.ts`. In `app.py`, add `GET /push/key`,
       `POST /push/devices` (address check), `GET /push/devices` and
       `DELETE /push/devices/{id}`, own devices only. In `AuthStore.set_disabled` and 016's
       account delete, delete that account's devices. T031 passes
-- [ ] T036 [US5] Add the three VAPID variable names (no values) to the `.env` example. Add a
+  - Done. The account hook is in `LiveStore.update_user` (the one place an account is
+    disabled; 016 has no delete), plus the sender's own check of the account. A phone
+    opens the kind's page: the phone app has no address for one entry
+- [x] T036 [US5] Add the three VAPID variable names (no values) to the `.env` example. Add a
       "make VAPID keys" step to 016's install procedure, and make sure `.env` is in 016's
       backup
+  - Done: `engine/tools/make_vapid_keys.py` (once, never replaced), run by install.ps1
+    step 5; the subject is mailto: GMAIL_USER, else `https://visionguard.invalid`.
+    **016's backup is not built yet** (its Phase 3), so ".env in the backup" waits on it
 - [ ] T037 [US5] `mobile/public/sw.js`: `push` shows the notification; `notificationclick`
       opens the event path. In `mobile/src/pages/Settings.tsx` add "Notifications on this
       phone": ask permission, subscribe with the VAPID key, register, and show "Waiting

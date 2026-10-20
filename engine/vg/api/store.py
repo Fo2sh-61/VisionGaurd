@@ -1334,6 +1334,19 @@ class MockStore:
         raise SubsystemUnavailable(
             "Accounts cannot be unlocked in this demo store.")
 
+    def push_key(self) -> S.PushKey:
+        return S.PushKey(available=False,
+                         reason="Phone notifications need the live engine, not this demo store.")
+
+    def register_push_device(self, user, body):
+        raise SubsystemUnavailable("Phones cannot be registered in this demo store.")
+
+    def push_devices(self, user) -> list[S.PushDevice]:
+        return []
+
+    def remove_push_device(self, user, device_id: str) -> None:
+        raise SubsystemUnavailable("Phones cannot be removed in this demo store.")
+
     def users(self) -> list[S.User]:
         return [
             S.User(id="u1", name="Mohamed Fouad", email="mohamed61fouad@gmail.com",

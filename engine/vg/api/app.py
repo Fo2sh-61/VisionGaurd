@@ -566,8 +566,17 @@ async def lifespan(app: FastAPI):
             # included - so a message names a camera the way the console does.
             # And the noon report's counts, from the same register the
             # Attendance page reads.
+            users_store = app.state.users
+
+            def user_active(user_id: str) -> bool:
+                # A second guard behind removing a disabled account's phones.
+                return users_store is not None and any(
+                    u.id == user_id and not u.disabled for u in users_store.users())
+
             app.state.alerts.bind(camera_name=store._roster_name,
-                                  attendance_counts=store._attendance_counts)
+                                  attendance_counts=store._attendance_counts,
+                                  push={"allowed_hosts": cfg.push.allowed_hosts,
+                                        "user_active": user_active})
             try:
                 app.state.alerts.start()
             except Exception as exc:
@@ -4227,6 +4236,45 @@ def _mount(app: FastAPI) -> None:
         """Really sends, and lands in the log. 202: accepted for sending, and
         the log is where the courier's answer appears."""
         return _alerts_call(store.test_send, recipient_id, user.name)
+
+    # ------------------------------------------------------------ phones
+    #
+    # Spec 020. Not under /settings, so any signed-in person may register
+    # their own phone; each route acts on the caller's own phones only.
+    # Switching a phone on is the administrator's, in the recipient list.
+
+    @app.get("/push/key", response_model=S.PushKey, tags=["alerts"])
+    async def push_key(store: StoreDep, user: auth_deps.CurrentUser) -> S.PushKey:
+        """The key a phone subscribes with, or why notifications are not set up."""
+        return store.push_key()
+
+    @app.post("/push/devices", response_model=S.PushDevice, status_code=201,
+              tags=["alerts"])
+    async def register_push_device(body: S.PushSubscription, store: StoreDep,
+                                   user: auth_deps.CurrentUser) -> S.PushDevice:
+        """Register this phone, switched off until an administrator says so.
+
+        400 for a subscription that is not on a known push service: the
+        workstation must never be made to call anything else.
+        """
+        try:
+            return _alerts_call(store.register_push_device, user, body)
+        except HTTPException as exc:
+            if exc.status_code == 422:
+                raise HTTPException(
+                    400, "That is not a push service this site sends to.") from exc
+            raise
+
+    @app.get("/push/devices", response_model=list[S.PushDevice], tags=["alerts"])
+    async def my_push_devices(store: StoreDep,
+                              user: auth_deps.CurrentUser) -> list[S.PushDevice]:
+        return _alerts_call(store.push_devices, user)
+
+    @app.delete("/push/devices/{device_id}", status_code=204, tags=["alerts"])
+    async def remove_my_push_device(device_id: str, store: StoreDep,
+                                    user: auth_deps.CurrentUser) -> Response:
+        _alerts_call(store.remove_push_device, user, device_id)
+        return Response(status_code=204)
 
     @app.get("/settings/alerts/deliveries", response_model=S.DeliveryLog,
              tags=["settings"])

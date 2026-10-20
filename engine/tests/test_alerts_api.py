@@ -375,9 +375,12 @@ class TestHonestStates:
         store, _, _ = wired
         channels = {c["channel"]: c for c in
                     client_for(store, authed).get("/settings/alerts").json()["channels"]}
-        assert set(channels) == {"email"}, "WhatsApp and SMS were removed"
+        # WhatsApp and SMS were removed; phone notifications came with spec 020.
+        assert set(channels) == {"email", "push"}
         assert channels["email"]["configured"] is False
         assert channels["email"]["missing"] == ["GMAIL_USER", "GMAIL_APP_PASSWORD"]
+        assert channels["push"]["missing"] == [
+            "VG_VAPID_PUBLIC_KEY", "VG_VAPID_PRIVATE_KEY", "VG_VAPID_SUBJECT"]
 
     def test_a_channel_on_with_nobody_on_it_is_named(self, wired, authed):
         store, _, _ = wired

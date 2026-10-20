@@ -131,13 +131,37 @@ TEMPLATES: dict[str, dict[str, str]] = {
 }
 
 
+#: A phone notification's title, per template (spec 020, P9-FR-102). It says
+#: what is known: "Possible knife" until a person has decided, then the
+#: decision. The body is only the camera and the site time.
+PUSH_TITLES: dict[str, dict[str, str]] = {
+    "weapon.opened": {"en": "Possible knife", "ar": "سكين محتمل"},
+    "weapon.confirmed": {"en": "Knife confirmed", "ar": "تأكَّد وجود سكين"},
+    "weapon.dismissed": {"en": "False alarm", "ar": "إنذار كاذب"},
+    "intrusion.opened": {"en": "Restricted area entered", "ar": "دخول منطقة محظورة"},
+    "vehicles.blacklist": {"en": "Gate: blacklisted car", "ar": "البوابة: سيارة محظورة"},
+    "vehicles.unknown": {"en": "Gate: car not on the register",
+                         "ar": "البوابة: سيارة غير مسجلة"},
+    "vehicles.expired": {"en": "Gate: expired permit", "ar": "البوابة: تصريح منتهٍ"},
+    "camera.down": {"en": "Camera has no picture", "ar": "كاميرا بلا صورة"},
+    "camera.up": {"en": "Camera is back", "ar": "عادت الكاميرا"},
+    "attendance.report": {"en": "Attendance report ready", "ar": "تقرير الحضور جاهز"},
+    "test": {"en": "Test notification", "ar": "إشعار تجريبي"},
+}
+
+
 @dataclass(frozen=True)
 class Message:
-    """What one courier is handed: a subject (email only) and plain text."""
+    """What one courier is handed: a subject (email only) and plain text.
+
+    For a phone notification `subject` is its title, and `path` the phone
+    app's page the notification opens.
+    """
 
     subject: str
     body: str
     language: str
+    path: str = ""
 
 
 def language_for(requested: str, send_draft_arabic: bool = False) -> str:
@@ -196,6 +220,26 @@ def _report_lines(event: AlertEvent, language: str, budget: int) -> list[str]:
         lines.append(line)
         used += len(line) + 1
     return lines
+
+
+def build_push(event: AlertEvent, language: str, *, clock,
+               send_draft_arabic: bool = False) -> Message:
+    """One phone notification: what kind, on which camera, at what time.
+
+    Built from `PUSH_FACTS` only - the event's other facts (a plate, a
+    confidence, a reviewer) are never read here. The page it opens is the
+    kind's page; the phone app has no address for a single entry.
+    """
+    lang = language_for(language, send_draft_arabic)
+    title = PUSH_TITLES[event.template][lang]
+    parts = []
+    if event.camera_id:
+        parts.append(_short(event.camera_name or event.camera_id))
+    parts.append(_when(clock, event.at, event.at))
+    if event.kind == "test":
+        parts = [TEMPLATES["test"][lang]]
+    return Message(subject=title, body=" · ".join(parts), language=lang,
+                   path="/" + PAGES[event.kind])
 
 
 def build(event: AlertEvent, language: str, *, clock, console_url: str = "",

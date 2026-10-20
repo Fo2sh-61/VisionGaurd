@@ -83,8 +83,11 @@ class AlertService:
         self.clock = clock or clock_for(0)
         #: `HoursConfig`, for the term dates the noon report needs.
         self.hours = hours
+        #: What the phone sender needs, from `bind(push=...)` (spec 020).
+        self._push: dict | None = None
         self._senders = senders or (
-            lambda channel: providers.for_channel(channel, config.timeout_seconds))
+            lambda channel: providers.for_channel(channel, config.timeout_seconds,
+                                                  push=self._push))
         self._now = now or (lambda: datetime.now(timezone.utc))
         self._queue: queue.Queue = queue.Queue(maxsize=config.queue_size)
         self._lock = threading.RLock()
@@ -105,12 +108,19 @@ class AlertService:
     # -- lifecycle -----------------------------------------------------------
 
     def bind(self, *, camera_name: Callable[[str], str | None] | None = None,
-             attendance_counts: Callable[[str], Any] | None = None) -> None:
-        """What the sender needs from the rest of the engine, once it exists."""
+             attendance_counts: Callable[[str], Any] | None = None,
+             push: dict | None = None) -> None:
+        """What the sender needs from the rest of the engine, once it exists.
+
+        `push`: `allowed_hosts` and `user_active` for phone notifications; the
+        store is this service's own.
+        """
         if camera_name is not None:
             self._camera_name = camera_name
         if attendance_counts is not None:
             self._attendance_counts = attendance_counts
+        if push is not None:
+            self._push = {"store": self.store, **push}
 
     def start(self, run_thread: bool = True) -> None:
         now = self._now()
@@ -495,10 +505,15 @@ class AlertService:
             self.store.finish(item.row_id, "skipped", at=now, reason="provider_missing",
                               attempts=item.attempts)
             return
-        message = catalogue.build(
-            item.event, item.language, clock=self.clock,
-            console_url=self.config.console_url,
-            send_draft_arabic=self.config.send_draft_arabic)
+        if item.channel == "push":
+            message = catalogue.build_push(
+                item.event, item.language, clock=self.clock,
+                send_draft_arabic=self.config.send_draft_arabic)
+        else:
+            message = catalogue.build(
+                item.event, item.language, clock=self.clock,
+                console_url=self.config.console_url,
+                send_draft_arabic=self.config.send_draft_arabic)
         try:
             result = sender.send(message, item.recipient.destination)
         except Exception as exc:   # a courier must never take the thread with it

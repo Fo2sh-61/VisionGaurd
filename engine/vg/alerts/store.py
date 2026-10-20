@@ -1,6 +1,6 @@
 """Recipients, rules, the delivery log, and what somebody acknowledged.
 
-Four tables in the engine's own SQLite file, beside the scenes and the passes
+Five tables in the engine's own SQLite file, beside the scenes and the passes
 they describe. This is engine state, not console state: the console asks,
 the engine keeps (spec P9-FR-016), and it survives a restart.
 
@@ -22,6 +22,12 @@ with them, by the owner's decision.
 
 **An acknowledgement cannot be taken back**, the same rule the gate's
 dismissals follow: an acknowledgement that can be withdrawn is not one.
+
+**A phone adds itself, switched off** (spec 020). Registering one writes its
+push subscription (`push_device`) and a `push` recipient whose destination is
+that device's id, with `enabled = 0`: nothing is sent to it until an
+administrator switches it on in the same list as the email recipients.
+Removing either removes both. A phone is never typed in by hand.
 """
 
 from __future__ import annotations
@@ -43,8 +49,8 @@ log = logging.getLogger(__name__)
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS alert_recipient (
     id           TEXT PRIMARY KEY,
-    channel      TEXT NOT NULL,                 -- email
-    destination  TEXT NOT NULL,                 -- an address
+    channel      TEXT NOT NULL,                 -- email | push
+    destination  TEXT NOT NULL,                 -- an address, or a push_device id
     name         TEXT NOT NULL,
     language     TEXT NOT NULL DEFAULT 'en',    -- en | ar
     enabled      INTEGER NOT NULL DEFAULT 1,
@@ -56,6 +62,7 @@ CREATE TABLE IF NOT EXISTS alert_rule (
     kind               TEXT PRIMARY KEY,
     in_app             INTEGER,                 -- NULL: not offered (the report)
     email              INTEGER NOT NULL DEFAULT 0,
+    push               INTEGER NOT NULL DEFAULT 0,
     vehicle_blacklist  INTEGER,                 -- NULL except on `vehicles`
     vehicle_unknown    INTEGER,
     vehicle_expired    INTEGER
@@ -85,20 +92,33 @@ CREATE TABLE IF NOT EXISTS attention_ack (
     by_who   TEXT NOT NULL,
     at       TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS push_device (
+    id            TEXT PRIMARY KEY,
+    user_id       TEXT NOT NULL,             -- the account that registered it
+    label         TEXT NOT NULL,
+    endpoint      TEXT NOT NULL UNIQUE,      -- on a browser push service only
+    p256dh        TEXT NOT NULL,             -- the phone's keys: what the
+    auth          TEXT NOT NULL,             --   message is encrypted for
+    created_at    TEXT NOT NULL,
+    last_sent_at  TEXT,
+    last_error    TEXT
+);
+CREATE INDEX IF NOT EXISTS push_device_user ON push_device (user_id);
 """
 
-#: kind, in_app, email, blacklist, unknown, expired.
-#: Email off and nobody listed: a fresh install sends nothing until an
-#: administrator decides it should (P9-FR-015).
+#: kind, in_app, email, push, blacklist, unknown, expired.
+#: Email and push off and nobody listed: a fresh install sends nothing until an
+#: administrator decides it should (P9-FR-015, spec 020 P9-FR-105).
 DEFAULT_RULES = (
-    ("weapon", 1, 0, None, None, None),
-    ("intrusion", 1, 0, None, None, None),
-    ("vehicles", 1, 0, 1, 1, 1),
-    ("camera", 1, 0, None, None, None),
-    ("attendance", None, 0, None, None, None),
+    ("weapon", 1, 0, 0, None, None, None),
+    ("intrusion", 1, 0, 0, None, None, None),
+    ("vehicles", 1, 0, 0, 1, 1, 1),
+    ("camera", 1, 0, 0, None, None, None),
+    ("attendance", None, 0, 0, None, None, None),
 )
 
-RULE_FLAGS = ("in_app", "email",
+RULE_FLAGS = ("in_app", "email", "push",
               "vehicle_blacklist", "vehicle_unknown", "vehicle_expired")
 
 #: Channels this store once had and no longer carries (removed 11 Sep 2026).
@@ -106,8 +126,11 @@ REMOVED_CHANNELS = ("whatsapp", "sms")
 
 LANGUAGES = ("en", "ar")
 NAME_MAX = 80
+#: A phone's own name for itself, as its owner sees it in the list.
+LABEL_MAX = 40
 
 _EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_DEVICE_ID = re.compile(r"^[0-9a-f]{32}$")
 
 
 class DuplicateRecipient(ValueError):
@@ -128,6 +151,10 @@ def normalise_destination(channel: str, raw: str) -> str:
         if not _EMAIL.match(text):
             raise ValueError("destination")
         return text
+    if channel == "push":
+        if not _DEVICE_ID.match(text):
+            raise ValueError("destination")
+        return text
     raise ValueError("channel")
 
 
@@ -136,6 +163,7 @@ class Rule:
     kind: str
     in_app: bool | None
     email: bool
+    push: bool = False
     vehicle_blacklist: bool | None = None
     vehicle_unknown: bool | None = None
     vehicle_expired: bool | None = None
@@ -157,6 +185,23 @@ class Recipient:
     language: str
     enabled: bool
     created_at: datetime
+
+
+@dataclass(frozen=True)
+class PushDevice:
+    """One phone's push subscription. `enabled` is its recipient's switch."""
+
+    id: str
+    user_id: str
+    label: str
+    endpoint: str
+    p256dh: str
+    auth: str
+    created_at: datetime
+    enabled: bool = False
+    recipient_id: str | None = None
+    last_sent_at: datetime | None = None
+    last_error: str | None = None
 
 
 @dataclass(frozen=True)
@@ -211,12 +256,27 @@ class AlertStore:
         self._conn = db.connect(self.path)
         self._conn.executescript(SCHEMA)
         self._drop_removed_channels()
+        self._add_push_column()
         # On every open, and never an overwrite: seeding must not undo an edit.
         self._conn.executemany(
-            "INSERT OR IGNORE INTO alert_rule (kind, in_app, email,"
+            "INSERT OR IGNORE INTO alert_rule (kind, in_app, email, push,"
             " vehicle_blacklist, vehicle_unknown, vehicle_expired)"
-            " VALUES (?, ?, ?, ?, ?, ?)", DEFAULT_RULES)
+            " VALUES (?, ?, ?, ?, ?, ?, ?)", DEFAULT_RULES)
         self._conn.commit()
+
+    def _add_push_column(self) -> None:
+        """A database from before spec 020 gains the push switch, off for every kind.
+
+        `CREATE TABLE IF NOT EXISTS` leaves an existing table as it was; the
+        same ask-then-add step as `auth/store.py`. Every other column and row
+        is kept.
+        """
+        columns = {r["name"] for r in self._conn.execute("PRAGMA table_info(alert_rule)")}
+        if "push" not in columns:
+            with self._conn:
+                self._conn.execute(
+                    "ALTER TABLE alert_rule ADD COLUMN push INTEGER NOT NULL DEFAULT 0")
+            log.info("alerts: phone notifications added to the rules, off for every kind")
 
     def _drop_removed_channels(self) -> None:
         """A database from before 11 Sep 2026 loses WhatsApp and SMS for good.
@@ -253,6 +313,7 @@ class AlertStore:
         found = {
             r["kind"]: Rule(
                 kind=r["kind"], in_app=_flag(r["in_app"]), email=bool(r["email"]),
+                push=bool(r["push"]),
                 vehicle_blacklist=_flag(r["vehicle_blacklist"]),
                 vehicle_unknown=_flag(r["vehicle_unknown"]),
                 vehicle_expired=_flag(r["vehicle_expired"]),
@@ -326,6 +387,9 @@ class AlertStore:
                       at: datetime | None = None) -> Recipient:
         if channel not in CHANNELS:
             raise ValueError("channel")
+        if channel == "push":
+            # A phone registers itself from the phone app (`register_push_device`).
+            raise ValueError("a phone adds itself from the phone app")
         if language not in LANGUAGES:
             raise ValueError("language")
         clean = normalise_destination(channel, destination)
@@ -375,11 +439,117 @@ class AlertStore:
         return self.recipient(recipient_id)
 
     def remove_recipient(self, recipient_id: str) -> bool:
+        """Remove one recipient; a phone's subscription goes with it."""
         with self._lock:
-            cursor = self._conn.execute(
-                "DELETE FROM alert_recipient WHERE id = ?", (recipient_id,))
-            self._conn.commit()
+            row = self._conn.execute(
+                "SELECT channel, destination FROM alert_recipient WHERE id = ?",
+                (recipient_id,)).fetchone()
+            with self._conn:
+                cursor = self._conn.execute(
+                    "DELETE FROM alert_recipient WHERE id = ?", (recipient_id,))
+                if row is not None and row["channel"] == "push":
+                    self._conn.execute("DELETE FROM push_device WHERE id = ?",
+                                       (row["destination"],))
         return cursor.rowcount == 1
+
+    # -- phones (spec 020) ---------------------------------------------------
+
+    def _device(self, r) -> PushDevice:
+        return PushDevice(
+            id=r["id"], user_id=r["user_id"], label=r["label"], endpoint=r["endpoint"],
+            p256dh=r["p256dh"], auth=r["auth"], created_at=_parse(r["created_at"]),
+            enabled=bool(r["enabled"]) if r["enabled"] is not None else False,
+            recipient_id=r["recipient_id"], last_sent_at=_parse(r["last_sent_at"]),
+            last_error=r["last_error"],
+        )
+
+    _DEVICES = ("SELECT d.*, r.id AS recipient_id, r.enabled AS enabled FROM push_device d"
+                " LEFT JOIN alert_recipient r ON r.channel = 'push' AND r.destination = d.id")
+
+    def register_push_device(self, *, user_id: str, user_name: str, label: str,
+                             endpoint: str, p256dh: str, auth: str,
+                             at: datetime | None = None) -> tuple[PushDevice, Recipient]:
+        """Add a phone, switched off; or update the one with this subscription.
+
+        The same browser subscribing again (new keys after a reinstall) is the
+        same phone, not a second one. A phone that comes back under another
+        account is switched off again: a new person is a new decision.
+        """
+        clean_label = " ".join(str(label or "").split())[:LABEL_MAX] or "Phone"
+        name = self._clean_name(f"{' '.join(str(user_name or '').split())[:NAME_MAX - LABEL_MAX - 3]}"
+                                f" · {clean_label}")
+        now = _iso(at or _now())
+        with self._lock:
+            with self._conn:
+                old = self._conn.execute(
+                    "SELECT id, user_id FROM push_device WHERE endpoint = ?",
+                    (endpoint,)).fetchone()
+                if old is None:
+                    device_id = uuid.uuid4().hex
+                    self._conn.execute(
+                        "INSERT INTO push_device (id, user_id, label, endpoint, p256dh,"
+                        " auth, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        (device_id, user_id, clean_label, endpoint, p256dh, auth, now))
+                    self._conn.execute(
+                        "INSERT INTO alert_recipient (id, channel, destination, name,"
+                        " language, enabled, created_at) VALUES (?, 'push', ?, ?, 'en', 0, ?)",
+                        (uuid.uuid4().hex, device_id, name, now))
+                else:
+                    device_id = old["id"]
+                    self._conn.execute(
+                        "UPDATE push_device SET user_id = ?, label = ?, p256dh = ?, auth = ?"
+                        " WHERE id = ?", (user_id, clean_label, p256dh, auth, device_id))
+                    switched_off = ", enabled = 0" if old["user_id"] != user_id else ""
+                    self._conn.execute(
+                        f"UPDATE alert_recipient SET name = ?{switched_off}"
+                        " WHERE channel = 'push' AND destination = ?", (name, device_id))
+        device = self.push_device(device_id)
+        return device, self.recipient(device.recipient_id)
+
+    def push_device(self, device_id: str) -> PushDevice | None:
+        with self._lock:
+            row = self._conn.execute(f"{self._DEVICES} WHERE d.id = ?",
+                                     (device_id,)).fetchone()
+        return self._device(row) if row else None
+
+    def push_devices(self, user_id: str | None = None) -> list[PushDevice]:
+        query, args = self._DEVICES, ()
+        if user_id is not None:
+            query, args = f"{query} WHERE d.user_id = ?", (user_id,)
+        with self._lock:
+            rows = self._conn.execute(f"{query} ORDER BY d.created_at", args).fetchall()
+        return [self._device(r) for r in rows]
+
+    def remove_push_device(self, device_id: str) -> bool:
+        """Remove one phone and its recipient. False when it was not there."""
+        with self._lock:
+            with self._conn:
+                cursor = self._conn.execute("DELETE FROM push_device WHERE id = ?",
+                                            (device_id,))
+                self._conn.execute(
+                    "DELETE FROM alert_recipient WHERE channel = 'push' AND destination = ?",
+                    (device_id,))
+        return cursor.rowcount == 1
+
+    def remove_devices_of(self, user_id: str) -> int:
+        """Every phone of one account: it was disabled or deleted."""
+        removed = 0
+        for device in self.push_devices(user_id):
+            removed += int(self.remove_push_device(device.id))
+        return removed
+
+    def note_push(self, device_id: str, *, sent_at: datetime | None = None,
+                  error: str | None = None) -> None:
+        """When this phone was last reached, or why not."""
+        with self._lock:
+            if sent_at is not None:
+                self._conn.execute(
+                    "UPDATE push_device SET last_sent_at = ?, last_error = NULL WHERE id = ?",
+                    (_iso(sent_at), device_id))
+            else:
+                self._conn.execute("UPDATE push_device SET last_error = ? WHERE id = ?",
+                                   (error, device_id))
+            self._conn.commit()
 
     # -- the delivery log ----------------------------------------------------
 

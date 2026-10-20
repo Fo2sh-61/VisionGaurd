@@ -873,6 +873,9 @@ class TestTheEngineWiresTheSender:
         assert {kw.arg: ast.unparse(kw.value) for kw in bind.keywords} == {
             "camera_name": "store._roster_name",
             "attendance_counts": "store._attendance_counts",
+            # Spec 020: where phone notifications may go, and whose phones
+            # still count (a disabled account's do not).
+            "push": "{'allowed_hosts': cfg.push.allowed_hosts, 'user_active': user_active}",
         }
         assert "app.state.alerts.start" in names
         assert names.index("alerts.stop") < names.index("alerts_store.close_db")

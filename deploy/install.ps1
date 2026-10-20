@@ -253,6 +253,9 @@ if (Get-ChildItem Cert:\LocalMachine\Root | Where-Object Thumbprint -eq $thumb) 
     Import-Certificate -FilePath $rootCrt -CertStoreLocation Cert:\LocalMachine\Root | Out-Null
     Ok 'root trusted on this machine'
 }
+# Phone notifications (spec 020): the site's own Web Push keys, made once into
+# data\.env and never replaced - new ones would cut off every phone already on.
+Run $Python @((Join-Path $App 'engine\tools\make_vapid_keys.py')) 'making the push keys failed'
 
 # --- 6. services ----------------------------------------------------------------
 Step 6 'Services'

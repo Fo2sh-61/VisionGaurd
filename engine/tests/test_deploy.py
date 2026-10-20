@@ -465,3 +465,16 @@ class TestRemoteAccess:
         assert "Remove-NetFirewallRule -Name $stray" not in step6
         assert "$stray.DisplayName -notlike 'VisionGuard*'" in step6
         assert r"(Join-Path $App 'bin\caddy.exe')" in step6
+
+
+class TestPushKeys:
+    """Spec 020, T036: Setup makes the site's push keys, once."""
+
+    def test_step5_makes_them_after_the_certificate(self):
+        step5 = _script("install.ps1").split("Step 5", 1)[1].split("Step 6", 1)[0]
+        assert "make_vapid_keys.py" in step5
+        assert step5.index("site_cert.py") < step5.index("make_vapid_keys.py")
+
+    def test_the_tool_never_replaces_keys_it_finds(self):
+        tool = (REPO_DIR / "engine" / "tools" / "make_vapid_keys.py").read_text(encoding="utf-8")
+        assert "already in" in tool and "new ones would cut off every phone" in tool
