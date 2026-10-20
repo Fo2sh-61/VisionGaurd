@@ -6,7 +6,8 @@
 #   127.0.0.1:8000           the engine, plain HTTP, this machine only
 #
 # There is no plain-HTTP listener at all: nothing on port 80, and plain HTTP
-# sent to 443 or 8443 gets Caddy's refusal, never a page or data.
+# sent to 443 or 8443 gets only a redirect to the same address over HTTPS,
+# never a page or data.
 #
 # engine/tests/test_front.py reads this file. A new page in either app, or a
 # new engine route, that this file gets wrong fails that test.
@@ -20,6 +21,14 @@
 	servers {
 		# HTTP/3 is off: the firewall opens TCP only.
 		protocols h1 h2
+		# An address typed without https:// (what a phone's browser does with
+		# "100.x.x.x:8443") arrives as plain HTTP on a TLS port. It gets a
+		# redirect to the same address over HTTPS and nothing else. Until
+		# 20 Oct 2026 it got "400 Bad Request" on the first remote phone.
+		listener_wrappers {
+			http_redirect
+			tls
+		}
 	}
 	# Caddy's own messages: start, stop, certificate and proxy errors. There
 	# is deliberately no access log. Page addresses carry people's names

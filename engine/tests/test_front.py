@@ -180,6 +180,13 @@ class TestSites:
         assert glob.words == [], "the global options block must come first"
         assert ["auto_https", "off"] in glob.lines()
 
+    def test_plain_http_on_a_tls_port_is_sent_to_https(self, caddy):
+        """20 Oct 2026: a phone typed "100.x.x.x:8443", its browser asked over
+        plain HTTP, and got "400 Bad Request". Caddy's http_redirect answers
+        that with a redirect only; it must wrap the listener before tls."""
+        (wrappers,) = caddy.children[0].find("listener_wrappers")
+        assert [c.words for c in wrappers.children] == [["http_redirect"], ["tls"]]
+
     def test_http2_and_never_http3(self, caddy):
         assert ["protocols", "h1", "h2"] in caddy.children[0].lines()
 
@@ -191,7 +198,8 @@ class TestSites:
         assert ["header_up", "X-Forwarded-For", "{remote_host}"] in lines
 
     def test_the_site_certificate_is_used(self, caddy):
-        tls = caddy.find("tls")
+        # The site's own `tls` line, not the bare listener wrapper of that name.
+        tls = [b for b in caddy.find("tls") if len(b.words) > 1]
         assert tls and tls[0].words[1:] == [
             "C:/VisionGuard/data/tls/site.crt", "C:/VisionGuard/data/tls/site.key"]
 
