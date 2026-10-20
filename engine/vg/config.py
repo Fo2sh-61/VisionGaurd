@@ -773,13 +773,17 @@ class RemoteConfig:
     lan_networks: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...] = tuple(
         ipaddress.ip_network(n) for n in DEFAULT_LAN_NETWORKS)
     #: A remote camera tile is a still picture this often, at most this wide.
-    #: 320: measured on the recorded clip, twelve tiles at 480 would need
-    #: about 0.77 Mbit/s of the factory's upload, at 320 about 0.43.
-    tile_interval_s: float = 2.0
+    #: 320: measured on the recorded clip, a 320 px tile is about 9 KB, so
+    #: twelve every 0.5 s need about 1.7 Mbit/s of the factory's upload (at
+    #: 480 px about 3). 0.5 s, not the first 2 s: the owner found one picture
+    #: every 2 s too slow to follow anything (20 Oct 2026).
+    tile_interval_s: float = 0.5
     tile_width: int = 320
-    #: A remote live view: this wide, this many pictures a second.
-    live_width: int = 480
-    live_fps: float = 5.0
+    #: A remote live view: this wide, this many pictures a second. 720 at 10,
+    #: not the first 480 at 5, for the same reason: about 2.5 Mbit/s, estimated
+    #: from the 480 px measurement until drill D10 measures it.
+    live_width: int = 720
+    live_fps: float = 10.0
     #: Live views one remote account may have open at once.
     live_views: int = 2
 
@@ -806,10 +810,10 @@ class RemoteConfig:
                     f"such as 192.168.0.0/16") from None
         return cls(
             lan_networks=tuple(parsed),
-            tile_interval_s=_positive(raw, "tile_interval_s", 2.0, where),
+            tile_interval_s=_positive(raw, "tile_interval_s", 0.5, where),
             tile_width=_positive(raw, "tile_width", 320, where, int),
-            live_width=_positive(raw, "live_width", 480, where, int),
-            live_fps=_positive(raw, "live_fps", 5.0, where),
+            live_width=_positive(raw, "live_width", 720, where, int),
+            live_fps=_positive(raw, "live_fps", 10.0, where),
             live_views=_positive(raw, "live_views", 2, where, int),
         )
 

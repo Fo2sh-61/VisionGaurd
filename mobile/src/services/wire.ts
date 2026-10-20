@@ -904,7 +904,7 @@ export interface SiteInfo {
 
 /** How this device is reaching the site (spec 020). `remote` is decided by
  *  the engine from the real address: only the factory network is local. The
- *  limits are the site's own, sent so a screen can say "every 2 s" or
+ *  limits are the site's own, sent so a screen can say "every 0.5 s" or
  *  "reduced for remote" instead of guessing. The engine applies them
  *  whatever a screen does. */
 export interface Connection {

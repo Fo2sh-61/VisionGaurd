@@ -56,10 +56,10 @@ api:
 # These are the defaults; the block may be left out.
 remote:
   lan_networks: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.0/8, "::1/128"]
-  tile_interval_s: 2      # a remote camera tile is a still picture this often...
+  tile_interval_s: 0.5    # a remote camera tile is a still picture this often...
   tile_width: 320         # ...at most this wide
-  live_width: 480         # a remote live view: this wide...
-  live_fps: 5             # ...and this many pictures a second
+  live_width: 720         # a remote live view: this wide...
+  live_fps: 10            # ...and this many pictures a second
   live_views: 2           # live views one remote account may have open at once
 
 # Sign-in lockout (spec 020): this many wrong passwords for one account within

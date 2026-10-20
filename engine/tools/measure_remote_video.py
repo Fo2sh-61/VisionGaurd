@@ -10,8 +10,9 @@ from this machine (`serve.py`), exactly as it believes Caddy.
 
 It prints, measured over `--seconds` each:
 
-* one remote live view, in Mbit/s (plan: at most 1.5);
-* one remote camera tile, in Mbit/s, and twelve of them (plan: at most 0.5);
+* one remote live view, in Mbit/s (plan: at most 3; the recorded clip runs at 5
+  pictures a second, so against it the live view cannot reach its 10);
+* one remote camera tile, in Mbit/s, and twelve of them (plan: at most 2);
 * the engine's extra processor use while 2 viewers keep 2 live views each
   open, in cores kept busy flat out.
 
@@ -113,12 +114,12 @@ def main(argv: list[str] | None = None) -> int:
     out: list[int] = []
     stream_bytes(args.base, token, args.camera, args.seconds, out)
     live = mbit(out[0], args.seconds)
-    print(f"  one remote live view:   {live:.2f} Mbit/s   (plan: at most 1.5)")
+    print(f"  one remote live view:   {live:.2f} Mbit/s   (plan: at most 3)")
 
     tile = mbit(tile_bytes(args.base, token, args.camera, args.seconds,
                            limits["tileIntervalSeconds"]), args.seconds)
     print(f"  one remote tile:        {tile:.3f} Mbit/s; twelve: {12 * tile:.2f} Mbit/s   "
-          f"(plan: twelve at most 0.5)")
+          f"(plan: twelve at most 2)")
 
     # Two viewers with two live views each. Places are per account, so the
     # second viewer is a second account (`--second-email`); without one only

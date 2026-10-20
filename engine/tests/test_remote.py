@@ -79,14 +79,14 @@ class TestConnection:
     def test_a_lan_caller_is_not_remote(self, sign_in):
         body = self._client(sign_in, LAN).get("/connection").json()
         assert body == {
-            "remote": False, "tileIntervalSeconds": 2.0, "liveWidth": 480,
-            "liveFps": 5.0, "liveViews": 2, "liveViewsOpen": 0,
+            "remote": False, "tileIntervalSeconds": 0.5, "liveWidth": 720,
+            "liveFps": 10.0, "liveViews": 2, "liveViewsOpen": 0,
         }
 
     def test_a_netbird_caller_is_remote_with_the_limits(self, sign_in):
         body = self._client(sign_in, NETBIRD).get("/connection").json()
         assert body["remote"] is True
-        assert body["tileIntervalSeconds"] == 2.0 and body["liveViews"] == 2
+        assert body["tileIntervalSeconds"] == 0.5 and body["liveViews"] == 2
 
     def test_no_session_is_401(self, user_store):
         app = create_app()

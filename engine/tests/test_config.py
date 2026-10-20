@@ -595,8 +595,10 @@ class TestRemote:
         assert remote == cfg.RemoteConfig()
         assert [str(n) for n in remote.lan_networks] == [
             "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8", "::1/128"]
+        # 0.5 s and 720 px at 10 a second since 20 Oct 2026: the owner found
+        # a tile every 2 s and a 480 px live view at 5 a second too slow.
         assert (remote.tile_interval_s, remote.tile_width, remote.live_width,
-                remote.live_fps, remote.live_views) == (2.0, 320, 480, 5.0, 2)
+                remote.live_fps, remote.live_views) == (0.5, 320, 720, 10.0, 2)
 
     def test_the_shipped_file_carries_the_defaults(self, loaded):
         assert loaded.remote == cfg.RemoteConfig()

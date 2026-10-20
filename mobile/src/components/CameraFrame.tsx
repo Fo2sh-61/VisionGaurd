@@ -276,7 +276,7 @@ export function CameraFrame({
 
   // Spec 020. Away from the factory network the engine sends a tile one still
   // picture every `tileIntervalSeconds`, so it asks that often and says so
-  // ("every 2 s"), never LIVE; the live view says it is reduced. A remote
+  // ("every 0.5 s"), never LIVE; the live view says it is reduced. A remote
   // picture that did not come is not a broken camera: the tile keeps asking
   // and says when its last picture was. A live view refused for being one too
   // many says to close another.
@@ -508,7 +508,7 @@ export function CameraFrame({
   // stays with the picture it is still holding.
   const [clock, setClock] = useState(() => siteClock(tzOffsetMinutes));
 
-  // A remote tile's picture is up to two seconds old, so its time is the time
+  // A remote tile's picture is up to one interval old, so its time is the time
   // the picture came, not a clock ticking over it.
   const remoteTile = remote && !useStream;
   useEffect(() => {

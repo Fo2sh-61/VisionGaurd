@@ -88,13 +88,13 @@ removal.
     operator opens the VisionGuard app, **Then** it says plainly that it cannot reach the
     site — never yesterday's pages shown as current.
 11. **Given** the app is open and the connection drops, **When** a refresh fails, **Then**
-    camera tiles stop saying "every 2 s" and show the time of their last picture, and the
-    page says it cannot reach the site.
+    camera tiles stop saying "every 0.5 s" and show the time of their last picture, and,
+    once nothing has answered for 5 seconds, the page says it cannot reach the site.
 
 *Video from outside*
 
 12. **Given** an operator connected from outside, **When** they open the cameras page,
-    **Then** each camera shows a still picture refreshed about every 2 seconds, labelled with
+    **Then** each camera shows a still picture refreshed about twice a second, labelled with
     how often it refreshes, not "LIVE", and a slowed refresh is never shown as a broken
     camera.
 13. **Given** an operator connected from outside, **When** they open a camera's live view,
@@ -336,8 +336,10 @@ Requirement numbers continue the phases they belong to without reusing spec 016'
 - **SC-104**: After the factory internet or the workstation's power comes back, remote access
   works within 5 minutes without anyone touching the workstation.
 - **SC-105**: A removed phone cannot reach the workstation from outside within 2 minutes.
-- **SC-106**: Measured on the recorded clip, one remote live view uses no more than 1.5 Mbit/s
-  and a page of remote camera tiles no more than 0.5 Mbit/s.
+- **SC-106**: One remote live view uses no more than 3 Mbit/s and a page of twelve remote
+  camera tiles no more than 2 Mbit/s. (Raised 20 Oct 2026 from 1.5 and 0.5: on the first
+  remote phone the owner found a tile every 2 s and a 480 px live view at 5 a second too
+  slow to follow anything.)
 - **SC-107**: A knife alert reaches a locked phone within 30 seconds, titled "Possible
   knife", with no name, face, picture or plate.
 - **SC-108**: The owner enrols a new phone in 20 minutes or less using only the checklist.
@@ -346,8 +348,8 @@ Requirement numbers continue the phases they belong to without reusing spec 016'
 - **SC-110**: From outside, 0 of the attempts to self-sign-up succeed; on the factory network,
   sign-up works as before.
 - **SC-111**: On a phone over mobile data with good signal, the remote live view is no more
-  than 1.5 seconds behind the camera, and a remote tile's picture is never more than 3
-  seconds old while its label says "every 2 s". Measured by pointing a camera at a running
+  than 1.5 seconds behind the camera, and a remote tile's picture is never more than 1.5
+  seconds old while its label says "every 0.5 s". Measured by pointing a camera at a running
   clock.
 
 ## Out of scope

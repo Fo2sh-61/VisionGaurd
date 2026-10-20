@@ -112,8 +112,8 @@ export function formatClock(instant: Instant | null | undefined): string | undef
     .join(':');
 }
 
-/** "every 2 s": how often a remote camera tile's picture changes (spec 020).
- *  Said instead of LIVE, because a picture every two seconds is not live. */
+/** "every 0.5 s": how often a remote camera tile's picture changes (spec 020).
+ *  Said instead of LIVE, because a still picture now and then is not live. */
 export function tilePaceLabel(seconds: number, lang: Language): string {
   return translate(lang, 'camera.everySeconds', { n: Number(seconds.toFixed(1)) });
 }

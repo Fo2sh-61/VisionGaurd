@@ -141,8 +141,9 @@ Edge; Android phones with Chrome.
 
 **Project Type**: web service + two web apps.
 
-**Performance Goals**: one remote live view ≤ 1.5 Mbit/s, a page of remote tiles ≤ 0.5
-Mbit/s (SC-106); remote live view ≤ 1.5 s behind, remote tile ≤ 3 s old (SC-111);
+**Performance Goals**: one remote live view ≤ 3 Mbit/s, a page of twelve remote tiles ≤ 2
+Mbit/s (SC-106, raised 20 Oct 2026); remote live view ≤ 1.5 s behind, remote tile ≤ 1.5 s
+old (SC-111);
 notification on a locked phone ≤ 30 s (SC-107).
 
 **Constraints**: $0; no card; nothing stored off site; LAN-address behaviour unchanged.
@@ -153,7 +154,7 @@ notification on a locked phone ≤ 30 s (SC-107).
 
 | Principle / rule | How this plan keeps it |
 |---|---|
-| I. Real-time camera | LAN address untouched. Remote tiles say "every 2 s", never LIVE, and show their last picture's time when a refresh fails. The remote live view is current frames at a lower rate, marked "reduced". Frames are skipped, never queued |
+| I. Real-time camera | LAN address untouched. Remote tiles say "every 0.5 s", never LIVE, and show their last picture's time when a refresh fails. The remote live view is current frames at a lower rate, marked "reduced". Frames are skipped, never queued |
 | II. Feature isolation | No feature worker changes. Remote pacing is in the two frame routes only |
 | III. Truthful data | Remote status shows when it was checked. The installed app shows a plain "cannot reach the site" page that does not guess why, never cached data. Failed notifications are logged. A notification says "Possible knife" until a person confirms |
 | IV. Security, privacy | Enrolled device + real password (sign-up refused from outside) + lockout; Secure cookie; real client address only; media routes keep requiring a session, proved by a test over every route; notifications carry kind, camera and time only, are end-to-end encrypted, go only to known push services, and start switched off per phone |
@@ -271,10 +272,10 @@ These go into spec 016's plan as requirements from this spec (T001):
   ```yaml
   remote:
     lan_networks: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8", "::1/128"]
-    tile_interval_s: 2
-    tile_width: 320     # added 20 Oct 2026 after T025's measurement
-    live_width: 480
-    live_fps: 5
+    tile_interval_s: 0.5  # 2 until 20 Oct 2026, raised by the owner (too slow to follow)
+    tile_width: 320       # added 20 Oct 2026 after T025's measurement
+    live_width: 720       # 480 until 20 Oct 2026, same reason
+    live_fps: 10          # 5 until 20 Oct 2026, same reason
     live_views: 2
   ```
 
@@ -301,7 +302,7 @@ These go into spec 016's plan as requirements from this spec (T001):
 ### F. Remote video limits (engine + both apps)
 
 **Snapshot route** (`app.py:2113`):
-- When remote, the width is capped at 480 and the `fps` hint at 1/`tile_interval_s`, so
+- When remote, the width is capped at `tile_width` and the `fps` hint at 1/`tile_interval_s`, so
   decode rates do not rise for a remote viewer.
 - Pacing per (session, camera, width): a request that comes sooner than 0.8 ×
   `tile_interval_s` after the last one **waits until its turn**, then gets a new picture.
@@ -320,10 +321,12 @@ These go into spec 016's plan as requirements from this spec (T001):
 
 **Both apps** (`CameraFrame.tsx` per app, separate copies; `frame.ts` shared):
 - When `/connection` says remote, tiles ask every `tileIntervalSeconds`.
-- The tile's freshness label reads "every 2 s" instead of LIVE.
+- The tile's freshness label reads "every 0.5 s" instead of LIVE.
 - When a refresh fails, the label shows the last picture's time ("No picture since 14:05")
-  and the page shows "Cannot reach the site" (P10-FR-125). A slowed response is never a
-  fault.
+  and, once nothing has answered for 5 s, the page shows "Cannot reach the site"
+  (P10-FR-125). A slowed response is never a fault, and neither is one lost request: through
+  NetBird's relay on mobile data a few are lost, and on 20 Oct 2026 the banner flashed on
+  and off while the page worked.
 - The enlarged view shows "Live, reduced for remote".
 - A refused stream (the `<img>` fails while `liveViewsOpen` ≥ `liveViews`) shows "Close
   another live view first".
@@ -346,9 +349,22 @@ A tile asks for a picture the size it is drawn, and in the browser that was 480 
 about 0.064 Mbit/s; twelve would be ~0.77 Mbit/s, over SC-106's 0.5). So remote tiles are
 capped by their own setting, `remote.tile_width: 320`, not by the live view's 480.
 
-So one person away from site with two live views and a page of twelve tiles needs about
+So one person away from site with two live views and a page of twelve tiles needed about
 1.7 Mbit/s of the factory's upload. A camera faster than the clip's 5 a second does not change
 the live view (it is capped at 5 a second) and changes a tile only by how busy the picture is.
+
+**Raised 20 Oct 2026** (owner, on the first remote phone: one picture every 2 s was too slow
+to follow anything):
+
+| View | Size, quality | Rate | Expected |
+|---|---|---|---|
+| Remote live view | 720 px, q70, ~30 KB | 10/s | **~2.5 Mbit/s (estimate)**: the 480 px picture measured above, 2.25 times the pixels, twice the rate |
+| Remote tile | 320 px, q70, ~9 KB | 2/s | **0.14 Mbit/s each; 12 tiles 1.7 Mbit/s**: the measured picture at four times the rate |
+
+One person away with two live views and twelve tiles now needs about 6.7 Mbit/s of the
+factory's upload. The recorded clip runs at 5 pictures a second, so it cannot show a live
+view at 10: drill D10 measures it on a real camera and phone, and its figure replaces the
+estimate.
 
 **Workstation cost, measured**: two viewers with two remote live views each added nothing
 measurable to the engine's processor use (−0.03 cores, noise, on top of its own 0.84 cores
@@ -357,7 +373,7 @@ second, and decoding the cameras is unchanged.
 
 **Latency budget** (SC-111, constitution I):
 - The remote live view is at most 1.5 s behind the camera over mobile data.
-- A remote tile's picture is at most 3 s old while labelled "every 2 s".
+- A remote tile's picture is at most 1.5 s old while labelled "every 0.5 s".
 - The pacer drops frames, never queues them, so delay cannot build up.
 - Measured in drill D10 by pointing a camera at a running clock and comparing the phone
   with the clock.
@@ -561,7 +577,7 @@ into this spec directory as `drills.md`.
 | D7 Device removed | (a) Delete the phone in the dashboard and start a stopwatch. (b) Disable the person's account; from the factory Wi-Fi try the LAN address and wait for an alert | (a) cannot reach the workstation ≤ 2 min (SC-105); (b) refused, no notification (scenarios 20, 26) |
 | D8 Lockout | 5 wrong passwords from the phone; then the right one; then unlock from another admin and with `unlock_account.py` | 6th refused even when right; both unlocks work (SC-109) |
 | D9 Notification | Admin switches on push for knife and for this phone; phone locked, Chrome swiped away; trigger a knife on the recorded clip | notification ≤ 30 s, "Possible knife" + camera + time only; tap opens the entry (SC-107) |
-| D10 Video | Phone remote: one live view 60 s, then the tile page 60 s, then a third live view; read bytes from the phone's data usage and T025's tool; point a camera at a running clock and compare the phone with the clock; then switch NetBird off for a minute | ≤ 1.5 / ≤ 0.5 Mbit/s (SC-106); live view ≤ 1.5 s behind, tile ≤ 3 s old (SC-111); labels "every 2 s" and "Live, reduced for remote"; third refused with its message; on drop, tiles show "No picture since" and the page "Cannot reach the site" |
+| D10 Video | Phone remote: one live view 60 s, then the tile page 60 s, then a third live view; read bytes from the phone's data usage and T025's tool; point a camera at a running clock and compare the phone with the clock; then switch NetBird off for a minute | ≤ 3 / ≤ 2 Mbit/s for twelve tiles (SC-106); live view ≤ 1.5 s behind, tile ≤ 1.5 s old (SC-111); labels "every 0.5 s" and "Live, reduced for remote"; third refused with its message; on drop, tiles show "No picture since" and the page "Cannot reach the site" |
 | D11 Nothing else reachable | From an enrolled phone try the workstation on another port (e.g. 8000, 3389), try another enrolled device's address, and try a second factory's workstation address | all refused (scenario 3, P10-FR-106, -109) |
 | D12 Forged address | From a LAN laptop send a request with `X-Forwarded-For: 100.81.4.9`; from an enrolled phone send `X-Forwarded-For: 192.168.1.5`; then from the phone try self sign-up | audit shows the true addresses; limits follow the true address; sign-up refused (SC-110) |
 

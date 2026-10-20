@@ -109,16 +109,16 @@ class TestRemoteTiles:
         token, _ = session
         client(video_app, token, NETBIRD).get("/cameras/c1/snapshot?width=320&fps=15")
         source = video_app.state.registry.worker("c1").source
-        # Capped at 1 / 2 s, which `note_tile` rounds up to its floor of one a
-        # second: below any camera's own analysis rate, so nothing speeds up.
-        assert source._tile_fps(time.monotonic()) == 1
+        # Capped at 1 / 0.5 s: two a second, below any camera's own analysis
+        # rate, so nothing speeds up on a remote viewer's behalf.
+        assert source._tile_fps(time.monotonic()) == 2
 
     def test_an_early_refresh_waits_its_turn_and_still_gets_a_picture(self, video_app, session, clock):
         token, _ = session
         far = client(video_app, token, NETBIRD)
         assert snapshot_width(far.get("/cameras/c1/snapshot?width=320")) == 320
         assert snapshot_width(far.get("/cameras/c1/snapshot?width=320")) == 320
-        assert clock.slept == [pytest.approx(1.6)]           # 0.8 x 2 s
+        assert clock.slept == [pytest.approx(0.4)]           # 0.8 x 0.5 s
 
     def test_too_many_waiting_is_429_with_a_reason(self, video_app, session):
         token, _ = session
@@ -172,8 +172,8 @@ class TestRemoteLiveView:
         token, _ = session
         status, _, widths = run_stream(video_app, token, NETBIRD, seconds=1.2)
         assert status == 200
-        assert widths and set(widths) == {480}
-        assert len(widths) <= 5 * 1.2 + 2                  # 5 a second, never queued
+        assert widths and set(widths) == {720}
+        assert len(widths) <= 10 * 1.2 + 2                 # 10 a second, never queued
 
     def test_the_factory_network_gets_every_picture_at_full_size(self, video_app, session):
         token, _ = session

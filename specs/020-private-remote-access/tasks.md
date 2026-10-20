@@ -267,6 +267,13 @@ screen.
   - Run 20 Oct 2026, figures in plan.md: live view 0.61 Mbit/s; tile 0.036 Mbit/s at 320 px,
     twelve 0.43; no measurable extra processor use. Twelve 480 px tiles would have been
     ~0.77 Mbit/s, so remote tiles got their own `remote.tile_width: 320`
+  - 20 Oct 2026, on the first remote phone: the owner found a tile every 2 s too slow and
+    raised the defaults for every site to a tile every 0.5 s and a live view 720 px at 10
+    a second (SC-106 now ≤ 3 / ≤ 2 Mbit/s). Tiles 0.14 Mbit/s each, from the measured
+    picture; the live view ~2.5 Mbit/s is an estimate until D10 (the clip runs at 5/s).
+    Same day: the "Cannot reach the site" banner flashed on and off over NetBird's relay,
+    because one lost request said it; it now waits for 5 s with no answer
+    (`UNREACHABLE_AFTER_MS`, `test_site_reachable.py`)
 - [ ] T026 [US3] Drill D10 on a real phone over mobile data, including the latency check
       against a running clock (SC-111); record in `drills.md`
 

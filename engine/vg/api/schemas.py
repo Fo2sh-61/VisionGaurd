@@ -2066,7 +2066,7 @@ class Connection(Wire):
 
     `remote` is decided by the engine from the real address: only the factory
     network is local. The limits are the site's configuration, sent so the
-    screens can say what they show ("every 2 s", "reduced for remote") rather
+    screens can say what they show ("every 0.5 s", "reduced for remote") rather
     than guess. The engine applies them whatever a screen does.
     """
 
