@@ -1548,6 +1548,20 @@ export const sendTestAlert = (id: string) =>
 export const getDeliveries = (limit = 50) =>
   get<W.DeliveryLog>('/settings/alerts/deliveries', { limit });
 
+/* ---------- this phone's notifications (spec 020) ---------- */
+
+/** Any signed-in person, for their own phones only. A new phone is listed for
+ *  an administrator switched off, and gets nothing until switched on. */
+export const getPushKey = () => get<W.PushKey>('/push/key');
+
+export const registerPushDevice = (body: W.PushSubscriptionBody) =>
+  post<W.PushDevice>('/push/devices', body);
+
+export const getPushDevices = () => get<W.PushDevice[]>('/push/devices');
+
+export const removePushDevice = (id: string) =>
+  del<void>(`/push/devices/${encodeURIComponent(id)}`);
+
 /* ---------- auth ---------- */
 
 /** Sign in. Returns the account the server says you are.

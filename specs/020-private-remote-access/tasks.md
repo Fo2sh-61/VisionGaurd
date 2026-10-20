@@ -345,14 +345,21 @@ real locked phone.
   - Done: `engine/tools/make_vapid_keys.py` (once, never replaced), run by install.ps1
     step 5; the subject is mailto: GMAIL_USER, else `https://visionguard.invalid`.
     **016's backup is not built yet** (its Phase 3), so ".env in the backup" waits on it
-- [ ] T037 [US5] `mobile/public/sw.js`: `push` shows the notification; `notificationclick`
+- [x] T037 [US5] `mobile/public/sw.js`: `push` shows the notification; `notificationclick`
       opens the event path. In `mobile/src/pages/Settings.tsx` add "Notifications on this
       phone": ask permission, subscribe with the VAPID key, register, and show "Waiting
       for an administrator" until enabled
-- [ ] T038 [US5] In `web/src/components/AlertSettings.tsx` **and**
+  - Done 20 Oct 2026 (`mobile/src/components/PhoneNotifications.tsx`, at the top of the
+    phone's Settings). The worker's push and tap handlers are run in Node by
+    `test_service_worker.py`; a tap opens only a page of this app. Needs the built app
+    (the dev server registers no worker), so it is seen working only in drill D9
+- [x] T038 [US5] In `web/src/components/AlertSettings.tsx` **and**
       `mobile/src/components/AlertSettings.tsx`: the push column next to email in the
       rules; phone recipients in the recipient list (person and device), with enable,
       remove and test send; push rows in the delivery log. Words in `i18n/*`; parity check
+  - Done: the switch is called "Phone"; a phone is listed by its owner and label, never
+    its registration id. Seen in the console on the clip engine, with the plain reason
+    phones cannot be sent to until the keys exist
 - [ ] T039 [US5] Checklist step D9 and drill D9 with Chrome swiped away and the phone
       locked; record in `drills.md`
 

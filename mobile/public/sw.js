@@ -1,4 +1,5 @@
-// VisionGuard's service worker (spec 020, P10-FR-112). Two jobs, nothing else:
+// VisionGuard's service worker (spec 020, P10-FR-112 and P9-FR-101). Three jobs,
+// nothing else - the third is the phone app's alone:
 //
 // 1. It makes the phone app installable ("Install app" / "Add to Home screen"):
 //    Chrome's own install prompt wants a page with a fetch handler.
@@ -6,6 +7,11 @@
 //    instead of the browser's error. It does not guess why: away from the
 //    factory that is usually the VPN, on site the network, and it says only
 //    where to look.
+// 3. It shows an alert notification while the phone is locked and the app is
+//    closed, and a tap opens the app on that kind of alert's page. The
+//    notification says only what kind, which camera and when (the engine
+//    builds it that way); the details load in the app, over the private
+//    network, when it is opened.
 //
 // It caches NOTHING. Every request goes to the workstation as if there were no
 // service worker, and that page is built here, in memory. An installed app
@@ -56,4 +62,40 @@ self.addEventListener('fetch', (event) => {
       headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
     })),
   );
+});
+
+self.addEventListener('push', (event) => {
+  let note = {};
+  try {
+    note = event.data ? event.data.json() : {};
+  } catch (error) {
+    note = {};
+  }
+  event.waitUntil(self.registration.showNotification(note.title || 'VisionGuard', {
+    body: note.body || '',
+    icon: '/icon-192.png',
+    badge: '/icon-192.png',
+    data: { path: note.path || '/' },
+  }));
+});
+
+// Only a page of this app: a path that is not one opens the app's start.
+function samePagePath(path) {
+  return typeof path === 'string' && path.startsWith('/') && !path.startsWith('//') ? path : '/';
+}
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = new URL(samePagePath(event.notification.data && event.notification.data.path),
+                      self.location.origin).href;
+  event.waitUntil((async () => {
+    const open = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const client of open) {
+      if ('focus' in client) {
+        if ('navigate' in client) await client.navigate(url).catch(() => undefined);
+        return client.focus();
+      }
+    }
+    return self.clients.openWindow(url);
+  })());
 });

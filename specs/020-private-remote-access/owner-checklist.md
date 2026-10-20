@@ -177,7 +177,7 @@ A laptop that never leaves the factory needs only steps 1 and 6. It opens `https
 9. **(after 020 is built) Notifications.**
    1. On the phone, in VisionGuard: **Settings → Notifications on this phone** → allow. It
       says "Waiting for an administrator".
-   2. As an administrator, in **Settings → Alerts**: tick **Push** for the kinds of alert
+   2. As an administrator, in **Settings → Alerts**: tick **Phone** for the kinds of alert
       wanted (e.g. Knife), then find this phone in the recipient list and switch it **on**.
    3. Press **Send test** on that phone's row. A notification should arrive.
    4. In Android settings, set **Battery** to **Unrestricted** for **Chrome** and for

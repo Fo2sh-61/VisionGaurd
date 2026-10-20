@@ -44,9 +44,10 @@ import type {
   ReportStatus,
 } from '@/services/wire';
 
-/** Email is the only channel that leaves the building; WhatsApp and SMS were
- *  removed on 11 Sep 2026. Kept as a list so the rows below stay generic. */
-const CHANNELS: readonly AlertChannel[] = ['email'];
+/** The channels that leave the building: email, and since spec 020 a
+ *  notification on a registered phone. WhatsApp and SMS were removed on
+ *  11 Sep 2026. A list so the rows below stay generic. */
+const CHANNELS: readonly AlertChannel[] = ['email', 'push'];
 const LANGS: readonly AlertLanguage[] = ['en', 'ar'];
 const GATE_REASONS = ['blacklist', 'unknown', 'expired'] as const;
 const GATE_FLAG = {
@@ -322,7 +323,12 @@ export function AlertSettingsCards() {
             <div style={{ flex: 1, minWidth: 200 }}>
               <div style={{ fontWeight: 600, fontSize: 14 }}>{person.name}</div>
               <div style={small}>
-                {channelName(person.channel)} · <bdi>{person.destination}</bdi> ·{' '}
+                {channelName(person.channel)} ·{' '}
+                {/* A phone's destination is its registration id: noise to a
+                    reader. The name already says whose phone it is. */}
+                {person.channel === 'push'
+                  ? t('settings.alerts.phoneRecipient')
+                  : <bdi>{person.destination}</bdi>} ·{' '}
                 {t(`settings.language.${person.language}` as const)}
               </div>
               {person.language === 'ar' && !s.arabicReviewed && (

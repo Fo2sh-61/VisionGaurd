@@ -68,7 +68,7 @@ def worker(request, tmp_path_factory):
     harness = tmp_path_factory.mktemp("sw") / "harness.js"
     harness.write_text(HARNESS, encoding="utf-8")
     done = subprocess.run(["node", str(harness), str(request.param)],
-                          capture_output=True, text=True, timeout=60)
+                          capture_output=True, text=True, encoding="utf-8", timeout=60)
     assert done.returncode == 0, done.stderr
     return json.loads(done.stdout)
 
@@ -109,3 +109,85 @@ def test_built_apps_register_it_and_the_dev_server_does_not(app):
     main = (REPO_DIR / app / "src" / "main.tsx").read_text(encoding="utf-8")
     assert "if (import.meta.env.PROD && 'serviceWorker' in navigator)" in main
     assert "navigator.serviceWorker.register('/sw.js')" in main
+
+
+# --- the phone app's notifications (spec 020, US5) -----------------------------
+
+PUSH_HARNESS = r"""
+const fs = require('fs');
+const vm = require('vm');
+const handlers = {};
+const shown = [];
+const opened = [];
+const sandbox = {
+  self: {
+    addEventListener: (type, fn) => { handlers[type] = fn; },
+    skipWaiting: () => {}, location: { origin: 'https://100.81.4.7:8443' },
+    registration: { showNotification: async (title, options) => { shown.push({ title, options }); } },
+    clients: {
+      claim: async () => {},
+      matchAll: async () => [],
+      openWindow: async (url) => { opened.push(url); },
+    },
+  },
+  URL, Response, Promise, console, fetch: async () => new Response(''),
+};
+vm.createContext(sandbox);
+vm.runInContext(fs.readFileSync(process.argv[2], 'utf8'), sandbox);
+
+async function push(payload) {
+  let work = null;
+  handlers.push({ data: payload === null ? null : { json: () => JSON.parse(payload) },
+                  waitUntil: (p) => { work = p; } });
+  await work;
+}
+async function tap(path) {
+  let work = null;
+  handlers.notificationclick({ notification: { close: () => {}, data: { path } },
+                               waitUntil: (p) => { work = p; } });
+  await work;
+}
+
+(async () => {
+  await push(JSON.stringify({ title: 'Possible knife', body: 'Gate 2 · 14:05', path: '/weapons' }));
+  await push('not json');
+  await tap('/weapons');
+  await tap('https://evil.example/x');
+  await tap('//evil.example/x');
+  console.log(JSON.stringify({ handlers: Object.keys(handlers).sort(), shown, opened }));
+})();
+"""
+
+
+@pytest.fixture(scope="module")
+def phone_worker(tmp_path_factory):
+    harness = tmp_path_factory.mktemp("sw-push") / "harness.js"
+    harness.write_text(PUSH_HARNESS, encoding="utf-8")
+    done = subprocess.run(["node", str(harness), str(WORKERS[1])],
+                          capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert done.returncode == 0, done.stderr
+    return json.loads(done.stdout)
+
+
+@needs_node
+class TestPhoneNotifications:
+    def test_a_notification_shows_what_the_engine_sent(self, phone_worker):
+        first = phone_worker["shown"][0]
+        assert first["title"] == "Possible knife"
+        assert first["options"]["body"] == "Gate 2 · 14:05"
+        assert first["options"]["data"] == {"path": "/weapons"}
+
+    def test_a_message_it_cannot_read_still_says_visionguard(self, phone_worker):
+        assert phone_worker["shown"][1]["title"] == "VisionGuard"
+
+    def test_a_tap_opens_that_page_of_this_app_and_nothing_else(self, phone_worker):
+        assert phone_worker["opened"] == [
+            "https://100.81.4.7:8443/weapons",
+            "https://100.81.4.7:8443/",
+            "https://100.81.4.7:8443/",
+        ]
+
+
+def test_the_console_worker_takes_no_notifications():
+    """Phones get notifications; the console is the desk."""
+    assert "'push'" not in WORKERS[0].read_text(encoding="utf-8")

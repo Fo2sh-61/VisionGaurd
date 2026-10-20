@@ -736,7 +736,7 @@ export interface SchoolProfile {
  * sentences only for the messages themselves, which never cross this API. */
 
 export type AlertKind = 'weapon' | 'intrusion' | 'vehicles' | 'camera' | 'attendance';
-export type AlertChannel = 'email';
+export type AlertChannel = 'email' | 'push';
 export type AlertLanguage = 'en' | 'ar';
 export type DeliveryOutcome = 'queued' | 'sent' | 'failed' | 'skipped';
 export type DeliveryReason =
@@ -749,7 +749,11 @@ export type DeliveryReason =
   | 'engine_stopped'
   | 'provider_refused'
   | 'timeout'
-  | 'unreachable';
+  | 'unreachable'
+  // Spec 020, phone notifications: the push service forgot the phone, or the
+  // phone's account is disabled.
+  | 'device_gone'
+  | 'account_disabled';
 
 /** One kind of alert and its channels. `inApp` is null where Home has no item
  *  for the kind (the noon report). The `vehicle*` switches exist only on the
@@ -758,6 +762,8 @@ export interface AlertRule {
   kind: AlertKind;
   inApp: boolean | null;
   email: boolean;
+  /** A notification on every registered phone that is switched on (spec 020). */
+  push: boolean;
   vehicleBlacklist: boolean | null;
   vehicleUnknown: boolean | null;
   vehicleExpired: boolean | null;
@@ -767,9 +773,34 @@ export interface AlertRule {
 export interface AlertRuleUpdate {
   inApp?: boolean;
   email?: boolean;
+  push?: boolean;
   vehicleBlacklist?: boolean;
   vehicleUnknown?: boolean;
   vehicleExpired?: boolean;
+}
+
+/** What a phone subscribes with, or why notifications are not set up (spec 020). */
+export interface PushKey {
+  available: boolean;
+  publicKey?: string | null;
+  reason?: string | null;
+}
+
+/** This phone's subscription, as the browser gave it. */
+export interface PushSubscriptionBody {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+  label: string;
+}
+
+/** One of my phones. `enabled` is the administrator's switch for it. */
+export interface PushDevice {
+  id: string;
+  label: string;
+  enabled: boolean;
+  createdAt: Instant;
+  lastSentAt?: Instant | null;
+  lastError?: string | null;
 }
 
 export interface Recipient {

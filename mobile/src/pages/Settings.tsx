@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AlertSettingsCards } from '@/components/AlertSettings';
+import { PhoneNotifications } from '@/components/PhoneNotifications';
 import { Card, LoadError, PageHeader } from '@/components/ui';
 import { useLanguage } from '@/app/LanguageContext';
 import { getSchoolProfile, getZones } from '@/services/api';
@@ -118,6 +119,10 @@ export function Settings() {
     <>
       <LoadError error={loadError} onRetry={() => setTick((n) => n + 1)} />
       <PageHeader title="Settings" lead={t('phone.settings.lead')} />
+
+      {/* This person's phone first: anyone may switch it on; an administrator
+          decides whether it receives anything (spec 020). */}
+      <PhoneNotifications />
 
       <Card>
         <div style={{ fontWeight: 700, fontSize: 15 }}>School profile</div>
