@@ -109,8 +109,10 @@ class TestAnonymousIsRefused:
         body = response.json()
         assert body["ok"] is True
         # No school name, no camera count, no register. A liveness probe that
-        # leaks the site is not a liveness probe.
-        assert set(body) <= {"ok", "version"}, body
+        # leaks the site is not a liveness probe. `now` is the server clock
+        # and `endsAt`/`stopping` a cloud trial's time limit
+        # (specs/021-cloud-trial): about the machine, never the site.
+        assert set(body) <= {"ok", "version", "now", "endsAt", "stopping"}, body
 
     def test_login_is_reachable_without_a_session(self, anon):
         """Requiring a token to get a token would be a locked door with the

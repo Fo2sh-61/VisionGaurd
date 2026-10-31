@@ -821,6 +821,12 @@ export async function getCapabilities(): Promise<W.Capability[]> {
   }
 }
 
+/** The public liveness probe. `endsAt` only when the engine was started with a
+ *  known end - the cloud trial (specs/021-cloud-trial). */
+export async function getHealthz(): Promise<W.Healthz> {
+  return get<W.Healthz>('/healthz');
+}
+
 export async function getSystemHealth(lang: Language): Promise<SystemHealth> {
   const health = await get<W.SystemHealth>('/system/health');
 

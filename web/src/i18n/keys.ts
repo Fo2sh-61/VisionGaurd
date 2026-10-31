@@ -872,6 +872,9 @@ export type UiKey =
   | 'state.demoData'
   | 'state.notAvailable'
   | 'state.featureNotAvailable'
+  | 'session.endsAt'
+  | 'session.stopping'
+  | 'session.stopped'
 
   // -- what could not be loaded --------------------------------------------
   // A noun phrase dropped into `state.couldNotLoad`. Its own key so the

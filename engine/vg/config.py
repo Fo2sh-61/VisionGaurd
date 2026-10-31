@@ -690,6 +690,10 @@ class ApiConfig:
     port: int = 8000
     cors_origins: tuple[str, ...] = ("http://localhost:5173", "http://localhost:5174")
     poll_seconds: float = 5.0
+    # The built console (`web/dist`) for the engine to serve itself, so one
+    # address carries both the pages and the API. Unset on the laptop, where
+    # Vite serves the console: nothing about the engine's paths changes then.
+    console_dir: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -1256,6 +1260,12 @@ class ArchiveConfig:
         )
 
 
+#: What a `profile:` key may say. Empty is the workstation, as it has always
+#: been. `cloud` is the free-GPU trial (specs/021-cloud-trial): a public
+#: address, so the developer sign-in refuses to start under it.
+PROFILES: tuple[str, ...] = ("", "cloud")
+
+
 @dataclass(frozen=True)
 class EngineConfig:
     site_name: str
@@ -1266,6 +1276,7 @@ class EngineConfig:
     cameras: tuple[CameraConfig, ...]
     zones: tuple[ZoneConfig, ...]
     models: dict[str, ModelConfig]
+    profile: str = ""
     # Named places and their safe capacity. Keyed by the same name cameras use
     # in their `area` field.
     areas: dict[str, AreaConfig] = field(default_factory=dict)
@@ -1319,6 +1330,47 @@ def _apply_camera_override(cameras: tuple[CameraConfig, ...]) -> tuple[CameraCon
     )
 
 
+def _merge(base: Any, over: Any) -> Any:
+    """`over` laid on `base`: mappings merge key by key, anything else replaces.
+
+    Lists replace rather than append, so an overlay's `zones:` is the whole
+    list of zones. Appending would leave no way to remove one.
+    """
+    if isinstance(base, dict) and isinstance(over, dict):
+        merged = dict(base)
+        for key, value in over.items():
+            merged[key] = _merge(base.get(key), value)
+        return merged
+    return over
+
+
+def _apply_overlay(raw: dict) -> dict:
+    """`VG_CONFIG_OVERLAY=engine/profiles/cloud.yaml` — a second file laid on top.
+
+    The same reasoning as `VG_CAMERAS`: a different way of running must not
+    mean rewriting engine.yaml. The overlay is merged before `${VAR}`
+    expansion, so it can name folders and addresses that only exist at start.
+
+    A named overlay that is not there is a hard error. Starting without it
+    would start the workstation's configuration somewhere it was not meant
+    to run, which is the one outcome the overlay exists to prevent.
+    """
+    name = os.environ.get("VG_CONFIG_OVERLAY", "").strip()
+    if not name:
+        return raw
+
+    path = Path(name)
+    if not path.is_absolute():
+        path = REPO_DIR / path
+    if not path.is_file():
+        raise ConfigError(f"VG_CONFIG_OVERLAY names {path}, which does not exist")
+
+    over = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    if not isinstance(over, dict):
+        raise ConfigError(f"VG_CONFIG_OVERLAY {path}: must be a mapping at the top")
+    return _merge(raw, over)
+
+
 def load(path: Path | str | None = None) -> EngineConfig:
     """Read engine.yaml, expand env vars, validate, return a frozen config."""
     cfg_path = Path(path) if path else ENGINE_DIR / "engine.yaml"
@@ -1328,7 +1380,15 @@ def load(path: Path | str | None = None) -> EngineConfig:
     _load_dotenv(ENGINE_DIR / ".env")
 
     raw = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
+    raw = _apply_overlay(raw)
     raw = _expand(raw, "engine.yaml")
+
+    profile = str(raw.get("profile") or "").strip()
+    if profile not in PROFILES:
+        raise ConfigError(
+            f"profile: {profile!r} is not a profile. Use one of "
+            f"{', '.join(repr(p) for p in PROFILES)}"
+        )
 
     cameras = tuple(
         CameraConfig.parse(c, f"cameras[{i}]")
@@ -1404,7 +1464,12 @@ def load(path: Path | str | None = None) -> EngineConfig:
                 api_raw.get("cors_origins", ApiConfig.cors_origins)
             ),
             poll_seconds=float(api_raw.get("poll_seconds", 5.0)),
+            console_dir=(
+                _resolve(api_raw["console_dir"], REPO_DIR)
+                if api_raw.get("console_dir") else None
+            ),
         ),
+        profile=profile,
         storage=StorageConfig(
             database_url=str(
                 store_raw.get("database_url", StorageConfig.database_url)

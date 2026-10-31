@@ -1756,6 +1756,96 @@ def _reraise_if_strict(exc: BaseException, what: str) -> None:
         ) from exc
 
 
+def _session_ends_at() -> datetime | None:
+    """When this engine has been told it will stop, or None.
+
+    Set by the cloud trial's start script, which knows the notebook's time
+    limit. Unparseable is treated as unset, with a warning: a banner built
+    on a guessed time would be worse than none.
+    """
+    raw = os.environ.get("VG_SESSION_ENDS_AT", "").strip()
+    if not raw:
+        return None
+    try:
+        when = datetime.fromisoformat(raw)
+    except ValueError:
+        log.warning("VG_SESSION_ENDS_AT=%r is not an ISO time; ignored", raw)
+        return None
+    if when.tzinfo is None:
+        log.warning("VG_SESSION_ENDS_AT=%r has no UTC offset; ignored", raw)
+        return None
+    return when
+
+
+#: Paths a browser navigates to that are the engine's own pages, not the
+#: console's. They keep going to the engine.
+_ENGINE_PAGES = ("/docs", "/redoc", "/openapi.json")
+
+
+def _serve_console(app: FastAPI, folder: Path | None) -> None:
+    """Serve the built console from the engine itself, when asked to.
+
+    The cloud trial reaches the engine through one tunnel to one port, so the
+    pages and the API have to share an address (specs/021-cloud-trial). On the
+    laptop `folder` is None and this adds nothing.
+
+    What is served without a session is only what is in the folder: `/`, the
+    hashed `/assets/*`, and the other top-level files. Everything else still
+    goes through `authenticate`. A browser *navigation* - a reload on
+    `/cameras`, a typed address - gets `index.html`, because the console's
+    routes share paths with the API and the API's answer to a reload would be
+    a 401 in JSON. The price: a clip URL opened in a new tab shows the
+    console, not the video.
+    """
+    if folder is None:
+        return
+
+    root = folder.resolve()
+    index = root / "index.html"
+    if not index.is_file():
+        # There is no page to put this on, so the address itself says it.
+        log.error("console not served: %s does not exist - build it with "
+                  "`npm run build` in web/", index)
+
+    def page() -> Response:
+        if not index.is_file():
+            return Response(
+                f"The console is not built: {index} does not exist.\n",
+                status_code=503, media_type="text/plain")
+        # Never yesterday's console: index.html names the hashed assets.
+        return FileResponse(index, headers={"Cache-Control": "no-cache"})
+
+    def asset(path: str) -> Path | None:
+        if path in ("", "/") or path.endswith("/"):
+            return None
+        candidate = (root / path.lstrip("/")).resolve()
+        if not candidate.is_relative_to(root) or not candidate.is_file():
+            return None
+        if candidate == index:
+            return None
+        # Top-level files and anything under assets/, nothing deeper.
+        relative = candidate.relative_to(root).parts
+        if len(relative) == 1 or relative[0] == "assets":
+            return candidate
+        return None
+
+    @app.middleware("http")
+    async def console(request: Request, call_next):
+        if request.method not in ("GET", "HEAD"):
+            return await call_next(request)
+        path = request.url.path
+        if path == "/":
+            return page()
+        found = asset(path)
+        if found is not None:
+            return FileResponse(found)
+        navigating = (request.headers.get("sec-fetch-mode") == "navigate"
+                      and "text/html" in request.headers.get("accept", ""))
+        if navigating and not path.startswith(_ENGINE_PAGES):
+            return page()
+        return await call_next(request)
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
         title="VisionGuard engine",
@@ -1764,18 +1854,24 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # DEV-SIGNIN: temporary, development only - see vg/auth/dev_signin.py.
-    # Read while the app is built, so a setting that is not safe stops the
-    # engine before it has served a single request.
-    app.state.dev_signin = dev_signin.role_from_env()
-
     origins = ["http://localhost:5173", "http://localhost:5174",
                "http://127.0.0.1:5173", "http://127.0.0.1:5174"]
+    cfg = None
     try:
         cfg = vgconfig.load()
         origins = list(cfg.api.cors_origins)
     except vgconfig.ConfigError:
         pass
+
+    # DEV-SIGNIN: temporary, development only - see vg/auth/dev_signin.py.
+    # Read while the app is built, so a setting that is not safe stops the
+    # engine before it has served a single request. An overlay that failed to
+    # load counts as the cloud: not knowing where we are is not "a laptop".
+    if cfg is not None:
+        profile = cfg.profile
+    else:
+        profile = "cloud" if os.environ.get("VG_CONFIG_OVERLAY") else ""
+    app.state.dev_signin = dev_signin.role_from_env(profile)
 
     app.add_middleware(
         CORSMiddleware,
@@ -1836,6 +1932,10 @@ def create_app() -> FastAPI:
                 )
 
         return await call_next(request)
+
+    # Added after `authenticate`, so it runs before it: the console's own
+    # files are served without a session, and nothing else is.
+    _serve_console(app, cfg.api.console_dir if cfg is not None else None)
 
     @app.exception_handler(Exception)
     async def unhandled(request: Request, exc: Exception):
@@ -1949,8 +2049,20 @@ def _mount(app: FastAPI) -> None:
 
         A load balancer cannot authenticate and still has to tell a running
         engine from a dead one. It says nothing about the site.
+
+        `now` is the server's clock in epoch milliseconds, so a client on
+        another machine can estimate the offset between the two clocks
+        (engine/tools/measure_remote.py). `endsAt` and `stopping` appear only
+        when the engine was started with a known end (`VG_SESSION_ENDS_AT`,
+        the cloud trial), so the console can say so before it goes.
         """
-        return {"ok": True, "version": app.version}
+        body: dict = {"ok": True, "version": app.version,
+                      "now": int(datetime.now(timezone.utc).timestamp() * 1000)}
+        ends = _session_ends_at()
+        if ends is not None:
+            body["endsAt"] = ends.isoformat()
+            body["stopping"] = SHUTTING_DOWN.is_set()
+        return body
 
     # ----------------------------------------------------------------- auth
     @app.post("/auth/login", tags=["auth"], summary="Sign in")

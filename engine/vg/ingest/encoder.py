@@ -27,7 +27,10 @@ and the archive exporter both write mp4s, both used to carry their own copy of
 
 from __future__ import annotations
 
+import functools
 import logging
+import shutil
+import subprocess
 import sys
 import tempfile
 import threading
@@ -47,6 +50,8 @@ class Encoder:
     fourcc: str
     label: str
     plays_in_browser: bool
+    #: Frames go to a separate `ffmpeg` process instead of an OpenCV writer.
+    pipe: bool = False
 
     def __str__(self) -> str:
         return self.label
@@ -61,6 +66,12 @@ MSMF_H264 = Encoder(cv2.CAP_MSMF, "avc1", "Media Foundation H.264", True)
 #: Linux box with the library installed gets browser-playable clips.
 FFMPEG_H264 = Encoder(cv2.CAP_FFMPEG, "avc1", "FFmpeg H.264", True)
 
+#: The system's own `ffmpeg` program with `libx264`, frames piped to it raw.
+#: Linux has no Media Foundation, and OpenCV's pip wheel has no H.264 there
+#: either, so without this a Linux machine (the cloud trial) saves clips the
+#: console cannot play. `ffmpeg` with x264 is a standard package.
+PIPE_X264 = Encoder(-1, "avc1", "ffmpeg program, libx264", True, pipe=True)
+
 #: The last resort. A real recording that a desktop player opens and the
 #: console cannot — worth having, and worth saying out loud.
 FFMPEG_MP4V = Encoder(cv2.CAP_FFMPEG, "mp4v", "FFmpeg MPEG-4 Part 2", False)
@@ -71,11 +82,95 @@ def candidates() -> tuple[Encoder, ...]:
 
     Media Foundation goes first on Windows and is absent everywhere else, so
     the FFmpeg path — and the OpenH264 error it prints — is only reached on a
-    machine where it is the only option left.
+    machine where it is the only option left. Windows never reaches for the
+    `ffmpeg` program: Media Foundation is always there.
     """
     if sys.platform == "win32":
         return (MSMF_H264, FFMPEG_H264, FFMPEG_MP4V)
-    return (FFMPEG_H264, FFMPEG_MP4V)
+    return (FFMPEG_H264, PIPE_X264, FFMPEG_MP4V)
+
+
+@functools.lru_cache(maxsize=1)
+def _ffmpeg_with_x264() -> str | None:
+    """The `ffmpeg` program, if it is on PATH and has libx264. Asked once.
+
+    Checked up front because ffmpeg only opens its encoder once frames
+    arrive: without this, a build with no x264 would look open, take a
+    whole recording, and leave a broken file.
+    """
+    exe = shutil.which("ffmpeg")
+    if exe is None:
+        return None
+    try:
+        listed = subprocess.run(
+            [exe, "-hide_banner", "-encoders"], capture_output=True,
+            timeout=15, check=False).stdout.decode(errors="replace")
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return exe if " libx264 " in listed else None
+
+
+class PipeWriter:
+    """`cv2.VideoWriter`'s three methods, over an `ffmpeg` process.
+
+    `-movflags +faststart` puts the index at the front, so a browser can start
+    playing before it has the whole file. `yuv420p` because browsers decode
+    nothing else from H.264. stderr goes to a temporary file, not a pipe: an
+    unread pipe fills and stalls ffmpeg, and with it the recorder.
+    """
+
+    def __init__(self, path: Path | str, fps: float, width: int, height: int):
+        self._path = Path(path)
+        self._size = (width, height)
+        self._log = tempfile.TemporaryFile()
+        self._proc: subprocess.Popen | None = None
+        exe = _ffmpeg_with_x264()
+        if exe is None:
+            return
+        try:
+            self._proc = subprocess.Popen(
+                [exe, "-hide_banner", "-loglevel", "error", "-y",
+                 "-f", "rawvideo", "-pix_fmt", "bgr24",
+                 "-s", f"{width}x{height}", "-r", f"{max(1.0, fps):g}", "-i", "-",
+                 "-an", "-c:v", "libx264", "-preset", "veryfast",
+                 "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+                 str(self._path)],
+                stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                stderr=self._log,
+            )
+        except OSError:
+            self._proc = None
+
+    def isOpened(self) -> bool:  # noqa: N802 - cv2.VideoWriter's name
+        return self._proc is not None and self._proc.poll() is None
+
+    def write(self, frame) -> None:
+        if not self.isOpened() or self._proc.stdin is None:
+            return
+        if (frame.shape[1], frame.shape[0]) != self._size:
+            frame = cv2.resize(frame, self._size)
+        try:
+            self._proc.stdin.write(frame.tobytes())
+        except (BrokenPipeError, OSError):
+            pass
+
+    def release(self) -> None:
+        if self._proc is None:
+            self._log.close()
+            return
+        try:
+            if self._proc.stdin is not None:
+                self._proc.stdin.close()
+            code = self._proc.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            self._proc.kill()
+            code = -1
+        if code != 0:
+            self._log.seek(0)
+            log.warning("ffmpeg exited %s writing %s: %s", code, self._path,
+                        self._log.read().decode(errors="replace").strip()[-500:])
+        self._log.close()
+        self._proc = None
 
 
 _lock = threading.Lock()
@@ -117,10 +212,13 @@ def open_writer(
 
     global _chosen
     for encoder in _ordered():
-        writer = cv2.VideoWriter(
-            str(path), encoder.backend, cv2.VideoWriter_fourcc(*encoder.fourcc),
-            max(1.0, fps), (width, height),
-        )
+        if encoder.pipe:
+            writer = PipeWriter(path, fps, width, height)
+        else:
+            writer = cv2.VideoWriter(
+                str(path), encoder.backend, cv2.VideoWriter_fourcc(*encoder.fourcc),
+                max(1.0, fps), (width, height),
+            )
         if writer.isOpened():
             with _lock:
                 if _chosen != encoder:

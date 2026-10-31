@@ -15,7 +15,8 @@ could serve, so it is fenced:
 
 * **Off unless asked for.** Unset, nothing here does anything.
 * **Refuses to start** with `VG_STRICT=1` - the setting CI and the deployment
-  machine run under - and with any value but `admin` or `it`.
+  machine run under - under the cloud trial's `profile: cloud`, which has a
+  public address, and with any value but `admin` or `it`.
 * **This computer only.** The connection must come from a loopback address
   *and* name a loopback host. The second check is what stops a proxy: nginx in
   front of the engine connects from 127.0.0.1 too, but it forwards the
@@ -56,7 +57,7 @@ class DevUser(User):
         return "DV"
 
 
-def role_from_env() -> str | None:
+def role_from_env(profile: str = "") -> str | None:
     """The role to sign callers in as, or None when this is off.
 
     Raises rather than degrading. An engine asked for a password-less console
@@ -75,6 +76,11 @@ def role_from_env() -> str | None:
             f"{ENV} is set together with VG_STRICT=1, the CI and deployment "
             "setting. Developer sign-in is for a developer's own computer, so "
             "the engine will not start like this.")
+    if profile == "cloud":
+        raise RuntimeError(
+            f"{ENV} is set under the cloud profile, which is reached through "
+            "a public address. Developer sign-in is for a developer's own "
+            "computer, so the engine will not start like this.")
     log.warning(
         "DEVELOPER SIGN-IN IS ON (%s): anyone using this computer is signed "
         "in as %r without a password. Development only.", raw, NAME)

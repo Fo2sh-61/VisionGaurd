@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import os
 import sys
 from pathlib import Path
 
@@ -48,6 +49,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--name")
     parser.add_argument("--role", choices=ROLES)
     parser.add_argument("--list", action="store_true", help="show existing accounts")
+    # For a start script with no one at the keyboard (the cloud trial reads
+    # it from a Kaggle secret). The NAME of a variable, never the password:
+    # an argument would sit in the process list and the shell history.
+    parser.add_argument("--password-env", metavar="NAME",
+                        help="read the password from this environment variable")
     args = parser.parse_args(argv)
 
     database = _database()
@@ -90,11 +96,17 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  unknown role {role!r}; expected one of {ROLES}", file=sys.stderr)
         return 1
 
-    print(f"\n  Password must be at least {MIN_LENGTH} characters. It is not echoed.")
-    password = getpass.getpass("  password  ")
-    if password != getpass.getpass("  again     "):
-        print("\n  those did not match", file=sys.stderr)
-        return 1
+    if args.password_env:
+        password = os.environ.get(args.password_env, "")
+        if not password:
+            print(f"\n  {args.password_env} is not set or is empty", file=sys.stderr)
+            return 1
+    else:
+        print(f"\n  Password must be at least {MIN_LENGTH} characters. It is not echoed.")
+        password = getpass.getpass("  password  ")
+        if password != getpass.getpass("  again     "):
+            print("\n  those did not match", file=sys.stderr)
+            return 1
 
     try:
         user = store.create_user(email=email, name=name, role=role, password=password)

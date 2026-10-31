@@ -1,0 +1,101 @@
+{
+  "label": "local",
+  "url": "http://127.0.0.1:8000",
+  "camera": "cam-clip",
+  "started": "2026-10-31T10:02:26.086883+00:00",
+  "minutes": 6.0,
+  "clock": {
+    "offsetMs": 0.3,
+    "uncertaintyMs": 1.3,
+    "samples": 20
+  },
+  "server": {
+    "start": {
+      "gpuPercent": 13.0,
+      "gpuMemoryUsedMb": 939.0,
+      "gpuMemoryTotalMb": 8192.0,
+      "cpuPercent": 111.6,
+      "cpuMachinePercent": 29.2,
+      "camerasOnline": 1,
+      "camerasTotal": 1,
+      "severity": "warn"
+    },
+    "end": {
+      "gpuPercent": 12.0,
+      "gpuMemoryUsedMb": 926.0,
+      "gpuMemoryTotalMb": 8192.0,
+      "cpuPercent": 97.9,
+      "cpuMachinePercent": 21.8,
+      "camerasOnline": 1,
+      "camerasTotal": 1,
+      "severity": "warn"
+    }
+  },
+  "reads": {
+    "/healthz": {
+      "n": 30,
+      "failures": 0,
+      "p50Ms": 6.4,
+      "p95Ms": 26.9
+    },
+    "/auth/me": {
+      "n": 30,
+      "failures": 0,
+      "p50Ms": 8.0,
+      "p95Ms": 28.1
+    },
+    "/system/capabilities": {
+      "n": 30,
+      "failures": 0,
+      "p50Ms": 11.4,
+      "p95Ms": 26.8
+    },
+    "/cameras": {
+      "n": 30,
+      "failures": 0,
+      "p50Ms": 7.2,
+      "p95Ms": 25.6
+    },
+    "/site": {
+      "n": 30,
+      "failures": 0,
+      "p50Ms": 15.2,
+      "p95Ms": 30.0
+    },
+    "/attention": {
+      "n": 30,
+      "failures": 0,
+      "p50Ms": 8.6,
+      "p95Ms": 26.9
+    }
+  },
+  "tiles": {
+    "n": 895,
+    "failures": 0,
+    "p50Ms": 13.2,
+    "p95Ms": 29.8,
+    "seconds": 60.0,
+    "perSecond": 14.92,
+    "meanBytes": 22839
+  },
+  "stream": {
+    "seconds": 30.0,
+    "frames": 384,
+    "perSecond": 12.79,
+    "failures": 0
+  },
+  "boxes": {
+    "n": 300,
+    "failures": 0,
+    "ageP50Ms": 110.4,
+    "ageP95Ms": 220.7
+  },
+  "events": {
+    "seen": 2,
+    "failures": 0,
+    "ageP50Ms": 339.2,
+    "ageP95Ms": 475.9,
+    "seconds": 207.6,
+    "dwellSeconds": 2.0
+  }
+}

@@ -1,0 +1,37 @@
+# The cloud trial profile (specs/021-cloud-trial). Laid over engine.yaml with
+#
+#   VG_CONFIG_OVERLAY=engine/profiles/cloud.yaml  VG_CAMERAS=cam-clip
+#
+# Mappings merge key by key; lists replace. tools/cloud/bootstrap.sh sets both
+# variables, plus the two this file reads:
+#
+#   VG_TRIAL_DIR   a throwaway folder for the database and clips
+#   VG_PUBLIC_URL  the tunnel's https address, for links in messages
+#
+# Nothing here is a site. The only camera is the recorded clip, the database
+# starts empty, and there are no keys: Ask and email report "not configured".
+
+# A public address. The developer sign-in refuses to start under this profile.
+profile: cloud
+
+site_name: Cloud trial (recorded clip)
+
+api:
+  # The tunnel runs on the same machine, so loopback is the only way in.
+  host: 127.0.0.1
+  port: 8000
+  # The engine serves the built console itself: one address, one tunnel.
+  console_dir: web/dist
+  cors_origins: []
+
+storage:
+  database_url: sqlite:///${VG_TRIAL_DIR}/visionguard.db
+  clips_dir: ${VG_TRIAL_DIR}/clips
+
+alerts:
+  console_url: ${VG_PUBLIC_URL}
+
+# Restricted areas are whole cameras switched on in the console and kept in
+# the database, not yaml zones. tools/cloud/bootstrap.sh switches the clip
+# camera on through the same API call the console's toggle makes, so the
+# clip raises breaches to time. engine.yaml's zones are left as they are.

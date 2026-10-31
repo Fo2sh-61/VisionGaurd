@@ -68,6 +68,16 @@ function dateFormat(lang: Language, options: Intl.DateTimeFormatOptions): Intl.D
   return f;
 }
 
+/** When a cloud-trial engine stops, on the VIEWER's clock — "6:40 pm".
+ *
+ *  The one place that is not site time. The engine is a notebook somewhere,
+ *  not a school, and the person reading this is deciding how long they have
+ *  left at their own desk. */
+export function formatSessionEnd(endsAt: Date, lang: Language): string {
+  return new Intl.DateTimeFormat(locale(lang), { hour: 'numeric', minute: '2-digit' })
+    .format(endsAt);
+}
+
 /** "7:42 am" · "٧:٤٢ ص" */
 export function formatTime(instant: Instant | null | undefined, lang: Language): string {
   if (!instant) return '—';

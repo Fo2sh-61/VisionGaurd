@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { DevSignInBanner } from '@/components/DevSignInBanner'; // DEV-SIGNIN
+import { SessionNotice } from '@/components/SessionNotice';
 import { Sidebar } from '@/components/Sidebar';
 import { TopBar } from '@/components/TopBar';
 import { useAuth } from './AuthContext';
@@ -20,6 +21,7 @@ export function AppShell() {
       <Sidebar />
       <div className="shell__main">
         <DevSignInBanner /> {/* DEV-SIGNIN */}
+        <SessionNotice />
         <TopBar />
         <main className="shell__body">
           <div className="page">

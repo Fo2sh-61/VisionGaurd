@@ -873,6 +873,10 @@ export const en: Record<MessageKey, string> = {
   'state.demoData': 'Demo data',
   'state.notAvailable': 'Not available',
   'state.featureNotAvailable': '{feature} is not available.',
+  'session.endsAt':
+    'This trial engine stops at {time}, in {minutes} min. Anything not saved by then is gone.',
+  'session.stopping': 'The engine is stopping now.',
+  'session.stopped': 'The engine has stopped. This page can no longer show anything live.',
 
   // -- what could not be loaded --------------------------------------------
   'load.detectionLog': 'the detection log',

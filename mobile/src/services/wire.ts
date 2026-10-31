@@ -1422,3 +1422,14 @@ export interface AskAnswer {
   sentOffSite: string;
   auditId: string;
 }
+
+/** `GET /healthz`. Public, so it says nothing about the site. */
+export interface Healthz {
+  ok: boolean;
+  version: string;
+  /** The engine's clock, epoch milliseconds. */
+  now: number;
+  /** ISO time the engine has been told it stops. Only on the cloud trial. */
+  endsAt?: string;
+  stopping?: boolean;
+}
