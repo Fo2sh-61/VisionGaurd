@@ -283,6 +283,17 @@ print("  cam-clip restricted:", zone.get("enabled"))
 EOF
 }
 
+start_idle_watch() {
+  # Kaggle counts GPU hours while the session is open, used or not; the owner
+  # wants them counted only while he uses it (31 Oct 2026). 15 minutes to sign
+  # in, then VG_IDLE_MINUTES (default 1) after the last use it stops and saves.
+  nohup setsid "$PY" "$REPO/tools/cloud/idle_watch.py" --log "$TRIAL/engine.log" \
+    --stop "$REPO/tools/cloud/stop.sh" --idle-minutes "${VG_IDLE_MINUTES:-1}" \
+    --first-use-minutes 15 > "$TRIAL/idle-watch.log" 2>&1 &
+  echo $! > "$TRIAL/idle-watch.pid"
+  note "  stops itself if nobody signs in within 15 minutes, then ${VG_IDLE_MINUTES:-1} minute after the last use"
+}
+
 start_watchdog() {
   local ends now
   ends="$(date -u -d "$(cat "$TRIAL/ends-at.txt")" +%s)"; now="$(date -u +%s)"
@@ -305,6 +316,7 @@ step "Administrator account" create_admin
 step "Engine"                start_engine
 step "Clip camera restricted" restrict_clip
 step "Stop timer"            start_watchdog
+step "Idle stop"             start_idle_watch
 
 note ""
 note "- total: $((SECONDS - started_all)) s"

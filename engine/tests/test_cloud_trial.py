@@ -470,7 +470,7 @@ class TestScripts:
         group and the engine and the tunnel stopped with it."""
         text = (CLOUD_TOOLS / "bootstrap.sh").read_text(encoding="utf-8")
         launches = [line for line in text.splitlines() if "nohup " in line]
-        assert len(launches) == 3  # tunnel, engine, stop timer
+        assert len(launches) == 4  # tunnel, engine, stop timer, idle stop
         assert all("nohup setsid " in line for line in launches), launches
 
     def test_a_day_is_four_and_a_half_hours(self):

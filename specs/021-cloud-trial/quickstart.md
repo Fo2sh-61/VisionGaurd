@@ -61,7 +61,11 @@ weekly GPU hours, with room for setup.
    The table is `specs/021-cloud-trial/evidence/comparison.md`. Its **local** column
    was measured on 31 Oct 2026 on this laptop with the same profile (see "Local
    column" below to measure it again).
-9. **Afterwards**: the finished version's **Output** holds `trial-<date>/` (database,
+9. **It counts only while you use it.** If nobody signs in within 15 minutes, or
+   1 minute after your last use (closing the console tab is what ends use; an open
+   tab keeps polling), it stops, saves, and the run ends: the GPU clock stops. A
+   new start costs ~10 minutes of setup, which Kaggle also counts.
+10. **Afterwards**: the finished version's **Output** holds `trial-<date>/` (database,
    logs, benchmark, summary).
 
 **Stopping early**: open the running version and cancel it; the engine's database

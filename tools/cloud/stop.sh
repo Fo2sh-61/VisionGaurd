@@ -32,6 +32,8 @@ stop_pid "$TRIAL/cloudflared.pid" TERM 5
 # Not the watchdog when the watchdog is what called this.
 [[ -f "$TRIAL/watchdog.pid" && "$(cat "$TRIAL/watchdog.pid")" != "$PPID" ]] \
   && stop_pid "$TRIAL/watchdog.pid" TERM 1
+[[ -f "$TRIAL/idle-watch.pid" && "$(cat "$TRIAL/idle-watch.pid")" != "$PPID" ]] \
+  && stop_pid "$TRIAL/idle-watch.pid" TERM 1
 
 mkdir -p "$OUT"
 if [[ -f "$TRIAL/visionguard.db" ]]; then
@@ -44,7 +46,7 @@ with dst:
 src.close(); dst.close()
 EOF
 fi
-for item in summary.md engine.log cloudflared.log tensorrt.log watchdog.log url.txt ends-at.txt evidence clips; do
+for item in summary.md engine.log cloudflared.log tensorrt.log watchdog.log idle-watch.log url.txt ends-at.txt evidence clips; do
   [[ -e "$TRIAL/$item" ]] && cp -r "$TRIAL/$item" "$OUT/"
 done
 date -u +"stopped and saved %Y-%m-%dT%H:%M:%SZ" | tee -a "$OUT/summary.md"
