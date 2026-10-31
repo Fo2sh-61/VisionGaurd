@@ -284,9 +284,15 @@ EOF
 }
 
 start_idle_watch() {
-  # Kaggle counts GPU hours while the session is open, used or not; the owner
-  # wants them counted only while he uses it (31 Oct 2026). 15 minutes to sign
-  # in, then VG_IDLE_MINUTES (default 1) after the last use it stops and saves.
+  # OFF unless VG_IDLE_MINUTES is set. The owner's routine (31 Oct 2026) is
+  # Run All to start and the session's power button to stop: Kaggle counts
+  # exactly that. In an interactive session an idle stop ends the engine but
+  # not Kaggle's clock, which only confused it. Set VG_IDLE_MINUTES for a
+  # background (Save & Run All) run, where the run's end does stop the clock.
+  if [[ -z "${VG_IDLE_MINUTES:-}" || "${VG_IDLE_MINUTES}" == "0" ]]; then
+    note "  idle stop off: start with Run All, stop with the power button"
+    return 0
+  fi
   nohup setsid "$PY" "$REPO/tools/cloud/idle_watch.py" --log "$TRIAL/engine.log" \
     --stop "$REPO/tools/cloud/stop.sh" --idle-minutes "${VG_IDLE_MINUTES:-1}" \
     --first-use-minutes 15 > "$TRIAL/idle-watch.log" 2>&1 &

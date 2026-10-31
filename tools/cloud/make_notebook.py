@@ -18,13 +18,13 @@ INTRO = """\
 # VisionGuard cloud trial (Kaggle)
 
 The recorded clip, an empty database, one administrator, a public https address.
-**One click, then hands off**: it sets itself up, runs **4.5 hours**, then stops
-and saves by itself. Step by step: `specs/021-cloud-trial/quickstart.md`.
 
-**Start it**: top right, **Save Version** → **Save & Run All (Commit)** → **Save**.
-It runs in the background, even with this tab closed, and the GPU clock stops as
-soon as it finishes. Today's address: **View Active Events** (bottom left) → the
-running version → its log: look for `Console: https://...`.
+**START**: click **Run All** (▶▶ at the top). After about 6 minutes the address
+appears at the bottom: `Console: https://....trycloudflare.com`.
+
+**STOP**: click the **power button ⏻** at the top. Kaggle's GPU clock stops then,
+and only then. (If you forget, the engine stops itself after 4.5 hours, but the
+clock keeps counting until you press ⏻.)
 
 **Settings once**: Accelerator **GPU T4**, Internet **on**. Inputs: your private
 `visionguard-code` and `visionguard-models` datasets. Add-ons → Secrets:
@@ -87,8 +87,8 @@ if boot.returncode != 0:
     raise SystemExit("The start failed: see the step marked FAILED above.")"""
 
 KEEP_ALIVE = """\
-# 4. Runs until the engine stops itself (4.5 h), printing the address every 5
-#    minutes, then saves the database, logs and benchmark. Nothing to do here.
+# 4. Prints the address every 5 minutes while the engine runs. To stop, press the
+#    power button at the top: that is what stops Kaggle's GPU clock.
 import json, urllib.request
 
 url = open("/tmp/vg-trial/url.txt").read().strip()
@@ -102,7 +102,7 @@ while True:
         break
     time.sleep(300)
 print(subprocess.run(["bash", f"{VG}/tools/cloud/stop.sh"], capture_output=True, text=True).stdout)
-print("Done. In an interactive session, press the power button (top) so the GPU clock stops.")"""
+print("The engine has stopped and saved. NOW PRESS THE POWER BUTTON AT THE TOP: Kaggle is still counting.")"""
 
 STOP = """\
 # 5. Only to stop EARLY, by hand: stop and save now. A normal run never needs it

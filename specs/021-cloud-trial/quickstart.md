@@ -38,43 +38,32 @@ through a tunnel.
    It builds the console and writes `visionguard-trial.zip` from the current commit.
    Upload it as a new version of a **private** dataset `visionguard-code`.
 
-## Each work day (one click)
+## Each time you want it
 
-Up to six days a week (Saturday to Thursday), 4.5 hours a day: 27 of Kaggle's ~30
-weekly GPU hours, with room for setup.
+Two buttons. Kaggle counts GPU time from the first to the second, nothing else.
 
-5. **(Kaggle)** Open the notebook. Top right: **Save Version** → **Save & Run All
-   (Commit)** → **Save**. That's the click. It runs in the background, even with the
-   tab closed: setup (~6 min), then 4.5 h of engine, then it stops, saves, and gives
-   the GPU back.
-6. **Today's address**: bottom left, **View Active Events** → the running version →
-   its log. Look for `Console: https://<random>.trycloudflare.com` (it is repeated
-   every 5 minutes). If a step says **FAILED**, paste the log to Claude.
-7. **(PC)** Open the address. Sign in as `admin@trial.local` with your secret's
-   password.
-8. **(PC)** To measure the cloud (6 minutes):
+- **START**: open the notebook on Kaggle, click **Run All** (▶▶ at the top). After
+  about 6 minutes the bottom of the output shows
+  `Console: https://<random>.trycloudflare.com`. Open it on your PC and sign in as
+  `admin@trial.local` with your secret's password.
+- **STOP**: click the **power button ⏻** at the top of the notebook. Counting stops
+  at that moment.
 
-   ```powershell
-   python engine/tools/measure_remote.py --url https://<random>.trycloudflare.com --label cloud --email admin@trial.local
-   ```
+The address is new every START. If you forget STOP, the engine stops itself after
+4.5 hours, but Kaggle keeps counting until ⏻ is pressed.
 
-   The table is `specs/021-cloud-trial/evidence/comparison.md`. Its **local** column
-   was measured on 31 Oct 2026 on this laptop with the same profile (see "Local
-   column" below to measure it again).
-9. **It counts only while you use it.** If nobody signs in within 15 minutes, or
-   1 minute after your last use (closing the console tab is what ends use; an open
-   tab keeps polling), it stops, saves, and the run ends: the GPU clock stops. A
-   new start costs ~10 minutes of setup, which Kaggle also counts.
-10. **Afterwards**: the finished version's **Output** holds `trial-<date>/` (database,
-   logs, benchmark, summary).
+To measure the cloud (6 minutes, while it runs):
 
-**Stopping early**: open the running version and cancel it; the engine's database
-is then not saved. In an interactive session instead (Run All in the editor), cell 4
-saves by itself at the end, and you press the power button so the GPU clock stops.
+```powershell
+python engine/tools/measure_remote.py --url https://<random>.trycloudflare.com --label cloud --email admin@trial.local
+```
 
-Not yet confirmed on Kaggle: that a background (Commit) run gets the GPU, internet
-and the secret, and shows its log while it runs. The first one-click run is that
-test.
+The table is `specs/021-cloud-trial/evidence/comparison.md`; its **local** column was
+measured on 31 Oct 2026 on this laptop with the same profile.
+
+Optional, for a background run (Save Version → Save & Run All): set `VG_IDLE_MINUTES`
+and the trial stops itself that many minutes after the last use, and the run's end
+stops the clock. Off by default.
 
 ## What you should see
 

@@ -479,6 +479,22 @@ class TestScripts:
         text = (CLOUD_TOOLS / "bootstrap.sh").read_text(encoding="utf-8")
         assert 'hours="${VG_TRIAL_HOURS:-4.5}"' in text
 
+    def test_idle_stop_is_off_unless_asked_for(self):
+        """Owner, 31 Oct 2026: start with Run All, stop with the power button.
+        In an interactive session an idle stop ended the engine but not
+        Kaggle's clock, so it is off unless VG_IDLE_MINUTES is set."""
+        text = (CLOUD_TOOLS / "bootstrap.sh").read_text(encoding="utf-8")
+        idle = text[text.index("start_idle_watch() {"):]
+        idle = idle[:idle.index("\n}\n")]
+        assert '-z "${VG_IDLE_MINUTES:-}"' in idle
+        assert idle.index("return 0") < idle.index("nohup setsid")
+
+    def test_the_notebook_says_start_and_stop_in_two_buttons(self):
+        sys.path.insert(0, str(CLOUD_TOOLS))
+        import make_notebook
+        assert "**START**" in make_notebook.INTRO and "Run All" in make_notebook.INTRO
+        assert "**STOP**" in make_notebook.INTRO and "power button" in make_notebook.INTRO
+
     def test_the_run_saves_and_ends_by_itself(self):
         """One click: when the engine stops, the keep-alive cell saves and the
         run ends, so a background run gives the GPU back at once."""
