@@ -453,6 +453,9 @@ class TestScripts:
     def test_pack_builds_from_a_commit(self):
         text = (CLOUD_TOOLS / "pack.ps1").read_text(encoding="utf-8")
         assert "git archive" in text and "--untracked-files=no" in text
+        # Kaggle unpacks nested zips; one unpacked onto a real folder and
+        # failed the upload ("Directory already exists: loiterwatch").
+        assert "':(exclude,glob)**/*.zip'" in text
 
 
 @pytest.fixture(autouse=True)

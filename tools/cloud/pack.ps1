@@ -43,7 +43,11 @@ try {
 } finally { Pop-Location }
 
 if (Test-Path $Out) { Remove-Item $Out -Confirm:$false }
-git archive --format=zip --prefix=visionguard/ -o $Out HEAD
+# No archives inside the archive. Kaggle unpacks nested zips too, and
+# models/reid/loiterwatch.zip (an unused copy of models/reid/loiterwatch/)
+# unpacked onto the real folder and failed the upload:
+# "Directory already exists: loiterwatch".
+git archive --format=zip --prefix=visionguard/ -o $Out HEAD -- . ':(exclude,glob)**/*.zip'
 if ($LASTEXITCODE -ne 0) { throw 'git archive failed' }
 
 Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
