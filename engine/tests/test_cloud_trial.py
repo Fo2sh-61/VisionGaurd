@@ -454,6 +454,17 @@ class TestScripts:
         assert "unset VG_DEV_SIGNIN" in text
         assert "VG_DEV_SIGNIN=" not in text
 
+    def test_the_admin_goes_into_the_trial_database(self):
+        """Kaggle, first full run: the admin landed in engine/data/visionguard.db,
+        the engine read the trial's database, and sign-in was 401."""
+        text = (CLOUD_TOOLS / "bootstrap.sh").read_text(encoding="utf-8")
+        admin = text[text.index("create_admin() {"):]
+        admin = admin[:admin.index("\n}\n")]
+        assert "trial_env" in admin
+        assert '"$TRIAL/visionguard.db"' in admin  # and it checks where it went
+        # trial_env reads the tunnel's address, so the tunnel comes first.
+        assert text.index('step "Tunnel"') < text.index('step "Administrator account"')
+
     def test_bootstrap_downloads_no_model(self):
         """Settled rule: the owner supplies every model."""
         text = (CLOUD_TOOLS / "bootstrap.sh").read_text(encoding="utf-8")

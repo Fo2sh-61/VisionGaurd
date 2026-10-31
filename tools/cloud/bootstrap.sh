@@ -206,9 +206,19 @@ benchmark() {
   tail -n 12 "$TRIAL/evidence/benchmark-person.txt" || true
 }
 
+trial_env() {
+  # What makes a tool the cloud trial's and not the workstation's. Every tool
+  # that touches the database runs with it: the first Kaggle run created the
+  # admin without it, in engine/data/visionguard.db, and sign-in got 401.
+  export VG_CONFIG_OVERLAY=engine/profiles/cloud.yaml VG_CAMERAS=cam-clip \
+         VG_TRIAL_DIR="$TRIAL" VG_PUBLIC_URL="$(cat "$TRIAL/url.txt")"
+}
+
 create_admin() {
-  (cd "$REPO" && "$PY" engine/tools/create_user.py --email admin@trial.local \
-     --name "Trial admin" --role admin --password-env VG_ADMIN_PASSWORD)
+  (cd "$REPO" && trial_env && "$PY" engine/tools/create_user.py --email admin@trial.local \
+     --name "Trial admin" --role admin --password-env VG_ADMIN_PASSWORD) | tee "$TRIAL/admin.txt"
+  grep -qF "$TRIAL/visionguard.db" "$TRIAL/admin.txt" || {
+    echo "the account went into another database, not $TRIAL/visionguard.db"; return 1; }
 }
 
 # ------------------------------------------------------------------- running
@@ -232,16 +242,15 @@ start_engine() {
   echo "$ends" > "$TRIAL/ends-at.txt"
   (
     cd "$REPO"
-    export VG_CONFIG_OVERLAY=engine/profiles/cloud.yaml VG_CAMERAS=cam-clip \
-           VG_TRIAL_DIR="$TRIAL" VG_PUBLIC_URL="$(cat "$TRIAL/url.txt")" \
-           VG_SESSION_ENDS_AT="$ends"
+    trial_env
+    export VG_SESSION_ENDS_AT="$ends"
     [[ -s "$TRIAL/ffmpeg.txt" ]] && export VG_FFMPEG="$(cat "$TRIAL/ffmpeg.txt")"
     nohup "$PY" engine/tools/serve.py > "$TRIAL/engine.log" 2>&1 &
     echo $! > "$TRIAL/engine.pid"
   )
   local i
   for i in $(seq 1 300); do
-    curl -fsS -o /dev/null http://127.0.0.1:8000/healthz && return 0
+    curl -fs -o /dev/null http://127.0.0.1:8000/healthz && return 0
     kill -0 "$(cat "$TRIAL/engine.pid")" 2>/dev/null || { tail -n 40 "$TRIAL/engine.log"; return 1; }
     sleep 1
   done
@@ -286,8 +295,8 @@ step "ffmpeg (H.264 clips)"  install_ffmpeg
 step "cloudflared"           install_cloudflared
 step "TensorRT engines"      build_tensorrt
 step "Server benchmark"      benchmark
-step "Administrator account" create_admin
 step "Tunnel"                open_tunnel
+step "Administrator account" create_admin
 step "Engine"                start_engine
 step "Clip camera restricted" restrict_clip
 step "Stop timer"            start_watchdog
