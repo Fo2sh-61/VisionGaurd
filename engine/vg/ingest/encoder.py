@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import functools
 import logging
+import os
 import shutil
 import subprocess
 import sys
@@ -90,24 +91,40 @@ def candidates() -> tuple[Encoder, ...]:
     return (FFMPEG_H264, PIPE_X264, FFMPEG_MP4V)
 
 
+def _ffmpeg_candidates() -> list[str]:
+    """Every `ffmpeg` worth asking, in order: `VG_FFMPEG`, PATH, the system's.
+
+    The first one on PATH is not always the useful one. On Kaggle it is a
+    build with no libx264 that shadows the distribution's `/usr/bin/ffmpeg`,
+    which has it - the cloud trial's first run stopped on exactly that.
+    """
+    found = [os.environ.get("VG_FFMPEG", "").strip(), shutil.which("ffmpeg") or "",
+             "/usr/bin/ffmpeg", "/usr/local/bin/ffmpeg"]
+    seen: list[str] = []
+    for exe in found:
+        if exe and exe not in seen and Path(exe).is_file():
+            seen.append(exe)
+    return seen
+
+
 @functools.lru_cache(maxsize=1)
 def _ffmpeg_with_x264() -> str | None:
-    """The `ffmpeg` program, if it is on PATH and has libx264. Asked once.
+    """The first `ffmpeg` program that has libx264, or None. Asked once.
 
     Checked up front because ffmpeg only opens its encoder once frames
     arrive: without this, a build with no x264 would look open, take a
     whole recording, and leave a broken file.
     """
-    exe = shutil.which("ffmpeg")
-    if exe is None:
-        return None
-    try:
-        listed = subprocess.run(
-            [exe, "-hide_banner", "-encoders"], capture_output=True,
-            timeout=15, check=False).stdout.decode(errors="replace")
-    except (OSError, subprocess.SubprocessError):
-        return None
-    return exe if " libx264 " in listed else None
+    for exe in _ffmpeg_candidates():
+        try:
+            listed = subprocess.run(
+                [exe, "-hide_banner", "-encoders"], capture_output=True,
+                timeout=15, check=False).stdout.decode(errors="replace")
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if " libx264 " in listed:
+            return exe
+    return None
 
 
 class PipeWriter:

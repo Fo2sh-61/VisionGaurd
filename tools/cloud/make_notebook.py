@@ -30,18 +30,21 @@ FIND_CODE = """\
 # 1. Copy the code from the code dataset to /tmp/vg (inputs are read-only).
 import glob, os, shutil, subprocess, zipfile
 
+# Always a fresh copy, so a new version of the dataset is what runs.
 VG = "/tmp/vg"
-if not os.path.isdir(VG):
-    scripts = glob.glob("/kaggle/input/**/tools/cloud/bootstrap.sh", recursive=True)
-    zips = glob.glob("/kaggle/input/**/visionguard-trial.zip", recursive=True)
-    if scripts:
-        shutil.copytree(os.path.dirname(os.path.dirname(os.path.dirname(scripts[0]))), VG)
-    elif zips:
-        with zipfile.ZipFile(zips[0]) as z:
-            z.extractall("/tmp")
-        os.rename("/tmp/visionguard", VG)
-    else:
-        raise SystemExit("No code found: add your visionguard-code dataset as an input.")
+shutil.rmtree(VG, ignore_errors=True)
+scripts = glob.glob("/kaggle/input/**/tools/cloud/bootstrap.sh", recursive=True)
+zips = glob.glob("/kaggle/input/**/visionguard-trial.zip", recursive=True)
+if len(scripts) > 1:
+    raise SystemExit(f"More than one copy of the code is attached: {scripts}. Remove the old one.")
+if scripts:
+    shutil.copytree(os.path.dirname(os.path.dirname(os.path.dirname(scripts[0]))), VG)
+elif zips:
+    with zipfile.ZipFile(zips[0]) as z:
+        z.extractall("/tmp")
+    os.rename("/tmp/visionguard", VG)
+else:
+    raise SystemExit("No code found: add your visionguard-code dataset as an input.")
 print("code in", VG, "-", len(os.listdir(VG)), "entries")"""
 
 SECRET = """\

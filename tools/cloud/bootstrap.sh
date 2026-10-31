@@ -142,13 +142,33 @@ print(f"  opencv {cv2.__version__}, ultralytics {ultralytics.__version__}, "
 EOF
 }
 
+ffmpeg_with_x264() {  # prints the first ffmpeg that can write H.264
+  local exe
+  for exe in $(which -a ffmpeg 2>/dev/null) /usr/bin/ffmpeg /usr/local/bin/ffmpeg; do
+    [[ -x "$exe" ]] && "$exe" -hide_banner -encoders 2>/dev/null | grep -q ' libx264 ' \
+      && { echo "$exe"; return 0; }
+  done
+  return 1
+}
+
 install_ffmpeg() {
-  if ! ffmpeg -hide_banner -encoders 2>/dev/null | grep -q ' libx264 '; then
-    apt-get -qq update && apt-get -qq install -y ffmpeg >/dev/null
+  # The first ffmpeg on Kaggle's PATH has no libx264 and hides the system's
+  # (first run, 31 Oct 2026), so every copy is asked, not just the first.
+  local exe
+  if ! exe="$(ffmpeg_with_x264)"; then
+    echo "  no ffmpeg with libx264 yet; installing the system's"
+    apt-get -qq update >/dev/null 2>&1 || true
+    apt-get -qq install -y ffmpeg >/dev/null 2>&1 || echo "  apt-get install ffmpeg failed"
+    exe="$(ffmpeg_with_x264)" || exe=""
   fi
-  ffmpeg -hide_banner -encoders 2>/dev/null | grep -q ' libx264 ' || {
-    echo "ffmpeg has no libx264: clips will save as mp4v and not play in the browser"; return 1; }
-  echo "  ffmpeg with libx264: clips will be browser-playable H.264"
+  if [[ -n "$exe" ]]; then
+    echo "$exe" > "$TRIAL/ffmpeg.txt"
+    note "  ffmpeg with libx264: $exe - clips are browser-playable H.264"
+  else
+    # Not fatal: the trial is about speed. Clips still save (mp4v), and the
+    # engine's log and System Health say they will not play in the browser.
+    note "  **no ffmpeg with libx264 anywhere: clips save as mp4v and will NOT play in the browser**"
+  fi
 }
 
 install_cloudflared() {
@@ -215,6 +235,7 @@ start_engine() {
     export VG_CONFIG_OVERLAY=engine/profiles/cloud.yaml VG_CAMERAS=cam-clip \
            VG_TRIAL_DIR="$TRIAL" VG_PUBLIC_URL="$(cat "$TRIAL/url.txt")" \
            VG_SESSION_ENDS_AT="$ends"
+    [[ -s "$TRIAL/ffmpeg.txt" ]] && export VG_FFMPEG="$(cat "$TRIAL/ffmpeg.txt")"
     nohup "$PY" engine/tools/serve.py > "$TRIAL/engine.log" 2>&1 &
     echo $! > "$TRIAL/engine.pid"
   )

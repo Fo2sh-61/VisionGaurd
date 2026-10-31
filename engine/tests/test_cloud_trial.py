@@ -343,6 +343,29 @@ class TestLinuxEncoder:
         assert encoder.candidates() == (
             encoder.MSMF_H264, encoder.FFMPEG_H264, encoder.FFMPEG_MP4V)
 
+    def test_an_ffmpeg_without_x264_first_on_path_does_not_hide_one_with_it(self, monkeypatch):
+        """Kaggle, first run: PATH's ffmpeg had no libx264; /usr/bin's did."""
+        monkeypatch.setattr(encoder, "_ffmpeg_candidates",
+                            lambda: ["/opt/conda/bin/ffmpeg", "/usr/bin/ffmpeg"])
+
+        class Listed:
+            def __init__(self, exe):
+                self.stdout = (b" V..... libx264  H.264\n" if exe == "/usr/bin/ffmpeg"
+                               else b" V..... mpeg4  MPEG-4\n")
+
+        monkeypatch.setattr(encoder.subprocess, "run", lambda cmd, **_: Listed(cmd[0]))
+        encoder._ffmpeg_with_x264.cache_clear()
+        try:
+            assert encoder._ffmpeg_with_x264() == "/usr/bin/ffmpeg"
+        finally:
+            encoder._ffmpeg_with_x264.cache_clear()
+
+    def test_vg_ffmpeg_is_asked_first(self, monkeypatch, tmp_path):
+        exe = tmp_path / "ffmpeg"
+        exe.write_text("")
+        monkeypatch.setenv("VG_FFMPEG", str(exe))
+        assert encoder._ffmpeg_candidates()[0] == str(exe)
+
     def test_no_ffmpeg_means_not_opened(self, monkeypatch, tmp_path):
         monkeypatch.setattr(encoder, "_ffmpeg_with_x264", lambda: None)
         writer = encoder.PipeWriter(tmp_path / "x.mp4", 15, 64, 64)
