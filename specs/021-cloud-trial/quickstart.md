@@ -36,7 +36,10 @@ through a tunnel.
    ```
 
    It builds the console and writes `visionguard-trial.zip` from the current commit.
-   Upload it as a new version of a **private** dataset `visionguard-code`.
+   Upload it as a new version of a **private** dataset `visionguard-code`. Then in the
+   notebook's Input panel: `visionguard-code` → ⋮ → **Check for updates** → **Update**.
+   Kaggle does not switch a notebook to a new dataset version by itself (31 Oct 2026:
+   it was still reading version 2 after version 3 was uploaded).
 
 ## Each time you want it
 
