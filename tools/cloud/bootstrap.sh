@@ -222,8 +222,11 @@ create_admin() {
 }
 
 # ------------------------------------------------------------------- running
+# Everything left running goes into its own session (setsid). Stopping a
+# notebook cell sends SIGINT to the kernel's whole process group, and on the
+# first Kaggle run that stopped the engine and the tunnel along with the cell.
 open_tunnel() {
-  nohup cloudflared tunnel --no-autoupdate --url http://127.0.0.1:8000 \
+  nohup setsid cloudflared tunnel --no-autoupdate --url http://127.0.0.1:8000 \
     > "$TRIAL/cloudflared.log" 2>&1 &
   echo $! > "$TRIAL/cloudflared.pid"
   local i url=""
@@ -245,7 +248,7 @@ start_engine() {
     trial_env
     export VG_SESSION_ENDS_AT="$ends"
     [[ -s "$TRIAL/ffmpeg.txt" ]] && export VG_FFMPEG="$(cat "$TRIAL/ffmpeg.txt")"
-    nohup "$PY" engine/tools/serve.py > "$TRIAL/engine.log" 2>&1 &
+    nohup setsid "$PY" engine/tools/serve.py > "$TRIAL/engine.log" 2>&1 &
     echo $! > "$TRIAL/engine.pid"
   )
   local i
@@ -281,7 +284,7 @@ EOF
 start_watchdog() {
   local ends now
   ends="$(date -u -d "$(cat "$TRIAL/ends-at.txt")" +%s)"; now="$(date -u +%s)"
-  nohup bash -c "sleep $((ends - now)); bash '$REPO/tools/cloud/stop.sh'" \
+  nohup setsid bash -c "sleep $((ends - now)); bash '$REPO/tools/cloud/stop.sh'" \
     > "$TRIAL/watchdog.log" 2>&1 &
   echo $! > "$TRIAL/watchdog.pid"
 }

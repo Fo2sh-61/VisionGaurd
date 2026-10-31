@@ -465,6 +465,14 @@ class TestScripts:
         # trial_env reads the tunnel's address, so the tunnel comes first.
         assert text.index('step "Tunnel"') < text.index('step "Administrator account"')
 
+    def test_what_keeps_running_survives_a_stopped_cell(self):
+        """Kaggle, first run: stopping cell 4 sent SIGINT to the whole process
+        group and the engine and the tunnel stopped with it."""
+        text = (CLOUD_TOOLS / "bootstrap.sh").read_text(encoding="utf-8")
+        launches = [line for line in text.splitlines() if "nohup " in line]
+        assert len(launches) == 3  # tunnel, engine, stop timer
+        assert all("nohup setsid " in line for line in launches), launches
+
     def test_bootstrap_downloads_no_model(self):
         """Settled rule: the owner supplies every model."""
         text = (CLOUD_TOOLS / "bootstrap.sh").read_text(encoding="utf-8")
