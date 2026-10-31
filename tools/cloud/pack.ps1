@@ -47,7 +47,14 @@ if (Test-Path $Out) { Remove-Item $Out -Confirm:$false }
 # models/reid/loiterwatch.zip (an unused copy of models/reid/loiterwatch/)
 # unpacked onto the real folder and failed the upload:
 # "Directory already exists: loiterwatch".
-git archive --format=zip --prefix=visionguard/ -o $Out HEAD -- . ':(exclude,glob)**/*.zip'
+#
+# Nor what the cloud engine never reads: the website, the design files and
+# banners, loiterwatch's own demo model (6.4 MB; the engine uses only its
+# stitcher) and the falls training runs (the engine loads the installed
+# checkpoint). That keeps the zip small enough to upload through a browser.
+git archive --format=zip --prefix=visionguard/ -o $Out HEAD -- . `
+  ':(exclude,glob)**/*.zip' ':(exclude)website' ':(exclude)design' ':(exclude)banners' `
+  ':(exclude)models/reid/loiterwatch/yolov8n.pt' ':(exclude,glob)models/falling/runs__*'
 if ($LASTEXITCODE -ne 0) { throw 'git archive failed' }
 
 Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
