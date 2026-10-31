@@ -87,6 +87,13 @@ REQUIRED_MODELS=(
   "face_detection_yunet_2023mar.onnx"       # attendance: finding faces
   "face_recognition_sface_2021dec.onnx"     # attendance: SFace
 )
+# The pushed webcam also runs the vehicle gate, like cam-laptop. Optional: if
+# these are not in the dataset the gate does not run and System Health says
+# why; nothing else stops.
+OPTIONAL_MODELS=(
+  "plate_detector.pt"
+  "char_detector.pt"
+)
 REQUIRED_FOOTAGE=(
   "walk-through_cam-laptop_20260805-121705.mp4"
   "walk-through_cam-laptop_20260805-121705.json"
@@ -123,6 +130,14 @@ link_inputs() {
       echo "  footage  $rel"
     else
       echo "  MISSING  footage $rel - add it to your private models dataset"; missing=1
+    fi
+  done
+  for rel in "${OPTIONAL_MODELS[@]}"; do
+    if src="$(find_input "$rel")"; then
+      ln -sf "$src" "$REPO/models/$rel"
+      echo "  model    $rel"
+    else
+      note "  optional $rel not uploaded: the vehicle gate will not run on the webcam"
     fi
   done
   [[ -f "$REPO/web/dist/index.html" ]] || { echo "  MISSING  web/dist - make the code dataset with tools/cloud/pack.ps1"; missing=1; }
@@ -194,7 +209,8 @@ build_tensorrt() {
     || { note "  TensorRT would not install: every model runs from its .pt"; return 0; }
   # Never fatal. A model whose engine does not build runs from its .pt, and
   # the summary and System Health both say which.
-  (cd "$REPO" && timeout 1800 "$PY" engine/tools/build_engines.py --only person pose) \
+  (cd "$REPO" && timeout 1800 "$PY" engine/tools/build_engines.py --only person pose \
+       $([[ -e "$REPO/models/plate_detector.pt" ]] && echo plates plate_chars)) \
     2>&1 | tee "$TRIAL/tensorrt.log" | grep -Ei 'built|failed|skipp|engine' | tee -a "$SUMMARY" || true
   ls -1 "$REPO"/models/*.engine 2>/dev/null | sed 's/^/  engine   /' | tee -a "$SUMMARY" || true
 }
@@ -212,7 +228,7 @@ trial_env() {
   # What makes a tool the cloud trial's and not the workstation's. Every tool
   # that touches the database runs with it: the first Kaggle run created the
   # admin without it, in engine/data/visionguard.db, and sign-in got 401.
-  export VG_CONFIG_OVERLAY=engine/profiles/cloud.yaml VG_CAMERAS=cam-clip \
+  export VG_CONFIG_OVERLAY=engine/profiles/cloud.yaml VG_CAMERAS=cam-clip,cam-webcam \
          VG_TRIAL_DIR="$TRIAL" VG_PUBLIC_URL="$(cat "$TRIAL/url.txt")"
 }
 

@@ -47,6 +47,8 @@ class SourceKind(str, Enum):
     WEBCAM = "webcam"
     RTSP = "rtsp"
     FILE = "file"
+    #: Frames are sent to the engine, not fetched by it. See ingest/push.py.
+    PUSH = "push"
 
 
 @dataclass(frozen=True)
@@ -149,6 +151,7 @@ def parse_source(spec: str) -> tuple[SourceKind, str | int]:
         rtsp://user:pass@host/…   network stream
         http://… , https://…      MJPEG or HLS
         file:clips/walk.mp4       recorded video, path relative to the repo
+        push:cam-webcam           frames POSTed to /cameras/cam-webcam/push
         C:\\path\\to\\clip.mp4      absolute path
     """
     spec = spec.strip()
@@ -164,6 +167,12 @@ def parse_source(spec: str) -> tuple[SourceKind, str | int]:
 
     if spec.startswith(("rtsp://", "rtsps://", "http://", "https://")):
         return SourceKind.RTSP, spec
+
+    if spec.startswith("push:"):
+        name = spec.split(":", 1)[1].strip()
+        if not name:
+            raise ValueError("push source needs the camera's own id, like push:cam-webcam")
+        return SourceKind.PUSH, name
 
     if spec.startswith("file:"):
         return SourceKind.FILE, spec.split(":", 1)[1]
@@ -335,6 +344,10 @@ class CameraSource:
                 cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
                 cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, self.open_timeout_ms)
                 cap.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, self.read_timeout_ms)
+            elif self.kind is SourceKind.PUSH:
+                from vg.ingest.push import PushCapture
+
+                cap = PushCapture(str(self.handle), self.read_timeout_ms / 1000)
             else:
                 path = Path(str(self.handle))
                 if not path.is_absolute():

@@ -2222,6 +2222,41 @@ def _mount(app: FastAPI) -> None:
         return store.site()
 
     # --------------------------------------------------------------- frames
+    @app.post(
+        "/cameras/{camera_id}/push",
+        tags=["cameras"],
+        summary="Send one frame to a pushed camera (JPEG body)",
+        status_code=204,
+        response_class=Response,
+    )
+    async def push_frame(request: Request, camera_id: str) -> Response:
+        """One JPEG from a camera that sends its own frames (`source: push:<id>`).
+
+        The cloud trial's way in for a laptop webcam: the engine on Kaggle
+        cannot reach the laptop, so the laptop's sender posts here through the
+        engine's own tunnel (specs/021-cloud-trial). Admin-only, by path
+        (`/cameras` is an admin write prefix). Only the camera whose source
+        names itself accepts frames; any other camera is refused, so this can
+        never feed pictures into a real camera's stream.
+
+        The body is checked, not decoded: the camera's own thread decodes.
+        """
+        from vg.ingest import push
+
+        registry = getattr(request.app.state, "registry", None)
+        worker = registry.worker(camera_id) if registry is not None else None
+        if worker is None:
+            raise HTTPException(404, f"no camera {camera_id!r}")
+        if worker.source.source_spec.strip() != f"push:{camera_id}":
+            raise HTTPException(
+                409, f"camera {camera_id!r} reads its own source; it does not take pushed frames")
+        body = await request.body()
+        try:
+            push.put(camera_id, body)
+        except push.NotAJpeg as exc:
+            raise HTTPException(415 if len(body) <= push.MAX_BYTES else 413, str(exc))
+        return Response(status_code=204)
+
     @app.get(
         "/cameras/{camera_id}/snapshot",
         tags=["cameras"],

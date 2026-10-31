@@ -369,9 +369,15 @@ class CameraConfig:
         from vg.ingest.source import parse_source
 
         try:
-            parse_source(str(raw["source"]))
+            kind, handle = parse_source(str(raw["source"]))
         except ValueError as exc:
             raise ConfigError(f"{where}.source: {exc}") from exc
+        # A pushed camera names itself, so frames sent for one camera can
+        # never land in another's stream.
+        if kind.value == "push" and handle != str(raw.get("id", "")):
+            raise ConfigError(
+                f"{where}.source: a push source must name its own camera, "
+                f"push:{raw.get('id', '')}, not push:{handle}")
 
         rotate = int(raw.get("rotate", 0))
         if rotate not in (0, 90, 180, 270):
@@ -1368,7 +1374,16 @@ def _apply_overlay(raw: dict) -> dict:
     over = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     if not isinstance(over, dict):
         raise ConfigError(f"VG_CONFIG_OVERLAY {path}: must be a mapping at the top")
-    return _merge(raw, over)
+    # Lists replace, so `cameras:` here would drop every camera engine.yaml
+    # defines. `add_cameras:` appends instead: the cloud trial's pushed webcam
+    # joins the site's cameras rather than replacing them.
+    added = over.pop("add_cameras", None) or []
+    if not isinstance(added, list):
+        raise ConfigError(f"VG_CONFIG_OVERLAY {path}: add_cameras must be a list")
+    merged = _merge(raw, over)
+    if added:
+        merged["cameras"] = list(merged.get("cameras") or []) + added
+    return merged
 
 
 def load(path: Path | str | None = None) -> EngineConfig:

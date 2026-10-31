@@ -35,3 +35,21 @@ alerts:
 # the database, not yaml zones. tools/cloud/bootstrap.sh switches the clip
 # camera on through the same API call the console's toggle makes, so the
 # clip raises breaches to time. engine.yaml's zones are left as they are.
+
+# Mohamed's laptop webcam, sent to the cloud by tools/cloud/webcam_sender.py
+# (the "VisionGuard Cloud Camera" shortcut). The engine cannot reach the
+# laptop, so the laptop pushes its frames through the engine's own address.
+# Same features as cam-laptop in engine.yaml, so the cloud console is the
+# desktop's experience; vehicles runs only if the plate models were uploaded.
+# NO SIGNAL until the sender starts, and again within seconds of it stopping.
+add_cameras:
+  - id: cam-webcam
+    name: Laptop webcam (sent to the cloud)
+    source: push:cam-webcam
+    kind: Webcam
+    area: Main entrance
+    fps: 5
+    features: [attendance, counting, intrusion, track, vehicles, falls]
+    gate: 1
+    direction: entry
+    faces: true

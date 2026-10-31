@@ -68,6 +68,23 @@ Optional, for a background run (Save Version → Save & Run All): set `VG_IDLE_M
 and the trial stops itself that many minutes after the last use, and the run's end
 stops the clock. Off by default.
 
+## Your laptop webcam in the cloud
+
+Once, on the laptop: `.\tools\cloud\install-camera-shortcut.ps1` puts
+**VisionGuard Cloud Camera** on the desktop (already done on 31 Oct 2026).
+
+Each time, after START has printed the address:
+
+1. Double-click **VisionGuard Cloud Camera**. Paste the address, check the email
+   (`admin@trial.local`), type the password, press **Start**. The window shows how many
+   pictures a second it sends (about 10).
+2. In the cloud console, **Laptop webcam (sent to the cloud)** is live, with the same
+   features as your desktop's laptop camera. Enrol yourself there to be named.
+3. **Stop** (or close the window) and the camera reads NO SIGNAL within seconds.
+
+The webcam cannot be used by the desktop engine and the sender at the same time: stop
+`dev.ps1` first. Upload needed: about 2-3 Mbps while sending.
+
 ## What you should see
 
 - A banner on every page: when the engine stops, in your own time. Amber in the last

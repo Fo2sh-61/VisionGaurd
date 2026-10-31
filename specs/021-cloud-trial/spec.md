@@ -183,3 +183,22 @@ Later phase, not this spec:
 - The clip-to-API event time is measured from the moment the engine records the event to the
   moment the PC sees it, plus the engine's own frame-to-event time, because the PC and the
   cloud machine do not share a clock precisely enough to compare frames directly.
+
+## Addendum, 31 Oct 2026: the laptop webcam in the cloud
+
+Owner's decision, the same day, after the first Kaggle session. It changes
+CT-FR-013 and the first "Out of scope" line for this trial only.
+
+- **CT-FR-060**: The laptop webcam MUST be usable as a camera of the cloud engine
+  (`cam-webcam`), with the same features as the laptop camera, so the cloud console
+  is the desktop's experience. The laptop sends; the engine never reaches into the
+  laptop, and nothing on the laptop is opened to the internet.
+- **CT-FR-061**: Only an administrator may send frames, and only to a camera whose
+  source names itself as pushed. A real camera can never receive pushed frames.
+- **CT-FR-062**: When frames stop arriving the camera MUST go stale and then NO SIGNAL
+  within seconds, never showing an old picture as live.
+- **CT-FR-063**: Mohamed's own face may be on the webcam and he may enrol himself in
+  the cloud console to test attendance by name. The photos live only in that
+  session's throwaway database. Still no other person's enrolment, face or site data.
+- Live site cameras (many cameras, a site tunnel, someone else's faces) stay a later
+  phase.
