@@ -38,18 +38,21 @@ through a tunnel.
    It builds the console and writes `visionguard-trial.zip` from the current commit.
    Upload it as a new version of a **private** dataset `visionguard-code`.
 
-## Each work day
+## Each work day (one click)
 
-5. **(Kaggle)** Open the notebook. Settings: Accelerator **GPU T4**, Internet **on**.
-   Inputs: `visionguard-code` and `visionguard-models`. Run cells 1, 2 and 3.
-6. Cell 3 prints each step with its time, and ends with
-   `Console: https://<random>.trycloudflare.com`. If a step fails it says which and
-   stops: paste the whole output to Claude.
-7. Run cell 4 and leave it running (it keeps the session busy and prints the
-   engine's state every 5 minutes).
-8. **(PC)** Open the address. Sign in as `admin@trial.local` with your secret's
+Up to six days a week (Saturday to Thursday), 4.5 hours a day: 27 of Kaggle's ~30
+weekly GPU hours, with room for setup.
+
+5. **(Kaggle)** Open the notebook. Top right: **Save Version** → **Save & Run All
+   (Commit)** → **Save**. That's the click. It runs in the background, even with the
+   tab closed: setup (~6 min), then 4.5 h of engine, then it stops, saves, and gives
+   the GPU back.
+6. **Today's address**: bottom left, **View Active Events** → the running version →
+   its log. Look for `Console: https://<random>.trycloudflare.com` (it is repeated
+   every 5 minutes). If a step says **FAILED**, paste the log to Claude.
+7. **(PC)** Open the address. Sign in as `admin@trial.local` with your secret's
    password.
-9. **(PC)** Measure the cloud (6 minutes):
+8. **(PC)** To measure the cloud (6 minutes):
 
    ```powershell
    python engine/tools/measure_remote.py --url https://<random>.trycloudflare.com --label cloud --email admin@trial.local
@@ -58,9 +61,16 @@ through a tunnel.
    The table is `specs/021-cloud-trial/evidence/comparison.md`. Its **local** column
    was measured on 31 Oct 2026 on this laptop with the same profile (see "Local
    column" below to measure it again).
-10. **(Kaggle)** Before closing: interrupt cell 4, run cell 5 **Stop and save**, then
-    download the `trial-<date>` folder from the Output panel. Until we confirm that
-    Kaggle keeps `/kaggle/working` after an interactive session, assume it does not.
+9. **Afterwards**: the finished version's **Output** holds `trial-<date>/` (database,
+   logs, benchmark, summary).
+
+**Stopping early**: open the running version and cancel it; the engine's database
+is then not saved. In an interactive session instead (Run All in the editor), cell 4
+saves by itself at the end, and you press the power button so the GPU clock stops.
+
+Not yet confirmed on Kaggle: that a background (Commit) run gets the GPU, internet
+and the secret, and shows its log while it runs. The first one-click run is that
+test.
 
 ## What you should see
 

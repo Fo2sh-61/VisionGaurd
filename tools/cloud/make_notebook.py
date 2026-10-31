@@ -18,10 +18,16 @@ INTRO = """\
 # VisionGuard cloud trial (Kaggle)
 
 The recorded clip, an empty database, one administrator, a public https address.
-Step by step: `specs/021-cloud-trial/quickstart.md`.
+**One click, then hands off**: it sets itself up, runs **4.5 hours**, then stops
+and saves by itself. Step by step: `specs/021-cloud-trial/quickstart.md`.
 
-**Before Run all**: Settings → Accelerator **GPU T4**, Internet **on**. Inputs: your
-private `visionguard-code` and `visionguard-models` datasets. Add-ons → Secrets:
+**Start it**: top right, **Save Version** → **Save & Run All (Commit)** → **Save**.
+It runs in the background, even with this tab closed, and the GPU clock stops as
+soon as it finishes. Today's address: **View Active Events** (bottom left) → the
+running version → its log: look for `Console: https://...`.
+
+**Settings once**: Accelerator **GPU T4**, Internet **on**. Inputs: your private
+`visionguard-code` and `visionguard-models` datasets. Add-ons → Secrets:
 `VG_ADMIN_PASSWORD`, attached to this notebook.
 
 Nothing here contains a key. Ask and email report "not configured" in the trial."""
@@ -73,27 +79,34 @@ while True:
     if boot.poll() is not None:
         break
     time.sleep(3)
-print("\\nbootstrap exit code:", boot.returncode)"""
+print("\\nbootstrap exit code:", boot.returncode)
+if boot.returncode != 0:
+    # Keep what there is (the summary names the failed step), then end the run
+    # here, so a failed start does not sit on the GPU.
+    subprocess.run(["bash", f"{VG}/tools/cloud/stop.sh"])
+    raise SystemExit("The start failed: see the step marked FAILED above.")"""
 
 KEEP_ALIVE = """\
-# 4. Keep this cell running while you use the console. It prints the engine's state
-#    every 5 minutes, and stops when the engine stops. Interrupt it to get the
-#    notebook back; the engine keeps running until you run cell 5 or time runs out.
+# 4. Runs until the engine stops itself (4.5 h), printing the address every 5
+#    minutes, then saves the database, logs and benchmark. Nothing to do here.
 import json, urllib.request
 
+url = open("/tmp/vg-trial/url.txt").read().strip()
 while True:
     try:
         with urllib.request.urlopen("http://127.0.0.1:8000/healthz", timeout=10) as r:
             h = json.load(r)
-        print(time.strftime("%H:%M:%S"), "engine up, stops at", h.get("endsAt"), flush=True)
+        print(time.strftime("%H:%M:%S"), "engine up at", url, "- stops at", h.get("endsAt"), flush=True)
     except Exception as exc:
-        print(time.strftime("%H:%M:%S"), "engine not answering:", exc, flush=True)
+        print(time.strftime("%H:%M:%S"), "engine stopped:", exc, flush=True)
         break
-    time.sleep(300)"""
+    time.sleep(300)
+print(subprocess.run(["bash", f"{VG}/tools/cloud/stop.sh"], capture_output=True, text=True).stdout)
+print("Done. In an interactive session, press the power button (top) so the GPU clock stops.")"""
 
 STOP = """\
-# 5. Stop and save: database, logs, benchmark and summary go to /kaggle/working.
-#    Download the trial-<date> folder from the Output panel before you close.
+# 5. Only to stop EARLY, by hand: stop and save now. A normal run never needs it
+#    (cell 4 already saved); running it again is harmless.
 print(subprocess.run(["bash", f"{VG}/tools/cloud/stop.sh"], capture_output=True, text=True).stdout)"""
 
 

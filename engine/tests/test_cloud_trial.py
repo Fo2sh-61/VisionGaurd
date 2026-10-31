@@ -473,6 +473,21 @@ class TestScripts:
         assert len(launches) == 3  # tunnel, engine, stop timer
         assert all("nohup setsid " in line for line in launches), launches
 
+    def test_a_day_is_four_and_a_half_hours(self):
+        """Owner's choice, 31 Oct 2026: six working days x 4.5 h = 27 of the
+        ~30 weekly GPU hours. 11.5 h would spend a third of a week in one day."""
+        text = (CLOUD_TOOLS / "bootstrap.sh").read_text(encoding="utf-8")
+        assert 'hours="${VG_TRIAL_HOURS:-4.5}"' in text
+
+    def test_the_run_saves_and_ends_by_itself(self):
+        """One click: when the engine stops, the keep-alive cell saves and the
+        run ends, so a background run gives the GPU back at once."""
+        sys.path.insert(0, str(CLOUD_TOOLS))
+        import make_notebook
+        keep_alive = make_notebook.KEEP_ALIVE
+        assert "break" in keep_alive and "stop.sh" in keep_alive.split("break", 1)[1]
+        assert "stop.sh" in make_notebook.START and "SystemExit" in make_notebook.START
+
     def test_bootstrap_downloads_no_model(self):
         """Settled rule: the owner supplies every model."""
         text = (CLOUD_TOOLS / "bootstrap.sh").read_text(encoding="utf-8")

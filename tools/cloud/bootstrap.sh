@@ -6,8 +6,10 @@
 #   VG_ADMIN_PASSWORD   required; the notebook reads it from a Kaggle secret
 #   VG_MODELS_DIR       where the owner's models dataset is mounted
 #                       (default: searched under /kaggle/input)
-#   VG_TRIAL_HOURS      how long until the engine stops itself (default 11.5;
-#                       Kaggle ends a GPU session at 12 h)
+#   VG_TRIAL_HOURS      how long until the engine stops itself (default 4.5:
+#                       six working days x 4.5 h = 27 of Kaggle's ~30 weekly
+#                       GPU hours, with room for setup; the owner's choice,
+#                       31 Oct 2026. Kaggle's own limit is 12 h a session)
 #   VG_SKIP_TENSORRT=1  run the .pt files and do not build engines
 #
 # Every step prints how long it took. The first one that fails stops the run
@@ -240,7 +242,7 @@ open_tunnel() {
 }
 
 start_engine() {
-  local hours="${VG_TRIAL_HOURS:-11.5}" ends
+  local hours="${VG_TRIAL_HOURS:-4.5}" ends
   ends="$(date -u -d "+$("$PY" -c "print(int(float('$hours') * 3600))") seconds" +%Y-%m-%dT%H:%M:%S+00:00)"
   echo "$ends" > "$TRIAL/ends-at.txt"
   (
