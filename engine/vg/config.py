@@ -186,6 +186,9 @@ FACE_GATES: frozenset[str] = frozenset({"", "person", "frame"})
 #: reads. Every frame is DECODED either way - see CameraConfig.live_capture.
 LIVE_CAPTURE: frozenset[str] = frozenset({"watched", "always"})
 
+#: When face recognition runs - see CameraConfig.face_wake.
+FACE_WAKE: frozenset[str] = frozenset({"always", "motion"})
+
 #: Features that already run the shared person pass. A camera carrying
 #: one of these has person boxes going spare; a camera carrying none
 #: would have to start the person model just to gate faces.
@@ -297,6 +300,24 @@ class CameraConfig:
     # `engine/tools/benchmark.py --decode` measures how big a fraction.
     live_capture: str = "watched"
 
+    # When face recognition runs on this camera.
+    #
+    #   always   every check, at the camera's rate, which is what this did before
+    #   motion   only while something moves in the picture, a face is in view,
+    #            or either happened in the last few seconds
+    #
+    # An attendance camera is empty most of the day, and the face models are
+    # the costliest thing it runs on the processor; `motion` skips them while
+    # the picture is still. A cheap picture comparison decides, inside the
+    # recognition worker: no person model, no GPU, nothing another feature
+    # has to have switched on.
+    #
+    # Off unless asked for. Skipping checks can only find FEWER faces, and
+    # P8-FR-002 says a saving that has not been shown to change nothing stays
+    # off. `engine/tools/compare_detections.py --wake-check` measures it on
+    # the labelled clip; a real entrance has to confirm it.
+    face_wake: str = "always"
+
     @property
     def is_gate(self) -> bool:
         """Is this camera actually usable as a gate camera?
@@ -403,6 +424,13 @@ class CameraConfig:
                 f"got {live_capture!r}"
             )
 
+        face_wake = str(raw.get("face_wake", "always") or "always").strip().lower()
+        if face_wake not in FACE_WAKE:
+            raise ConfigError(
+                f"{where}.face_wake: expected one of {sorted(FACE_WAKE)}, "
+                f"got {face_wake!r}"
+            )
+
         features = tuple(raw.get("features", ()))
         unknown = [f for f in features if f not in FEATURES]
         if unknown:
@@ -459,6 +487,7 @@ class CameraConfig:
             direction=direction,
             face_gate=face_gate,
             live_capture=live_capture,
+            face_wake=face_wake,
         )
 
     def redacted_source(self) -> str:

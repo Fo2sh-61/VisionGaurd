@@ -327,3 +327,22 @@ class TestRealFaces:
             pytest.skip("no face in view")
         finally:
             cam.close()
+
+
+def test_face_pipeline_keeps_opencv_to_one_thread():
+    """OpenCV's default thread pool cost six times the processor for faces.
+
+    Measured 4 Nov 2026: 395 ms of processor per pass with one thread per core,
+    63 ms with one. Four attendance cameras went from 1.87 cores to 0.56.
+    """
+    import cv2
+
+    from vg.infer.faces import OPENCV_THREADS, FacePipeline
+
+    before = cv2.getNumThreads()
+    cv2.setNumThreads(4)
+    try:
+        FacePipeline(detector=object(), embedder=object())
+        assert cv2.getNumThreads() == OPENCV_THREADS == 1
+    finally:
+        cv2.setNumThreads(before)

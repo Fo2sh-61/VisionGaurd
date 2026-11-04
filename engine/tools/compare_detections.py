@@ -290,6 +290,81 @@ def gate_check(limit: int) -> int:
     return 1
 
 
+def wake_check(rate_hz: float = 2.0) -> int:
+    """Every check vs motion wake-up (`face_wake: motion`), on whole clips.
+
+    Each clip is walked at its own frame rate and checked at `rate_hz`, the
+    recognition worker's idle rate. On every check the face pipeline runs -
+    that is the reference - and `MotionWake` says whether a camera set to
+    `motion` would have looked. When it would, it would have found exactly the
+    reference faces (same frame, same models), so the only way to fail is a
+    check it skipped while a face was there: a face nobody looked for.
+
+    The labelled walk-through clip says what is missed; the empty baseline
+    clip says what is saved on a camera nobody walks past. Neither can show a
+    real entrance: lighting changes, a dark corridor, a crowd. That is for a
+    site to confirm before it is switched on.
+    """
+    from vg.features.recognition import MotionWake
+    from vg.infer.faces import FacePipeline
+
+    from datetime import datetime, timedelta, timezone
+
+    print(f"\nMotion wake-up check - every check vs wake on motion, {rate_hz:g}/s\n")
+    clips = sorted(glob.glob(str(ENGINE_DIR / "data" / "footage" / "*.mp4")))
+    if not clips:
+        raise SystemExit("no clip in engine/data/footage - nothing to check against")
+
+    pipeline = FacePipeline()
+    start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    missed_total = 0
+    for clip in clips:
+        cap = cv2.VideoCapture(clip)
+        fps = cap.get(cv2.CAP_PROP_FPS) or 15.0
+        wake = MotionWake()
+        checks = looked = with_faces = missed = 0
+        next_due = 0.0
+        index = -1
+        while True:
+            ok, image = cap.read()
+            if not ok:
+                break
+            index += 1
+            t = index / fps
+            if t < next_due:
+                continue
+            next_due = t + 1.0 / rate_hz
+            now = start + timedelta(seconds=t)
+
+            checks += 1
+            faces = pipeline.observe(image)
+            if faces:
+                with_faces += 1
+            if wake.should_look("clip", image, now):
+                looked += 1
+                if faces:
+                    wake.keep_awake("clip", now)
+            elif faces:
+                missed += 1
+                print(f"    MISSED  {Path(clip).name} at {t:6.1f} s - "
+                      f"{len(faces)} face(s) on a skipped check")
+        cap.release()
+        missed_total += missed
+        skipped = checks - looked
+        share = 100.0 * skipped / checks if checks else 0.0
+        print(f"  {Path(clip).name}")
+        print(f"    {checks} checks, {with_faces} with a face")
+        print(f"    looked {looked}, skipped {skipped} ({share:.0f}% of the face work saved)")
+        print(f"    faces missed on skipped checks: {missed}\n")
+
+    if missed_total == 0:
+        print("  no face missed - every check that had a face was looked at\n")
+        return 0
+    print(f"  {missed_total} check(s) with a face were skipped. Not safe to")
+    print("  switch on: under P8-FR-002 it stays off until this reads zero.\n")
+    return 1
+
+
 def record(path: Path, limit: int, skip_faces: bool, skip_plates: bool) -> int:
     print("\nVisionGuard detection record\n")
     frames = _frames(limit)
@@ -432,12 +507,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--gate-check", action="store_true",
                         help="compare whole-frame face detection against "
                              "person-gated, on the same frames")
+    parser.add_argument("--wake-check", action="store_true",
+                        help="compare running faces on every check against "
+                             "waking on motion, on every clip")
+    parser.add_argument("--rate", type=float, default=2.0,
+                        help="checks a second for --wake-check (default 2, "
+                             "the recognition worker's idle rate)")
     args = parser.parse_args(argv)
 
     if args.batch_check:
         return batch_check(args.frames)
     if args.gate_check:
         return gate_check(args.frames)
+    if args.wake_check:
+        return wake_check(args.rate)
     if args.diff:
         return diff(*args.diff)
     if args.record:

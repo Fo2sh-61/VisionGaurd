@@ -848,6 +848,9 @@ def _start_recognition(cfg, registry, roster=None, face=None, tracking=None,
             shared=detector,
             gated=[c.id for c in all_cameras
                    if c.id in cameras and c.gates_faces],
+            # Cameras that run the face models only while something moves.
+            wake=[c.id for c in all_cameras
+                  if c.id in cameras and c.face_wake == "motion"],
         )
         recogniser.start()
         log.info(

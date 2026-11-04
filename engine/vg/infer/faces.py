@@ -59,6 +59,20 @@ SFACE_COSINE_THRESHOLD = 0.363
 # UI already knows how to say.
 MIN_FACE_PIXELS = 80
 
+# OpenCV's own thread pool, for the whole process.
+#
+# Measured 4 Nov 2026 on the labelled clip (i7-9750H, 12 logical cores): with
+# OpenCV's default of one thread per core, one pass of this pipeline took 46 ms
+# but kept the processor busy for 395 ms — the extra threads mostly wait on
+# each other. With one thread it took 64 ms and cost 63 ms. Four attendance
+# cameras at 2 checks a second dropped from 1.87 cores busy to 0.56. Every
+# camera already has its own worker thread (`features/base.py`), so the
+# parallelism comes from cameras, not from inside one face.
+#
+# Process-wide on purpose: it is OpenCV's setting, not this class's, and the
+# rest of the engine's OpenCV work (resize, encode) gains the same way.
+OPENCV_THREADS = 1
+
 
 @dataclass(frozen=True)
 class DetectedFace:
@@ -247,6 +261,7 @@ class FacePipeline:
     def __init__(
         self, detector: FaceDetector | None = None, embedder: Embedder | None = None
     ) -> None:
+        cv2.setNumThreads(OPENCV_THREADS)
         self.detector = detector or FaceDetector()
         self.embedder = embedder or SFaceEmbedder()
 

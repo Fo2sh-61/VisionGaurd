@@ -372,6 +372,12 @@ class FeatureWorker(ABC, Generic[R]):
             return rate
         return 1.0 / self.interval if self.interval else 0.0
 
+    def boosted(self, camera_id: str) -> bool:
+        """Whether somebody is looking at this camera's results right now."""
+        with self._lock:
+            until = self._boost_until.get(camera_id, 0.0)
+        return time.monotonic() < until
+
     def _interval_for(self, camera_id: str) -> float:
         with self._lock:
             until = self._boost_until.get(camera_id, 0.0)
