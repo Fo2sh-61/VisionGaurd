@@ -1509,6 +1509,8 @@ def _start_vehicles(cfg, registry, roster):
             on_pass=record, on_final=final, rate_hz=rate, boost_hz=12.0,
             dedupe_seconds=cfg.vehicles.dedupe_seconds,
             near_dedupe_seconds=cfg.vehicles.near_dedupe_seconds,
+            # Gates that read plates only while something moves.
+            wake=[c.id for c in gates if c.plate_wake == "motion"],
         )
         worker.start()
         log.info(

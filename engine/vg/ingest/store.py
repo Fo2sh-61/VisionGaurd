@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS camera (
     face_gate     TEXT NOT NULL DEFAULT '',
     live_capture  TEXT NOT NULL DEFAULT 'watched',
     face_wake     TEXT NOT NULL DEFAULT 'always',
+    plate_wake    TEXT NOT NULL DEFAULT 'always',
     neighbours    TEXT NOT NULL DEFAULT ''
 );
 
@@ -87,6 +88,7 @@ class CameraStore:
             ("camera", "face_gate", "TEXT NOT NULL DEFAULT ''"),
             ("camera", "live_capture", "TEXT NOT NULL DEFAULT 'watched'"),
             ("camera", "face_wake", "TEXT NOT NULL DEFAULT 'always'"),
+            ("camera", "plate_wake", "TEXT NOT NULL DEFAULT 'always'"),
             ("camera", "neighbours", "TEXT NOT NULL DEFAULT ''"),
         ):
             existing = {r["name"] for r in
@@ -112,6 +114,7 @@ class CameraStore:
         face_gate: str = "",
         live_capture: str = "watched",
         face_wake: str = "always",
+        plate_wake: str = "always",
         neighbours: tuple[str, ...] = (),
     ) -> CameraConfig:
         """Add or re-add a camera.
@@ -139,6 +142,7 @@ class CameraStore:
                 "face_gate": face_gate,
                 "live_capture": live_capture,
                 "face_wake": face_wake,
+                "plate_wake": plate_wake,
                 "neighbours": list(neighbours),
                 "features": list(features),
                 "rotate": rotate,
@@ -151,8 +155,8 @@ class CameraStore:
                 "INSERT INTO camera "
                 "(id, name, source, kind, area, fps, rotate, features, enabled, "
                 " removed_at, created_at, faces, gate, direction, face_gate, "
-                " live_capture, face_wake, neighbours) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?) "
+                " live_capture, face_wake, plate_wake, neighbours) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT(id) DO UPDATE SET "
                 "  name=excluded.name, source=excluded.source, kind=excluded.kind, "
                 "  area=excluded.area, fps=excluded.fps, rotate=excluded.rotate, "
@@ -161,6 +165,7 @@ class CameraStore:
                 "  direction=excluded.direction, face_gate=excluded.face_gate, "
                 "  live_capture=excluded.live_capture, "
                 "  face_wake=excluded.face_wake, "
+                "  plate_wake=excluded.plate_wake, "
                 "  neighbours=excluded.neighbours",
                 (
                     config.id, config.name, config.source, config.kind, config.area,
@@ -169,6 +174,7 @@ class CameraStore:
                     datetime.now(timezone.utc).isoformat(),
                     1 if config.faces else 0, config.gate, config.direction,
                     config.face_gate, config.live_capture, config.face_wake,
+                    config.plate_wake,
                     ",".join(config.neighbours),
                 ),
             )
@@ -262,6 +268,7 @@ class CameraStore:
                         "face_gate": row["face_gate"],
                         "live_capture": row["live_capture"],
                         "face_wake": row["face_wake"],
+                        "plate_wake": row["plate_wake"],
                         "neighbours": [n for n in row["neighbours"].split(",") if n],
                     },
                     f"stored camera {row['id']!r}",

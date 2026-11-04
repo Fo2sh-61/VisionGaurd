@@ -189,6 +189,9 @@ LIVE_CAPTURE: frozenset[str] = frozenset({"watched", "always"})
 #: When face recognition runs - see CameraConfig.face_wake.
 FACE_WAKE: frozenset[str] = frozenset({"always", "motion"})
 
+#: When plate reading runs - see CameraConfig.plate_wake. Same values.
+PLATE_WAKE: frozenset[str] = FACE_WAKE
+
 #: Features that already run the shared person pass. A camera carrying
 #: one of these has person boxes going spare; a camera carrying none
 #: would have to start the person model just to gate faces.
@@ -318,6 +321,18 @@ class CameraConfig:
     # the labelled clip; a real entrance has to confirm it.
     face_wake: str = "always"
 
+    # When plate reading runs on this gate camera. Same two values as
+    # `face_wake`, and the same reasoning: a gate is empty most of the day,
+    # and the plate pair is the heaviest thing VisionGuard runs - one gate
+    # camera costs the graphics card about what ten zone cameras do. `motion`
+    # reads only while the picture changes, a plate is in view or a car is
+    # still being followed, or either happened in the last few seconds.
+    #
+    # Off unless asked for, under P8-FR-002. The labelled clips have no car in
+    # them, so nothing in the repository can show it misses no plate; a real
+    # gate has to, before it is switched on.
+    plate_wake: str = "always"
+
     @property
     def is_gate(self) -> bool:
         """Is this camera actually usable as a gate camera?
@@ -431,6 +446,13 @@ class CameraConfig:
                 f"got {face_wake!r}"
             )
 
+        plate_wake = str(raw.get("plate_wake", "always") or "always").strip().lower()
+        if plate_wake not in PLATE_WAKE:
+            raise ConfigError(
+                f"{where}.plate_wake: expected one of {sorted(PLATE_WAKE)}, "
+                f"got {plate_wake!r}"
+            )
+
         features = tuple(raw.get("features", ()))
         unknown = [f for f in features if f not in FEATURES]
         if unknown:
@@ -488,6 +510,7 @@ class CameraConfig:
             face_gate=face_gate,
             live_capture=live_capture,
             face_wake=face_wake,
+            plate_wake=plate_wake,
         )
 
     def redacted_source(self) -> str:

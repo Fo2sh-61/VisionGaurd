@@ -19,15 +19,13 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
-from datetime import datetime, timedelta
-
-import cv2
 import numpy as np
 
 from vg.config import AnchorGates
 from vg.events.anchors import AnchorAccumulator, FaceMatch
 from vg.events.sightings import Sighting, SightingStore
 from vg.features.base import FeatureWorker
+from vg.features.wake import MotionWake
 from vg.identity.gallery import FaceGallery, Person
 from vg.infer.faces import FacePipeline
 from vg.ingest.source import Frame
@@ -85,91 +83,6 @@ class FacesResult:
 #: not allowed to produce. 12% is enough to clear the head at the distances
 #: these cameras see people at.
 CROP_PAD = 0.12
-
-#: Motion wake-up (`face_wake: motion`). Two checks are compared on a small
-#: grey copy of the picture, blurred so sensor noise does not count as
-#: movement. A pixel has moved when it changed by more than WAKE_PIXEL_DELTA
-#: grey levels; the picture has moved when at least WAKE_AREA of it did.
-WAKE_SIZE = (160, 120)
-WAKE_PIXEL_DELTA = 25
-WAKE_AREA = 0.005
-
-#: How long recognition keeps looking after the last movement or the last face.
-#: Longer than the anchor gate's span (1.5 s identity, 2.0 s patrol), so
-#: somebody who walks up and then stands still is still looked at long enough
-#: to be named - and while their face stays in view it never lapses at all.
-WAKE_HOLD_SECONDS = 5.0
-
-#: Look at least this often even when nothing moves. A person who stood still
-#: with their face turned away until the hold ran out, then lifted their head -
-#: a change too small to count as movement - is still found within this long.
-#: At 2 checks a second it costs one check in twenty.
-WAKE_HEARTBEAT_SECONDS = 10.0
-
-
-class MotionWake:
-    """Whether a camera has anything worth running the face models on.
-
-    An attendance camera is empty most of the day, and the face models are the
-    most expensive work it does on the processor. This decides, per camera,
-    whether to look:
-
-      - something moved since the last check  -> look
-      - a face was found within the hold       -> look (a still person)
-      - something moved within the hold        -> look
-      - no look for WAKE_HEARTBEAT_SECONDS     -> look (a still face, turned)
-      - otherwise                              -> skip, and count it
-
-    It errs towards looking. A first frame, a picture of a new size, or any
-    failure in the comparison all count as movement: a skipped check is a face
-    nobody looked for, while an extra one only costs time.
-    """
-
-    def __init__(self, hold_seconds: float = WAKE_HOLD_SECONDS,
-                 heartbeat_seconds: float = WAKE_HEARTBEAT_SECONDS) -> None:
-        self.hold = timedelta(seconds=hold_seconds)
-        self.heartbeat = timedelta(seconds=heartbeat_seconds)
-        self._last: dict[str, np.ndarray] = {}
-        self._awake_until: dict[str, datetime] = {}
-        self._looked_at: dict[str, datetime] = {}
-
-    def moved(self, camera_id: str, image: np.ndarray) -> bool:
-        try:
-            small = cv2.resize(image, WAKE_SIZE, interpolation=cv2.INTER_AREA)
-            if small.ndim == 3:
-                small = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
-            small = cv2.GaussianBlur(small, (5, 5), 0)
-        except cv2.error:
-            self._last.pop(camera_id, None)
-            return True
-        previous = self._last.get(camera_id)
-        self._last[camera_id] = small
-        if previous is None or previous.shape != small.shape:
-            return True
-        changed = np.count_nonzero(cv2.absdiff(small, previous) > WAKE_PIXEL_DELTA)
-        return changed >= WAKE_AREA * small.size
-
-    def should_look(self, camera_id: str, image: np.ndarray, now: datetime) -> bool:
-        if self.moved(camera_id, image):
-            self.keep_awake(camera_id, now)
-            look = True
-        else:
-            until = self._awake_until.get(camera_id)
-            looked = self._looked_at.get(camera_id)
-            look = ((until is not None and now < until)
-                    or looked is None or now - looked >= self.heartbeat)
-        if look:
-            self._looked_at[camera_id] = now
-        return look
-
-    def keep_awake(self, camera_id: str, now: datetime) -> None:
-        self._awake_until[camera_id] = now + self.hold
-
-    def forget(self, camera_id: str) -> None:
-        self._last.pop(camera_id, None)
-        self._awake_until.pop(camera_id, None)
-        self._looked_at.pop(camera_id, None)
-
 
 def person_crops(
     image: np.ndarray,
@@ -365,6 +278,12 @@ class RecognitionWorker(FeatureWorker[FacesResult]):
         self.faces_seen += len(faces)
         self.identifications += sum(1 for f in faces if f.identified)
         return FacesResult(faces=tuple(faces))
+
+    def _closing(self, camera_id: str) -> None:
+        """This camera is leaving the worker: forget its last picture, so a
+        camera added back is not compared against a scene from before."""
+        self._wake.forget(camera_id)
+        super()._closing(camera_id)
 
     def _weigh(self, frame: Frame, observation, match, face_box) -> None:
         """Add this match to the evidence, and act only if it is now enough.

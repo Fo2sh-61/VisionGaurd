@@ -305,7 +305,7 @@ def wake_check(rate_hz: float = 2.0) -> int:
     real entrance: lighting changes, a dark corridor, a crowd. That is for a
     site to confirm before it is switched on.
     """
-    from vg.features.recognition import MotionWake
+    from vg.features.wake import MotionWake
     from vg.infer.faces import FacePipeline
 
     from datetime import datetime, timedelta, timezone

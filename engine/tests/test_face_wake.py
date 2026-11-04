@@ -15,12 +15,8 @@ import numpy as np
 import pytest
 
 from vg.config import CameraConfig, ConfigError
-from vg.features.recognition import (
-    WAKE_HEARTBEAT_SECONDS,
-    WAKE_HOLD_SECONDS,
-    MotionWake,
-    RecognitionWorker,
-)
+from vg.features.recognition import RecognitionWorker
+from vg.features.wake import WAKE_HEARTBEAT_SECONDS, WAKE_HOLD_SECONDS, MotionWake
 from vg.ingest.source import Frame
 
 MODEL = "sface-2021dec"

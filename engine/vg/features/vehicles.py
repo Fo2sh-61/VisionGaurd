@@ -32,6 +32,7 @@ from __future__ import annotations
 import logging
 import time
 from collections import deque
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
@@ -39,6 +40,7 @@ import numpy as np
 
 from vg import platetext
 from vg.features.base import FeatureWorker
+from vg.features.wake import MotionWake
 from vg.infer.plates import PlateBox, PlateRead, PlateReader
 from vg.ingest.source import Frame
 
@@ -304,6 +306,7 @@ class VehiclesWorker(FeatureWorker[VehiclesResult]):
         boost_hz: float = 12.0,
         dedupe_seconds: float = DEDUPE_SECONDS,
         near_dedupe_seconds: float = NEAR_DEDUPE_SECONDS,
+        wake: Sequence[str] = (),
     ) -> None:
         super().__init__("vehicles", bus, cameras, rate_hz, boost_hz)
         self.reader = reader
@@ -328,9 +331,38 @@ class VehiclesWorker(FeatureWorker[VehiclesResult]):
         # camera id -> rolling milliseconds per read. Absent until the first.
         self._read_ms: dict[str, float] = {}
 
+        # When to read, per camera: gates listed here (`plate_wake: motion`)
+        # run the plate pair only while something moves, a plate is in view
+        # or a car is still being followed. Off unless asked for - see
+        # CameraConfig.plate_wake.
+        self.wake = frozenset(wake)
+        self._wake = MotionWake()
+        # Reads skipped because nothing moved. Shown on System Health so the
+        # saving can be checked rather than believed.
+        self.frames_still = 0
+
     # -- one frame ----------------------------------------------------------
 
+    def _asleep(self, frame: Frame) -> bool:
+        """True when this gate wakes on motion and nothing calls for a read.
+
+        A car still being followed always gets a read, however still it
+        stands: its track only finishes, and its pass only becomes final, on
+        frames that were read. Somebody watching the camera always gets one
+        too, so their boxes do not freeze.
+        """
+        camera_id = frame.camera_id
+        if (camera_id not in self.wake or self.boosted(camera_id)
+                or self._tracks.get(camera_id)):
+            return False
+        return not self._wake.should_look(camera_id, frame.image,
+                                          frame.captured_at)
+
     def analyse(self, frame: Frame) -> VehiclesResult:
+        if self._asleep(frame):
+            self.frames_still += 1
+            return VehiclesResult()
+
         now = frame.captured_at
         # `perf_counter` here and `frame.captured_at` everywhere else, on
         # purpose: this measures how long the machine took, which is a
@@ -387,6 +419,11 @@ class VehiclesWorker(FeatureWorker[VehiclesResult]):
             # one this frame helped decide rather than the one before it.
             self._note_attempt(frame.camera_id, now, read, track)
 
+        if reads and frame.camera_id in self.wake:
+            # A plate in view keeps the gate awake even if the car stands
+            # still at the barrier.
+            self._wake.keep_awake(frame.camera_id, now)
+
         passes = tuple(self._settle(frame.camera_id, tracks, now))
         for track in tracks:
             if track.misses > LOST_FRAMES:
@@ -400,9 +437,9 @@ class VehiclesWorker(FeatureWorker[VehiclesResult]):
     def _closing(self, camera_id: str) -> None:
         """This camera is leaving the worker. Drop everything held for it.
 
-        All four are per-camera and none outlives the camera: tracks in view,
-        the de-duplication window, the reader card's attempts, and the rolling
-        read time. Leaving `_recent` behind would be the harmful one - a plate
+        All five are per-camera and none outlives the camera: tracks in view,
+        the de-duplication window, the reader card's attempts, the rolling
+        read time, and the motion wake-up's last picture. Leaving `_recent` behind would be the harmful one - a plate
         read at this camera before it was removed would silently suppress the
         first pass if the camera were ever added back.
 
@@ -412,6 +449,7 @@ class VehiclesWorker(FeatureWorker[VehiclesResult]):
             self._final(camera_id, track)
         self._attempts.pop(camera_id, None)
         self._read_ms.pop(camera_id, None)
+        self._wake.forget(camera_id)
         for key in [k for k in self._recent if k[0] == camera_id]:
             self._recent.pop(key, None)
         super()._closing(camera_id)
