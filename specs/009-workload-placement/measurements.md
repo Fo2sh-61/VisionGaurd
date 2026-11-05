@@ -345,6 +345,69 @@ switched on.
   the 16–20 ms conversion, which after hardware decode is the whole remaining
   bill. Nobody has measured it.
 
+## 1d. A real NVR (5 Nov 2026)
+
+The first measurement on a real site camera, which §1c listed as "the one
+measurement that would make this decision on evidence". A Hikvision NVR,
+channel 1, an empty office corridor, two minutes of each stream recorded
+with `ffmpeg -c copy` into `engine/data/footage/nvr/` (git-ignored: site
+footage never enters the repository).
+
+| stream | codec | size | rate | bitrate, this scene |
+|---|---|---|---|---|
+| main (`/Channels/101`) | H.265 | 2560×1440 | 20 fps | 0.32 Mbit/s |
+| sub (`/Channels/102`) | H.265 | 640×360 | 20 fps | 0.04 Mbit/s |
+
+The bitrates are those of a still, empty scene under smart H.265; a busy
+one costs more to send and to decode. **Every earlier figure was H.264.**
+
+```
+python engine/tools/benchmark.py --decode --hw --clip engine/data/footage/nvr/nvr-ch1-sub.mp4
+python engine/tools/benchmark.py --decode --hw --clip engine/data/footage/nvr/nvr-ch1-main.mp4
+```
+
+**Decode, processor time per frame** (i7-9750H):
+
+| | every frame to pixels, 12 threads | 1 thread | 5 of 20 frames to pixels (`watched`) |
+|---|---|---|---|
+| sub, processor | 1.18 ms = **0.024 core** a camera | 0.68 ms | 0.76 ms = 0.015 core |
+| sub, Intel UHD 630 | 2.14 ms | — | 0.39 ms = 0.008 core |
+| main, processor | 27.0 ms = **0.54 core** a camera | 13.9 ms | 15.96 ms = 0.32 core |
+| main, Intel UHD 630 | 20.8 ms | — | 6.12 ms = **0.12 core** |
+| main, NVIDIA RTX 2080 Max-Q | 25.7 ms | — | 6.85 ms = 0.14 core |
+
+`--hw` times an H.264 re-encode, so the chip rows above were run by hand on
+the H.265 files themselves (`CAP_PROP_HW_ACCELERATION` read back 2 on both
+chips: H.265 decodes on them). A chip only pays when frames are NOT all
+turned into pixels: converting every 1440p frame back off the chip costs
+about what decoding it on the processor does.
+
+**Models, on frames sampled at 2 a second** (nobody walked past):
+
+| | sub 640×360 | main 2560×1440 |
+|---|---|---|
+| person pass (zones), graphics card | 10.8 ms | 13.8 ms |
+| plate pass, no car, graphics card | 18.4 ms | 19.5 ms |
+| face pass (YuNet + SFace), processor, 1 thread | 18.3 ms | **309.5 ms** |
+| motion wake-up: checks skipped | **90%** | 90% |
+
+The NVR's own clock overlay, which changes every second, does not count as
+movement: blanking it skips exactly the same 90%.
+
+What this changes:
+
+- **Cameras go on the sub-stream.** Decoding the main stream costs 22
+  times as much processor, and the face pass on it 17 times as much.
+- **The sub-stream is cheaper than assumed**: 1.2 ms a frame, not the 6 ms
+  `benchmark.py` carried with no source. `ASSUMED_MS` now holds the
+  measured figures, and `CAMERA_FPS` is 20.
+- **Faces on a 640×360 sub-stream are small.** Recognition needs 80 px
+  (`MIN_FACE_PIXELS`): about arm's length on this picture. An attendance
+  camera needs to be close to the door, or set to a larger sub-stream.
+  Not measured with a person: nobody walked past during the recording.
+- `face_wake: motion` on an empty corridor skipped 90% of the face work, as
+  the arithmetic said; `plate_wake` shares the same check.
+
 ## 2. Bag model — change 5, REJECTED
 
 Both paths, back to back, same 40 clip frames:
