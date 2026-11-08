@@ -287,6 +287,13 @@ class TestCoverage:
         ("GET", "/weapons/detections"),  # getWeaponDetections
         ("POST", "/weapons/{id}/review"),   # (new) confirm/dismiss
         ("GET", "/weapons/cameras"),     # getWeaponCameras
+        ("GET", "/falls/entries"),       # getFalls
+        ("GET", "/falls/status"),        # getFallsStatus
+        ("GET", "/falls/now"),           # getFallsNow
+        ("POST", "/falls/{id}/respond"),     # respondToFall
+        ("DELETE", "/falls/{id}/respond"),   # undoFallResponse
+        ("POST", "/falls/{id}/not-a-fall"),  # markNotAFall
+        ("GET", "/falls/cameras"),       # getFallCameras
         ("POST", "/track"),              # trackPerson + recordTrackSearch
         ("GET", "/audit"),
         ("GET", "/system/health"),       # getSystemHealth
@@ -322,7 +329,8 @@ class TestCoverage:
         }
         normalised = {
             (m, p.replace("{zone_id}", "{id}").replace("{detection_id}", "{id}")
-                 .replace("{incident_id}", "{id}").replace("{item_id}", "{id}"))
+                 .replace("{incident_id}", "{id}").replace("{item_id}", "{id}")
+                 .replace("{fall_id}", "{id}"))
             for m, p in routes
         }
         missing = [r for r in self.REQUIRED if tuple(r) not in normalised]

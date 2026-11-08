@@ -1,5 +1,6 @@
 import { CameraSources } from '@/components/CameraSources';
 import { CamGrid } from '@/components/CamGrid';
+import { FallChecking } from '@/components/FallChecking';
 import { Badge, Card, CardHeader, Empty, LoadError, PageHeader, Stats, toneGlyph } from '@/components/ui';
 import { getSystemHealth } from '@/services/api';
 import {
@@ -258,6 +259,10 @@ export function SystemHealth() {
           )}
         </Card>
       )}
+
+      {/* Per-camera switches for one feature, from the owner's design. They
+          edit each camera's feature list, exactly as the form below does. */}
+      <FallChecking />
 
       <CameraSources />
 

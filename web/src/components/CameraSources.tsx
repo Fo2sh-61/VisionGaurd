@@ -128,7 +128,7 @@ const STREAM_PATHS: { label: MessageKey; path: string }[] = [
 
 /** What a camera can be watched for, and what each costs to run.
  *
- *  All seven, not three. `track`, `vehicles`, `weapons` and `lostitems` could
+ *  All eight, not three. `track`, `vehicles`, `weapons` and `lostitems` could
  *  not be chosen here at all, so they could only ever be set by editing
  *  engine.yaml and restarting. */
 const FEATURES: {
@@ -149,6 +149,9 @@ const FEATURES: {
   { key: 'track', label: 'source.feature.track', cost: 'source.feature.track.cost', fast: true },
   { key: 'vehicles', label: 'source.feature.vehicles', cost: 'source.feature.vehicles.cost', fast: true },
   { key: 'weapons', label: 'source.feature.weapons', cost: 'source.feature.weapons.cost', fast: true },
+  // Fast: the fall model reads movement over a second, and the engine
+  // refuses it below five frames a second (MIN_ANALYTICS_HZ in config.py).
+  { key: 'falls', label: 'source.feature.falls', cost: 'source.feature.falls.cost', fast: true },
   { key: 'lostitems', label: 'source.feature.lostitems', cost: 'source.feature.lostitems.cost' },
 ];
 

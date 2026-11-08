@@ -279,7 +279,7 @@ class CameraView(Wire):
 #: checks that, by reading `_boxes` itself.
 OVERLAY_FEATURES = (
     "attendance", "track", "counting", "intrusion", "weapons", "lost",
-    "vehicles",
+    "vehicles", "falls",
 )
 
 OVERLAY_FEATURE_PATTERN = f"^({'|'.join(OVERLAY_FEATURES)})$"
@@ -485,6 +485,56 @@ class WeaponReview(Wire):
     # else. `MockStore` still reads it, so demo mode keeps working.
     actor: str | None = None
     reason: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# falls
+# ---------------------------------------------------------------------------
+
+class FallEntry(Wire):
+    """One fall: somebody went down on a camera, and what happened next.
+
+    `at` is when they went down. `alerted_at` is when they had been down long
+    enough to count (`FallsStatus.down_seconds`); None means they got up
+    before that and nothing was raised. `ended_at` None means they are still
+    down. Nobody is named — this feature sees a body, not a person.
+
+    Entries are never removed, "not a fall" included; there is no delete.
+    """
+
+    id: str
+    at: Instant
+    camera_id: str
+    camera_name: str
+    location: str
+    detected_at: Instant
+    alerted_at: Instant | None = None
+    ended_at: Instant | None = None
+    seconds: float = 0.0
+    #: `got_up`, `left_view`, `switched_off` or `shutdown`. The console words
+    #: them; None while the person is still down.
+    end_reason: str | None = None
+    confidence: Confidence
+    #: `none` or `not_a_fall`. Once `not_a_fall`, never back.
+    verdict: Literal["none", "not_a_fall"] = "none"
+    reviewed_by: str | None = None
+    reviewed_at: Instant | None = None
+    #: Who pressed "I'm on my way", and when. Cleared by Undo.
+    responder: str | None = None
+    responded_at: Instant | None = None
+    clip: Clip | None = None
+    clip_state: str = "none"
+    clip_reason: str | None = None
+    model_version: str | None = None
+
+
+class FallsStatus(Wire):
+    """What the Falls page says about the feature itself."""
+
+    #: Down this long without getting up and it counts. The page quotes it.
+    down_seconds: float
+    #: How many cameras are being checked for falls right now.
+    cameras_checked: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -1253,7 +1303,8 @@ class AttentionItem(Wire):
     """
 
     id: str
-    kind: Literal["weapon", "intrusion", "vehicles", "camera", "attendance", "system"]
+    kind: Literal["weapon", "intrusion", "vehicles", "camera", "attendance", "system",
+                  "fall"]
     at: Instant
     severity: Severity
     title: str

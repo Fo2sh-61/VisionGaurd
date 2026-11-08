@@ -1,0 +1,67 @@
+output: runs\cnn
+wrote split runs\split.json
+train  137 groups    15473 windows  normal=11851  falling=1004  fallen=2618
+val     30 groups     6172 windows  normal=4562  falling=532  fallen=1078
+test    30 groups     9502 windows  normal=7970  falling=480  fallen=1052
+class weights: normal=0.17  falling=2.04  fallen=0.78
+model cnn: 65,859 parameters on cuda
+epoch   1  train_loss 0.4540  val_loss 0.3606  val_macro_f1 0.7811  1.6s  *
+epoch   2  train_loss 0.3073  val_loss 0.3344  val_macro_f1 0.8519  1.3s  *
+epoch   3  train_loss 0.2598  val_loss 0.3818  val_macro_f1 0.8536  1.2s  *
+epoch   4  train_loss 0.2183  val_loss 0.4428  val_macro_f1 0.8647  1.3s  *
+epoch   5  train_loss 0.2044  val_loss 0.3576  val_macro_f1 0.8671  1.4s  *
+epoch   6  train_loss 0.1826  val_loss 0.4087  val_macro_f1 0.8043  1.4s
+epoch   7  train_loss 0.1721  val_loss 0.3847  val_macro_f1 0.7799  1.2s
+epoch   8  train_loss 0.1586  val_loss 0.4862  val_macro_f1 0.8326  1.4s
+epoch   9  train_loss 0.1521  val_loss 0.4543  val_macro_f1 0.8565  1.4s
+epoch  10  train_loss 0.1218  val_loss 0.5135  val_macro_f1 0.8685  1.4s  *
+epoch  11  train_loss 0.1162  val_loss 0.5799  val_macro_f1 0.8553  1.3s
+epoch  12  train_loss 0.1121  val_loss 0.4684  val_macro_f1 0.8611  1.4s
+epoch  13  train_loss 0.1002  val_loss 0.5822  val_macro_f1 0.8482  1.3s
+epoch  14  train_loss 0.0952  val_loss 0.5652  val_macro_f1 0.8828  1.3s  *
+epoch  15  train_loss 0.0993  val_loss 0.6201  val_macro_f1 0.8785  1.4s
+epoch  16  train_loss 0.0950  val_loss 0.5978  val_macro_f1 0.8750  1.4s
+epoch  17  train_loss 0.0925  val_loss 0.5125  val_macro_f1 0.8555  1.4s
+epoch  18  train_loss 0.0883  val_loss 0.5414  val_macro_f1 0.8586  1.2s
+epoch  19  train_loss 0.0754  val_loss 0.5256  val_macro_f1 0.8732  1.4s
+epoch  20  train_loss 0.0715  val_loss 0.5245  val_macro_f1 0.8732  1.4s
+epoch  21  train_loss 0.0758  val_loss 0.5646  val_macro_f1 0.8771  1.2s
+epoch  22  train_loss 0.0698  val_loss 0.6222  val_macro_f1 0.8726  1.4s
+epoch  23  train_loss 0.0640  val_loss 0.5875  val_macro_f1 0.8747  1.4s
+epoch  24  train_loss 0.0599  val_loss 0.6746  val_macro_f1 0.8757  1.3s
+early stopping: no val macro-F1 improvement for 10 epochs
+
+best epoch 14  ->  runs\cnn\best.pt
+
+[validation]
+confusion matrix (rows = true, columns = predicted)
+            normal  falling   fallen
+normal        4401      105       56
+falling         60      449       23
+fallen         113       41      924
+  normal   precision 0.962  recall 0.965  F1 0.963  (n=4562)
+  falling  precision 0.755  recall 0.844  F1 0.797  (n=532)
+  fallen   precision 0.921  recall 0.857  F1 0.888  (n=1078)
+  macro F1 0.883   accuracy 0.936
+
+[test]
+confusion matrix (rows = true, columns = predicted)
+            normal  falling   fallen
+normal        7328      188      454
+falling         72      388       20
+fallen         194       88      770
+  normal   precision 0.965  recall 0.919  F1 0.942  (n=7970)
+  falling  precision 0.584  recall 0.808  F1 0.678  (n=480)
+  fallen   precision 0.619  recall 0.732  F1 0.671  (n=1052)
+  macro F1 0.764   accuracy 0.893
+
+[alert settings on validation videos]
+threshold  gate   F1     precision  recall  false alarms
+   argmax     0  0.750   0.923     0.632      1   <- chosen
+   argmax     6  0.750   0.923     0.632      1
+     0.60     0  0.667   0.909     0.526      1
+     0.60     6  0.667   0.909     0.526      1
+     0.70     0  0.667   0.909     0.526      1
+     0.70     6  0.667   0.909     0.526      1
+     0.80     0  0.667   0.909     0.526      1
+     0.80     6  0.667   0.909     0.526      1

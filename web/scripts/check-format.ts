@@ -116,6 +116,14 @@ eq('an "Unknown" label is not a face match',
    boxColor({ x:0,y:0,w:1,h:1, kind:'face', match:'none', severity:'info', label:'Unknown' }), 'blue');
 eq('a weapon is red whatever its label',
    boxColor({ x:0,y:0,w:1,h:1, kind:'weapon', match:'none', severity:'critical', label:'Layla A.' }), 'red');
+// Somebody who has just gone down: a warning, named by nobody. The label is a
+// state, not a name, and green would say a face had identified them.
+eq('a fall not yet counted is amber, not green',
+   boxColor({ x:0,y:0,w:1,h:1, kind:'person', match:'none', severity:'warn', label:'Down' }), 'amber');
+eq('a fall that counts is red',
+   boxColor({ x:0,y:0,w:1,h:1, kind:'person', match:'none', severity:'critical', label:'Down' }), 'red');
+eq('a named tracked body is still green when warned about',
+   boxColor({ x:0,y:0,w:1,h:1, kind:'match', match:'appearance', severity:'warn', label:'Layla A.', trackId:'p7' }), 'green');
 
 // The regression itself. This identity is what the endpoint really sends: a
 // named person whose match kind is nonetheless 'appearance'.

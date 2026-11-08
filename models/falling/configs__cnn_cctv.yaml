@@ -1,0 +1,20 @@
+# python -m train.train --config configs/cnn_cctv.yaml
+# cnn + viewpoint augmentation for CCTV-style cameras (high, looking down, wide-angle,
+# legs often hidden by counters/furniture). Same data and split as the other configs.
+data:
+  caches: [data/cache/le2i, data/cache/urfd]
+split:
+  file: runs/split.json
+model:
+  arch: cnn
+train:
+  augment:
+    flip_p: 0.5
+    scale: [0.9, 1.1]
+    jitter_std: 0.02
+    kp_dropout: 0.05
+    rotate_deg: 25          # wide-angle lenses tilt people near the image edges
+    squash: [0.55, 1.0]     # looking down compresses people vertically
+    shear: 0.15
+    occlude_lower_p: 0.25   # counters/desks hide knees and ankles
+out: runs/cnn_cctv

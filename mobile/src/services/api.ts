@@ -22,6 +22,9 @@ import type {
   AddCameraOutcome,
   DvrConnectResult,
   EditCameraResult,
+  FallEntry,
+  FallsStatus,
+  FallWindow,
   CountArea,
   CountBar,
   CountQuery,
@@ -45,7 +48,8 @@ import type {
 import * as W from './wire';
 
 /** Which overlay a page wants on a camera. One camera, different questions. */
-export type CameraFeature = 'attendance' | 'track' | 'counting' | 'intrusion' | 'weapons' | 'lost' | 'vehicles';
+export type CameraFeature =
+  'attendance' | 'track' | 'counting' | 'intrusion' | 'weapons' | 'lost' | 'vehicles' | 'falls';
 import { ApiError, apiBase, assetUrl, del, download, get, patch, post, postFile, request, setSessionToken } from './http';
 import type { Account } from '@/app/AuthContext';
 import { translate, type Language } from '@/i18n';
@@ -54,6 +58,7 @@ import {
   attendanceLabel,
   attendanceStatusLine,
   attendanceTone,
+  formatClock,
   formatCount,
   formatEventTime,
   formatLongDate,
@@ -446,6 +451,104 @@ export async function reviewWeapon(
 /** CHANGED: was synchronous. */
 export async function getWeaponCameras(lang: Language): Promise<Camera[]> {
   return toCameras(await get<W.CameraView[]>('/weapons/cameras'), lang);
+}
+
+/* ---------- falls ---------- */
+
+/** What happened, in the reader's language. The engine sends an end reason,
+ *  a verdict and two times; the sentence is built here, never there. */
+function fallOutcome(d: W.FallEntry, lang: Language): { outcome: string; tone: Tone } {
+  if (d.verdict === 'not_a_fall') {
+    return { outcome: translate(lang, 'falls.outcome.notAFall'), tone: 'neutral' };
+  }
+  if (!d.endedAt) {
+    return d.alertedAt
+      ? { outcome: translate(lang, 'falls.outcome.down'), tone: 'bad' }
+      : { outcome: translate(lang, 'falls.outcome.downNotYet'), tone: 'warn' };
+  }
+  switch (d.endReason) {
+    case 'got_up':
+      // Down shorter than the rule: listed, and it never raised anything.
+      return d.alertedAt
+        ? { outcome: translate(lang, 'falls.outcome.gotUp'), tone: 'good' }
+        : { outcome: translate(lang, 'falls.outcome.gotUpQuickly'), tone: 'neutral' };
+    case 'left_view':
+      return { outcome: translate(lang, 'falls.outcome.leftView'), tone: 'warn' };
+    case 'switched_off':
+      return { outcome: translate(lang, 'falls.outcome.switchedOff'), tone: 'neutral' };
+    default:
+      return { outcome: translate(lang, 'falls.outcome.engineStopped'), tone: 'neutral' };
+  }
+}
+
+function toFall(d: W.FallEntry, lang: Language): FallEntry {
+  const { outcome, tone } = fallOutcome(d, lang);
+  const by = d.verdict === 'not_a_fall' && d.reviewedBy
+    ? translate(lang, 'falls.by.marked', { name: d.reviewedBy })
+    : d.responder
+      ? translate(lang, 'falls.by.went', { name: d.responder })
+      : undefined;
+  return {
+    id: d.id,
+    cameraId: d.cameraId,
+    camera: d.cameraName,
+    area: d.location,
+    time: formatEventTime(d.at, lang),
+    sinceClock: formatClock(d.at) ?? '',
+    downSinceMs: new Date(d.at.utc).getTime(),
+    duration: formatDuration(d.seconds ?? 0, lang),
+    seconds: d.seconds ?? 0,
+    confidence: formatPercent(d.confidence, lang),
+    outcome,
+    tone,
+    by,
+    running: !d.endedAt,
+    alerted: Boolean(d.alertedAt),
+    notAFall: d.verdict === 'not_a_fall',
+    responder: d.responder ?? undefined,
+    respondedAtMs: d.respondedAt ? new Date(d.respondedAt.utc).getTime() : undefined,
+    clipUrl: d.clip?.url ?? undefined,
+    clipReason: d.clipReason ?? undefined,
+  };
+}
+
+/** Every fall in the period, people still down included. Nothing is hidden:
+ *  "not a fall" stays, saying so. */
+export async function getFalls(window: FallWindow, lang: Language): Promise<FallEntry[]> {
+  const entries = await get<W.FallEntry[]>('/falls/entries', { window });
+  return entries.map((d) => toFall(d, lang));
+}
+
+/** Everybody down right now, whatever period the history shows. The live
+ *  cards and the all-clear are built from this and never from the history:
+ *  a period picked for reading back must not hide somebody on the floor now. */
+export async function getFallsNow(lang: Language): Promise<FallEntry[]> {
+  const entries = await get<W.FallEntry[]>('/falls/now');
+  return entries.map((d) => toFall(d, lang));
+}
+
+export async function getFallsStatus(): Promise<FallsStatus> {
+  return get<W.FallsStatus>('/falls/status');
+}
+
+/** "I'm on my way". Optional; the engine signs it with the session's account.
+ *  A 409 says why it could not be recorded - they already got up, or somebody
+ *  else is already going - and that reason is what the page shows. */
+export async function respondToFall(id: string, lang: Language): Promise<FallEntry> {
+  return toFall(await post<W.FallEntry>(`/falls/${encodeURIComponent(id)}/respond`, {}), lang);
+}
+
+export async function undoFallResponse(id: string, lang: Language): Promise<FallEntry> {
+  return toFall(await del<W.FallEntry>(`/falls/${encodeURIComponent(id)}/respond`), lang);
+}
+
+/** "Not a fall". Optional, signed, and final: the entry stays, saying so. */
+export async function markNotAFall(id: string, lang: Language): Promise<FallEntry> {
+  return toFall(await post<W.FallEntry>(`/falls/${encodeURIComponent(id)}/not-a-fall`, {}), lang);
+}
+
+export async function getFallCameras(lang: Language): Promise<Camera[]> {
+  return toCameras(await get<W.CameraView[]>('/falls/cameras'), lang);
 }
 
 /* ---------- vehicle gate ---------- */
@@ -1331,9 +1434,12 @@ export async function editCamera(
     password?: string;
   },
 ): Promise<EditCameraResult> {
+  // The object itself, not a string of it: `request` encodes the body, and a
+  // body encoded twice reaches the engine as one JSON string, which it
+  // refuses with a 422 - so no camera could be edited from the console.
   const result = await request<W.EditCameraResult>(
     `/sources/${encodeURIComponent(id)}`,
-    { method: 'PATCH', body: JSON.stringify(changes) },
+    { method: 'PATCH', body: changes },
   );
   return {
     camera: toSource(result.camera),

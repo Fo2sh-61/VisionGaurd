@@ -10,6 +10,11 @@ export interface NavEntry {
   icon: string;
   /** undefined = visible to everyone */
   role?: Role;
+  /** The console has this page and the phone app does not. The phone's Tools
+   *  list is built from this same table (`mobile/src/app/tabs.ts`), so an
+   *  entry without its own phone screen must say so here, or the phone would
+   *  list a tool that opens nothing. */
+  consoleOnly?: true;
 }
 
 /* The label and the one-line blurb are NOT here. They are wording, and
@@ -26,6 +31,8 @@ const ICON = {
   track: 'M3.5 14.5 C7 6.5 11 12.5 14.5 4',
   intrusion: 'M3.5 4.5 H14.5 V13.5 H3.5 Z M9 7.8 a1.2 1.2 0 1 0 .01 0',
   weapons: 'M5 15.5 V3 H13.5 L11 6 L13.5 9 H5',
+  // Somebody lying on the floor: the ground line, a head, a body along it.
+  falls: 'M2.5 14.5 H15.5 M5 10.6 a1.4 1.4 0 1 0 .01 0 M7.6 11.6 L14 9.8',
   // A car, from the side: roof line over a body, two wheels.
   vehicles: 'M2.5 11 H15.5 M3.5 11 V8.5 L5.5 5.5 H12 L14.5 8.5 V11 M6 13 a1.3 1.3 0 1 0 .01 0 M12 13 a1.3 1.3 0 1 0 .01 0',
   system: 'M2.5 9.5 H6 L8 5 L10.5 13 L12.5 9.5 H15.5',
@@ -44,6 +51,8 @@ export const NAV: NavEntry[] = [
 
   { id: 'intrusion', path: '/intrusion', section: 'watch', icon: ICON.intrusion },
   { id: 'weapons', path: '/weapons', section: 'watch', icon: ICON.weapons },
+  // Console only, by the owner's decision when Falls was added (Oct 2026).
+  { id: 'falls', path: '/falls', section: 'watch', icon: ICON.falls, consoleOnly: true },
   { id: 'vehicles', path: '/vehicles', section: 'watch', icon: ICON.vehicles },
 
   { id: 'people', path: '/people', section: 'manage', icon: ICON.people },
@@ -74,6 +83,7 @@ const HOME_ORDER: ToolId[] = [
   'track',
   'intrusion',
   'weapons',
+  'falls',
   'people',
 ];
 

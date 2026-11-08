@@ -251,6 +251,59 @@ export interface WeaponDetection {
   clipReason?: string;
 }
 
+/* ---------- falls ---------- */
+
+/** The same periods as the knife log; the engine works them out on the
+ *  site's calendar. */
+export type FallWindow = WeaponWindow;
+
+/** One fall, as the Falls page draws it. Every sentence is built in
+ *  `services/api.ts` from the engine's facts; nobody is named, because this
+ *  feature sees a body, not a person. */
+export interface FallEntry {
+  id: string;
+  cameraId: string;
+  camera: string;
+  area: string;
+  /** When they went down, worded as every event time is. */
+  time: string;
+  /** "on the ground, since 10:21:03" - site time, to the second. */
+  sinceClock: string;
+  /** When they went down, as epoch milliseconds, so the live card can count
+   *  up between polls without asking the engine every second. */
+  downSinceMs: number;
+  /** How long they were down, or have been so far. */
+  duration: string;
+  /** The same, as the engine counted it when this list was read. The live
+   *  card counts on from it, so its clock is the engine's, not this
+   *  computer's. */
+  seconds: number;
+  confidence: string;
+  /** What happened, in words: still down, got up, left the camera... */
+  outcome: string;
+  tone: Tone;
+  /** Who did something about it, worded: "Karim S. went", "by Mona A.". */
+  by?: string;
+  /** Still on the ground. */
+  running: boolean;
+  /** Down long enough to count. False means it never raised anything. */
+  alerted: boolean;
+  notAFall: boolean;
+  /** Who pressed "I'm on my way", and when, if anybody did. */
+  responder?: string;
+  respondedAtMs?: number;
+  clipUrl?: string;
+  /** Why there is no video. Shown where the button would be. */
+  clipReason?: string;
+}
+
+/** What the Falls page says about the feature itself. */
+export interface FallsStatus {
+  /** Down this long without getting up and it counts. */
+  downSeconds: number;
+  camerasChecked: number;
+}
+
 /* ---------- lost items ---------- */
 
 /* ---------- track a person ---------- */
@@ -400,6 +453,7 @@ export type ToolId =
   | 'counting'
   | 'intrusion'
   | 'weapons'
+  | 'falls'
   | 'vehicles'
   | 'lost-items'
   | 'track'

@@ -208,6 +208,7 @@ FEATURES: frozenset[str] = frozenset({
     "vehicles",     # plate reading at a gate
     "weapons",      # knife detection
     "lostitems",    # bag search on demand
+    "falls",        # somebody who goes down and stays down
 })
 
 
@@ -226,7 +227,22 @@ FEATURES: frozenset[str] = frozenset({
 #: `test_config.py` pins this against `features/weapons.py`'s own constants,
 #: because a copied number is only safe while something checks it still
 #: matches the number it was copied from.
-MIN_ANALYTICS_HZ: dict[str, float] = {"weapons": 3.0}
+#:
+#: Falls are the other feature written in frames. The owner's model reads a
+#: window of 30 poses at 30 a second; `infer/falls.py` fills in the poses
+#: between two real frames up to `MAX_INTERPOLATE_SECONDS` (half a second)
+#: apart and invents nothing beyond that, so a slower camera never fills a
+#: window and the model never gets to say anything.
+#:
+#: **Five, not three, and the difference was measured.** The configured rate
+#: is not the rate the model sees: the camera paces its frames and the worker
+#: then skips any frame that arrives a little early, so a camera set to 3 a
+#: second delivered 1.75 to the worker, most gaps over half a second, and the
+#: real model raised nothing. At 5 the longest gap was 0.41 s and it raised
+#: the fall. `features/falls.py` also says so on System Health when frames
+#: still arrive too far apart. Nothing at any rate has been measured on a
+#: school camera. `test_falls_live.py` pins this against the interpolation.
+MIN_ANALYTICS_HZ: dict[str, float] = {"weapons": 3.0, "falls": 5.0}
 
 
 @dataclass(frozen=True)
@@ -710,6 +726,17 @@ class StorageConfig:
         the first.
         """
         return self.clips_dir / "weapons"
+
+    @property
+    def fall_clips_dir(self) -> Path:
+        """Where fall clips land, under the configured clips folder.
+
+        A subfolder for the reason `weapon_clips_dir` gives: it is the boundary
+        the clip endpoint checks a path against before serving it, and it keeps
+        the retention sweep away from anything an operator recorded by hand.
+        Deleted by age only, like knives.
+        """
+        return self.clips_dir / "falls"
 
     @property
     def gate_images_dir(self) -> Path:

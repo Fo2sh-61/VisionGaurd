@@ -1,0 +1,51 @@
+data:
+  caches:
+  - data/cache/le2i
+  - data/cache/urfd
+  window: 30
+  stride: 2
+  eval_stride: 1
+  max_gap: 5
+  min_frames: 10
+  conf_min: 0.3
+split:
+  file: runs/split.json
+  val_frac: 0.15
+  test_frac: 0.15
+  seed: 0
+model:
+  arch: cnn
+  cnn:
+    channels: 64
+    num_layers: 3
+    kernel_size: 5
+    dropout: 0.2
+  lstm:
+    hidden: 64
+    num_layers: 2
+    dropout: 0.2
+train:
+  epochs: 100
+  batch_size: 256
+  lr: 0.001
+  weight_decay: 0.0001
+  patience: 10
+  class_weighting: inverse
+  grad_clip: 1.0
+  device: auto
+  seed: 0
+  augment:
+    flip_p: 0.5
+    scale:
+    - 0.9
+    - 1.1
+    jitter_std: 0.02
+    kp_dropout: 0.05
+    rotate_deg: 25
+    squash:
+    - 0.55
+    - 1.0
+    shear: 0.15
+    occlude_lower_p: 0.25
+  calibrate: true
+out: runs/cnn_cctv

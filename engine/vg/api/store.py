@@ -72,6 +72,15 @@ def poly(x, y, w, h) -> list[S.Point]:
     ]
 
 
+class FallRefused(ValueError):
+    """A fall button that cannot do what it says, and why — a 409 with words.
+
+    The person already got up; somebody else is already going; somebody
+    already said it was not a fall. Each is a fact the operator should read,
+    not a "not found".
+    """
+
+
 class SubsystemUnavailable(RuntimeError):
     """The subsystem this call needs is not running.
 
@@ -123,6 +132,20 @@ class Store(Protocol):
     ) -> S.WeaponDetection | None: ...
     def weapon_cameras(self) -> list[S.CameraView]: ...
     def clip_for_weapon(self, detection_id: str): ...
+
+    # Falls. A refusal the operator can act on - the person already got up,
+    # somebody else is already going - is a `FallRefused` with the reason;
+    # an unknown id is None.
+    def falls(
+        self, since: datetime | None, until: datetime | None = None
+    ) -> list[S.FallEntry]: ...
+    def falls_status(self) -> S.FallsStatus: ...
+    def falls_now(self) -> list[S.FallEntry]: ...
+    def respond_to_fall(self, fall_id: str, who: str) -> S.FallEntry | None: ...
+    def undo_fall_response(self, fall_id: str, who: str) -> S.FallEntry | None: ...
+    def mark_not_a_fall(self, fall_id: str, who: str) -> S.FallEntry | None: ...
+    def fall_cameras(self) -> list[S.CameraView]: ...
+    def clip_for_fall(self, fall_id: str): ...
 
 
     def attendance(
@@ -259,6 +282,7 @@ class MockStore:
         self._zones = self._build_zones()
         self._breaches = self._build_breaches()
         self._weapons = self._build_weapons()
+        self._falls = self._build_falls()
         self._attention = self._build_attention()
         self._audit: list[S.AuditEntry] = []
         self._sources = self._build_sources()
@@ -597,6 +621,133 @@ class MockStore:
             )
         ]
 
+    # -- falls ---------------------------------------------------------------
+
+    #: Down this long and it counts. The live engine's rule, restated for demo.
+    DEMO_DOWN_SECONDS = 10.0
+
+    def _build_falls(self) -> list[S.FallEntry]:
+        """One person down right now, and a few days of history.
+
+        Relative to the moment the process started, so "down for 1:12" is
+        true of the fixture whenever the console is opened.
+        """
+        started = self._started
+
+        def ago(seconds: float) -> S.Instant:
+            return S.Instant(utc=started - timedelta(seconds=seconds),
+                             tz_offset_minutes=TZ_OFFSET_MINUTES)
+
+        def entry(fid, camera_id, name, area, went, seconds, alerted, reason,
+                  confidence, **kw) -> S.FallEntry:
+            return S.FallEntry(
+                id=fid, at=ago(went), camera_id=camera_id, camera_name=name,
+                location=area, detected_at=ago(went - 1),
+                alerted_at=ago(went - self.DEMO_DOWN_SECONDS) if alerted else None,
+                ended_at=ago(went - seconds) if reason else None,
+                seconds=seconds, end_reason=reason, confidence=confidence,
+                clip_state="failed",
+                clip_reason="Demo mode does not record video, so there is no clip.",
+                model_version="lstm_cctv", **kw,
+            )
+
+        return [
+            entry("f-now", "f-play", "Camera 4", "Playground", 72, 72, True, None, 0.82),
+            entry("f-1", "f-stair", "Stairwell B", "Block B", 3 * 3600, 46, True,
+                  "got_up", 0.88),
+            entry("f-2", "f-gym", "Gym floor", "Sports hall", 26 * 3600, 6, False,
+                  "got_up", 0.71),
+            entry("f-3", "f-corr", "Main corridor", "Block A", 3 * 86400, 118, True,
+                  "got_up", 0.9, responder="Karim S.",
+                  responded_at=ago(3 * 86400 - 30)),
+            entry("f-4", "f-play", "Camera 4", "Playground", 3 * 86400 + 2400, 31, True,
+                  "left_view", 0.77),
+            entry("f-5", "f-cant", "Canteen", "Ground floor", 4 * 86400, 4, False,
+                  "got_up", 0.64),
+        ]
+
+    def falls(
+        self, since: datetime | None, until: datetime | None = None
+    ) -> list[S.FallEntry]:
+        out = []
+        for f in self._falls:
+            if since is not None and f.at.utc < since:
+                continue
+            if until is not None and f.at.utc >= until:
+                continue
+            if f.ended_at is None:
+                f = f.model_copy(update={
+                    "seconds": round((datetime.now(timezone.utc) - f.at.utc).total_seconds(), 1)})
+            out.append(f)
+        return out
+
+    def falls_status(self) -> S.FallsStatus:
+        return S.FallsStatus(down_seconds=self.DEMO_DOWN_SECONDS, cameras_checked=6)
+
+    def falls_now(self) -> list[S.FallEntry]:
+        return [f for f in self.falls(None) if f.ended_at is None]
+
+    def _fall_update(self, fall_id: str, **changes) -> S.FallEntry | None:
+        for i, f in enumerate(self._falls):
+            if f.id == fall_id:
+                self._falls[i] = f.model_copy(update=changes)
+                return self.falls(None)[i]
+        return None
+
+    def respond_to_fall(self, fall_id: str, who: str) -> S.FallEntry | None:
+        current = next((f for f in self._falls if f.id == fall_id), None)
+        if current is None:
+            return None
+        if current.ended_at is not None:
+            raise FallRefused("They are no longer down.")
+        if current.responder:
+            raise FallRefused(f"{current.responder} is already on the way.")
+        self._log(who, "fall.respond", fall_id, None)
+        return self._fall_update(fall_id, responder=who, responded_at=now())
+
+    def undo_fall_response(self, fall_id: str, who: str) -> S.FallEntry | None:
+        current = next((f for f in self._falls if f.id == fall_id), None)
+        if current is None:
+            return None
+        if not current.responder:
+            raise FallRefused("Nobody is recorded as on the way.")
+        self._log(who, "fall.respond.undo", fall_id, current.responder)
+        return self._fall_update(fall_id, responder=None, responded_at=None)
+
+    def mark_not_a_fall(self, fall_id: str, who: str) -> S.FallEntry | None:
+        current = next((f for f in self._falls if f.id == fall_id), None)
+        if current is None:
+            return None
+        if current.verdict == "not_a_fall":
+            raise FallRefused(f"{current.reviewed_by} already marked this not a fall.")
+        self._log(who, "fall.not_a_fall", fall_id, None)
+        return self._fall_update(fall_id, verdict="not_a_fall", reviewed_by=who,
+                                 reviewed_at=now())
+
+    def clip_for_fall(self, fall_id: str):
+        """Demo mode has no files. `(path, reason)` — the reason is honest."""
+        return None, "Demo mode does not record video, so there is no clip."
+
+    def fall_cameras(self) -> list[S.CameraView]:
+        down = any(f.ended_at is None for f in self._falls)
+        return [
+            S.CameraView(
+                id=cid, name=name, area=area, captured_at=now(),
+                boxes=([box(0.31, 0.70, 0.40, 0.15, label="Down", confidence=0.82,
+                            severity=S.Severity.CRITICAL)]
+                       if cid == "f-play" and down else []),
+                snapshot_url=f"/cameras/{cid}/snapshot",
+            )
+            for cid, name, area in (
+                ("f-play", "Camera 4", "Playground"),
+                ("f-stair", "Stairwell B", "Block B"),
+                ("f-gym", "Gym floor", "Sports hall"),
+                ("f-corr", "Main corridor", "Block A"),
+                ("f-cant", "Canteen", "Ground floor"),
+                ("f-lib", "Library", "Block C"),
+            )
+        ]
+
     # -- attendance ---------------------------------------------------------
 
     def attendance(self, mode: str, subject: str, on: str) -> S.AttendanceResult:
@@ -932,6 +1083,7 @@ class MockStore:
         ("track", "Track a person"),
         ("breaches", "Restricted zones"),
         ("weapons", "Weapon detection"),
+        ("falls", "Fall detection"),
         ("search_lost", "Bag detection"),
         ("vehicles", "Vehicle gate"),
         ("users", "Users and roles"),

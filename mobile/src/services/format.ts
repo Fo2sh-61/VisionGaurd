@@ -213,6 +213,11 @@ export function boxColor(box: WireBox): BoxColor {
   // looking like a name.
   if (box.kind === 'plate') return box.severity === 'warn' ? 'amber' : 'green';
   if (box.match === 'face') return 'green';
+  // A warning about a body nobody has identified - somebody who has just gone
+  // down, on the Falls page - is amber whatever its label says. It is above
+  // the name check because that reads any label as a name, and "Down" painted
+  // green would claim a face had named somebody lying on the floor (rule 1).
+  if (box.severity === 'warn' && box.match === 'none' && !box.trackId) return 'amber';
   // A tracked body that a face has named is green too. The box is drawn
   // because clothing matched, so `match` stays APPEARANCE and would leave it
   // blue forever — but the Track page's own legend promises green for

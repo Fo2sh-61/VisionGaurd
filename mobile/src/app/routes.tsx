@@ -99,6 +99,11 @@ export function AppRoutes() {
         {/* The Cameras tab: the roster, and one camera at a time. */}
         <Route path="cameras" element={<Cameras />} />
         <Route path="cameras/:id" element={<CameraView />} />
+        {/* Falls is a console page (the owner's decision when it was added).
+            A "somebody is down" alert still reaches the phone's bell, and it
+            opens the cameras - where the person can be seen - rather than a
+            page this app does not have. */}
+        <Route path="falls" element={<Navigate to="/cameras" replace />} />
 
         {/* The Tools tab, and the seven screens behind it. */}
         <Route path="tools" element={<Tools />} />

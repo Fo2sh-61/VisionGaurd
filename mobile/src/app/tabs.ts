@@ -88,7 +88,10 @@ export function tabFor(pathname: string): TabId {
 }
 
 /** The Tools tab's list: the console's `ask` and `watch` sections, in its
- *  order. `manage` is not here - People is a tab, the rest are under More. */
+ *  order. `manage` is not here - People is a tab, the rest are under More.
+ *  A `consoleOnly` entry has no phone screen (Falls, by the owner's decision),
+ *  so listing it would be a row that opens nothing. */
 export function toolEntries(): NavEntry[] {
-  return NAV.filter((entry) => entry.section === 'ask' || entry.section === 'watch');
+  return NAV.filter((entry) =>
+    !entry.consoleOnly && (entry.section === 'ask' || entry.section === 'watch'));
 }

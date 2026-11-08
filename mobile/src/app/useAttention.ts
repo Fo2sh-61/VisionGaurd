@@ -27,6 +27,7 @@ const TARGET: Record<WireAttentionItem['kind'], ToolId> = {
   camera: 'system',
   attendance: 'attendance',
   system: 'system',
+  fall: 'falls',
 };
 
 const ACTION: Record<WireAttentionItem['kind'], MessageKey> = {
@@ -36,6 +37,7 @@ const ACTION: Record<WireAttentionItem['kind'], MessageKey> = {
   camera: 'attention.action.camera',
   attendance: 'attention.action.attendance',
   system: 'attention.action.system',
+  fall: 'attention.action.fall',
 };
 
 /** Which query parameter names the one thing on that page, and each page
@@ -48,6 +50,7 @@ const LINK_PARAM: Partial<Record<WireAttentionItem['kind'], string>> = {
   intrusion: 'scene',
   vehicles: 'pass',
   camera: 'camera',
+  fall: 'entry',
 };
 
 /** Where an item opens: its page, at the item itself when the engine named it. */

@@ -102,6 +102,10 @@ CODES: frozenset[str] = frozenset({
     #: No picture for `minutes` minutes. The wording must say that nothing on
     #: the camera is being watched, which is what makes it urgent.
     "attention.camera",
+
+    #: Somebody went down on this camera and has not got up. The wording must
+    #: say they are still on the ground - that is why it is on Home at all.
+    "attention.fall",
 })
 
 

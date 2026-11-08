@@ -524,6 +524,35 @@ class TestCorrectingACamera:
             store.cameras.close()
             app_module.set_store(MockStore())
 
+    def test_a_features_only_edit_reads_back_as_saved(self, tmp_path, authed):
+        """The list after the edit says what the edit said.
+
+        It used to say the OLD list: the stream was rightly not reopened, so
+        the registry was never told, and `/sources` read the camera from the
+        registry. The console showed the tick undone; the Falls switches on
+        System Health flipped back to "Not checked" a moment after being set.
+        """
+        from vg.api import app as app_module
+
+        store = roster_store(tmp_path)
+        try:
+            client = client_for(store, authed)
+            added = self.add(client)
+            worker = store.registry.worker(added["id"])
+
+            client.patch(f"/sources/{added['id']}",
+                         json={"features": ["counting", "falls"]})
+            listed = {s["id"]: s for s in client.get("/sources").json()}
+
+            assert set(listed[added["id"]]["features"]) == {"counting", "falls"}
+            assert store.registry.worker(added["id"]) is worker, "reopened the stream"
+            # And the next edit builds on it, rather than on the old list.
+            again = client.patch(f"/sources/{added['id']}", json={"area": "Yard"}).json()
+            assert set(again["camera"]["features"]) == {"counting", "falls"}
+        finally:
+            store.cameras.close()
+            app_module.set_store(MockStore())
+
     def test_changing_the_rate_does_reopen_the_stream(self, tmp_path, authed):
         from vg.api import app as app_module
 

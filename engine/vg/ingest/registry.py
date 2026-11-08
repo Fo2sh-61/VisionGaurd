@@ -248,6 +248,24 @@ class CameraRegistry:
         log.info("camera %s added to the registry", config.id)
         return worker
 
+    def update(self, config: CameraConfig) -> None:
+        """Record a change that does not touch the stream, without reopening it.
+
+        A feature list, an area, a name: the camera keeps streaming exactly as
+        it was, but the registry is what `/sources` and every edit after this
+        one read the camera back from. Without this, a features-only edit was
+        applied to the workers and then read back as the OLD list - the
+        console showed the tick undone, and the next edit merged onto a list
+        that no longer existed.
+
+        Only for changes `LiveStore.edit_camera` has decided need no restart.
+        """
+        worker = self.workers.get(config.id)
+        if worker is not None:
+            worker.config = config
+        elif config.id in self.disabled:
+            self.disabled[config.id] = config
+
     def remove(self, camera_id: str) -> bool:
         """Stop watching a camera and release its device."""
         removed = False
