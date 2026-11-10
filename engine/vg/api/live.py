@@ -1957,12 +1957,16 @@ class LiveStore(MockStore):
         longer open - the car left meanwhile - which is an answer, not an error.
 
         **The audit entry goes first**, naming the plate, the entry time and
-        the gate; the mark is the change it describes.
+        the gate; the mark is the change it describes. A visit that is no
+        longer open is not marked and not logged: nothing happened, so no
+        entry claims it did.
         """
         store = self._need_register()
         record = store.pass_by_id(entry_pass_id)
         if record is None or record.direction != "entry":
             raise KeyError(entry_pass_id)
+        if not store.is_open(entry_pass_id):
+            return S.GoneResult(ok=True, changed=False)
         self._log(actor, "vehicle.visit.gone", record.plate,
                   f"entered {record.at.isoformat()} at gate {record.gate}, "
                   "marked as gone by hand")

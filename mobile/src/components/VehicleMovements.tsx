@@ -247,7 +247,7 @@ function VisitRow({ visit, showLeft, isAdmin, onRemoved }: {
             title={t('moves.goneTitle')}
             style={{ color: 'var(--rd)' }}
           >
-            {t(removing ? 'passes.removing' : 'moves.gone')}
+            {t(removing ? 'moves.goneBusy' : 'moves.gone')}
           </button>
         )}
       </span>

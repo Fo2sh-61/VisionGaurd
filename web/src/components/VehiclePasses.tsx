@@ -7,7 +7,7 @@ import type { RegisterPrefill } from '@/components/VehicleRegister';
 import { Badge, Card, CardHeader, Empty, LoadError } from '@/components/ui';
 import {
   correctVehiclePlate, deleteVehiclePass, getVehiclePasses,
-  getVehicleRegister, vehiclePassSnapshotUrl,
+  getVehicleReader, getVehicleRegister, vehiclePassSnapshotUrl,
 } from '@/services/api';
 import {
   directionLabel, formatCount, formatTime, plateStatusLabel, plateStatusTone,
@@ -103,6 +103,11 @@ function PassDetail({ pass, isAdmin, onClose, onChanged, onRegister }: {
   const { data: matches, error: lookupError } = useAsync(
     () => getVehicleRegister(pass.plate), [pass.plate], NO_VEHICLES);
   const vehicle = matches.find((v) => v.plate === pass.plate) ?? null;
+
+  // The engine's own votes-needed figure, never a number copied here.
+  const { data: reader } = useAsync(
+    () => getVehicleReader(), [], null as W.GateReaderNow | null);
+  const votesNeeded = reader?.votesNeeded ?? 0;
 
   const { data: week } = useAsync(
     () => getVehiclePasses({
@@ -201,13 +206,16 @@ function PassDetail({ pass, isAdmin, onClose, onChanged, onRegister }: {
         </Fact>
         <Fact label={t('passes.detail.votes')}>
           {formatCount(pass.votes, language)}
+          {votesNeeded > 0 && ` ${t('passes.detail.votesGuide', {
+            needed: formatCount(votesNeeded, language),
+          })}`}
         </Fact>
         <Fact label={t('passes.detail.width')}>
           {pass.plateWidth === null
             ? t('passes.detail.widthNone')
             : t('passes.detail.widthPx', {
               px: formatCount(pass.plateWidth, language),
-            })}
+            }) + ` ${t('passes.detail.widthGuide')}`}
         </Fact>
         <Fact label={t('passes.detail.seenWeek')}>
           {week.length >= WEEK_LIMIT
@@ -323,12 +331,6 @@ function PassDetail({ pass, isAdmin, onClose, onChanged, onRegister }: {
           </div>
         </div>
       )}
-
-      {!isAdmin && (
-        <div style={{ fontSize: 12.5, color: 'var(--tx3)' }}>
-          {t('gate.adminOnlyNote')}
-        </div>
-      )}
     </div>
   );
 }
@@ -374,6 +376,12 @@ export function VehiclePassesCard({ isAdmin, filter, filterLabel, onClearFilter,
         title={t('passes.title')}
         sub={t(isAdmin ? 'passes.leadAdmin' : 'passes.lead')}
       />
+
+      {!isAdmin && (
+        <div style={{ fontSize: 12.5, color: 'var(--tx3)', marginBottom: 10 }}>
+          {t('gate.adminOnlyNote')}
+        </div>
+      )}
 
       {error && <LoadError error={error} />}
 

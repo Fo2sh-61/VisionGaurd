@@ -560,6 +560,21 @@ class TestGone:
         assert vehicles._conn.execute(
             "SELECT COUNT(*) FROM vehicle_gone").fetchone()[0] == 0
 
+    def test_pressing_gone_twice_logs_one_mark_and_says_nothing_changed(
+            self, gate_app):
+        _, vehicles, live = gate_app
+        entry = _pass(vehicles)
+
+        first = live.mark_gone(entry.id, "Test Admin")
+        second = live.mark_gone(entry.id, "Test Admin")
+
+        assert first.changed is True
+        assert second.ok is True
+        assert second.changed is False
+        marks = [e for e in _entries(live, "vehicle.visit.gone")
+                 if "marked as gone by hand" in e.detail]
+        assert len(marks) == 1
+
     def test_an_it_account_may_press_it_and_is_named(self, gate_app, authed):
         application, vehicles, _ = gate_app
         entry = _pass(vehicles)

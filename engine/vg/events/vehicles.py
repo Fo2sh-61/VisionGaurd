@@ -997,6 +997,16 @@ class VehicleStore:
                until: datetime | None = None) -> list[Visit]:
         return [v for v in self.visits(since, until) if v.inside]
 
+    def is_open(self, entry_pass_id: str) -> bool:
+        """Is this entry's visit open right now? Read-only; writes nothing.
+
+        The same test `end_visit` applies, so the caller can ask before it
+        writes an audit entry for a mark that would change nothing.
+        """
+        with self._lock:
+            return any(v.entry_pass_id == entry_pass_id
+                       for v in self.inside(since=None))
+
     def end_visit(self, entry_pass_id: str, by_who: str) -> bool:
         """A person says this car has gone. False if the visit was not open.
 
@@ -1006,8 +1016,7 @@ class VehicleStore:
         pressing the button twice is not an error. No exit pass is invented.
         """
         with self._lock:
-            if not any(v.entry_pass_id == entry_pass_id
-                       for v in self.inside(since=None)):
+            if not self.is_open(entry_pass_id):
                 return False
             with self._conn:
                 self._conn.execute(

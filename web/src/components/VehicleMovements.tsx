@@ -256,7 +256,7 @@ function VisitRow({ visit, showLeft, onGone }: {
             onClick={() => { void gone(); }}
             title={t('moves.goneMarkTitle')}
           >
-            {t(busy ? 'passes.removing' : 'moves.gone')}
+            {t(busy ? 'moves.goneBusy' : 'moves.gone')}
           </button>
         )}
       </span>

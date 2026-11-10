@@ -17,6 +17,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useLanguage, useT } from '@/app/LanguageContext';
+import { useToast } from '@/app/ToastContext';
 import type { MessageKey } from '@/i18n';
 import { Plate } from '@/components/Plate';
 import { Badge, Card, Empty, LoadError, Select } from '@/components/ui';
@@ -83,6 +84,7 @@ export function VehicleRegisterTab({ isAdmin, prefill, onPrefillUsed, onSaved }:
 }) {
   const { language } = useLanguage();
   const t = useT();
+  const toast = useToast();
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('all');
   const [form, setForm] = useState<W.VehicleRegistration | null>(null);
@@ -222,6 +224,7 @@ export function VehicleRegisterTab({ isAdmin, prefill, onPrefillUsed, onSaved }:
     setProblem(null);
     try {
       await removeVehicle(id);
+      toast.show(t('register.removedToast'));
       setConfirming(null);
       reload();
     } catch (err) {
