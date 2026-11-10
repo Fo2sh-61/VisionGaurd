@@ -95,6 +95,9 @@ CODES: frozenset[str] = frozenset({
     #: Somebody entered a restricted area on this camera today.
     "attention.intrusion",
 
+    #: A work station has been empty past its limit of `minutes`.
+    "attention.station",
+
     #: A blacklisted car came through `gate` (the gate's name).
     "attention.vehicles.blacklist",
 

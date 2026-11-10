@@ -45,6 +45,7 @@ PAGES: dict[str, str] = {
     "vehicles": "vehicles",
     "camera": "system",
     "attendance": "attendance",
+    "station": "stations",
     "test": "",
 }
 
@@ -54,6 +55,7 @@ LABELS: dict[str, dict[str, str]] = {
     "vehicles": {"en": "Gate alert", "ar": "تنبيه البوابة"},
     "camera": {"en": "Camera", "ar": "الكاميرات"},
     "attendance": {"en": "Attendance", "ar": "الحضور"},
+    "station": {"en": "Work station", "ar": "محطة عمل"},
     "test": {"en": "Test message", "ar": "رسالة تجريبية"},
 }
 
@@ -77,6 +79,14 @@ TEMPLATES: dict[str, dict[str, str]] = {
     "intrusion.opened": {
         "en": "Someone entered the restricted area on {camera} at {time}.",
         "ar": "دخل شخص المنطقة المحظورة على {camera} الساعة {time}.",
+    },
+    # {assignee} is " (Name)" or nothing. Arabic is a draft, not yet read by a
+    # native speaker; `ARABIC_REVIEWED` keeps it from being sent.
+    "station.absent": {
+        "en": ("{station}{assignee} at {camera} has been empty for more than "
+               "{limit} min, as at {time}."),
+        "ar": ("{station}{assignee} عند {camera} فارغة لأكثر من {limit} دقيقة، "
+               "حتى الساعة {time}."),
     },
     "vehicles.blacklist": {
         "en": ("Blacklisted car {plate} at gate {gate}, {camera}, {time}. "
@@ -173,6 +183,10 @@ def _fields(event: AlertEvent, clock) -> dict[str, Any]:
         "reviewer": _short(facts.get("reviewer", "")),
         "plate": _short(facts.get("plate", "")),
         "gate": facts.get("gate", ""),
+        "station": _short(facts.get("station", "")),
+        "assignee": (f" ({_short(facts['assignee'])})"
+                     if facts.get("assignee") else ""),
+        "limit": facts.get("limit", ""),
     }
 
 

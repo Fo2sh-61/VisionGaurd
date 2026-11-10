@@ -27,6 +27,8 @@ const ICON = {
   'lost-items': 'M7.5 3 a4.2 4.2 0 1 0 0.01 0 M11.2 11.2 L15.5 15.5',
   track: 'M3.5 14.5 C7 6.5 11 12.5 14.5 4',
   intrusion: 'M3.5 4.5 H14.5 V13.5 H3.5 Z M9 7.8 a1.2 1.2 0 1 0 .01 0',
+  // A desk seen from the front: a top, two legs, and a person's head above it.
+  stations: 'M3 10.5 H15 M4.5 10.5 V15 M13.5 10.5 V15 M9 3.2 a1.8 1.8 0 1 0 .01 0 M6.5 8 c.4-1.6 1.5-2.2 2.5-2.2 s2.1 .6 2.5 2.2',
   weapons: 'M5 15.5 V3 H13.5 L11 6 L13.5 9 H5',
   // A car, from the side: roof line over a body, two wheels.
   vehicles: 'M2.5 11 H15.5 M3.5 11 V8.5 L5.5 5.5 H12 L14.5 8.5 V11 M6 13 a1.3 1.3 0 1 0 .01 0 M12 13 a1.3 1.3 0 1 0 .01 0',
@@ -52,6 +54,7 @@ export const NAV: NavEntry[] = [
   { id: 'counting', path: '/counting', section: 'main', icon: ICON.counting },
   { id: 'vehicles', path: '/vehicles', section: 'main', icon: ICON.vehicles },
   { id: 'intrusion', path: '/intrusion', section: 'main', icon: ICON.intrusion },
+  { id: 'stations', path: '/stations', section: 'main', icon: ICON.stations },
 
   { id: 'system', path: '/system', section: 'system', icon: ICON.system },
   { id: 'settings', path: '/settings', section: 'system', icon: ICON.settings },

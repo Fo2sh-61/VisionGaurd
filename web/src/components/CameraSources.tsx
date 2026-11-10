@@ -147,6 +147,7 @@ const FEATURES: {
 }[] = [
   { key: 'counting', label: 'source.feature.counting', cost: 'source.feature.counting.cost' },
   { key: 'intrusion', label: 'source.feature.intrusion', cost: 'source.feature.intrusion.cost' },
+  { key: 'stations', label: 'source.feature.stations', cost: 'source.feature.stations.cost' },
   { key: 'attendance', label: 'source.feature.attendance', cost: 'source.feature.attendance.cost' },
   { key: 'track', label: 'source.feature.track', cost: 'source.feature.track.cost', fast: true },
   { key: 'vehicles', label: 'source.feature.vehicles', cost: 'source.feature.vehicles.cost', fast: true },

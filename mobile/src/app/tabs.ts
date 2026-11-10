@@ -61,6 +61,7 @@ const SCREENS: ScreenDef[] = [
   { prefix: '/intrusion', tab: 'tools', title: 'nav.intrusion.label', parent: '/tools' },
   { prefix: '/weapons', tab: 'tools', title: 'nav.weapons.label', parent: '/tools' },
   { prefix: '/vehicles', tab: 'tools', title: 'nav.vehicles.label', parent: '/tools' },
+  { prefix: '/stations', tab: 'tools', title: 'nav.stations.label', parent: '/tools' },
   { prefix: '/system', tab: 'more', title: 'health.title', parent: '/more' },
   { prefix: '/settings', tab: 'more', title: 'nav.settings.label', parent: '/more' },
   { prefix: '/users', tab: 'more', title: 'nav.users.label', parent: '/more' },
@@ -88,11 +89,22 @@ export function tabFor(pathname: string): TabId {
   return screenFor(pathname)?.tab ?? 'home';
 }
 
+/** The tool paths the phone really routes as a tool (`app/routes.tsx`). A `main`
+ *  entry in the byte-shared `NAV` whose path is not here gets no tile, so a
+ *  tool the console gained cannot appear on the phone as a tile that leads
+ *  nowhere. Add a path here in the same change that adds its route.
+ *  `/stations` is deliberately absent: the phone only has an honest "on the
+ *  console" page for it. */
+export const PHONE_TOOL_PATHS: ReadonlySet<string> = new Set([
+  '/attendance', '/counting', '/vehicles', '/intrusion',
+]);
+
 /** The Tools tab's list: the console's `main` section, in its order, without
  *  People (a tab of its own). The `system` section is under More. An entry
  *  with a `role` is left out for any other role, as in the console's sidebar:
  *  the engine would refuse an IT account on Attendance anyway. */
 export function toolEntries(role: Role): NavEntry[] {
   return NAV.filter((entry) => entry.section === 'main' && entry.id !== 'people'
+    && PHONE_TOOL_PATHS.has(entry.path)
     && (!entry.role || entry.role === role));
 }

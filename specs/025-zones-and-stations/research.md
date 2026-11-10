@@ -43,9 +43,10 @@ decides it and 025 builds on it.
   next arrival (scenario 4 plus the one-minute rule).
 - **One clip per camera (edge case)**: the zone recorder (`Recorder`, own instance in
   `_start_zones`) refuses a second `start` with `AlreadyRecording`. That already becomes a
-  `fail_clip` with `BUSY_REASON`; the sentence changes to the spec's "No clip - recorded under the
-  other zone's entry" (the old text blamed a recording that, by the comment beside it, can only be
-  this feature). The recording stops when its owner scene closes, exactly as now.
+  `fail_clip` with `BUSY_REASON`; the sentence changes to "No clip - the camera was already recording
+  another zone's entry" (the old text blamed a recording that, by the comment beside it, can only be
+  this feature). The recording stops when its owner scene closes, exactly as now; the second entry
+  never gets the first one's clip, so no text claims it does (review fix).
 - **Rejected**: one worker per zone (threads multiply and the per-camera recorder would clash);
   a second polygon-aware worker beside the old one (two sources of truth for one log).
 
@@ -90,7 +91,9 @@ One state machine per station, run per frame inside `analyse`, with its times fr
 - **Away clock after a gap restarts** rather than continuing: counting a gap as empty time would
   raise an alert for time nobody measured.
 - **Alert once per absence**: the alert key is `station:<id>:<away_since>`; `StationStore` refuses a
-  second event with the same key, so a restart in the middle of an absence cannot alert twice.
+  second event with the same key, so a repeat attempt for the *same* `away_since` writes nothing.
+  A restart, or a stall of at least `stall_seconds`, starts a new absence with a restarted Away
+  clock, so it can raise a new alert after another `limit_minutes` (R4). Nothing suppresses that.
 - **Segments, not seconds counters**: `station_segment(station_id, state, started_at, ended_at,
   checked_at)`. The open row's `checked_at` is refreshed at most every 10 s; at start,
   `close_orphans()` sets `ended_at = checked_at`. Today's working time, absence time, rate and

@@ -103,13 +103,22 @@ class AlertService:
         self.started_at: datetime = self._now()
         self._camera_name: Callable[[str], str | None] = lambda camera_id: None
         self._attendance_counts: Callable[[str], Any] | None = None
+        self._zone_channels: Callable[[str], frozenset[str] | None] | None = None
 
     # -- lifecycle -----------------------------------------------------------
 
     def bind(self, *, camera_name: Callable[[str], str | None] | None = None,
              attendance_counts: Callable[[str], Any] | None = None,
-             hours: Callable[[], Any] | None = None) -> None:
-        """What the sender needs from the rest of the engine, once it exists."""
+             hours: Callable[[], Any] | None = None,
+             zone_channels: Callable[[str], frozenset[str] | None] | None = None,
+             ) -> None:
+        """What the sender needs from the rest of the engine, once it exists.
+
+        `zone_channels(area_id)` says which courier channels one zone or
+        station asked for, or None when it asked for nothing in particular.
+        """
+        if zone_channels is not None:
+            self._zone_channels = zone_channels
         if hours is not None:
             self.hours = hours
         if camera_name is not None:
@@ -236,11 +245,32 @@ class AlertService:
         self.enqueue(events.weapon_opened(scene_id, camera_id, started_at, confidence))
 
     def on_zone_open(self, scene_id: str, camera_id: str, started_at: datetime,
-                     continues: bool = False) -> None:
-        """`SceneStore.on_open`. A long visit is one message, not one a scene."""
+                     continues: bool = False, zone_id: str | None = None) -> None:
+        """`SceneStore.on_open`. A long visit is one message, not one a scene.
+
+        The zone's own Notify choice, when it has one, decides the channels;
+        Settings' row is only what a new zone starts with.
+        """
         if continues:
             return
-        self.enqueue(events.intrusion_opened(scene_id, camera_id, started_at))
+        channels = None
+        if zone_id and self._zone_channels is not None:
+            try:
+                channels = self._zone_channels(zone_id)
+            except Exception:
+                log.exception("alerts: could not read zone %s's notify choice",
+                              zone_id)
+        self.enqueue(events.intrusion_opened(
+            scene_id, camera_id, started_at, channels=channels))
+
+    def on_station_absent(self, station_id: str, camera_id: str, at: datetime,
+                          away_since: datetime, station: str,
+                          limit_minutes: int, assignee: str | None = None,
+                          channels: frozenset[str] | None = None) -> None:
+        """`StationStore.on_alert`. One message per absence."""
+        self.enqueue(events.station_absent(
+            station_id, camera_id, at, away_since, station, limit_minutes,
+            assignee, channels))
 
     def on_pass(self, record) -> None:
         """`VehicleStore.on_pass`, once the reader is done with the pass."""
@@ -411,7 +441,11 @@ class AlertService:
             if event.kind == "vehicles" and not rule.reason_on(event.facts.get("reason")):
                 return []
             for channel in CHANNELS:
-                if rule.channel_on(channel):
+                # An event that carries its own channels (a zone's or station's
+                # Notify ticks) is not second-guessed by the kind's rule.
+                wanted = (channel in event.channels if event.channels is not None
+                          else rule.channel_on(channel))
+                if wanted:
                     people = [r for r in recipients if r.channel == channel]
                     rows += self._rows_for(event, channel, people)
             return self._write(event, rows, now, give_up)

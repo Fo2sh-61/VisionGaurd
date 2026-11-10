@@ -34,7 +34,7 @@ The recorded clip (`engine/data/footage/`) is the regression suite: 12 labelled 
    counted in "entries today".
 8. **Clips.** An entry among a camera's three newest has **Watch clip**; older ones say "No clip kept".
    Two zones on one camera with one person in both: two entries, the second says "No clip -
-   recorded under the other zone's entry".
+   the camera was already recording another zone's entry".
 9. **Upgrade.** Start with a database that has `camera_restricted` rows and scenes: each appears as a
    full-frame zone named after its camera, same on/off, same history and clips (SC-405). The two
    `engine.yaml` zones appear as drawn zones; Chemistry lab shows its import note.

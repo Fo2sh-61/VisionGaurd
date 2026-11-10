@@ -240,6 +240,18 @@ class CameraStore:
             )
             self._conn.commit()
 
+    def restriction_rows(self) -> dict[str, bool]:
+        """Every camera that was ever switched on or off, and its last answer.
+
+        Only the one-time import into areas reads this (spec 025): a camera
+        with a row, either way, becomes a whole-frame zone.
+        """
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT camera_id, restricted FROM camera_restricted"
+            ).fetchall()
+        return {row["camera_id"]: bool(row["restricted"]) for row in rows}
+
     def restricted_ids(self) -> set[str]:
         """Cameras whose whole frame is a restricted area, right now."""
         with self._lock:

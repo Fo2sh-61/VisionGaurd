@@ -292,8 +292,12 @@ def zone_worker(scenes):
             raise AssertionError("never started in these tests")
 
     detector = FakeDetector()
+    from vg.areas import FULL_FRAME, Area
+
+    zone = Area(id="cam-a", kind="zone", name="cam-a", camera_id="cam-a",
+                polygon=FULL_FRAME, hours_mode="always", alert_after_seconds=0.0)
     return ZonesWorker(NoBus(), detector, ["cam-a"], scenes, recorder=None,
-                       restricted={"cam-a"}), detector
+                       areas=[zone]), detector
 
 
 @pytest.fixture
@@ -837,6 +841,7 @@ class TestTheEngineWiresTheSender:
             "app.state.scenes.on_open": "app.state.alerts.on_zone_open",
             "app.state.weapon_scenes.on_open": "app.state.alerts.on_weapon_open",
             "app.state.vehicle_store.on_pass": "app.state.alerts.on_pass",
+            "app.state.stations_store.on_alert": "app.state.alerts.on_station_absent",
         }
         offered = {name for name in vars(AlertService) if name.startswith("on_")}
         assert {value.rsplit(".", 1)[1] for value in wired.values()} == offered
@@ -875,6 +880,8 @@ class TestTheEngineWiresTheSender:
             "attendance_counts": "store._attendance_counts",
             # The hours Settings saved, read at each tick (spec 022).
             "hours": "store.hours",
+            # Each zone's own Notify choice (spec 025).
+            "zone_channels": "store.zone_channels",
         }
         assert "app.state.alerts.start" in names
         assert names.index("alerts.stop") < names.index("alerts_store.close_db")

@@ -120,7 +120,8 @@ class TestSettingsEndpoints:
         body = client_for(store, authed).get("/settings/alerts").json()
         assert body["recipients"] == []
         assert [r["kind"] for r in body["rules"]] == [
-            "weapon", "intrusion", "vehicles", "camera", "attendance"]
+            "weapon", "intrusion", "vehicles", "camera", "attendance",
+            "station"]
         for rule in body["rules"]:
             assert not rule["email"]
             assert "whatsapp" not in rule and "sms" not in rule

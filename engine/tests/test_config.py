@@ -501,3 +501,54 @@ class TestAlertsConfig:
         for key in ("gmail_user", "gmail_app_password", "api_key"):
             with pytest.raises(cfg.ConfigError, match="unknown key"):
                 cfg.AlertsConfig.parse({key: "x"}, "alerts")
+
+
+class TestStationsConfig:
+    """How a work station decides somebody is there or has gone (spec 025)."""
+
+    def test_the_defaults(self):
+        c = cfg.StationsConfig.parse(None, "stations")
+        assert (c.leave_confirm_seconds, c.return_confirm_seconds,
+                c.gap_tolerance_seconds, c.stall_seconds, c.min_face_px) \
+            == (8.0, 3.0, 2.0, 10.0, 80)
+
+    def test_stations_is_a_feature_name(self):
+        assert "stations" in cfg.FEATURES
+        assert "stations" in camera(features=["stations"]).features
+
+    def test_the_shipped_config_carries_the_block(self, loaded):
+        assert loaded.stations.leave_confirm_seconds == 8.0
+
+    def test_values_are_read(self):
+        c = cfg.StationsConfig.parse(
+            {"leave_confirm_seconds": 12, "return_confirm_seconds": 4,
+             "min_face_px": 60}, "stations")
+        assert c.leave_confirm_seconds == 12.0 and c.min_face_px == 60
+
+    @pytest.mark.parametrize("name", ["leave_confirm_seconds",
+                                      "return_confirm_seconds",
+                                      "gap_tolerance_seconds", "stall_seconds",
+                                      "min_face_px"])
+    @pytest.mark.parametrize("bad", [0, -1])
+    def test_zero_and_negative_are_refused(self, name, bad):
+        with pytest.raises(cfg.ConfigError, match=name):
+            cfg.StationsConfig.parse({name: bad}, "stations")
+
+    def test_a_word_instead_of_a_number_is_refused(self):
+        with pytest.raises(cfg.ConfigError, match="stall_seconds"):
+            cfg.StationsConfig.parse({"stall_seconds": "soon"}, "stations")
+
+    def test_coming_back_cannot_take_longer_than_leaving(self):
+        with pytest.raises(cfg.ConfigError, match="return_confirm_seconds"):
+            cfg.StationsConfig.parse(
+                {"leave_confirm_seconds": 3, "return_confirm_seconds": 5},
+                "stations")
+
+
+def test_stations_min_face_px_default_is_the_recognition_floor():
+    """config.py cannot import cv2-backed faces.py, so it repeats the number;
+    this is what keeps the two from drifting apart."""
+    from vg.config import StationsConfig
+    from vg.infer.faces import MIN_FACE_PIXELS
+
+    assert StationsConfig().min_face_px == MIN_FACE_PIXELS

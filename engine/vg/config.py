@@ -214,6 +214,7 @@ FEATURES: frozenset[str] = frozenset({
     "vehicles",     # plate reading at a gate
     "weapons",      # knife detection
     "lostitems",    # bag search on demand
+    "stations",     # a work station that must stay staffed
 })
 
 
@@ -1310,6 +1311,58 @@ class ArchiveConfig:
 
 
 @dataclass(frozen=True)
+class StationsConfig:
+    """How a work station decides somebody is there, or has gone.
+
+    The seed for the starting values; tuned on the recorded clip (spec 025,
+    SC-502). All seconds except `min_face_px`.
+    """
+
+    #: Nobody counted this long = Away.
+    leave_confirm_seconds: float = 8.0
+    #: Somebody counted this long = back.
+    return_confirm_seconds: float = 3.0
+    #: A missed detection shorter than this does not break a run.
+    gap_tolerance_seconds: float = 2.0
+    #: No frame this long = not watched.
+    stall_seconds: float = 10.0
+    #: Below this width a face is too small to check an assignee. The same
+    #: floor `infer/faces.py::MIN_FACE_PIXELS` enforces for enrolment.
+    min_face_px: int = 80
+
+    @classmethod
+    def parse(cls, raw: dict[str, Any] | None, where: str) -> "StationsConfig":
+        raw = raw or {}
+        values: dict[str, Any] = {}
+        for name in ("leave_confirm_seconds", "return_confirm_seconds",
+                     "gap_tolerance_seconds", "stall_seconds"):
+            try:
+                value = float(raw.get(name, getattr(cls, name)))
+            except (TypeError, ValueError):
+                raise ConfigError(
+                    f"{where}.{name}: expected a number of seconds, "
+                    f"got {raw.get(name)!r}") from None
+            if not value > 0:
+                raise ConfigError(f"{where}.{name}: must be above zero, got {value}")
+            values[name] = value
+        try:
+            px = int(raw.get("min_face_px", cls.min_face_px))
+        except (TypeError, ValueError):
+            raise ConfigError(
+                f"{where}.min_face_px: expected a whole number of pixels, "
+                f"got {raw.get('min_face_px')!r}") from None
+        if px <= 0:
+            raise ConfigError(f"{where}.min_face_px: must be above zero, got {px}")
+        if values["return_confirm_seconds"] > values["leave_confirm_seconds"]:
+            raise ConfigError(
+                f"{where}.return_confirm_seconds ({values['return_confirm_seconds']:g}) "
+                f"cannot be longer than leave_confirm_seconds "
+                f"({values['leave_confirm_seconds']:g}): coming back would take "
+                f"longer than leaving.")
+        return cls(min_face_px=px, **values)
+
+
+@dataclass(frozen=True)
 class EngineConfig:
     site_name: str
     timezone: str
@@ -1334,6 +1387,8 @@ class EngineConfig:
     ask: AskConfig = field(default_factory=AskConfig)
     # How alerts leave the building. Who receives them lives in the database.
     alerts: AlertsConfig = field(default_factory=AlertsConfig)
+    # Work stations: how long before somebody is "away" (spec 025).
+    stations: StationsConfig = field(default_factory=StationsConfig)
 
     def camera(self, camera_id: str) -> CameraConfig | None:
         return next((c for c in self.cameras if c.id == camera_id), None)
@@ -1479,6 +1534,7 @@ def load(path: Path | str | None = None) -> EngineConfig:
         vehicles=VehiclesConfig.parse(raw.get("vehicles"), "vehicles"),
         ask=AskConfig.parse(raw.get("ask"), "ask"),
         alerts=AlertsConfig.parse(raw.get("alerts"), "alerts"),
+        stations=StationsConfig.parse(raw.get("stations"), "stations"),
     )
 
 

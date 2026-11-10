@@ -25,8 +25,9 @@ from datetime import date, datetime, timezone
 from types import MappingProxyType
 from typing import Any, Mapping
 
-#: The five kinds an administrator can switch a channel on for.
-KINDS: tuple[str, ...] = ("weapon", "intrusion", "vehicles", "camera", "attendance")
+#: The six kinds an administrator can switch a channel on for.
+KINDS: tuple[str, ...] = ("weapon", "intrusion", "vehicles", "camera",
+                          "attendance", "station")
 
 #: The channels that leave the building. In-app is not one: it is Home's list.
 #: WhatsApp and SMS were removed on 11 Sep 2026; email is the only courier.
@@ -46,6 +47,10 @@ ALLOWED_FACTS: frozenset[str] = frozenset({
     "reason",       # blacklist | unknown | expired
     "weak_read",    # the plate reader was not sure of its reading
     "since",        # when an entry or an outage began
+    "station",      # a work station's name (the area, not a detection)
+    "assignee",     # the person a station is assigned to - an assignment, never
+                    # a recognition; absent when the station has none
+    "limit",        # minutes a station may be left empty
 })
 
 
@@ -78,6 +83,11 @@ class AlertEvent:
     facts: Mapping[str, Any] = field(default_factory=dict)
     groups: tuple[GroupCount, ...] | None = ()
     recipient_id: str | None = None
+    #: The courier channels THIS event goes to, when the thing that raised it
+    #: carries its own choice (a zone's or a station's Notify ticks). `None`
+    #: means the kind's rule in Settings decides, as it always did. In-app is
+    #: not a courier: Home reads that tick from the area itself.
+    channels: frozenset[str] | None = None
 
     def __post_init__(self) -> None:
         if self.kind not in KINDS and self.kind != "test":
@@ -91,6 +101,8 @@ class AlertEvent:
         object.__setattr__(self, "facts", MappingProxyType(dict(self.facts)))
         if self.groups is not None:
             object.__setattr__(self, "groups", tuple(self.groups))
+        if self.channels is not None:
+            object.__setattr__(self, "channels", frozenset(self.channels))
 
 
 def stamp(when: datetime) -> str:
@@ -132,10 +144,33 @@ def opening_key(verdict: AlertEvent) -> str:
     return verdict.event_key.rsplit(":", 1)[0] + ":opened"
 
 
-def intrusion_opened(scene_id: str, camera_id: str, at: datetime) -> AlertEvent:
+def intrusion_opened(scene_id: str, camera_id: str, at: datetime,
+                     channels: frozenset[str] | None = None) -> AlertEvent:
     return AlertEvent(
         kind="intrusion", template="intrusion.opened",
         event_key=f"intrusion:{scene_id}", at=at, camera_id=camera_id,
+        channels=channels,
+    )
+
+
+def station_absent(station_id: str, camera_id: str, at: datetime,
+                   away_since: datetime, station: str, limit_minutes: int,
+                   assignee: str | None = None,
+                   channels: frozenset[str] | None = None) -> AlertEvent:
+    """A work station has been empty longer than its limit.
+
+    The key names the absence by when it began, so a repeat attempt for the
+    same absence sends nothing. A restart in the middle of one starts a new
+    absence with a restarted Away clock, which can alert again after another
+    limit.
+    """
+    facts: dict[str, Any] = {"station": station, "limit": int(limit_minutes)}
+    if assignee:
+        facts["assignee"] = assignee
+    return AlertEvent(
+        kind="station", template="station.absent",
+        event_key=f"station:{station_id}:{stamp(away_since)}", at=at,
+        camera_id=camera_id, facts=facts, channels=channels,
     )
 
 

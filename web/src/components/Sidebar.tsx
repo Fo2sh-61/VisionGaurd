@@ -40,7 +40,9 @@ export function Sidebar() {
   const badgeTitle = (id: ToolId, count: number) =>
     id === 'attendance' ? t('nav.badge.attendance', { count: formatCount(count, language) })
       : id === 'vehicles' ? t('nav.badge.vehicles', { count: formatCount(count, language) })
-        : undefined;
+        : id === 'intrusion' ? t('nav.badge.zones', { count: formatCount(count, language) })
+          : id === 'stations' ? t('nav.badge.stations', { count: formatCount(count, language) })
+            : undefined;
 
   const linkClass = ({ isActive }: { isActive: boolean }) =>
     isActive ? 'navlink navlink--active' : 'navlink';
