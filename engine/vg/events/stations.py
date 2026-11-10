@@ -21,7 +21,9 @@ does not leave somebody "at the desk" for the length of the outage.
 
 **One alert per absence.** `station_event.alert_key` is unique and is built
 from when the absence began, so a second attempt at the same absence writes
-nothing and sends nothing.
+nothing and sends nothing. A restart (or a stall of `stall_seconds`) starts a
+NEW absence with a restarted Away clock: if the person is still gone it can
+alert again after another limit, because the time in between was not measured.
 
 **Rows are never updated or deleted** except an open segment closing. An
 acknowledgement is a new row that points at the alert it answers; it does not

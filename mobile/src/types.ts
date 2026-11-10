@@ -314,9 +314,10 @@ export interface StationCard {
   unknownReason?: 'cameraOffline' | 'detectorStopped' | 'notRunning';
   presentNotRecognised: boolean;
   opensAt?: string;
-  workSeconds: number;
-  absentSeconds: number;
-  notWatchedSeconds: number;
+  /** null when the station log could not be read: not measured, never 0. */
+  workSeconds: number | null;
+  absentSeconds: number | null;
+  notWatchedSeconds: number | null;
   /** null until some time was watched. */
   rate: number | null;
   timeline: TimelineBar[];

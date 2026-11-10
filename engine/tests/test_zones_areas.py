@@ -141,8 +141,7 @@ class TestTwoZonesOnOneCamera:
         assert recorder.started == ["cam-a"], "one recorder per camera"
         quiet = [s for s in logged if s.clip_state != "recording"]
         assert len(quiet) == 1
-        assert quiet[0].clip_reason == (
-            "No clip - recorded under the other zone's entry")
+        assert quiet[0].clip_reason == zones_feature.BUSY_REASON
 
     def test_a_person_in_one_zone_does_not_open_the_other(self, scenes):
         d = Standing()
@@ -287,7 +286,7 @@ class TestTraps:
 
     def test_the_busy_sentence_does_not_blame_a_person(self):
         assert zones_feature.BUSY_REASON == (
-            "No clip - recorded under the other zone's entry")
+            "No clip - the camera was already recording another zone's entry")
 
     def test_the_replaced_entry_is_listed_without_a_clip(self, tmp_path):
         from test_zones_live import live_store, with_areas
@@ -327,3 +326,65 @@ class TestTraps:
             assert store.get(only.id).import_key is not None
         finally:
             store.close_db()
+
+    def test_a_drawn_zones_scenes_do_not_make_a_phantom_camera_zone(
+            self, tmp_path):
+        """Review: scenes of a drawn zone (zone_id = a uuid) are not legacy."""
+        from vg.areas import AreaStore, import_legacy
+        scenes = SceneStore(tmp_path / "s.db")
+        areas = AreaStore(tmp_path / "a.db")
+        try:
+            scenes.open("cam-1", START, zone_id="0b7e-drawn-zone-uuid")
+            assert scenes.camera_ids() == []
+            kwargs = dict(cameras_restricted={}, camera_names={"cam-1": "One"},
+                          yaml_zones=[], hours=HoursConfig())
+            assert import_legacy(
+                areas, scene_camera_ids=scenes.camera_ids(), **kwargs) == 0
+            assert areas.list(kind="zone") == []
+            # a pre-025 scene (zone_id == camera id) is the real legacy case
+            scenes.open("cam-1", START + timedelta(minutes=1), zone_id="cam-1")
+            assert scenes.camera_ids() == ["cam-1"]
+            assert import_legacy(
+                areas, scene_camera_ids=scenes.camera_ids(), **kwargs) == 1
+        finally:
+            scenes.close_db()
+            areas.close_db()
+
+
+class TestMovedZone:
+    """Review: a zone moved to another camera must not strand its scene."""
+
+    def test_the_new_camera_stepping_first_closes_the_old_scene(
+            self, scenes, tmp_path):
+        recorder = FakeRecorder(tmp_path / "clips")
+        d = Standing()
+        zw = worker(scenes, detector=d, recorder=recorder,
+                    cameras=("cam-a", "cam-b"), areas=[zone("z1")])
+        feed(zw, d, [FEET_IN], 3)
+        old = scenes.recent(1)[0]
+        assert old.running and recorder.started == ["cam-a"]
+
+        # the owner moves the zone; the NEW camera's thread happens first
+        zw.set_areas([zone("z1", camera="cam-b")])
+        d.boxes = [FEET_IN]
+        zw.analyse(frame("cam-b", at=4.0, sequence=900))
+
+        assert recorder.stopped == ["cam-a"], "the old camera's recorder stops"
+        closed = [s for s in scenes.recent(1) if s.id == old.id][0]
+        assert closed.running is False and closed.end_reason == "switched_off"
+        assert closed.camera_id == "cam-a"
+        # the person is still there, so the new camera starts its own scene
+        feed_b = [frame("cam-b", at=4.0 + i, sequence=910 + i) for i in range(1, 4)]
+        for f in feed_b:
+            zw.analyse(f)
+        mine = [s for s in scenes.recent(1) if s.camera_id == "cam-b"]
+        assert len(mine) == 1 and mine[0].zone_id == "z1"
+        assert recorder.started == ["cam-a", "cam-b"]
+
+    def test_the_old_camera_stepping_first_still_closes_it(self, scenes):
+        d = Standing()
+        zw = worker(scenes, detector=d, areas=[zone("z1")])
+        feed(zw, d, [FEET_IN], 3)
+        zw.set_areas([zone("z1", camera="cam-b")])
+        zw.analyse(frame("cam-a", at=4.0, sequence=901))
+        assert scenes.recent(1)[0].running is False

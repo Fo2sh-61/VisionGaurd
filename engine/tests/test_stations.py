@@ -220,6 +220,75 @@ class TestAbsence:
         assert calls[0][6] == "Layla" and calls[0][7] == frozenset({"email"})
 
 
+class TestReviewFixes:
+    """Fixes from the spec 025 review, each with the case that found it."""
+
+    def test_a_return_under_way_at_the_limit_raises_no_absence(self, store):
+        calls = []
+        store.on_alert = lambda *a: calls.append(a)
+        w, d = make(store, [station(limit=1)])
+        # away since 0, due at 60; somebody starts walking back at 59 and is
+        # confirmed at 62 - the alert must not go out for somebody returning.
+        run(w, d, empty(0, 58.5) + present(59, 64))
+        assert calls == []
+        assert not [s for s in states(store) if s[0] == "absent"]
+        assert kinds(store) == ["at_station"]
+        assert all(s[2] is None or s[2] >= s[1] for s in states(store))
+        assert states(store)[-1][:2] == ("on", 59.0)
+
+    def test_a_run_that_breaks_before_it_confirms_lets_the_absence_stand(
+            self, store):
+        calls = []
+        store.on_alert = lambda *a: calls.append(a)
+        w, d = make(store, [station(limit=1)])
+        run(w, d, empty(0, 58.5) + [(59.0, [IN])] + empty(59.5, 70))
+        assert len(calls) == 1
+        assert [s for s in states(store) if s[0] == "absent"][0][1] == 60.0
+
+    def test_a_stall_before_the_hours_end_does_not_cover_the_gap(self, store):
+        class Clock:
+            def local(self, when):
+                return when
+        window = station(limit=0, hours_mode="custom", hours_from="09:00",
+                         hours_to="10:00")
+        w, d = make(store, [window], clock=Clock())
+        run(w, d, [(3500, []), (3540, [])])             # 09:59
+        w.analyse(frame(3700, 9))                       # 10:01.6, long silence
+        away = states(store)
+        assert away[-1][2] == 3540.0, "closed at the last frame, not at 10:00"
+
+    def test_a_moved_station_closes_its_segment_when_the_new_camera_steps(
+            self, store):
+        w, d = make(store, [station()])
+        run(w, d, present(0, 4))
+        w.set_areas([station(camera_id="cam-b")])
+        d.boxes = [IN]
+        w.analyse(frame(5, 50, camera="cam-b"))         # the NEW camera first
+        segs = states(store)
+        first_on = [x for x in segs if x[0] == "on"][0]
+        assert first_on[2] == 4.0, "the old camera's segment ends where it was last seen"
+        assert segs[-1][2] is None and segs[-1][1] >= 5.0
+        # the old camera stepping afterwards must not disturb the new one
+        w.analyse(frame(6, 51, camera="cam-a"))
+        assert states(store)[-1][2] is None
+
+    def test_a_restart_mid_absence_starts_a_new_absence_that_can_alert_again(
+            self, store):
+        calls = []
+        store.on_alert = lambda *a: calls.append(a)
+        w, d = make(store, [station(limit=1)])
+        run(w, d, empty(0, 100, step=5))
+        assert len(calls) == 1
+        # The engine restarts: open rows are closed and a fresh worker starts
+        # with its Away clock at its first frame, though nobody came back.
+        store.close_orphans()
+        w2, d2 = make(store, [station(limit=1)])
+        run(w2, d2, [(300 + i * 5, []) for i in range(10)])
+        assert len(calls) == 1, "not before another full limit"
+        run(w2, d2, [(300 + i * 5, []) for i in range(10, 16)])
+        assert len(calls) == 2, "the restarted Away clock reaches the limit"
+
+
 class TestHoursAndGaps:
     def test_hours_ending_closes_at_the_hours_end_and_is_not_carried_over(
             self, store):
@@ -229,9 +298,9 @@ class TestHoursAndGaps:
             def local(self, when):
                 return when
         w, d = make(store, [window], clock=Clock())
-        run(w, d, [(0, []), (60, []), (540, [])])      # 09:09
+        run(w, d, [(0, []), (60, [])] + [(t, []) for t in range(540, 600, 5)])
         d.boxes = []
-        w.analyse(frame(660, 9))                       # 09:11: past the end
+        w.analyse(frame(601, 9))                       # 10:00:01, frames were continuous
         away = [s for s in states(store) if s[0] in ("away", "absent")]
         assert max(s[2] for s in away if s[2] is not None) == 600.0
         w.analyse(frame(30 * 60 * 24, 10))

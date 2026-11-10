@@ -27,6 +27,7 @@ setting.
 from __future__ import annotations
 
 import logging
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -144,6 +145,9 @@ class FaceDetector:
     The detector is stateful about input size — it must be told the frame
     dimensions before every detect on a differently-sized frame, which is easy
     to forget and produces silently wrong boxes rather than an error.
+
+    One instance is shared by recognition, work stations and the reach check,
+    each on its own thread, so the size-then-detect pair is one locked step.
     """
 
     def __init__(
@@ -159,6 +163,7 @@ class FaceDetector:
 
         self.score_threshold = score_threshold
         self._size: tuple[int, int] = (320, 320)
+        self._lock = threading.Lock()
         self._detector = cv2.FaceDetectorYN.create(
             str(self.weights), "", self._size, score_threshold, nms_threshold, top_k
         )
@@ -174,11 +179,11 @@ class FaceDetector:
         identify them.
         """
         h, w = image.shape[:2]
-        if (w, h) != self._size:
-            self._size = (w, h)
-            self._detector.setInputSize(self._size)
-
-        _, raw = self._detector.detect(image)
+        with self._lock:
+            if (w, h) != self._size:
+                self._size = (w, h)
+                self._detector.setInputSize(self._size)
+            _, raw = self._detector.detect(image)
         if raw is None:
             return []
 

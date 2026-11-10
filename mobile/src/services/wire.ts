@@ -224,9 +224,10 @@ export interface Station {
   unknownReason?: 'cameraOffline' | 'detectorStopped' | 'notRunning' | null;
   presentNotRecognised: boolean;
   opensAt?: string | null;
-  workSeconds: number;
-  absentSeconds: number;
-  notWatchedSeconds: number;
+  /** null when the station log could not be read: not measured, never 0. */
+  workSeconds: number | null;
+  absentSeconds: number | null;
+  notWatchedSeconds: number | null;
   rate: number | null;
   timeline: TimelineSegment[];
   unacknowledgedAlert?: { eventId: string; at: Instant } | null;

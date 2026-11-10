@@ -24,6 +24,8 @@ export const en: Record<MessageKey, string> = {
   'nav.tab.more': 'More',
   // The phone's two extra screens: a tab's worth of links, no new capability.
   'mobile.tools.lead': 'Seven tools. Each answers one question, with the footage right there.',
+  'mobile.stations.title': 'Work stations are on the console',
+  'mobile.stations.body': 'Drawing a station and reading how long it was staffed is done on the console. This phone does not show it yet, so nothing here is measured. The alert you opened is still waiting on the console.',
   'mobile.account.lead': 'Your school, your alerts, and how the app looks.',
   // Only the phone says these (spec 015).
   'phone.back': 'Back',
@@ -807,6 +809,8 @@ export const en: Record<MessageKey, string> = {
   'load.latestSystemHealth': 'the latest system health',
   'load.groupList': 'the group list',
   'load.cameraList': 'the camera list',
+  'load.zoneList': 'the zone list',
+  'load.stationList': 'the station list',
   'load.accountList': 'the account list',
   'load.verdict': 'that verdict',
   'load.removal': 'that removal',
@@ -1149,6 +1153,7 @@ export const en: Record<MessageKey, string> = {
   'stations.worked': 'At the station {time}',
   'stations.awayTime': 'away {time}',
   'stations.notWatched': 'not watched',
+  'stations.notMeasured': 'Not measured',
   'stations.notWatchedTime': 'not watched {time}',
   'stations.timeline': 'Today\'s timeline',
   'stations.rules': 'Alert after {limit} min empty · watched {hours}',

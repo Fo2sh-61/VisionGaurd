@@ -346,3 +346,52 @@ def test_face_pipeline_keeps_opencv_to_one_thread():
         assert cv2.getNumThreads() == OPENCV_THREADS == 1
     finally:
         cv2.setNumThreads(before)
+
+
+class TestSharedDetectorIsSerialised:
+    """Review: recognition, stations and face_reach share one YuNet. Its input
+    size is state, so set-size + detect must not interleave across threads."""
+
+    def test_two_threads_with_different_sized_crops_get_their_own_boxes(self):
+        import threading
+        import time
+
+        import numpy as np
+
+        from vg.infer.faces import FaceDetector
+
+        class StubYuNet:
+            def __init__(self):
+                self.size = (0, 0)
+
+            def setInputSize(self, size):
+                self.size = size
+
+            def detect(self, image):
+                time.sleep(0.002)        # widen the window for an interleave
+                width = self.size[0]
+                row = np.zeros(15, dtype=np.float32)
+                row[:4] = (width, 0, 100, 100)   # x carries the size it ran at
+                row[-1] = 0.9
+                return 1, np.array([row])
+
+        det = FaceDetector.__new__(FaceDetector)
+        det._size = (320, 320)
+        det._detector = StubYuNet()
+        det._lock = threading.Lock()     # what __init__ makes; skipped by __new__
+
+        wrong: list[tuple[int, int]] = []
+
+        def work(width: int) -> None:
+            image = np.zeros((200, width, 3), np.uint8)
+            for _ in range(60):
+                found = det.detect(image)
+                if found[0].x != width:
+                    wrong.append((width, found[0].x))
+
+        threads = [threading.Thread(target=work, args=(w,)) for w in (240, 480)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert wrong == []

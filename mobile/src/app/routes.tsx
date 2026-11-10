@@ -20,6 +20,7 @@ import { Enrol } from '@/pages/Enrol';
 import { PeopleGroup } from '@/pages/PeopleGroup';
 import { PersonHistory } from '@/pages/PersonHistory';
 import { Settings } from '@/pages/Settings';
+import { Stations } from '@/pages/Stations';
 import { Tools } from '@/pages/Tools';
 import { More } from '@/pages/More';
 import type { Role } from '@/types';
@@ -107,6 +108,9 @@ export function AppRoutes() {
         <Route path="intrusion" element={<Intrusion />} />
         <Route path="weapons" element={<Weapons />} />
         <Route path="vehicles" element={<VehicleGate />} />
+        {/* Not a tool on the phone: only where the Home alert for an empty
+            station lands, so that link says so instead of redirecting. */}
+        <Route path="stations" element={<Stations />} />
         <Route path="lost-items" element={<LostItems />} />
         <Route path="track" element={<TrackPerson />} />
 

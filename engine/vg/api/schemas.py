@@ -509,9 +509,10 @@ class Station(Wire):
     #: Somebody is inside and nobody matched. Live, never stored.
     present_not_recognised: bool = False
     opens_at: str | None = None
-    work_seconds: float = 0.0
-    absent_seconds: float = 0.0
-    not_watched_seconds: float = 0.0
+    #: null when the station log is not there to measure, never 0.
+    work_seconds: float | None = None
+    absent_seconds: float | None = None
+    not_watched_seconds: float | None = None
     #: null until some time has been watched.
     rate: float | None = None
     timeline: list[TimelineSegment] = Field(default_factory=list)

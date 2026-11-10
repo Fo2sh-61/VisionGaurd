@@ -299,6 +299,100 @@ class TestHome:
         assert [i for i in store.attention() if i.kind == "station"] == []
 
 
+class TestReviewFixes:
+    """Fixes from the spec 025 review."""
+
+    def station_alert(self, admin, parts, **kw):
+        made = admin.post("/stations", json=body(**kw)).json()
+        now = datetime.now(timezone.utc)
+        parts[2].absence_alert(made["id"], "cam-a", now,
+                               now - timedelta(minutes=12), "Lab bench 2", 10)
+        return made["id"]
+
+    def test_the_stations_own_in_app_tick_beats_the_settings_row_off(
+            self, admin, parts):
+        store = parts[0]
+        store.alerts_store.update_rule("station", in_app=False)
+        self.station_alert(admin, parts, notifyInApp=True)
+        assert [i for i in store.attention() if i.kind == "station"], \
+            "the station's own tick decides, not the default row"
+
+    def test_the_stations_own_in_app_off_beats_the_settings_row_on(
+            self, admin, parts):
+        store = parts[0]
+        store.alerts_store.update_rule("station", in_app=True)
+        self.station_alert(admin, parts, notifyInApp=False)
+        assert [i for i in store.attention() if i.kind == "station"] == []
+
+    def _live(self, admin, parts, reading):
+        store = parts[0]
+        made = admin.post("/stations", json=body(
+            watched={"mode": "custom", "from": "00:00", "to": "23:59"})).json()
+        real = store.registry.worker("cam-a")
+        store.registry.workers["cam-a"] = SimpleNamespace(
+            status="ok", config=real.config, last_frame=lambda: None)
+        return store, made
+
+    def test_present_not_recognised_reaches_the_wire_and_is_never_stored(
+            self, admin, parts):
+        store, made = self._live(admin, parts, None)
+        now = datetime.now(timezone.utc)
+        store.stations_worker = SimpleNamespace(
+            cameras=["cam-a"],
+            payload=lambda cam: StationsResult(restricted=True, stations=(
+                StationReading(station_id=made["id"], state="away",
+                               since=now - timedelta(minutes=1), people=1,
+                               unrecognised=True),)))
+        row = admin.get("/stations").json()[0]
+        assert row["presentNotRecognised"] is True
+        start, end = now - timedelta(days=1), now + timedelta(days=1)
+        assert parts[2].events(made["id"], start, end) == []
+        assert parts[2].segments(made["id"], start, end) == []
+
+    def test_detector_stopped_has_three_branches_and_each_says_so(
+            self, admin, parts):
+        store, made = self._live(admin, parts, None)
+        # 1. a worker that is not watching this camera
+        store.stations_worker = SimpleNamespace(cameras=[], payload=lambda c: None)
+        row = admin.get("/stations").json()[0]
+        assert row["state"] == "unknown" and row["unknownReason"] == "detectorStopped"
+        # 2. watching it, but no payload yet
+        store.stations_worker = SimpleNamespace(
+            cameras=["cam-a"], payload=lambda c: None)
+        row = admin.get("/stations").json()[0]
+        assert row["state"] == "unknown" and row["unknownReason"] == "detectorStopped"
+        # 3. a payload that has no reading for this station
+        store.stations_worker = SimpleNamespace(
+            cameras=["cam-a"],
+            payload=lambda c: StationsResult(restricted=True, stations=()))
+        row = admin.get("/stations").json()[0]
+        assert row["state"] == "unknown" and row["unknownReason"] == "detectorStopped"
+        assert parts[2].open_alerts(made["id"]) == [], "no alert while unknown"
+
+    def test_figures_are_null_not_zero_when_the_log_is_missing(
+            self, admin, parts):
+        made = admin.post("/stations", json=body()).json()
+        parts[0].station_store = None
+        row = next(r for r in admin.get("/stations").json()
+                   if r["id"] == made["id"])
+        assert row["workSeconds"] is None
+        assert row["absentSeconds"] is None
+        assert row["notWatchedSeconds"] is None
+        assert row["rate"] is None
+
+    def test_figures_are_numbers_when_the_log_is_there(self, admin):
+        admin.post("/stations", json=body())
+        row = admin.get("/stations").json()[0]
+        assert row["workSeconds"] == 0.0 and row["absentSeconds"] == 0.0
+
+    def test_detail_is_503_not_404_when_the_area_table_failed(
+            self, admin, parts):
+        made = admin.post("/stations", json=body()).json()
+        parts[0].area_store = None
+        r = admin.get(f"/stations/{made['id']}")
+        assert r.status_code == 503, r.text
+
+
 class TestCapabilityAndHealth:
     def state(self, store):
         cap = next(c for c in store.capabilities() if c.key == "stations")

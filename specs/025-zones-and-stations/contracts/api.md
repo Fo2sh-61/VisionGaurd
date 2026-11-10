@@ -55,7 +55,7 @@ Existing. Changes: optional `zoneId` filter; **entries whose clip was replaced a
 (`clipState: "replaced"`, `clip` null, `clipReason` the existing sentence) so the log is complete;
 `zoneId` and `zoneName` come from the zone row (deleted ones included, name unchanged);
 `clipReason` for an entry that shared a camera with another zone's recording is "No clip -
-recorded under the other zone's entry".
+the camera was already recording another zone's entry". The clip belongs to the first entry only and stops when that entry closes.
 
 ### Unchanged
 `GET /breaches/{id}/clip`, `GET /intrusion/cameras`.

@@ -133,8 +133,10 @@ ACTOR = "restricted-zones"
 #: feature has its own recorder, so the only thing that can be holding it is
 #: this feature - another zone's entry on the same camera - and blaming a
 #: person for it would be a guess printed as fact. One recorder per camera is
-#: the rule; two zones entered at once share the first one's clip.
-BUSY_REASON = "No clip - recorded under the other zone's entry"
+#: the rule: the first zone's entry gets the clip and a second zone entered at
+#: the same time gets none, and says so. The clip belongs to the first entry
+#: alone and stops when that entry closes, even if the second is still going.
+BUSY_REASON = "No clip - the camera was already recording another zone's entry"
 
 #: How long the working hours read from Settings are reused. Only a zone that
 #: depends on them asks, and a Settings save still reaches the next frame
@@ -168,6 +170,10 @@ class SceneState:
     scene_id: str
     started_at: datetime
     last_person_at: datetime
+    #: The camera this scene was opened on. A zone's camera can be edited, so
+    #: the scene must remember its own: the recorder to stop and the thread
+    #: allowed to close it both follow this, never the zone's current camera.
+    camera_id: str = ""
     peak: int = 1
     recording: bool = False
     #: When this visit began, for the alert timer. A scene cut at the limit
@@ -360,6 +366,13 @@ class ZonesWorker(FeatureWorker[ZonesResult]):
     def _step(self, area: Area, now: datetime, people: int) -> str | None:
         """One zone, one frame: the unchanged state machine. Returns its scene."""
         zone_id = area.id
+        live = self._live.get(zone_id)
+        if live is not None and live.camera_id != area.camera_id:
+            # The zone was moved to another camera while a scene was running.
+            # This is the new camera's thread, so closing here would be wrong
+            # for the OLD camera's recorder only if we looked it up by the
+            # zone; the scene knows its own camera, so it is stopped there.
+            self._stand_down(zone_id, now, "switched_off")
         # Before the state machine, because it spans scenes: this is what
         # decides whether the next arrival is a new incident or the same one.
         # It runs on every frame and not only on empty ones, and it runs
@@ -512,7 +525,8 @@ class ZonesWorker(FeatureWorker[ZonesResult]):
         pending = (not alert_now) and not continues
         state = SceneState(
             scene_id=scene_id, started_at=started_at,
-            last_person_at=at or started_at, peak=people,
+            last_person_at=at or started_at, camera_id=area.camera_id,
+            peak=people,
             run_since=(carry.run_since if carry is not None and pending
                        else started_at),
             alert_pending=pending,
@@ -531,7 +545,7 @@ class ZonesWorker(FeatureWorker[ZonesResult]):
             return
         self.scenes.close(state.scene_id, at, reason)
         if state.recording:
-            self._stop_recording(self._owner.get(zone_id, ""), state.scene_id)
+            self._stop_recording(state.camera_id, state.scene_id)
         log.info("scene %s closed in %s (%s)",
                  state.scene_id[:8], zone_id, reason)
 

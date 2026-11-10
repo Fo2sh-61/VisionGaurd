@@ -543,3 +543,12 @@ class TestStationsConfig:
             cfg.StationsConfig.parse(
                 {"leave_confirm_seconds": 3, "return_confirm_seconds": 5},
                 "stations")
+
+
+def test_stations_min_face_px_default_is_the_recognition_floor():
+    """config.py cannot import cv2-backed faces.py, so it repeats the number;
+    this is what keeps the two from drifting apart."""
+    from vg.config import StationsConfig
+    from vg.infer.faces import MIN_FACE_PIXELS
+
+    assert StationsConfig().min_face_px == MIN_FACE_PIXELS

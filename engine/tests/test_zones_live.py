@@ -1075,7 +1075,7 @@ class TestRecording:
         scene = scenes.recent(since_days=1)[0]
         assert scene.running is False, "the scene is still logged"
         assert scene.clip_state == "failed"
-        assert scene.clip_reason and "recorded under the other zone" in scene.clip_reason
+        assert scene.clip_reason and "already recording another zone" in scene.clip_reason
         assert recorder.stopped == [], "we must not stop somebody else's file"
 
     def test_no_recorder_at_all_still_logs_the_scene(self, scenes):

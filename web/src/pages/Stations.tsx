@@ -68,7 +68,9 @@ export function Stations() {
     [selectedId, language, day], null as StationCard | null, REFRESH_MS);
 
   const [editing, setEditing] = useState<string | 'new' | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  // The id being confirmed, so picking another station never leaves a live
+  // "Confirm delete" armed for the wrong one.
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [assignee, setAssignee] = useState<string>('');
@@ -89,8 +91,9 @@ export function Stations() {
   const away = open.filter((s) => s.state === 'away').length;
   const absent = open.filter((s) => s.state === 'absent').length;
   const unknown = stations.filter((s) => s.state === 'unknown');
-  const work = open.reduce((n, s) => n + s.workSeconds, 0);
-  const off = open.reduce((n, s) => n + s.absentSeconds, 0);
+  // A station whose figures could not be read adds nothing: unknown is not 0.
+  const work = open.reduce((n, s) => n + (s.workSeconds ?? 0), 0);
+  const off = open.reduce((n, s) => n + (s.absentSeconds ?? 0), 0);
   const todayRate = work + off > 0 ? work / (work + off) : null;
 
   const tiles = useMemo(() => [
@@ -159,7 +162,10 @@ export function Stations() {
   function stateLine(s: StationCard): string {
     if (s.state === 'notStarted' && s.opensAt) return t('stations.opensAt', { time: s.opensAt });
     if (s.state === 'unknown' && s.unknownReason) return t(`stations.unknown.${s.unknownReason}`);
-    if (s.state === 'on' && s.presentNotRecognised) return t('stations.presentNotRecognised');
+    // Somebody is inside and nobody matched: say so while the station reads
+    // Away or Absent (and the short window before it flips from On).
+    if ((s.state === 'on' || s.state === 'away' || s.state === 'absent')
+      && s.presentNotRecognised) return t('stations.presentNotRecognised');
     return s.since ? t('stations.since', { time: s.since }) : '';
   }
 
@@ -240,7 +246,7 @@ export function Stations() {
         {t('stations.tile.note')}
       </div>
 
-      <LoadError error={error} onRetry={reload} what="load.cameraList" />
+      <LoadError error={error} onRetry={reload} what="load.stationList" />
       <LoadError error={formError} what="load.change" />
       {loading && <Empty>{t('stations.loading')}</Empty>}
 
@@ -284,9 +290,13 @@ export function Stations() {
                 <div style={{ fontSize: 12.5, color: 'var(--tx2)' }}>{assignedLine(s)}</div>
                 <div style={{ fontSize: 12.5, color: 'var(--tx2)' }}>{stateLine(s)}</div>
                 <div style={{ fontSize: 12.5, color: 'var(--tx2)', marginTop: 2 }}>
-                  {t('stations.worked', { time: formatDurationShort(s.workSeconds, language) })}
-                  {' · '}
-                  {t('stations.awayTime', { time: formatDurationShort(s.absentSeconds, language) })}
+                  {s.workSeconds === null || s.absentSeconds === null
+                    ? t('stations.notMeasured')
+                    : <>
+                        {t('stations.worked', { time: formatDurationShort(s.workSeconds, language) })}
+                        {' · '}
+                        {t('stations.awayTime', { time: formatDurationShort(s.absentSeconds, language) })}
+                      </>}
                   {' · '}
                   {s.rate === null ? t('stations.notWatched') : formatPercent(s.rate, language)}
                 </div>
@@ -330,14 +340,14 @@ export function Stations() {
                     {t('stations.edit')}
                   </button>
                   <button type="button" className="chip-btn chip-btn--off" disabled={busy}
-                    onClick={() => setConfirmDelete(true)}>
+                    onClick={() => setConfirmDelete(selected.id)}>
                     {t('stations.delete')}
                   </button>
                 </>
               )}
             </div>
           </div>
-          {confirmDelete && (
+          {confirmDelete === selected.id && (
             <div role="alert" style={{ marginTop: 10, padding: 10, border: '1px solid var(--line)', borderRadius: 8 }}>
               <div style={{ fontSize: 13.5, marginBottom: 8 }}>
                 {t('stations.deleteQuestion', { name: selected.name })}
@@ -346,13 +356,13 @@ export function Stations() {
                 onClick={async () => {
                   if (await run(() => deleteStation(selected.id),
                     t('stations.deletedToast', { name: selected.name }), selected.name)) {
-                    setConfirmDelete(false);
+                    setConfirmDelete(null);
                     setSelectedId(null);
                   }
                 }}>
                 {t('stations.deleteConfirm')}
               </button>{' '}
-              <button type="button" className="chip-btn chip-btn--off" onClick={() => setConfirmDelete(false)}>
+              <button type="button" className="chip-btn chip-btn--off" onClick={() => setConfirmDelete(null)}>
                 {t('area.editor.cancel')}
               </button>
             </div>
@@ -364,10 +374,14 @@ export function Stations() {
                 onChange={(e) => setDay(e.target.value)} />
             </Field>
             <div style={{ fontSize: 13, color: 'var(--tx2)' }}>
-              {t('stations.worked', { time: formatDurationShort(selected.workSeconds, language) })}
-              {' · '}
-              {t('stations.awayTime', { time: formatDurationShort(selected.absentSeconds, language) })}
-              {selected.notWatchedSeconds > 0 && (
+              {selected.workSeconds === null || selected.absentSeconds === null
+                ? t('stations.notMeasured')
+                : <>
+                    {t('stations.worked', { time: formatDurationShort(selected.workSeconds, language) })}
+                    {' · '}
+                    {t('stations.awayTime', { time: formatDurationShort(selected.absentSeconds, language) })}
+                  </>}
+              {selected.notWatchedSeconds !== null && selected.notWatchedSeconds > 0 && (
                 <>{' · '}{t('stations.notWatchedTime', {
                   time: formatDurationShort(selected.notWatchedSeconds, language) })}</>
               )}

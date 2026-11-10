@@ -31,6 +31,8 @@ export const arDraft: Partial<Record<MessageKey, string>> = {
   'nav.tab.more': 'المزيد',
 
   'mobile.tools.lead': 'سبع أدوات. كل واحدة تجيب عن سؤال، واللقطات أمامك مباشرة.',
+  'mobile.stations.title': 'محطات العمل على وحدة التحكم',
+  'mobile.stations.body': 'رسم المحطة وقراءة مدة إشغالها يتمان على وحدة التحكم. لا يعرض الهاتف ذلك بعد، لذلك لا شيء هنا مقاس. التنبيه الذي فتحته ما زال بانتظارك على وحدة التحكم.',
   'mobile.account.lead': 'مدرستك، وتنبيهاتك، وشكل التطبيق.',
 
   // Only the phone says these (spec 015).
@@ -784,6 +786,8 @@ export const arDraft: Partial<Record<MessageKey, string>> = {
   'load.latestSystemHealth': 'أحدث حالة للنظام',
   'load.groupList': 'قائمة المجموعات',
   'load.cameraList': 'قائمة الكاميرات',
+  'load.zoneList': 'قائمة المناطق',
+  'load.stationList': 'قائمة محطات العمل',
   'load.accountList': 'قائمة الحسابات',
   'load.verdict': 'ذلك القرار',
   'load.removal': 'عملية الحذف',
@@ -1158,6 +1162,7 @@ export const arDraft: Partial<Record<MessageKey, string>> = {
   'stations.worked': 'في المحطة {time}',
   'stations.awayTime': 'غائب {time}',
   'stations.notWatched': 'غير مراقبة',
+  'stations.notMeasured': 'غير مقاس',
   'stations.notWatchedTime': 'غير مراقبة {time}',
   'stations.timeline': 'الجدول الزمني لليوم',
   'stations.rules': 'تنبيه بعد {limit} دقيقة فراغ · المراقبة {hours}',

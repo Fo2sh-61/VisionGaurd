@@ -412,10 +412,17 @@ class SceneStore:
         return {row["zone_id"]: int(row["n"]) for row in rows}
 
     def camera_ids(self) -> list[str]:
-        """Every camera that has ever had a scene: the import reads this."""
+        """Every camera with a legacy (pre-025) scene: the import reads this.
+
+        Legacy rows are the whole-camera ones: no zone, or a zone named after
+        the camera. A drawn zone's scenes carry its own id and must not make
+        the import invent a zone for their camera.
+        """
         with self._lock:
             rows = self._conn.execute(
-                "SELECT DISTINCT camera_id FROM zone_scene ORDER BY camera_id"
+                "SELECT DISTINCT camera_id FROM zone_scene "
+                "WHERE zone_id IS NULL OR zone_id = camera_id "
+                "ORDER BY camera_id"
             ).fetchall()
         return [row["camera_id"] for row in rows]
 

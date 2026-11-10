@@ -159,8 +159,10 @@ def station_absent(station_id: str, camera_id: str, at: datetime,
                    channels: frozenset[str] | None = None) -> AlertEvent:
     """A work station has been empty longer than its limit.
 
-    The key names the absence by when it began, so one absence is one message
-    however many times the engine restarts in the middle of it.
+    The key names the absence by when it began, so a repeat attempt for the
+    same absence sends nothing. A restart in the middle of one starts a new
+    absence with a restarted Away clock, which can alert again after another
+    limit.
     """
     facts: dict[str, Any] = {"station": station, "limit": int(limit_minutes)}
     if assignee:

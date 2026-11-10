@@ -56,7 +56,7 @@ An administrator opens Restricted zones and sees one card per zone: the camera p
 
 - Camera offline: the card says so and must not read "Zone clear".
 - Person detector not running: the page says so with the reason. An empty log is never shown as "nobody entered". Nothing detected yet since start is a different message from unavailable.
-- Two zones on one camera, one person in both: each logs its own entry. A camera records one clip at a time, so the second entry says "No clip — recorded under the other zone's entry". The camera still keeps only its last three clips between them.
+- Two zones on one camera, one person in both: each logs its own entry. A camera records one clip at a time, so the second entry says "No clip - the camera was already recording another zone's entry". The camera still keeps only its last three clips between them.
 - A person steps in within the minute after leaving: same incident, no second alert.
 - Clips being written while other cameras are busy: detection on every camera keeps its normal pace (P14-FR-420).
 

@@ -1126,12 +1126,15 @@ class LiveStore(MockStore):
         now = datetime.now(timezone.utc)
         local = self.clock.local(now)
         hours = self.hours()
-        return [self._wire_zone(a, today.get(a.id, 0), now, local, hours)
+        return [self._wire_zone(a, today.get(a.id, 0), local, hours)
                 for a in areas]
 
-    def _zone_status(self, area: Area, now: datetime, local: datetime,
+    def _zone_status(self, area: Area, local: datetime,
                      hours: HoursConfig) -> tuple[str, int | None]:
-        """(status, people inside now). People only when the answer is fresh."""
+        """(status, people inside now), from the worker's last payload.
+
+        People are given only when the worker answered for this zone; any
+        other case says why it did not."""
         if area.paused:
             return "paused", None
         if not watching_at(area, local, hours):
@@ -1155,9 +1158,9 @@ class LiveStore(MockStore):
             area.hours_mode, area.hours_mode)
         return S.WatchedHours(mode=mode, from_=area.hours_from, to=area.hours_to)
 
-    def _wire_zone(self, area: Area, today: int, now: datetime,
+    def _wire_zone(self, area: Area, today: int,
                    local: datetime, hours: HoursConfig) -> S.Zone:
-        status, inside = self._zone_status(area, now, local, hours)
+        status, inside = self._zone_status(area, local, hours)
         return S.Zone(
             id=area.id, name=area.name, camera_id=area.camera_id,
             # Retired: kept so the phone, which reads it, still parses.
@@ -1384,7 +1387,7 @@ class LiveStore(MockStore):
         return [(day_start + timedelta(hours=start.hour, minutes=start.minute),
                  day_start + timedelta(hours=end.hour, minutes=end.minute))]
 
-    def _station_state(self, area: Area, now: datetime, local: datetime,
+    def _station_state(self, area: Area, local: datetime,
                        hours: HoursConfig):
         """(state, since, unknown_reason, reading, opens_at)."""
         if area.deleted:
@@ -1423,7 +1426,7 @@ class LiveStore(MockStore):
         local = self.clock.local(now)
         hours = self.hours()
         state, since, reason, reading, opens = self._station_state(
-            area, now, local, hours)
+            area, local, hours)
         day_start, day_end = self._day_bounds(day)
         windows = (self._day_windows(area, day_start, hours)
                    if self.station_store is not None else [])
@@ -1463,9 +1466,10 @@ class LiveStore(MockStore):
             unknown_reason=reason,
             present_not_recognised=bool(reading and reading.unrecognised),
             opens_at=opens,
-            work_seconds=figures.work_seconds if figures else 0.0,
-            absent_seconds=figures.off_station_seconds if figures else 0.0,
-            not_watched_seconds=figures.not_watched_seconds if figures else 0.0,
+            # None, never 0, when the station log is not there to measure.
+            work_seconds=figures.work_seconds if figures else None,
+            absent_seconds=figures.off_station_seconds if figures else None,
+            not_watched_seconds=figures.not_watched_seconds if figures else None,
             rate=figures.rate if figures else None,
             timeline=timeline, unacknowledged_alert=alert,
             deleted_at=_instant(area.deleted_at, self.clock),
@@ -1480,8 +1484,13 @@ class LiveStore(MockStore):
 
     def station(self, station_id: str, day: str = "",
                 names: bool = True) -> S.StationDetail | None:
-        area = (self.area_store.get(station_id)
-                if self.area_store is not None else None)
+        if self.area_store is None:
+            # Nothing is running is not the same answer as not found.
+            raise SubsystemUnavailable(
+                self.zones_error
+                or "The list of zones and stations is not available. "
+                   "Detection is unaffected.")
+        area = self.area_store.get(station_id)
         if area is None or area.kind != "station":
             return None
         base = self._wire_station(area, day, names)
@@ -3226,12 +3235,18 @@ class LiveStore(MockStore):
                               minutes=int((now - since).total_seconds() // 60)),
                 ))
 
-        if shown("station") and self.station_store is not None:
+        if self.station_store is not None:
             names = {a.id: a for a in self._station_areas(include_deleted=True)}
             for alert in self.station_store.open_alerts(
                     since=self._start_of_day()):
                 area = names.get(alert.station_id)
-                if area is not None and not area.notify_in_app:
+                if area is None:
+                    # No area row: Settings' row decides, as for zones.
+                    if not shown("station"):
+                        continue
+                elif not area.notify_in_app:
+                    # The station's own In-app tick decides; Settings' row is
+                    # only what a new station started with.
                     continue
                 items.append(S.AttentionItem(
                     id=f"station:{alert.id}", kind="station",

@@ -208,7 +208,7 @@ export function Intrusion() {
         {t('zones.tile.entriesNote')}
       </div>
 
-      <LoadError error={zonesError} onRetry={reloadZones} what="load.cameraList" />
+      <LoadError error={zonesError} onRetry={reloadZones} what="load.zoneList" />
       <LoadError error={formError} what="load.change" />
       {zonesLoading && <Empty>{t('zones.loading')}</Empty>}
 

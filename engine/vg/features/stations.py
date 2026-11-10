@@ -88,6 +88,9 @@ class _Machine:
     last_frame: datetime | None = None
     last_counted: datetime | None = None
     run_start: datetime | None = None
+    #: The camera this segment was recorded on. The station's camera can be
+    #: edited, so the segment must remember its own.
+    camera_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -234,6 +237,14 @@ class StationsWorker(FeatureWorker[StationsResult]):
         now = frame.captured_at
         m = self._machines.setdefault(area.id, _Machine())
 
+        if (m.state is not None and m.camera_id is not None
+                and m.camera_id != area.camera_id):
+            # The station was moved to another camera and this is the new
+            # camera's thread: what the old camera saw ends where it last saw
+            # it, and this frame starts fresh.
+            self._end(m, m.last_frame or now)
+        m.camera_id = area.camera_id
+
         if (m.last_frame is not None and m.state is not None
                 and (now - m.last_frame).total_seconds()
                 >= self.config.stall_seconds):
@@ -291,7 +302,12 @@ class StationsWorker(FeatureWorker[StationsResult]):
             return
         if m.state == "away" and m.away_since is not None and area.limit_minutes:
             due = m.away_since + timedelta(minutes=area.limit_minutes)
-            if now >= due:
+            # Somebody walking back whose return is not confirmed yet is not
+            # absent: the alert waits until the run confirms or breaks.
+            returning = (m.run_start is not None and m.last_counted is not None
+                         and (now - m.last_counted).total_seconds()
+                         < cfg.gap_tolerance_seconds)
+            if now >= due and not returning:
                 away_since = m.away_since
                 self._begin(m, area, "absent", due)
                 m.away_since = away_since
@@ -321,6 +337,11 @@ class StationsWorker(FeatureWorker[StationsResult]):
     def _end_for_hours(self, area: Area, now: datetime) -> None:
         m = self._machines.get(area.id)
         if m is None or m.state is None or m.last_frame is None:
+            return
+        if (now - m.last_frame).total_seconds() >= self.config.stall_seconds:
+            # Frames stopped before the hours did: the time up to the end of
+            # the hours was never watched, so it is not covered.
+            self._end(m, m.last_frame)
             return
         self._end(m, self._hours_end(area, m.last_frame, now))
 

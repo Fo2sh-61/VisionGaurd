@@ -2639,6 +2639,8 @@ def _mount(app: FastAPI) -> None:
             found = store.station(station_id, day)
         except ValueError as exc:
             raise HTTPException(422, "day must be written YYYY-MM-DD") from exc
+        except SubsystemUnavailable as exc:
+            raise HTTPException(503, str(exc)) from exc
         if found is None:
             raise HTTPException(404, f"no station {station_id!r}")
         return _station_view(user, found)

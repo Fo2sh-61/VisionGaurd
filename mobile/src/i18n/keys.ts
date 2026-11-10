@@ -69,6 +69,8 @@ export type UiKey =
      console's sidebar already is them. They add no capability — they are a
      tab's worth of links to pages both apps share. */
   | 'mobile.tools.lead'
+  | 'mobile.stations.title'
+  | 'mobile.stations.body'
   | 'mobile.account.lead'
   /* Wording only the phone uses (spec 015, the phone-first redesign): its top
      bar, Home's figures, the cameras tab and More. Shared like everything
@@ -813,6 +815,8 @@ export type UiKey =
   | 'load.latestSystemHealth'
   | 'load.groupList'
   | 'load.cameraList'
+  | 'load.zoneList'
+  | 'load.stationList'
   | 'load.accountList'
   | 'load.verdict'
   | 'load.removal'
@@ -1124,6 +1128,7 @@ export type UiKey =
   | 'stations.worked'
   | 'stations.awayTime'
   | 'stations.notWatched'
+  | 'stations.notMeasured'
   | 'stations.notWatchedTime'
   | 'stations.timeline'
   | 'stations.rules'
