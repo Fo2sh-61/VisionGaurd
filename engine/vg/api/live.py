@@ -4395,7 +4395,7 @@ class LiveStore(MockStore):
             return []
 
         who = self.gallery.person(person_id)
-        created, had_photo = None, False
+        created, had_photo, removed_at = None, False, None
         if who is not None:
             created, had_photo = who.created_at, who.photo_on_file
         else:
@@ -4403,7 +4403,7 @@ class LiveStore(MockStore):
                          if g.person_id == person_id), None)
             if gone is None:
                 return []
-            created, had_photo = gone.created_at, True
+            created, had_photo, removed_at = gone.created_at, True, gone.removed_at
 
         days: list[tuple[str, HoursConfig]] = []
         for back in range(22):
@@ -4432,6 +4432,8 @@ class LiveStore(MockStore):
                 continue
             enrolled = (had_photo and (
                 created is None or self.sightings.local_date(created) <= d))
+            if removed_at is not None and self.sightings.local_date(removed_at) <= d:
+                enrolled = False  # gone by then: no record, not an absence
             if enrolled and d in excused:
                 status = S.AttendanceStatus.EXCUSED
             elif enrolled and self._day_recorded(d):
@@ -5198,6 +5200,11 @@ class LiveStore(MockStore):
             # arrived would drag the figure down with a whole school "absent".
             if not self.sightings.has_day(iso):
                 continue
+            # Today only once its late cut-off has passed: at 07:45 everybody
+            # not yet in would read absent and drag the figure down.
+            if back == 0 and self.sightings.clock.local_time(
+                    datetime.now(timezone.utc)) < self.hours_on(iso).late_cutoff:
+                continue
             register = self._everyone_register(iso)
             groups_of = {r.id: r.group for r in self._roll_on(iso)}
 
@@ -5288,16 +5295,31 @@ class LiveStore(MockStore):
                 )],
             )
 
-        hours = self.hours()
-        recorded = self.sightings.days_recorded(limit=self.HISTORY_DAYS)
-        seen = self.sightings.history(
-            who.id, days=self.HISTORY_DAYS,
-            cutoff=hours.late_cutoff, day_start=hours.start, day_end=hours.end,
-        )
+        recorded_all = self.sightings.days_recorded(limit=self.HISTORY_DAYS)
+        # Days before they were enrolled are not days they could be absent.
+        enrolled_on = (self.sightings.local_date(who.created_at)
+                       if who.created_at is not None else None)
+        recorded = [d for d in recorded_all
+                    if enrolled_on is None or d >= enrolled_on]
+        day_hours = {d: self.hours_on(d) for d in recorded}
+        seen = self.sightings.person_days(
+            who.id, recorded,
+            bounds={d: (h.late_cutoff, h.start, h.end)
+                    for d, h in day_hours.items()})
+        excused: set[str] = set()
+        if self.ledger is not None:
+            try:
+                excused = self.ledger.excused_among(who.id, recorded)
+            except sqlite3.Error:
+                log.exception("excusals could not be read for the history")
+        # Arrival wins over an excusal, as on the register.
+        excused = {d for d in excused if d not in seen}
 
-        present = [d for d in recorded if d in seen]
+        # Excused days are neither for nor against: out of every count below.
+        counted = [d for d in recorded if d not in excused]
+        present = [d for d in counted if d in seen]
         late = [d for d in present if seen[d].status == "late"]
-        missed = [d for d in recorded if d not in seen]
+        missed = [d for d in counted if d not in seen]
 
         # Oldest first, so the chart reads left to right like a week does.
         trend = [
@@ -5306,6 +5328,7 @@ class LiveStore(MockStore):
                 label=_day_label(day),
                 present_ratio=1.0 if day in seen else 0.0,
                 status=(S.AttendanceStatus(seen[day].status) if day in seen
+                        else S.AttendanceStatus.EXCUSED if day in excused
                         else S.AttendanceStatus.ABSENT),
             )
             for day in reversed(recorded)
@@ -5319,7 +5342,7 @@ class LiveStore(MockStore):
             S.AttendanceFlag(
                 date=day, kind="late", severity=S.Severity.INFO,
                 detail=(f"Arrived {seen[day].minutes_late} minutes after the "
-                        f"{hours.late_cutoff.strftime('%H:%M')} cut-off"),
+                        f"{day_hours[day].late_cutoff.strftime('%H:%M')} cut-off"),
             )
             for day in late
         ]
@@ -5327,22 +5350,22 @@ class LiveStore(MockStore):
 
         metrics = [
             S.Metric(key="present", label="Days present", value=len(present),
-                     total=len(recorded)),
+                     total=len(counted)),
             S.Metric(key="late", label="Times late", value=len(late)),
         ]
         # A percentage of nothing is not 0%, it is unanswerable. Saying 0%
         # attendance for a school that has recorded no days is the kind of
         # number somebody acts on.
-        if recorded:
+        if counted:
             metrics.append(S.Metric(key="rate", label="Attendance",
-                                    value=len(present) / len(recorded),
+                                    value=len(present) / len(counted),
                                     unit="percent"))
 
         return S.PersonHistory(
             person=card,
-            period_label=(f"Last {len(recorded)} recorded days"
-                          if recorded else "No days recorded"),
-            present_days=len(present), total_days=len(recorded),
+            period_label=(f"Last {len(counted)} recorded days"
+                          if counted else "No days recorded"),
+            present_days=len(present), total_days=len(counted),
             metrics=metrics, trend=trend, flags=flags,
         )
 

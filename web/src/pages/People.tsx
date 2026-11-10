@@ -96,6 +96,8 @@ export function People() {
     return c;
   }, [people]);
   const tabs = TABS.filter((key) => key !== 'Student' || counts.Student > 0);
+  // The Student chip disappears with the last student; never leave a tab nobody can see.
+  const activeTab = tabs.includes(tab) ? tab : 'All';
   const groupNames = useMemo(
     () => groups.map((g) => g.name).filter((n) => n !== EVERYONE),
     [groups],
@@ -108,11 +110,11 @@ export function People() {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return people.filter(
-      (p) => (tab === 'All' || p.type === tab)
+      (p) => (activeTab === 'All' || p.type === activeTab)
         && (!group || group === EVERYONE || p.group === group)
         && (!q || p.name.toLowerCase().includes(q)),
     );
-  }, [people, tab, query, group]);
+  }, [people, activeTab, query, group]);
 
   // The heading used to come from a hard-coded table - "2,118 people",
   // "1,742 students" - which the page printed whatever the engine returned,
@@ -122,8 +124,8 @@ export function People() {
   // constitution forbids.
   const known = !peopleLoading && !peopleError;
   const counted = filtered.length === 1
-    ? t(`people.countOne.${tab}` as MessageKey)
-    : t(`people.count.${tab}` as MessageKey, { count: filtered.length });
+    ? t(`people.countOne.${activeTab}` as MessageKey)
+    : t(`people.count.${activeTab}` as MessageKey, { count: filtered.length });
   const heading = !known
     ? peopleError ? t('people.title') : t('people.counting')
     : query.trim()
@@ -154,7 +156,7 @@ export function People() {
               <button
                 key={key}
                 type="button"
-                className={`chip-btn ${tab === key ? 'chip-btn--on' : 'chip-btn--off'}`}
+                className={`chip-btn ${activeTab === key ? 'chip-btn--on' : 'chip-btn--off'}`}
                 onClick={() => setTab(key)}
               >
                 {t('people.chipLabel', {
@@ -313,7 +315,7 @@ export function People() {
               : people.length === 0
                 ? t('people.empty')
                 : t('people.noneOfType', {
-                  noun: t(`people.noun.${tab}` as MessageKey),
+                  noun: t(`people.noun.${activeTab}` as MessageKey),
                 })}
           </Empty>
         )}

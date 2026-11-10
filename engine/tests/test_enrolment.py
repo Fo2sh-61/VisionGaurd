@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import tempfile
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import numpy as np
@@ -26,6 +27,7 @@ import pytest
 from vg.identity.enrolment import (
     MIN_CONFIDENCE,
     REQUIRED_PHOTOS,
+    SESSION_TTL,
     EnrolmentService,
     describe_angle,
     quality_score,
@@ -768,7 +770,9 @@ class TestEnrolmentIsAudited:
 
     def test_an_expired_session_leaves_no_person_and_no_face(self, client, gallery):
         session = self._staged(client)
-        client.app.state.enrolment._sessions.clear()  # what the 30 minute TTL does
+        service = client.app.state.enrolment
+        stale = datetime.now(timezone.utc) - SESSION_TTL - timedelta(minutes=1)
+        service._sessions[session["id"]].touched_at = stale  # abandoned past the TTL
         assert client.get(f"/enrolment/sessions/{session['id']}").status_code == 404
         for table in ("person", "face_embedding"):
             assert gallery._conn.execute(

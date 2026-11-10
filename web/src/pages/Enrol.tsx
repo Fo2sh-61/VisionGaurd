@@ -74,6 +74,7 @@ function scoreTone(score: number): Tone {
 }
 
 function ScoreBar({ score }: { score: number }) {
+  const t = useT();
   return (
     <div
       style={{
@@ -84,7 +85,7 @@ function ScoreBar({ score }: { score: number }) {
         minWidth: 90,
       }}
       role="img"
-      aria-label={`quality ${Math.round(score)} out of 100`}
+      aria-label={t('enrol.qualityAria', { score: Math.round(score) })}
     >
       <div
         style={{
@@ -582,8 +583,7 @@ export function Enrol() {
                   </div>
                 )}
                 <div style={{ fontSize: 12.5, color: 'var(--tx2)', marginTop: 4 }}>
-                  Enrolling from the camera people will actually walk past — at its real
-                  angle and lighting — recognises them far more reliably than a laptop webcam.
+                  {t('enrol.cameraTip')}
                 </div>
               </div>
             )}

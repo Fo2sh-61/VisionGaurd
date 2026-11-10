@@ -841,6 +841,8 @@ export const en: Record<MessageKey, string> = {
   'enrol.step.done': 'Done',
   'enrol.nameRequired': 'A name is needed before photos can be taken.',
   'enrol.cameraOffline': '{camera}: {reason}. Upload photos instead.',
+  'enrol.cameraTip': 'Enrolling from the camera people will actually walk past — at its real angle and lighting — recognises them far more reliably than a laptop webcam.',
+  'enrol.qualityAria': 'Quality {score} out of 100',
   'enrol.noCameraCanCapture': 'No camera is sending a picture right now. Upload photos instead.',
   'enrol.staleCamera': 'No recent picture from this camera.',
   'enrol.ready': 'Ready: one face in shot.',

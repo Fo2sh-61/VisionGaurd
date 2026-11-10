@@ -81,6 +81,7 @@ All checked against code at `5ea8e67`.
   (`has_day`): `arrived / (expected − excused)` for that group's members as of that day. `attendance30d` = total arrived ÷ total
   expected over those days, 0..1, or **null** when recognition is not running or no such day exists.
   `recordedDays` says how many days it rests on, and the card shows both ("82% over 11 days").
+  Today counts only once today's late cut-off has passed; before that it is skipped, so a morning with few arrivals never drags the figure down.
 - **Cost**: 30 `_register` calls (Everyone), each pulling that day's rows. Past days never change except by a late excuse,
   so memoise per past date `{person_id: (status, group)}` in `LiveStore` and drop that date's entry when someone is
   excused for it. Today is never memoised. Expect a one-off cold read of a few seconds at ~500 people and 40 cameras.

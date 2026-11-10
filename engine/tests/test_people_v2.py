@@ -15,7 +15,7 @@ What these pin, in the order a head teacher would ask:
 from __future__ import annotations
 
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace as dc_replace
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 
@@ -572,6 +572,20 @@ class TestWeek:
         world.store.remove_person("p-omar", "Admin")
         assert world.store.week("p-omar", D)[0].status == S.AttendanceStatus.ON_TIME
 
+    def test_the_days_after_a_removal_are_no_record_not_absent(self, world):
+        person = world.gallery.person("p-omar")
+        world.arrive("p-omar", "2026-08-18", 7, 40)
+        world.arrive("p-layla", "2026-08-24", 7, 40)  # a recorded day, not his
+        world.arrive("p-layla", "2026-08-19", 7, 40)
+        world.store.ledger.note_removed(person, at("2026-08-20", 10), "Admin")
+        world.gallery.remove_person("p-omar")
+
+        days = {d.date: d.status for d in world.store.week("p-omar", "2026-08-24")}
+        assert days["2026-08-24"] == S.AttendanceStatus.UNKNOWN
+        assert days["2026-08-20"] == S.AttendanceStatus.UNKNOWN
+        assert days["2026-08-19"] == S.AttendanceStatus.ABSENT  # still on the roll
+        assert days["2026-08-18"] == S.AttendanceStatus.ON_TIME
+
     def test_nothing_with_recognition_off_or_for_nobody(self, bare_live_store, world):
         assert bare_live_store.week("p-a", D) == []
         assert world.store.week("p-nobody", D) == []
@@ -674,6 +688,21 @@ class TestThirtyDays:
         assert f["Everyone"][0] == pytest.approx(4 / 5)
         # They overlap and are not slices of a pie.
         assert 0.0 <= f["Everyone"][0] <= 1.0
+
+    def _with_hours(self, world, monkeypatch, cutoff):
+        real = world.store.hours_on
+        monkeypatch.setattr(world.store, "hours_on", lambda on: dc_replace(
+            real(on), late_cutoff=cutoff, working_days=frozenset(range(7))))
+
+    def test_today_is_left_out_until_its_cutoff_has_passed(self, world, monkeypatch):
+        world.sightings.record(seen("p-layla", datetime.now(timezone.utc)), force=True)
+        self._with_hours(world, monkeypatch, time(23, 59, 59))
+        assert self.figures(world.store)["Grade 8"] == (None, 0)
+
+    def test_today_counts_once_its_cutoff_has_passed(self, world, monkeypatch):
+        world.sightings.record(seen("p-layla", datetime.now(timezone.utc)), force=True)
+        self._with_hours(world, monkeypatch, time(0, 0))
+        assert self.figures(world.store)["Grade 8"][1] == 1
 
     def test_a_day_nothing_was_recorded_on_is_skipped(self, world):
         d1, d2 = working_days(world.store, 2)

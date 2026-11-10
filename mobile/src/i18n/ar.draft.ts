@@ -818,6 +818,8 @@ export const arDraft: Partial<Record<MessageKey, string>> = {
   'enrol.step.done': 'تم',
   'enrol.nameRequired': 'الاسم مطلوب قبل التقاط الصور.',
   'enrol.cameraOffline': '{camera}: {reason}. ارفع الصور بدلًا من ذلك.',
+  'enrol.cameraTip': 'التسجيل بالكاميرا التي سيمرّ أمامها الأشخاص فعلًا، بزاويتها وإضاءتها الحقيقية، يتعرّف عليهم بدقة أعلى بكثير من كاميرا الحاسوب المحمول.',
+  'enrol.qualityAria': 'الجودة {score} من 100',
   'enrol.noCameraCanCapture': 'لا توجد كاميرا ترسل صورة الآن. ارفع الصور بدلًا من ذلك.',
   'enrol.staleCamera': 'لا توجد صورة حديثة من هذه الكاميرا.',
   'enrol.ready': 'جاهز: وجه واحد في الإطار.',

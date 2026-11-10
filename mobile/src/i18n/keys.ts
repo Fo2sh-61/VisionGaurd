@@ -838,6 +838,8 @@ export type UiKey =
   | 'enrol.step.done'
   | 'enrol.nameRequired'
   | 'enrol.cameraOffline'
+  | 'enrol.cameraTip'
+  | 'enrol.qualityAria'
   | 'enrol.noCameraCanCapture'
   | 'enrol.staleCamera'
   | 'enrol.ready'

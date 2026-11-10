@@ -246,6 +246,7 @@ class EnrolmentService:
 
     def session(self, session_id: str) -> EnrolmentSession | None:
         with self._lock:
+            self._expire_locked()
             session = self._sessions.get(session_id)
             if session is not None:
                 session.touched_at = datetime.now(timezone.utc)
