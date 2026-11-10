@@ -427,6 +427,38 @@ class TestAdminPathRule:
         assert auth_deps.requires_admin("POST", "/sources/")
 
 
+class TestStationPaths:
+    """Spec 025: drawing a station is setup; acknowledging an absence is not."""
+
+    @pytest.mark.parametrize("method", ["POST", "PATCH", "DELETE"])
+    def test_drawing_editing_and_removing_are_admin_only(self, method):
+        assert auth_deps.requires_admin(method, "/stations")
+        assert auth_deps.requires_admin(method, "/stations/st1")
+
+    @pytest.mark.parametrize("path", ["/stations", "/stations/face-reach",
+                                      "/stations/st1"])
+    def test_reading_is_open_to_every_signed_in_user(self, path):
+        assert not auth_deps.requires_admin("GET", path)
+
+    def test_acknowledging_is_open_to_it_and_admin(self):
+        assert not auth_deps.requires_admin("POST", "/stations/st1/acknowledge")
+
+    @pytest.mark.parametrize("method,path", [
+        ("POST", "/stations/st1/acknowledge/extra"),
+        ("PATCH", "/stations/st1"),
+        ("PATCH", "/stations/st1/acknowledge"),
+        ("POST", "/stations/st1/other"),
+        ("POST", "/stations"),
+    ])
+    def test_the_acknowledge_pattern_is_anchored(self, method, path):
+        assert auth_deps.requires_admin(method, path)
+
+    def test_zone_writes_stay_admin_only(self):
+        for method in ("POST", "PATCH", "DELETE"):
+            assert auth_deps.requires_admin(method, "/zones")
+            assert auth_deps.requires_admin(method, "/zones/z1")
+
+
 # ---------------------------------------------------------------------------
 # "editing localStorage achieves nothing"
 # ---------------------------------------------------------------------------

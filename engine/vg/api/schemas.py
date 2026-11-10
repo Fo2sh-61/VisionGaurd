@@ -589,6 +589,10 @@ class Breach(Wire):
     #: beside a disabled control — a button that does nothing is worse than no
     #: button, and a missing reason is how it becomes one.
     clip_reason: str | None = None
+    #: Why the entry ended (`nobody`, `limit`, `switched_off`, `shutdown`,
+    #: `hours`); null while it is still running. `limit` is "cut at the
+    #: maximum clip length", which must not read like a person who left.
+    end_reason: str | None = None
 
 
 # ---------------------------------------------------------------------------

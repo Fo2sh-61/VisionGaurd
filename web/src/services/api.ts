@@ -18,6 +18,11 @@ import type {
   AttendanceRow,
   Breach,
   Camera,
+  FaceReachResult,
+  StationCard,
+  StationDraft,
+  ZoneCard,
+  ZoneDraft,
   CameraSource,
   AddCameraOutcome,
   DvrConnectResult,
@@ -68,6 +73,8 @@ import {
   toCamera,
   toDetectionBox,
   toCameras,
+  toStationCard,
+  toZoneCard,
 } from './format';
 
 /* ---------- site ---------- */
@@ -347,10 +354,12 @@ export async function setZoneEnabled(id: string, enabled: boolean): Promise<void
 export async function getBreaches(
   window: IntrusionWindow,
   lang: Language,
+  zoneId?: string,
 ): Promise<Breach[]> {
-  const breaches = await get<W.Breach[]>('/breaches', { window });
+  const breaches = await get<W.Breach[]>('/breaches', zoneId ? { window, zoneId } : { window });
   return breaches.map((b) => ({
     id: b.id,
+    zoneId: b.zoneId,
     zone: b.zoneName,
     time: formatEventTime(b.at, lang),
     who: b.subject.name
@@ -365,7 +374,91 @@ export async function getBreaches(
     // play for nobody — that is the trap that once blacked out every stream.
     clipUrl: assetUrl(b.clip?.url),
     clipReason: b.clipReason ?? undefined,
+    clipState: b.clipState ?? undefined,
+    cut: b.endReason === 'limit',
   }));
+}
+
+/* ---------- zones and stations (spec 025) ---------- */
+
+/** Every drawn zone, with a status the engine built from what the detector
+ *  last saw. Paused zones stay in the list; deleted ones only on request. */
+export async function getZoneCards(lang: Language, includeDeleted = false): Promise<ZoneCard[]> {
+  const zones = await get<W.Zone[]>('/zones', includeDeleted ? { includeDeleted: true } : undefined);
+  return zones.map((z) => toZoneCard(z, lang));
+}
+
+function zoneBody(draft: ZoneDraft): W.ZoneBody {
+  return {
+    name: draft.name.trim(),
+    cameraId: draft.cameraId,
+    polygon: draft.polygon,
+    watched: draft.watched,
+    alertAfterSeconds: draft.alertAfterSeconds,
+    notifyInApp: draft.notifyInApp,
+    notifyEmail: draft.notifyEmail,
+  };
+}
+
+export async function createZone(draft: ZoneDraft): Promise<void> {
+  await post<W.Zone>('/zones', zoneBody(draft));
+}
+
+export async function updateZone(id: string, draft: ZoneDraft): Promise<void> {
+  await patch<W.Zone>(`/zones/${encodeURIComponent(id)}`, zoneBody(draft));
+}
+
+export async function deleteZone(id: string): Promise<void> {
+  await del<void>(`/zones/${encodeURIComponent(id)}`);
+}
+
+export async function getStations(lang: Language, includeDeleted = false): Promise<StationCard[]> {
+  const rows = await get<W.Station[]>('/stations', includeDeleted ? { includeDeleted: true } : undefined);
+  return rows.map((s) => toStationCard(s, lang));
+}
+
+/** One station with its events and figures for `day` (YYYY-MM-DD, site time);
+ *  today when left out. */
+export async function getStation(id: string, lang: Language, day?: string): Promise<StationCard> {
+  const found = await get<W.StationDetail>(
+    `/stations/${encodeURIComponent(id)}`, day ? { day } : undefined);
+  return toStationCard(found, lang);
+}
+
+function stationBody(draft: StationDraft): W.StationBody {
+  return {
+    name: draft.name.trim(),
+    cameraId: draft.cameraId,
+    polygon: draft.polygon,
+    watched: draft.watched,
+    assigneeId: draft.assigneeId ?? null,
+    limitMinutes: draft.limitMinutes,
+    notifyInApp: draft.notifyInApp,
+    notifyEmail: draft.notifyEmail,
+  };
+}
+
+export async function createStation(draft: StationDraft): Promise<void> {
+  await post<W.Station>('/stations', stationBody(draft));
+}
+
+export async function updateStation(id: string, draft: StationDraft): Promise<void> {
+  await patch<W.Station>(`/stations/${encodeURIComponent(id)}`, stationBody(draft));
+}
+
+export async function deleteStation(id: string): Promise<void> {
+  await del<void>(`/stations/${encodeURIComponent(id)}`);
+}
+
+/** "I have seen this alert." Changes no state and removes nothing. */
+export async function acknowledgeStation(id: string): Promise<void> {
+  await post<W.StationDetail>(`/stations/${encodeURIComponent(id)}/acknowledge`);
+}
+
+/** One face-detector pass on the camera's last picture: the widest face in
+ *  pixels, or null when nobody is in view. A number, never an identity. */
+export async function getFaceReach(cameraId: string): Promise<FaceReachResult> {
+  return get<W.FaceReach>('/stations/face-reach', { cameraId });
 }
 
 /** CHANGED: was synchronous. The engine has to be asked. */

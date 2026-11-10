@@ -122,6 +122,17 @@ class Store(Protocol):
                  zone_id: str | None = None) -> list[S.Breach]: ...
     def clip_for_breach(self, breach_id: str): ...
     def intrusion_cameras(self) -> list[S.CameraView]: ...
+    def stations(self, include_deleted: bool = False) -> list[S.Station]: ...
+    def station(self, station_id: str, day: str = "") -> S.StationDetail | None: ...
+    def create_station(self, req: S.StationCreate,
+                       actor: str = "unknown") -> S.Station: ...
+    def update_station(self, station_id: str, req: S.StationUpdate,
+                       actor: str = "unknown") -> S.Station | None: ...
+    def delete_station(self, station_id: str, actor: str = "unknown") -> bool: ...
+    def acknowledge_station(self, station_id: str, actor: str,
+                            event_id: str | None = None,
+                            names: bool = True) -> S.StationDetail | None: ...
+    def face_reach(self, camera_id: str) -> S.FaceReach: ...
 
     def weapons(
         self, since: datetime | None, until: datetime | None = None
@@ -559,6 +570,93 @@ class MockStore:
                 self._zones[i] = zone.model_copy(update={"deleted_at": now()})
                 return True
         return False
+
+    # -- work stations: demo mode only (rule 4: the demo keeps its own world;
+    # the live store never reaches this). The shape matches the live one.
+
+    def _demo_stations(self) -> list[S.Station]:
+        if not hasattr(self, "_stations_demo"):
+            def box(x0, y0, x1, y1):
+                return [S.Point(x=x0, y=y0), S.Point(x=x1, y=y0),
+                        S.Point(x=x1, y=y1), S.Point(x=x0, y=y1)]
+            self._stations_demo = [
+                S.Station(
+                    id="demo-reception", name="Reception", camera_id="i-lobby",
+                    camera_name="Lobby", polygon=box(0.2, 0.4, 0.6, 0.9),
+                    watched=S.WatchedHours(mode="working"), limit_minutes=5,
+                    state="on", work_seconds=5400.0, absent_seconds=600.0,
+                    rate=0.9),
+                S.Station(
+                    id="demo-lab", name="Lab bench 2", camera_id="i-lab",
+                    camera_name="Lab", polygon=box(0.3, 0.45, 0.7, 0.95),
+                    watched=S.WatchedHours(mode="working"), limit_minutes=10,
+                    state="absent", work_seconds=1800.0, absent_seconds=2400.0,
+                    rate=0.43,
+                    unacknowledged_alert=S.StationAlertRef(
+                        event_id="demo-alert", at=now())),
+            ]
+        return self._stations_demo
+
+    def stations(self, include_deleted: bool = False) -> list[S.Station]:
+        return [s for s in self._demo_stations()
+                if include_deleted or s.deleted_at is None]
+
+    def station(self, station_id: str, day: str = "") -> S.StationDetail | None:
+        found = next((s for s in self._demo_stations() if s.id == station_id),
+                     None)
+        return S.StationDetail(**found.model_dump(), events=[]) if found else None
+
+    def create_station(self, req: S.StationCreate,
+                       actor: str = "unknown") -> S.Station:
+        from vg.areas import validate_polygon
+
+        points = validate_polygon([(p.x, p.y) for p in req.polygon])
+        self._log(actor, "station.create", req.name, f"on {req.camera_id}")
+        made = S.Station(
+            id=f"demo-{len(self._demo_stations()) + 1}", name=req.name.strip(),
+            camera_id=req.camera_id, camera_name=req.camera_id,
+            polygon=[S.Point(x=x, y=y) for x, y in points], watched=req.watched,
+            assignee_id=req.assignee_id, limit_minutes=req.limit_minutes,
+            state="unknown", unknown_reason="notRunning")
+        self._demo_stations().append(made)
+        return made
+
+    def update_station(self, station_id: str, req: S.StationUpdate,
+                       actor: str = "unknown") -> S.Station | None:
+        rows = self._demo_stations()
+        for i, row in enumerate(rows):
+            if row.id == station_id and row.deleted_at is None:
+                self._log(actor, "station.edit", row.name, None)
+                changes = {k: v for k, v in req.model_dump(
+                    exclude={"polygon", "watched"}, exclude_unset=True).items()}
+                if req.watched is not None:
+                    changes["watched"] = req.watched
+                rows[i] = row.model_copy(update=changes)
+                return rows[i]
+        return None
+
+    def delete_station(self, station_id: str, actor: str = "unknown") -> bool:
+        rows = self._demo_stations()
+        for i, row in enumerate(rows):
+            if row.id == station_id and row.deleted_at is None:
+                self._log(actor, "station.delete", row.name, None)
+                rows[i] = row.model_copy(update={"deleted_at": now()})
+                return True
+        return False
+
+    def acknowledge_station(self, station_id: str, actor: str,
+                            event_id: str | None = None,
+                            names: bool = True) -> S.StationDetail | None:
+        rows = self._demo_stations()
+        for i, row in enumerate(rows):
+            if row.id == station_id and row.unacknowledged_alert is not None:
+                self._log(actor, "station.ack", row.name, None)
+                rows[i] = row.model_copy(update={"unacknowledged_alert": None})
+                return S.StationDetail(**rows[i].model_dump(), events=[])
+        return None
+
+    def face_reach(self, camera_id: str) -> S.FaceReach:
+        return S.FaceReach(face_px=None, needed=80)
 
     def breaches(self, since_days: int,
                  zone_id: str | None = None) -> list[S.Breach]:
@@ -1010,6 +1108,7 @@ class MockStore:
         ("count", "People counting"),
         ("track", "Track a person"),
         ("breaches", "Restricted zones"),
+        ("stations", "Work stations"),
         ("weapons", "Weapon detection"),
         ("search_lost", "Bag detection"),
         ("vehicles", "Vehicle gate"),

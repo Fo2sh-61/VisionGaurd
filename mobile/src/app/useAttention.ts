@@ -23,6 +23,7 @@ const POLL_MS = 15_000;
 const TARGET: Record<WireAttentionItem['kind'], ToolId> = {
   weapon: 'weapons',
   intrusion: 'intrusion',
+  station: 'stations',
   vehicles: 'vehicles',
   camera: 'system',
   attendance: 'attendance',
@@ -32,6 +33,7 @@ const TARGET: Record<WireAttentionItem['kind'], ToolId> = {
 const ACTION: Record<WireAttentionItem['kind'], MessageKey> = {
   weapon: 'attention.action.weapon',
   intrusion: 'attention.action.intrusion',
+  station: 'attention.action.station',
   vehicles: 'attention.action.vehicles',
   camera: 'attention.action.camera',
   attendance: 'attention.action.attendance',
@@ -46,6 +48,7 @@ const ACTION: Record<WireAttentionItem['kind'], MessageKey> = {
 const LINK_PARAM: Partial<Record<WireAttentionItem['kind'], string>> = {
   weapon: 'entry',
   intrusion: 'scene',
+  station: 'station',
   vehicles: 'pass',
   camera: 'camera',
 };

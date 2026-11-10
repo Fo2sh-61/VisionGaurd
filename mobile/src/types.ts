@@ -200,6 +200,8 @@ export interface Zone {
 /** One scene: somebody was on a restricted camera, from when to when. */
 export interface Breach {
   id: string;
+  /** The zone it happened in; the camera's id for an old whole-camera zone. */
+  zoneId: string;
   zone: string;
   time: string;
   who: string;
@@ -214,6 +216,129 @@ export interface Breach {
   clipUrl?: string;
   /** Why there is no clip. Shown beside the disabled button, never on its own. */
   clipReason?: string;
+  /** none | recording | saved | replaced | failed. */
+  clipState?: string;
+  /** True when the scene ran into the maximum clip length and was cut. */
+  cut: boolean;
+}
+
+/** One zone as the Zones page draws it. `Zone` above stays what the phone
+ *  reads; this adds the polygon and the state the engine built from what the
+ *  detector last saw (spec 025). */
+export type ZoneStatus =
+  | 'personInZone'
+  | 'clear'
+  | 'paused'
+  | 'outsideHours'
+  | 'cameraOffline'
+  | 'detectorStopped';
+
+export type WatchedMode = 'always' | 'outsideWorking' | 'working' | 'custom';
+
+export interface WatchedHours {
+  mode: WatchedMode;
+  from?: string;
+  to?: string;
+}
+
+export interface AreaPoint {
+  x: number;
+  y: number;
+}
+
+export interface ZoneCard extends Zone {
+  cameraId: string;
+  polygon: AreaPoint[];
+  status: ZoneStatus;
+  /** People with their feet inside right now; null unless the status says the
+   *  detector answered. */
+  inZoneNow: number | null;
+  watched: WatchedHours;
+  alertAfterSeconds: number;
+  notifyInApp: boolean;
+  notifyEmail: boolean;
+  pausedBy?: string;
+  pausedAt?: string;
+  importNote?: string;
+  deleted: boolean;
+}
+
+export interface ZoneDraft {
+  name: string;
+  cameraId: string;
+  polygon: AreaPoint[];
+  watched: WatchedHours;
+  alertAfterSeconds: number;
+  notifyInApp: boolean;
+  notifyEmail: boolean;
+}
+
+export type StationState = 'on' | 'away' | 'absent' | 'notStarted' | 'closed' | 'unknown';
+
+export interface TimelineBar {
+  state: 'on' | 'away' | 'absent' | 'notWatched';
+  /** Fractions of the timeline's own length, 0..1. */
+  start: number;
+  width: number;
+  from: string;
+  to: string;
+}
+
+export interface StationLogEvent {
+  id: string;
+  kind: 'atStation' | 'leftStation' | 'absenceAlert' | 'acknowledged';
+  /** Local clock time as the site shows it. */
+  time: string;
+  limitMinutes?: number;
+  byWho?: string;
+}
+
+export interface StationCard {
+  id: string;
+  name: string;
+  cameraId: string;
+  cameraName: string;
+  polygon: AreaPoint[];
+  watched: WatchedHours;
+  assigneeId?: string;
+  assigneeName?: string;
+  assigneeMissing: boolean;
+  limitMinutes: number;
+  notifyInApp: boolean;
+  notifyEmail: boolean;
+  faceCheck: 'anyone' | 'face' | 'facesTooSmall';
+  facePx?: number;
+  state: StationState;
+  /** Site-local time the state began, when known. */
+  since?: string;
+  unknownReason?: 'cameraOffline' | 'detectorStopped' | 'notRunning';
+  presentNotRecognised: boolean;
+  opensAt?: string;
+  workSeconds: number;
+  absentSeconds: number;
+  notWatchedSeconds: number;
+  /** null until some time was watched. */
+  rate: number | null;
+  timeline: TimelineBar[];
+  alertEventId?: string;
+  deleted: boolean;
+  events: StationLogEvent[];
+}
+
+export interface StationDraft {
+  name: string;
+  cameraId: string;
+  polygon: AreaPoint[];
+  watched: WatchedHours;
+  assigneeId?: string;
+  limitMinutes: number;
+  notifyInApp: boolean;
+  notifyEmail: boolean;
+}
+
+export interface FaceReachResult {
+  facePx: number | null;
+  needed: number;
 }
 
 /** Window tokens, not the words on the button.
@@ -415,6 +540,7 @@ export type ToolId =
   | 'attendance'
   | 'counting'
   | 'intrusion'
+  | 'stations'
   | 'weapons'
   | 'vehicles'
   | 'lost-items'

@@ -20,10 +20,17 @@ import type {
   Severity,
   ZoneOverlay,
   Schedule,
+  Station as WireStation,
+  StationDetail as WireStationDetail,
+  StationEvent as WireStationEvent,
+  TimelineSegment as WireTimelineSegment,
+  WatchedHours as WireWatchedHours,
+  Zone as WireZone,
 } from './wire';
 import type {
   BoxColor, Camera, CameraZone, CapacityRowItem, DetectionBox, PopulationLevel, Stat, Tone,
-  WorkerLoadItem,
+  StationCard, StationLogEvent, StationState, TimelineBar, WatchedHours, WorkerLoadItem,
+  ZoneCard, ZoneStatus,
 } from '@/types';
 import { assetUrl } from './http';
 
@@ -739,3 +746,172 @@ export const toCameras = (views: CameraView[], lang: Language): Camera[] =>
 /** Snapshot URL for a tile, absolute so an <img> can use it directly. */
 export const cameraSnapshot = (view: CameraView): string | undefined =>
   assetUrl(view.snapshotUrl);
+
+
+/* ---------- zones and stations (spec 025) ----------
+ *
+ *  The engine sends a status or a state and numbers; every sentence is built
+ *  here. A status is never defaulted: a zone the engine could not read is not
+ *  a clear one. */
+
+/** Colour of a zone's status. Red only for somebody inside right now. */
+export function zoneStatusTone(status: ZoneStatus): Tone {
+  switch (status) {
+    case 'personInZone':
+      return 'bad';
+    case 'clear':
+      return 'good';
+    case 'cameraOffline':
+    case 'detectorStopped':
+      return 'warn';
+    default:
+      return 'neutral';
+  }
+}
+
+export function zoneStatusLabel(status: ZoneStatus, lang: Language): string {
+  return translate(lang, `zones.status.${status}` as MessageKey);
+}
+
+/** Colour of a station's state. Absent is the only red. */
+export function stationStateTone(state: StationState): Tone {
+  switch (state) {
+    case 'on':
+      return 'good';
+    case 'away':
+    case 'unknown':
+      return 'warn';
+    case 'absent':
+      return 'bad';
+    default:
+      return 'neutral';
+  }
+}
+
+export function stationStateLabel(state: StationState, lang: Language): string {
+  return translate(lang, `stations.state.${state}` as MessageKey);
+}
+
+/** "under a minute" · "12 min" · "1h 20m". Short enough for a tile. */
+export function formatDurationShort(seconds: number, lang: Language): string {
+  if (seconds < 60) return translate(lang, 'time.underMinute');
+  if (seconds < 3600) {
+    return translate(lang, 'time.minutesShort', { n: Math.round(seconds / 60) });
+  }
+  const h = Math.floor(seconds / 3600);
+  const m = Math.round((seconds % 3600) / 60);
+  return translate(lang, 'time.hoursMinutes', { h, m: String(m).padStart(2, '0') });
+}
+
+function toWatched(w: WireWatchedHours | null | undefined): WatchedHours {
+  return {
+    mode: w?.mode ?? 'always',
+    from: w?.from ?? undefined,
+    to: w?.to ?? undefined,
+  };
+}
+
+/** "Always" · "Outside working hours" · "16:00 to 08:00". */
+export function formatWatched(watched: WatchedHours, lang: Language): string {
+  if (watched.mode === 'custom') {
+    return translate(lang, 'area.hours.customRange', {
+      from: watched.from ?? '--:--', to: watched.to ?? '--:--',
+    });
+  }
+  return translate(lang, `area.hours.${watched.mode}` as MessageKey);
+}
+
+export function toZoneCard(z: WireZone, lang: Language): ZoneCard {
+  return {
+    id: z.id,
+    name: z.name,
+    enabled: z.enabled,
+    detectionsToday: z.breachesToday,
+    cameraId: z.cameraId,
+    polygon: z.polygon.map((p) => ({ x: p.x, y: p.y })),
+    // Never "clear" when the engine did not say: an older engine that omits
+    // the status is one that cannot tell us anything about the room.
+    status: z.status ?? (z.enabled ? 'detectorStopped' : 'paused'),
+    inZoneNow: z.inZoneNow ?? null,
+    watched: toWatched(z.watched),
+    alertAfterSeconds: z.alertAfterSeconds ?? 0,
+    notifyInApp: z.notifyInApp ?? true,
+    notifyEmail: z.notifyEmail ?? false,
+    pausedBy: z.pausedBy ?? undefined,
+    pausedAt: z.pausedAt ? formatEventTime(z.pausedAt, lang) : undefined,
+    importNote: z.importNote ?? undefined,
+    deleted: !!z.deletedAt,
+  };
+}
+
+/** Segments of one day's timeline as fractions of the day's watched span, so
+ *  the picture is drawn left to right whatever the language. */
+export function timelineSegments(segments: WireTimelineSegment[], lang: Language): TimelineBar[] {
+  if (segments.length === 0) return [];
+  const at = (i: Instant) => new Date(i.utc).getTime();
+  const start = Math.min(...segments.map((s) => at(s.from)));
+  const end = Math.max(...segments.map((s) => at(s.to)));
+  const span = end - start;
+  if (span <= 0) return [];
+  return segments.map((s) => ({
+    state: s.state,
+    start: (at(s.from) - start) / span,
+    width: (at(s.to) - at(s.from)) / span,
+    from: formatTime(s.from, lang),
+    to: formatTime(s.to, lang),
+  }));
+}
+
+export function toStationEvent(e: WireStationEvent, lang: Language): StationLogEvent {
+  return {
+    id: e.id,
+    kind: e.kind,
+    time: formatTime(e.at, lang),
+    limitMinutes: e.limitMinutes ?? undefined,
+    byWho: e.byWho ?? undefined,
+  };
+}
+
+/** One line of a station's log, built from the kind and its facts. */
+export function stationEventLine(e: StationLogEvent, lang: Language): string {
+  return translate(lang, `stations.event.${e.kind}` as MessageKey, {
+    minutes: e.limitMinutes ?? 0,
+    who: e.byWho ?? '',
+  });
+}
+
+export function toStationCard(
+  s: WireStation | WireStationDetail,
+  lang: Language,
+): StationCard {
+  const events = 'events' in s ? s.events.map((e) => toStationEvent(e, lang)) : [];
+  return {
+    id: s.id,
+    name: s.name,
+    cameraId: s.cameraId,
+    cameraName: s.cameraName,
+    polygon: s.polygon.map((p) => ({ x: p.x, y: p.y })),
+    watched: toWatched(s.watched),
+    assigneeId: s.assigneeId ?? undefined,
+    assigneeName: s.assigneeName ?? undefined,
+    assigneeMissing: s.assigneeMissing,
+    limitMinutes: s.limitMinutes,
+    notifyInApp: s.notifyInApp,
+    notifyEmail: s.notifyEmail,
+    faceCheck: s.faceCheck,
+    facePx: s.facePx ?? undefined,
+    state: s.state,
+    since: s.stateSince ? formatTime(s.stateSince, lang) : undefined,
+    unknownReason: s.unknownReason ?? undefined,
+    presentNotRecognised: s.presentNotRecognised,
+    opensAt: s.opensAt ?? undefined,
+    workSeconds: s.workSeconds,
+    absentSeconds: s.absentSeconds,
+    notWatchedSeconds: s.notWatchedSeconds,
+    rate: s.rate,
+    timeline: timelineSegments(s.timeline, lang),
+    alertEventId: s.unacknowledgedAlert?.eventId,
+    deleted: !!s.deletedAt,
+    events,
+  };
+}

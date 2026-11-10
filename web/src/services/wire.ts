@@ -147,14 +147,118 @@ export interface Schedule {
   end?: string | null;
 }
 
+export type ZoneStatus =
+  | 'personInZone'
+  | 'clear'
+  | 'paused'
+  | 'outsideHours'
+  | 'cameraOffline'
+  | 'detectorStopped';
+
+/** When an area is watched. Zone: always | outsideWorking | custom.
+ *  Station: working | custom. `from`/`to` are "HH:MM", only for custom. */
+export interface WatchedHours {
+  mode: 'always' | 'outsideWorking' | 'working' | 'custom';
+  from?: string | null;
+  to?: string | null;
+}
+
 export interface Zone {
   id: string;
   name: string;
   cameraId: string;
+  /** Retired: always `{mode: 'always', days: []}`. Kept so the phone parses. */
   schedule: Schedule;
   enabled: boolean;
   polygon: Point[];
   breachesToday: number;
+  // Everything below is additive (spec 025); an older engine omits it.
+  status?: ZoneStatus | null;
+  inZoneNow?: number | null;
+  watched?: WatchedHours | null;
+  alertAfterSeconds?: number;
+  notifyInApp?: boolean;
+  notifyEmail?: boolean;
+  pausedBy?: string | null;
+  pausedAt?: Instant | null;
+  importNote?: string | null;
+  deletedAt?: Instant | null;
+}
+
+export interface ZoneBody {
+  name: string;
+  cameraId: string;
+  polygon: Point[];
+  watched: WatchedHours;
+  alertAfterSeconds?: number;
+  notifyInApp?: boolean;
+  notifyEmail?: boolean;
+}
+
+export type StationState = 'on' | 'away' | 'absent' | 'notStarted' | 'closed' | 'unknown';
+
+export interface TimelineSegment {
+  state: 'on' | 'away' | 'absent' | 'notWatched';
+  from: Instant;
+  to: Instant;
+}
+
+export interface Station {
+  id: string;
+  name: string;
+  cameraId: string;
+  cameraName: string;
+  polygon: Point[];
+  watched: WatchedHours;
+  assigneeId?: string | null;
+  /** Admin only. IT gets the id and nothing else. */
+  assigneeName?: string | null;
+  assigneeMissing: boolean;
+  limitMinutes: number;
+  notifyInApp: boolean;
+  notifyEmail: boolean;
+  faceCheck: 'anyone' | 'face' | 'facesTooSmall';
+  facePx?: number | null;
+  state: StationState;
+  stateSince?: Instant | null;
+  unknownReason?: 'cameraOffline' | 'detectorStopped' | 'notRunning' | null;
+  presentNotRecognised: boolean;
+  opensAt?: string | null;
+  workSeconds: number;
+  absentSeconds: number;
+  notWatchedSeconds: number;
+  rate: number | null;
+  timeline: TimelineSegment[];
+  unacknowledgedAlert?: { eventId: string; at: Instant } | null;
+  deletedAt?: Instant | null;
+}
+
+export interface StationEvent {
+  id: string;
+  at: Instant;
+  kind: 'atStation' | 'leftStation' | 'absenceAlert' | 'acknowledged';
+  limitMinutes?: number | null;
+  byWho?: string | null;
+}
+
+export interface StationDetail extends Station {
+  events: StationEvent[];
+}
+
+export interface StationBody {
+  name: string;
+  cameraId: string;
+  polygon: Point[];
+  watched: WatchedHours;
+  assigneeId?: string | null;
+  limitMinutes: number;
+  notifyInApp?: boolean;
+  notifyEmail?: boolean;
+}
+
+export interface FaceReach {
+  facePx: number | null;
+  needed: number;
 }
 
 export interface Breach {
@@ -178,6 +282,8 @@ export interface Breach {
   clipState?: string;
   /** Why there is no playable clip. Null when there is one. */
   clipReason?: string | null;
+  /** nobody | limit | switched_off | shutdown | hours; null while running. */
+  endReason?: string | null;
 }
 
 /* ---------- weapons ---------- */
@@ -658,7 +764,7 @@ export interface User {
  *  or a plate), `detail` is empty, and `note` says what happened, worded here. */
 export interface AttentionItem {
   id: string;
-  kind: 'weapon' | 'intrusion' | 'vehicles' | 'camera' | 'attendance' | 'system';
+  kind: 'weapon' | 'intrusion' | 'vehicles' | 'camera' | 'attendance' | 'station' | 'system';
   at: Instant;
   severity: Severity;
   title: string;
@@ -717,7 +823,8 @@ export interface SiteSettingsUpdate {
  * Facts and enums only. The console words every state; the engine writes
  * sentences only for the messages themselves, which never cross this API. */
 
-export type AlertKind = 'weapon' | 'intrusion' | 'vehicles' | 'camera' | 'attendance';
+export type AlertKind =
+  | 'weapon' | 'intrusion' | 'vehicles' | 'camera' | 'attendance' | 'station';
 export type AlertChannel = 'email';
 export type AlertLanguage = 'en' | 'ar';
 export type DeliveryOutcome = 'queued' | 'sent' | 'failed' | 'skipped';

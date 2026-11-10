@@ -323,6 +323,9 @@ async def lifespan(app: FastAPI):
     app.state.zones = None
     app.state.scenes = None
     app.state.areas = None
+    app.state.stations_error: str | None = None
+    app.state.stations = None
+    app.state.stations_store = None
     app.state.weapons_error: str | None = None
     app.state.weapons = None
     app.state.weapon_scenes = None
@@ -445,6 +448,19 @@ async def lifespan(app: FastAPI):
         # The breach message - spec 013. Attached the moment the store exists.
         if app.state.alerts is not None and app.state.scenes is not None:
             app.state.scenes.on_open = app.state.alerts.on_zone_open
+        # Work stations (spec 025). After the zones, on the same person
+        # detector, with the one face pipeline and gallery.
+        (
+            app.state.stations,
+            app.state.stations_store,
+            app.state.stations_error,
+        ) = _start_stations(
+            cfg, registry, roster, getattr(people, "detector", None),
+            app.state.areas, (face_pipeline, face_gallery),
+        )
+        if (app.state.alerts is not None
+                and app.state.stations_store is not None):
+            app.state.stations_store.on_alert = app.state.alerts.on_station_absent
         # Knife detection. Shares the same person detector, needs no other
         # feature switched on, and every enabled camera is checked.
         (
@@ -546,10 +562,15 @@ async def lifespan(app: FastAPI):
             alerts=app.state.alerts,
             site_settings=site_settings,
             area_store=app.state.areas,
+            stations=app.state.stations,
+            station_store=app.state.stations_store,
         )
         if app.state.zones is not None:
             # The site's hours as Settings holds them, not engine.yaml's seed.
             app.state.zones.set_hours(store.hours)
+        if app.state.stations is not None:
+            app.state.stations.set_hours(store.hours)
+        store.stations_error = app.state.stations_error
         store.site_settings_error = site_settings_error
         store.recognition_error = app.state.recognition_error
         store.people_error = app.state.people_error
@@ -623,6 +644,8 @@ async def lifespan(app: FastAPI):
             # can play. Knives lead because that is the row an operator is
             # most likely to be looking at when the engine goes down.
             getattr(app.state, "weapons", None),
+            # Stations, then zones: each closes what it holds on stopping.
+            getattr(app.state, "stations", None),
             getattr(app.state, "zones", None),
             getattr(app.state, "people", None),
             getattr(app.state, "recogniser", None),
@@ -1268,6 +1291,50 @@ def _start_areas(cfg, roster, cameras_store, alerts_store):
         log.exception("the list of drawn areas failed to start")
         _reraise_if_strict(exc, "drawn areas")
         return None, f"the list of zones could not be opened ({_reason(exc)})"
+
+
+def _start_stations(cfg, registry, roster, detector, areas, face):
+    """Work stations: how long each drawn station was staffed.
+
+    Serves the cameras with `stations` in their features, on the person
+    detector `_start_people` built (never a second one). Needs no other feature
+    switched on. `face` is `(pipeline, gallery)` from `_start_enrolment`: the
+    one copy of the face models, used only to ask whether an assigned person
+    is at their station.
+
+    Returns `(worker, store, error)`.
+    """
+    watched = _feature_cameras(roster, "stations")
+    if detector is None:
+        return None, None, (
+            "person detection is not running, so nothing can watch the "
+            "work stations"
+        )
+    try:
+        from vg.events.stations import StationStore
+        from vg.features.stations import StationsWorker
+
+        store = StationStore(_database(cfg))
+        # An open segment left by a killed process would otherwise show
+        # somebody at their desk for the whole of the outage.
+        store.close_orphans()
+        pipeline, gallery = face if face else (None, None)
+        rate = min((c.fps for c in roster if c.id in watched), default=2.0)
+        worker = StationsWorker(
+            registry.bus, detector, watched, store,
+            areas=areas.list(kind="station") if areas is not None else (),
+            config=cfg.stations, pipeline=pipeline, gallery=gallery,
+            rate_hz=rate, boost_hz=12.0,
+            clock=clock_for(cfg.timezone), hours=lambda: cfg.hours,
+        )
+        worker.start()
+        log.info("work stations on %d camera(s) - %.0f Hz idle",
+                 len(watched), rate)
+        return worker, store, None
+    except Exception as exc:
+        log.exception("work stations failed to start")
+        _reraise_if_strict(exc, "work stations")
+        return None, None, _reason(exc)
 
 
 def _start_zones(cfg, registry, roster, detector, cameras_store, areas=None):
@@ -2523,6 +2590,100 @@ def _mount(app: FastAPI) -> None:
         if not gone:
             raise HTTPException(404, f"no zone {zone_id!r}")
         return Response(status_code=204)
+
+    # -------------------------------------------------------------- stations
+    def _station_view(user, rows):
+        """IT reads no person's name anywhere (spec 022): only the id of
+        whoever is assigned. The admin console looks the name up itself."""
+        if user.role == "admin":
+            return rows
+        if isinstance(rows, list):
+            return [r.model_copy(update={"assignee_name": None}) for r in rows]
+        return rows.model_copy(update={"assignee_name": None})
+
+    @app.get("/stations", response_model=list[S.Station], tags=["stations"])
+    async def get_stations(
+        store: StoreDep, user: auth_deps.CurrentUser,
+        include_deleted: Annotated[bool, Query(alias="includeDeleted")] = False,
+    ) -> list[S.Station]:
+        """Every station, with a state per row even when nothing is running."""
+        return _station_view(
+            user, store.stations(include_deleted=include_deleted))
+
+    # Declared BEFORE `/stations/{station_id}`, or "face-reach" is read as an id.
+    @app.get("/stations/face-reach", response_model=S.FaceReach, tags=["stations"])
+    async def get_face_reach(
+        store: StoreDep,
+        camera_id: Annotated[str, Query(alias="cameraId")],
+    ) -> S.FaceReach:
+        return store.face_reach(camera_id)
+
+    @app.post("/stations", response_model=S.Station, status_code=201,
+              tags=["stations"])
+    async def post_station(body: S.StationCreate, store: StoreDep,
+                           user: auth_deps.CurrentUser) -> S.Station:
+        try:
+            return store.create_station(body, user.name)
+        except AreaError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        except SubsystemUnavailable as exc:
+            raise HTTPException(503, str(exc)) from exc
+
+    @app.get("/stations/{station_id}", response_model=S.StationDetail,
+             tags=["stations"])
+    async def get_station(
+        station_id: str, store: StoreDep, user: auth_deps.CurrentUser,
+        day: str = "",
+    ) -> S.StationDetail:
+        try:
+            found = store.station(station_id, day)
+        except ValueError as exc:
+            raise HTTPException(422, "day must be written YYYY-MM-DD") from exc
+        if found is None:
+            raise HTTPException(404, f"no station {station_id!r}")
+        return _station_view(user, found)
+
+    @app.patch("/stations/{station_id}", response_model=S.Station,
+               tags=["stations"])
+    async def patch_station(station_id: str, update: S.StationUpdate,
+                            store: StoreDep,
+                            user: auth_deps.CurrentUser) -> S.Station:
+        try:
+            station = store.update_station(station_id, update, user.name)
+        except AreaError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        except SubsystemUnavailable as exc:
+            raise HTTPException(503, str(exc)) from exc
+        if station is None:
+            raise HTTPException(404, f"no station {station_id!r}")
+        return station
+
+    @app.delete("/stations/{station_id}", status_code=204, tags=["stations"])
+    async def delete_station(station_id: str, store: StoreDep,
+                             user: auth_deps.CurrentUser) -> Response:
+        try:
+            gone = store.delete_station(station_id, user.name)
+        except SubsystemUnavailable as exc:
+            raise HTTPException(503, str(exc)) from exc
+        if not gone:
+            raise HTTPException(404, f"no station {station_id!r}")
+        return Response(status_code=204)
+
+    @app.post("/stations/{station_id}/acknowledge",
+              response_model=S.StationDetail, tags=["stations"])
+    async def acknowledge_station(station_id: str, store: StoreDep,
+                                  user: auth_deps.CurrentUser) -> S.StationDetail:
+        """"I have seen this alert." The account is the session's, never the
+        body's. Admin and IT, by path. Changes no state, removes nothing."""
+        try:
+            done = store.acknowledge_station(
+                station_id, user.name, names=user.role == "admin")
+        except SubsystemUnavailable as exc:
+            raise HTTPException(503, str(exc)) from exc
+        if done is None:
+            raise HTTPException(
+                404, f"station {station_id!r} has no alert to acknowledge")
+        return done
 
     @app.get("/breaches", response_model=list[S.Breach], tags=["intrusion"])
     async def get_breaches(

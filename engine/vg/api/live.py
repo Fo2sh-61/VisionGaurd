@@ -232,12 +232,19 @@ class LiveStore(MockStore):
         alerts=None,
         site_settings=None,
         area_store=None,
+        stations=None,
+        station_store=None,
     ) -> None:
         super().__init__()
         # Every zone and station ever drawn (spec 025). None when the table
         # could not be opened: zones then list as nothing and the capability
         # says why, instead of the page showing cameras as if they were zones.
         self.area_store = area_store
+        # Work stations: `station_store` is the log, `stations_worker` is what
+        # watches. Either can be absent; the page says which.
+        self.stations_worker = stations
+        self.station_store = station_store
+        self.stations_error: str | None = None
         # What Settings saves over engine.yaml's school name, hours and
         # working days. None when its database could not be opened: the seed
         # still applies, and a save says so instead of pretending.
@@ -350,8 +357,8 @@ class LiveStore(MockStore):
     #: rate to set on it.
     def _rated_workers(self) -> tuple:
         return (self.people_worker, self.recogniser, self.patrol,
-                self.zones_worker, self.tracking, self.vehicles_worker,
-                self.weapons_worker)
+                self.zones_worker, self.stations_worker, self.tracking,
+                self.vehicles_worker, self.weapons_worker)
 
     def _seed_rates(self) -> None:
         """Give every camera in the roster its configured rate, at startup."""
@@ -934,6 +941,8 @@ class LiveStore(MockStore):
         for feature, worker, want, reason in (
             ("counting", self.people_worker, "counting" in wanted, self.people_error),
             ("intrusion", self.zones_worker, "intrusion" in wanted, self.zones_error),
+            ("stations", self.stations_worker, "stations" in wanted,
+             self.stations_error),
             ("track", self.tracking, "track" in wanted, self.tracking_error),
             ("attendance", self.recogniser, "attendance" in wanted,
              self.recognition_error),
@@ -963,8 +972,9 @@ class LiveStore(MockStore):
         camera on that camera's own thread.
         """
         for worker in (self.people_worker, self.recogniser, self.patrol,
-                       self.zones_worker, self.tracking, self.vehicles_worker,
-                       self.weapons_worker, self.lost_watch):
+                       self.zones_worker, self.stations_worker, self.tracking,
+                       self.vehicles_worker, self.weapons_worker,
+                       self.lost_watch):
             self._set_watch(worker, camera_id, False)
 
     @staticmethod
@@ -1202,6 +1212,14 @@ class LiveStore(MockStore):
         only this camera's own feature, never another feature's).
         """
         config = self._config_for(camera_id)
+        # The saved row is newer than the running worker's copy after a
+        # features-only edit (the stream is not restarted for those), so it
+        # is asked first: otherwise a second zone on the camera would add the
+        # feature, and audit it, a second time.
+        stored = (next((c for c in self.cameras.all() if c.id == camera_id), None)
+                  if self.cameras is not None else None)
+        if stored is not None:
+            config = stored
         if config is None or feature in config.features:
             return
         self.edit_camera(
@@ -1309,6 +1327,331 @@ class LiveStore(MockStore):
             return None
         return frozenset({"email"}) if area.notify_email else frozenset()
 
+    # -- work stations (spec 025) ----------------------------------------------
+    #
+    # A station is an area; `station_store` keeps what happened at it and
+    # `stations_worker` is what watches. Every write checks first (a refusal
+    # writes and logs nothing), logs to the audit trail, then writes.
+
+    def _need_stations(self):
+        if self.area_store is None:
+            raise SubsystemUnavailable(
+                self.zones_error
+                or "The list of zones and stations is not available, so "
+                   "stations cannot be drawn or changed. Detection is "
+                   "unaffected.")
+        if self.station_store is None:
+            raise SubsystemUnavailable(
+                self.stations_error
+                or "The work-station log is not available, so stations cannot "
+                   "be drawn or changed. Detection is unaffected.")
+        return self.area_store, self.station_store
+
+    def _push_stations(self) -> None:
+        if self.stations_worker is not None and self.area_store is not None:
+            self.stations_worker.set_areas(self.area_store.list(kind="station"))
+
+    def _check_assignee(self, assignee_id: str | None) -> None:
+        if not assignee_id:
+            return
+        if self.gallery is None:
+            raise AreaError(
+                "The people directory is not loaded, so a person cannot be "
+                "assigned to a station right now.")
+        if self.gallery.person(assignee_id) is None:
+            raise AreaError("That person is not in the directory.")
+
+    def _station_areas(self, include_deleted: bool = False) -> list[Area]:
+        if self.area_store is None:
+            return []
+        roster = {c.id for c in self.registry.configs()}
+        return [a for a in self.area_store.list(kind="station",
+                                                include_deleted=include_deleted)
+                if a.deleted or a.camera_id in roster]
+
+    def _day_windows(self, area: Area, day_start: datetime,
+                     hours: HoursConfig) -> list[tuple[datetime, datetime]]:
+        """The stretch of one site day this station is meant to be watched."""
+        from vg.areas import parse_hhmm
+
+        local = self.clock.local(day_start + timedelta(hours=12))
+        if area.hours_mode == "custom":
+            start, end = parse_hhmm(area.hours_from), parse_hhmm(area.hours_to)
+        else:
+            if local.weekday() not in hours.working_days:
+                return []
+            start, end = hours.start, hours.end
+        return [(day_start + timedelta(hours=start.hour, minutes=start.minute),
+                 day_start + timedelta(hours=end.hour, minutes=end.minute))]
+
+    def _station_state(self, area: Area, now: datetime, local: datetime,
+                       hours: HoursConfig):
+        """(state, since, unknown_reason, reading, opens_at)."""
+        if area.deleted:
+            return "closed", None, None, None, None
+        if not watching_at(area, local, hours):
+            opens = None
+            start = None
+            if area.hours_mode == "custom":
+                from vg.areas import parse_hhmm
+                start = parse_hhmm(area.hours_from)
+            elif local.weekday() in hours.working_days:
+                start = hours.start
+            if start is not None and local.time().replace(tzinfo=None) < start:
+                opens = f"{start:%H:%M}"
+                return "notStarted", None, None, None, opens
+            return "closed", None, None, None, None
+        worker = self.registry.worker(area.camera_id)
+        if worker is None or worker.status != "ok":
+            return "unknown", None, "cameraOffline", None, None
+        stations = self.stations_worker
+        if stations is None:
+            return "unknown", None, "notRunning", None, None
+        if area.camera_id not in stations.cameras:
+            return "unknown", None, "detectorStopped", None, None
+        seen = stations.payload(area.camera_id)
+        if seen is None or not seen.restricted:
+            return "unknown", None, "detectorStopped", None, None
+        reading = next((r for r in seen.stations if r.station_id == area.id), None)
+        if reading is None:
+            return "unknown", None, "detectorStopped", None, None
+        return reading.state, reading.since, None, reading, None
+
+    def _wire_station(self, area: Area, day: str = "",
+                      names: bool = True) -> S.Station:
+        now = datetime.now(timezone.utc)
+        local = self.clock.local(now)
+        hours = self.hours()
+        state, since, reason, reading, opens = self._station_state(
+            area, now, local, hours)
+        day_start, day_end = self._day_bounds(day)
+        windows = (self._day_windows(area, day_start, hours)
+                   if self.station_store is not None else [])
+        figures = (self.station_store.figures(area.id, windows,
+                                              min(now, day_end))
+                   if self.station_store is not None else None)
+        gallery = self.gallery
+        person = (gallery.person(area.assignee_id)
+                  if gallery is not None and area.assignee_id else None)
+        missing = bool(area.assignee_id) and person is None
+        alert = None
+        if self.station_store is not None:
+            pending = self.station_store.open_alerts(area.id)
+            if pending:
+                alert = S.StationAlertRef(
+                    event_id=pending[0].id,
+                    at=_instant(pending[0].at, self.clock))
+        timeline = []
+        if figures is not None:
+            timeline = [S.TimelineSegment(
+                state=s, from_=_instant(a, self.clock), to=_instant(b, self.clock))
+                for s, a, b in figures.timeline]
+        return S.Station(
+            id=area.id, name=area.name, camera_id=area.camera_id,
+            camera_name=self._roster_name(area.camera_id) or area.camera_id,
+            polygon=[S.Point(x=x, y=y) for x, y in area.polygon],
+            watched=self._wire_hours(area),
+            assignee_id=area.assignee_id,
+            assignee_name=person.name if (names and person is not None) else None,
+            assignee_missing=missing,
+            limit_minutes=area.limit_minutes or 0,
+            notify_in_app=area.notify_in_app, notify_email=area.notify_email,
+            face_check=reading.face_check if reading is not None else "anyone",
+            face_px=reading.face_px if reading is not None else None,
+            state=state,
+            state_since=_instant(since, self.clock) if since else None,
+            unknown_reason=reason,
+            present_not_recognised=bool(reading and reading.unrecognised),
+            opens_at=opens,
+            work_seconds=figures.work_seconds if figures else 0.0,
+            absent_seconds=figures.off_station_seconds if figures else 0.0,
+            not_watched_seconds=figures.not_watched_seconds if figures else 0.0,
+            rate=figures.rate if figures else None,
+            timeline=timeline, unacknowledged_alert=alert,
+            deleted_at=_instant(area.deleted_at, self.clock),
+        )
+
+    def stations(self, include_deleted: bool = False,
+                 names: bool = True) -> list[S.Station]:
+        """Every drawn station with a state built from what the worker saw.
+        Never fixtures; `unknown` with a reason when nothing is answering."""
+        return [self._wire_station(a, names=names)
+                for a in self._station_areas(include_deleted)]
+
+    def station(self, station_id: str, day: str = "",
+                names: bool = True) -> S.StationDetail | None:
+        area = (self.area_store.get(station_id)
+                if self.area_store is not None else None)
+        if area is None or area.kind != "station":
+            return None
+        base = self._wire_station(area, day, names)
+        events = []
+        if self.station_store is not None:
+            start, end = self._day_bounds(day)
+            events = [S.StationEvent(
+                id=e.id, at=_instant(e.at, self.clock),
+                kind={"at_station": "atStation", "left_station": "leftStation",
+                      "absence_alert": "absenceAlert",
+                      "acknowledged": "acknowledged"}[e.kind],
+                limit_minutes=e.limit_minutes, by_who=e.by_who)
+                for e in self.station_store.events(station_id, start, end)]
+        return S.StationDetail(**base.model_dump(), events=events)
+
+    def create_station(self, req: S.StationCreate,
+                       actor: str = "unknown") -> S.Station:
+        store, _ = self._need_stations()
+        self._check_camera(req.camera_id)
+        self._check_assignee(req.assignee_id)
+        in_app, email = self._rule_defaults("station")
+        candidate = Area(
+            id="new", kind="station", name=req.name, camera_id=req.camera_id,
+            polygon=tuple((p.x, p.y) for p in req.polygon),
+            notify_in_app=in_app if req.notify_in_app is None else req.notify_in_app,
+            notify_email=email if req.notify_email is None else req.notify_email,
+            assignee_id=req.assignee_id or None,
+            limit_minutes=req.limit_minutes, **self._hours_fields(req.watched))
+        candidate = store.check(candidate)
+
+        self._log(actor, "station.create", candidate.name,
+                  f"on {candidate.camera_id}, {len(candidate.polygon)} points")
+        self._ensure_feature(candidate.camera_id, "stations", actor)
+        area = store.create(
+            kind="station", name=candidate.name, camera_id=candidate.camera_id,
+            polygon=candidate.polygon, hours_mode=candidate.hours_mode,
+            hours_from=candidate.hours_from, hours_to=candidate.hours_to,
+            notify_in_app=candidate.notify_in_app,
+            notify_email=candidate.notify_email,
+            assignee_id=candidate.assignee_id,
+            limit_minutes=candidate.limit_minutes, actor=actor)
+        self._push_stations()
+        return self._wire_station(area)
+
+    def update_station(self, station_id: str, req: S.StationUpdate,
+                       actor: str = "unknown") -> S.Station | None:
+        store, _ = self._need_stations()
+        area = store.get(station_id)
+        if area is None or area.kind != "station" or area.deleted:
+            return None
+        sent = req.model_fields_set
+        changes: dict = {}
+        for name in ("name", "camera_id", "notify_in_app", "notify_email",
+                     "limit_minutes"):
+            if name in sent and getattr(req, name) is not None:
+                changes[name] = getattr(req, name)
+        if "assignee_id" in sent:
+            changes["assignee_id"] = req.assignee_id or None
+        if "polygon" in sent and req.polygon is not None:
+            changes["polygon"] = tuple((p.x, p.y) for p in req.polygon)
+        if "watched" in sent and req.watched is not None:
+            changes.update(self._hours_fields(req.watched))
+        if "camera_id" in changes:
+            self._check_camera(changes["camera_id"])
+        if changes.get("assignee_id"):
+            self._check_assignee(changes["assignee_id"])
+        if changes:
+            store.check(_replace(area, **changes))      # refuse before logging
+            self._log(actor, "station.edit", area.name,
+                      "changed " + ", ".join(sorted(changes)))
+            if "camera_id" in changes:
+                self._ensure_feature(changes["camera_id"], "stations", actor)
+            store.update(station_id, **changes)
+            self._push_stations()
+        return self._wire_station(store.get(station_id))
+
+    def delete_station(self, station_id: str, actor: str = "unknown") -> bool:
+        store, _ = self._need_stations()
+        area = store.get(station_id)
+        if area is None or area.kind != "station" or area.deleted:
+            return False
+        self._log(actor, "station.delete", area.name, None)
+        store.soft_delete(station_id, actor)
+        # Closed on the camera's own thread at its next frame.
+        self._push_stations()
+        return True
+
+    def acknowledge_station(self, station_id: str, actor: str,
+                            event_id: str | None = None,
+                            names: bool = True) -> S.StationDetail | None:
+        """"I have seen this empty-station alert." Audit first, then one row.
+        None when the station is unknown or has nothing to acknowledge."""
+        store, log_store = self._need_stations()
+        area = store.get(station_id)
+        if area is None or area.kind != "station":
+            return None
+        pending = log_store.open_alerts(station_id)
+        if event_id is not None:
+            pending = [e for e in pending if e.id == event_id]
+        if not pending:
+            return None
+        self._log(actor, "station.ack", area.name, None)
+        log_store.acknowledge(station_id, actor, datetime.now(timezone.utc),
+                              event_id=pending[0].id)
+        return self.station(station_id, names=names)
+
+    def face_reach(self, camera_id: str) -> S.FaceReach:
+        """One YuNet pass on the camera's last picture: the widest face in
+        pixels, or None. A number, never an identity."""
+        from vg.infer.faces import MIN_FACE_PIXELS
+
+        needed = MIN_FACE_PIXELS
+        worker = self.registry.worker(camera_id)
+        frame = worker.last_frame() if worker is not None else None
+        pipeline = getattr(self.stations_worker, "pipeline", None)
+        detector = getattr(pipeline, "detector", None)
+        if frame is None or detector is None:
+            return S.FaceReach(face_px=None, needed=needed)
+        try:
+            faces = detector.detect(frame.image, min_size=20)
+        except Exception:  # noqa: BLE001 - reported as "cannot tell"
+            log.exception("face reach could not be measured")
+            return S.FaceReach(face_px=None, needed=needed)
+        widest = max((float(f.w) for f in faces), default=None)
+        return S.FaceReach(face_px=widest, needed=needed)
+
+    def _stations_state(self) -> tuple[S.DataState, str | None]:
+        """Whether anything is watching the work stations, in three sentences."""
+        if self.stations_worker is None:
+            if self.stations_error:
+                return (S.DataState.UNAVAILABLE,
+                        f"Work stations failed to start ({self.stations_error})")
+            if self.people_worker is None:
+                return (S.DataState.UNAVAILABLE,
+                        "Person detection is not running, so nothing is "
+                        "watching the work stations."
+                        + (f" ({self.people_error})" if self.people_error else ""))
+            return (S.DataState.UNAVAILABLE,
+                    "Work stations are not running, so nothing is being "
+                    "measured.")
+        if self.station_store is None:
+            return (S.DataState.UNAVAILABLE,
+                    "The work-station log is not available, so nothing can be "
+                    "shown even though the cameras are being watched.")
+        return S.DataState.LIVE, None
+
+    def _stations_stage(self) -> S.PipelineStage:
+        """Rule 8: a subsystem that failed to start says so in the UI."""
+        state, reason = self._stations_state()
+        if state is not S.DataState.LIVE:
+            return S.PipelineStage(
+                key="stations", name="Work stations",
+                detail=reason or "Not running.",
+                healthy=False, severity=S.Severity.WARN, restartable=False)
+        stats = self._stats_of(self.stations_worker)
+        if stats is None:
+            return S.PipelineStage(
+                key="stations", name="Work stations",
+                detail="Running, but it could not report its counters.",
+                healthy=False, severity=S.Severity.WARN, restartable=True)
+        stopped = self._stopped_stage("stations", "Work stations", stats,
+                                      "no station is measured")
+        if stopped is not None:
+            return stopped
+        return S.PipelineStage(
+            key="stations", name="Work stations",
+            detail=(f"{stats['cameras']} camera(s), "
+                    f"{stats['last_inference_ms']}ms last inference"),
+            healthy=True, severity=S.Severity.INFO, restartable=False)
+
     def intrusion_cameras(self) -> list[S.CameraView]:
         """Tiles for the cameras that have a zone watching.
 
@@ -1378,6 +1721,7 @@ class LiveStore(MockStore):
                 clip_state=scene.clip_state,
                 clip_reason=scene.clip_reason or self._no_clip_reason(scene),
                 clip=self._scene_clip(scene),
+                end_reason=scene.end_reason,
             ))
         return out
 
@@ -2882,6 +3226,22 @@ class LiveStore(MockStore):
                               minutes=int((now - since).total_seconds() // 60)),
                 ))
 
+        if shown("station") and self.station_store is not None:
+            names = {a.id: a for a in self._station_areas(include_deleted=True)}
+            for alert in self.station_store.open_alerts(
+                    since=self._start_of_day()):
+                area = names.get(alert.station_id)
+                if area is not None and not area.notify_in_app:
+                    continue
+                items.append(S.AttentionItem(
+                    id=f"station:{alert.id}", kind="station",
+                    at=_instant(alert.at, self.clock), severity=S.Severity.WARN,
+                    title=area.name if area is not None else alert.station_id,
+                    detail="", target="stations", target_id=alert.station_id,
+                    note=note("attention.station",
+                              minutes=alert.limit_minutes or 0),
+                ))
+
         items = [item for item in items if item.id not in acked]
         items.sort(key=lambda item: item.at.utc, reverse=True)
         return items
@@ -2896,6 +3256,14 @@ class LiveStore(MockStore):
         item = next((i for i in self.attention() if i.id == item_id), None)
         if item is None:
             return None
+        if item_id.startswith("station:"):
+            # A station alert is answered in the station's own log, by the
+            # same audited path the Stations page uses.
+            done = self.acknowledge_station(
+                item.target_id or "", actor, event_id=item_id.split(":", 1)[1])
+            if done is None:
+                return None
+            return item.model_copy(update={"acknowledged": True})
         self._log(actor, "attention.ack", item_id, item.title)
         self.alerts_store.ack(item_id, actor, datetime.now(timezone.utc))
         return item.model_copy(update={"acknowledged": True})
@@ -3209,6 +3577,7 @@ class LiveStore(MockStore):
             # LIVE carries no reason at all: an excuse attached to a working
             # feature reads as a fault, which is the P0-08 lesson in reverse.
             "breaches": self._breaches_state(),
+            "stations": self._stations_state(),
             # Not built yet. Saying "not built" is the truth and is different
             # from "broken" — an operator should not be waiting for these to
             # come back.
@@ -3484,6 +3853,9 @@ class LiveStore(MockStore):
         # ByteTrack and the appearance matcher for tracking.
         "people": 1.0,
         "zones": 1.0,
+        # An estimate, like every row here until the board measures it: the
+        # machine is bookkeeping; the face step runs only with an assignee.
+        "stations": 1.0,
         "tracking": 2.0,
         "recognition": 44.0,  # YuNet + SFace
         "patrol": 44.0,       # the same pair, run slower on the other cameras
@@ -3707,6 +4079,7 @@ class LiveStore(MockStore):
         those cameras are not charged for it.
         """
         readers = [w for w in (self.people_worker, self.zones_worker,
+                               self.stations_worker,
                                self.tracking, self.weapons_worker)
                    if w is not None]
         detector = next(
@@ -3791,6 +4164,7 @@ class LiveStore(MockStore):
             self._clock_stage(),
             *([self._weapons_stage()] if self._weapons_wanted() else []),
             self._vehicles_stage(),
+            self._stations_stage(),
             self._lost_stage(),
             self._alerts_stage(),
             self._workers_stage(),

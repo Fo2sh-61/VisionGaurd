@@ -6,6 +6,7 @@ import { Home } from '@/pages/Home';
 import { Attendance } from '@/pages/Attendance';
 import { Counting } from '@/pages/Counting';
 import { Intrusion } from '@/pages/Intrusion';
+import { Stations } from '@/pages/Stations';
 import { VehicleGate } from '@/pages/VehicleGate';
 import { Weapons } from '@/pages/Weapons';
 import { LostItems } from '@/pages/LostItems';
@@ -77,6 +78,7 @@ export function AppRoutes() {
         <Route path="attendance" element={<RequireRole role="admin"><Attendance /></RequireRole>} />
         <Route path="counting" element={<Counting />} />
         <Route path="intrusion" element={<Intrusion />} />
+        <Route path="stations" element={<Stations />} />
         {/* Weapons, lost-items and track: out of the navigation (spec 022),
             code kept, still reachable by address. */}
         <Route path="weapons" element={<Weapons />} />

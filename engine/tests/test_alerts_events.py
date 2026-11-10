@@ -841,12 +841,9 @@ class TestTheEngineWiresTheSender:
             "app.state.scenes.on_open": "app.state.alerts.on_zone_open",
             "app.state.weapon_scenes.on_open": "app.state.alerts.on_weapon_open",
             "app.state.vehicle_store.on_pass": "app.state.alerts.on_pass",
+            "app.state.stations_store.on_alert": "app.state.alerts.on_station_absent",
         }
         offered = {name for name in vars(AlertService) if name.startswith("on_")}
-        # `on_station_absent` is built (spec 025) and is wired where the work
-        # stations start, which is a later task. Remove this line then: the
-        # test is what makes a hook nobody connected impossible to miss.
-        offered -= {"on_station_absent"}
         assert {value.rsplit(".", 1)[1] for value in wired.values()} == offered
 
     def test_the_gate_reader_says_when_a_pass_is_final(self):

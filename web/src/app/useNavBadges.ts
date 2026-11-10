@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
-import { getNotArrivedCount, getOpenGateAlertCount } from '@/services/navBadges';
+import {
+  getAbsentStationCount, getNotArrivedCount, getOpenGateAlertCount, getZonesInNowCount,
+} from '@/services/navBadges';
 import type { ToolId } from '@/types';
 import { useAccount } from './AuthContext';
 import { useToday } from './SiteContext';
@@ -39,6 +41,10 @@ export function useNavBadges(): NavBadges {
         getNotArrivedCount(today).then((n) => set('attendance', n), () => set('attendance', undefined));
       }
       getOpenGateAlertCount().then((n) => set('vehicles', n), () => set('vehicles', undefined));
+      // No number at 0 or when the call fails: a missing badge says "unknown",
+      // and a 0 would say "nobody is anywhere they should not be".
+      getZonesInNowCount().then((n) => set('intrusion', n > 0 ? n : undefined), () => set('intrusion', undefined));
+      getAbsentStationCount().then((n) => set('stations', n > 0 ? n : undefined), () => set('stations', undefined));
     };
 
     load();
