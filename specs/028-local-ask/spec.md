@@ -61,6 +61,17 @@ plays.
    found" and does not answer with another query.
 8. **Given** nobody is asking anything, **When** the cameras are running,
    **Then** Ask does no work at all.
+9. **Given** Ask understood "مين اللي اتزوغ من تالتة ب" as the wrong query,
+   **When** an administrator marks the right query, **Then** the next person
+   who asks it, or something close to it, gets the right query. The
+   correction appears in the list of learned examples with who added it and
+   when.
+10. **Given** an operator picks one of the "did you mean" buttons, **When** the
+    answer is shown, **Then** the pick is kept as a suggested example. It
+    takes effect only once an administrator approves it.
+11. **Given** "وريني كاميرا البوابة دلوقتي" with no past time, **When** it is
+    asked, **Then** Ask opens that camera's live view. The same question with
+    a past time ("الساعة ٨ الصبح") gets that moment's clip instead.
 
 ### Edge cases
 
@@ -83,6 +94,15 @@ plays.
   digit forms onto one row.
 - **The Jetson is under full camera load.** Ask may answer more slowly, but it
   must not slow the cameras (SC-006).
+- **A correction that would make Ask worse.** A learned example that pulls a
+  test question to the wrong query is refused, with the question it would
+  break. It is not saved quietly.
+- **A correction typed with a child's name in it.** The example is kept with
+  the name, plate and date replaced by placeholders. A learned example never
+  stores who it was about, and it covers everybody, not only that child.
+- **"Live view" of a camera that is offline, or that the account may not
+  see.** Ask says it is offline, or that it is not permitted, the same way the
+  camera page would. It never opens a blank or frozen view that looks live.
 
 ## Requirements *(mandatory)*
 
@@ -131,10 +151,31 @@ unless a line below replaces it.
   memory while idle.
 - **P15-FR-011**: The operator's choice on a "did you mean" button MUST be
   audited, and MUST run exactly one query, as every answer does.
-- **P15-FR-012**: [NEEDS CLARIFICATION: May an administrator correct a
-  misunderstood question, so that the question becomes a new example for the
-  right query? Without it, the examples change only when the owner edits
-  them.]
+- **P15-FR-012**: Ask MUST learn from use without training. A learned
+  question becomes one more example for its query and takes effect from the
+  next question. It MUST be stored masked: names, plates and dates are
+  replaced by placeholders (decided 10 Nov 2026).
+
+### Learning from use
+
+- **P15-FR-022**: An administrator MUST be able to mark any answered question
+  as misunderstood and choose the right query. That question becomes a
+  learned example straight away.
+- **P15-FR-023**: An operator's choice on a "did you mean" button MUST be kept
+  as a *suggested* example. It becomes a learned example only once an
+  administrator approves it. Operators can teach, but they cannot change Ask
+  on their own.
+- **P15-FR-024**: Before a learned example is kept, Ask MUST check it against
+  the test set (SC-001). If it would send any test question that is correct
+  today to the wrong query, it MUST be refused, naming the question it would
+  break.
+- **P15-FR-025**: Administrators MUST see every learned example: the masked
+  question, its query, who added or approved it, and when. They MUST be able
+  to remove one. Adding, approving and removing are all audited, and the
+  audit entry is written before the change takes effect.
+- **P15-FR-026**: The examples the owner wrote MUST stay apart from the
+  learned ones, so that removing every learned example puts Ask back to its
+  measured starting point.
 
 ### Clips
 
@@ -157,9 +198,12 @@ unless a line below replaces it.
   button or a spinner that never ends.
 - **P15-FR-019**: A clip MUST be shown only to an account allowed to see that
   row and that camera, decided server-side by path as today.
-- **P15-FR-020**: [NEEDS CLARIFICATION: Should "show me the gate camera now"
-  open that camera's live view? Today there is no such query, and P12 forbids
-  new queries, so a yes adds one menu entry that runs no new calculation.]
+- **P15-FR-020**: A question asking to see a camera or place with no past
+  time ("وريني كاميرا البوابة دلوقتي") MUST open that camera's live view, as
+  the console already shows it. This is one new menu entry that reads no data
+  and does no calculation (decided 10 Nov 2026). With a past time, the same
+  question gets that moment's clip (P15-FR-014). An offline or forbidden
+  camera gets the same honest state the camera page shows.
 
 ### Honest about what is switched off
 
@@ -193,12 +237,18 @@ unless a line below replaces it.
   Each failure cause in P15-FR-018 shows its own message, checked one by one.
 - **SC-008**: Every clip that plays has an audit entry written before it.
   Checked on every clip in the test run.
+- **SC-009**: After 20 administrator corrections on questions the test set
+  does not contain, the test-set score is no lower than before, and each
+  corrected question is now routed correctly. Removing every learned example
+  gives back exactly the starting score.
 
 ## Out of scope
 
 - Writing answers with a model. P12-FR-003 still holds: every sentence comes
   from the console's own wording.
-- New queries or calculations, apart from the open question in P15-FR-020.
+- New queries or calculations. The one exception is the live-view entry in
+  P15-FR-020, which reads no data.
+- Learning that changes a model's weights. Learning only adds examples.
 - Searching footage for things ("find the red bag in yesterday's video").
   Clips are fetched for a known camera and moment only.
 - Conversation memory, voice input, reading answers aloud.
@@ -218,8 +268,16 @@ unless a line below replaces it.
   unrecognised words sent off-site as typed, is gone because nothing leaves.
   Clips of named children are footage, so they get the same server-side
   permissions and an audit entry before playback.
-- **IV, audit.** Each clip fetch and each "did you mean" choice is written
-  before the result, as track searches already are (AGENTS rule 11).
+- **IV, audit.** Each clip fetch, "did you mean" choice and learned-example
+  change is audited, and the entry is written before the result or the
+  change, as track searches already are (AGENTS rule 11).
+- **IV, security.** Learning is the only write Ask has. Only an administrator
+  can make it take effect (P15-FR-022, P15-FR-023), and the check is
+  server-side by path. Learned examples are stored masked, so they hold no
+  personal data (P15-FR-012).
+- **III, measured, not assumed.** Learning cannot quietly lower accuracy:
+  P15-FR-024 refuses an example that breaks a test question, and P15-FR-026
+  keeps a way back to the measured starting point.
 - **I and II, latency and isolation.** Ask shares the Jetson with about 40
   cameras. It does no work between questions (P15-FR-010), and SC-006 checks
   that it does not slow the cameras while it answers. If the model fails to
@@ -235,8 +293,15 @@ unless a line below replaces it.
   `models/ask/`. On the Jetson it runs as a half-precision engine built on the
   board. The 500 MB in SC-005 is a starting budget, to be challenged once
   measured.
-- **Fourteen menu entries stay as they are** (spec 010), each with about 15
-  example questions written first and corrected by Mohamed.
+- **The fourteen menu entries from spec 010 stay as they are, plus live view
+  (P15-FR-020).** Each has about 15 example questions, written first and then
+  corrected by Mohamed.
+- **Operators' "did you mean" choices wait for approval** before they teach
+  Ask (P15-FR-023), because one mis-click by a guard should not change the
+  answers for everybody. Challenge this if approving them is too much work.
+- **The model files are downloaded by Mohamed on his own machine.** This
+  session's network cannot reach Hugging Face, and the 470 MB file cannot go
+  through git. `models/ask/` is ignored by git for that reason.
 - **The archive's `dvr` backend is the recorder** for clips. On a development
   machine the `footage` backend stands in, so clips are testable without a
   recorder.

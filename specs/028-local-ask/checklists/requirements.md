@@ -15,8 +15,8 @@
 
 ## Requirement Completeness
 
-- [ ] No [NEEDS CLARIFICATION] markers remain. Two are open (P15-FR-012,
-      P15-FR-020)
+- [x] No [NEEDS CLARIFICATION] markers remain. Both were answered on
+      10 Nov 2026
 - [x] Requirements are testable and unambiguous
 - [x] Success criteria are measurable
 - [x] Success criteria are technology-agnostic (no implementation details)
@@ -34,14 +34,17 @@
 
 ## Notes
 
-**Open, for Mohamed:**
+**Answered 10 Nov 2026:**
 
-1. **P15-FR-012**: may an administrator correct a misunderstood question so it
-   becomes a new example? If yes, it is a write path and must be audited and
-   limited to admins. If no, only the owner edits the examples.
-2. **P15-FR-020**: should "show me the gate camera now" open the live view?
-   That would be one new menu entry. It adds no new calculation, but P12 allows
-   no new queries, so it needs his decision.
+1. **Ask learns from use** (P15-FR-012, P15-FR-022 to P15-FR-026). An
+   administrator's correction takes effect straight away. An operator's
+   "did you mean" pick waits for an administrator to approve it. Examples are
+   stored masked, any example that breaks a test question is refused, and
+   removing the learned examples returns Ask to its measured start. The
+   approval step is an assumption, open to challenge.
+2. **"Show me the gate camera now" opens the live view** (P15-FR-020). It is
+   one new menu entry that reads no data. With a past time, the same
+   question gets a clip.
 
 **Checked in the code, not assumed:**
 
@@ -53,5 +56,4 @@
 - `ask:` in `engine.yaml` names a Gemini model and an 8 s timeout. Both go
   away with this spec.
 
-Two clarifications are open. Ready for `/speckit-clarify`, or for
-`/speckit-plan` once Mohamed answers them.
+Ready for `/speckit-plan`.

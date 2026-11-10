@@ -54,6 +54,9 @@ models/*.onnx
 models/*.engine
 models/*.weights
 models/*.safetensors
+# Ask's meaning model (spec 028). `models/*.onnx` matches only the top
+# level, so the 470 MB model.onnx in this subfolder needs its own line.
+models/ask/
 
 # generated per-model sidecars — regenerate with engine/tools/audit_models.py
 models/*_pt.yaml
