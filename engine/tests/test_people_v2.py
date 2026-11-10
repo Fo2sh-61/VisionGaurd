@@ -826,3 +826,43 @@ class TestEndpoints:
         # No person given: the route itself answers (422), so nothing earlier
         # with a path parameter caught it.
         assert authed(application).get("/attendance/week").status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# The sentences the console shows about what the engine really does
+# ---------------------------------------------------------------------------
+
+REPO = Path(__file__).resolve().parents[2]
+
+
+def _en(key: str) -> str:
+    """One English wording out of the console's catalogue, unescaped."""
+    text = (REPO / "web" / "src" / "i18n" / "en.ts").read_text(encoding="utf-8")
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith(f"'{key}':"):
+            value = line.split(":", 1)[1].strip().rstrip(",")
+            return value[1:-1].replace("\\'", "'")
+    raise AssertionError(f"{key} is missing from en.ts")
+
+
+class TestWhatTheConsoleSays:
+    def test_the_removal_sentence_says_what_removal_really_does(self):
+        """P14-FR-222: the three true things, and nothing the engine does not do.
+
+        The engine deletes the face measurements and stops recognising at once
+        (tested above), and keeps past attendance as recorded (tested above).
+        If this wording drifts, one of those tests no longer backs it.
+        """
+        text = _en("people.removeSentence")
+        assert "face measurements are deleted" in text
+        assert "recognition stops at once, without a restart" in text
+        assert "Past attendance stays as it was recorded" in text
+        assert "{name}" in text
+
+    def test_the_photo_note_says_only_measurements_are_kept(self):
+        """P14-FR-237: true because the gallery holds vectors and no images
+        (`test_a_committed_session_leaves_rows_only_in_person_and_face_embedding`)."""
+        text = _en("enrol.photoNote")
+        assert "Only the face measurements are kept" in text
+        assert "never the photographs" in text

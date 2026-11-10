@@ -16,6 +16,8 @@ import type {
   AttendanceQuery,
   AttendanceResult,
   AttendanceRow,
+  Register,
+  WeekDay,
   Breach,
   Camera,
   CameraSource,
@@ -46,7 +48,7 @@ import * as W from './wire';
 
 /** Which overlay a page wants on a camera. One camera, different questions. */
 export type CameraFeature = 'attendance' | 'track' | 'counting' | 'intrusion' | 'weapons' | 'lost' | 'vehicles';
-import { ApiError, apiBase, assetUrl, del, download, get, patch, post, postFile, request, setSessionToken } from './http';
+import { ApiError, assetUrl, del, download, get, patch, post, postFile, request, setSessionToken } from './http';
 import type { Account } from '@/app/AuthContext';
 import { translate, type Language } from '@/i18n';
 import type { Role, Tone } from '@/types';
@@ -55,6 +57,7 @@ import {
   attendanceStatusLine,
   attendanceTone,
   formatCount,
+  groupAttendanceLine,
   formatEventTime,
   formatLongDate,
   formatMetrics,
@@ -229,31 +232,77 @@ export async function getAttendance(
  *  mark can be traced back to the evidence. */
 export async function exportAttendance(query: AttendanceQuery): Promise<void> {
   const subject = query.mode === 'person' ? query.person : query.group;
-  const url = new URL(`${apiBase}/attendance/export`);
-  url.searchParams.set('mode', query.mode);
-  url.searchParams.set('subject', subject ?? 'Everyone');
-  url.searchParams.set('date', query.date);
+  // Through `download`, which carries the session. The bare `fetch` this used
+  // to be sent neither the token nor the cookie, so once the engine required a
+  // sign-in the export was refused for everyone.
+  await download('/attendance/export', {
+    query: { mode: query.mode, subject: subject ?? 'Everyone', date: query.date },
+    fallbackName: `attendance-${query.date}.csv`,
+  });
+}
 
-  const response = await fetch(url.toString());
-  if (!response.ok) {
-    throw new ApiError(`Export failed (${response.status})`, response.status, true);
-  }
+/** One day's register as the engine recorded it, typed for the Attendance page.
+ *
+ *  `getAttendance` above keeps its display-string shape because the phone
+ *  reads it. This one keeps statuses as codes so the page can filter by them,
+ *  and sends nothing the engine did not: a day with nothing recorded comes
+ *  back `recorded: false`, and its zeroes are not figures. */
+export async function getRegister(
+  date: string,
+  group: string,
+  lang: Language,
+): Promise<Register> {
+  const result = await get<W.AttendanceResult>('/attendance', {
+    mode: 'group', subject: group || 'Everyone', date,
+  });
+  return {
+    date: result.date,
+    recorded: result.recorded,
+    expected: result.expected,
+    onTime: result.present - result.late,
+    late: result.late,
+    absent: result.absent,
+    excused: result.excused,
+    recognitionElsewhere: result.recognitionElsewhere,
+    rows: result.records.map((r) => ({
+      id: r.person.id ?? '',
+      name: r.person.name ?? translate(lang, 'person.unknown'),
+      group: r.group ?? '',
+      status: r.status,
+      label: attendanceLabel(r.status, lang),
+      tone: attendanceTone(r.status),
+      arrived: r.seenAt ? formatTime(r.seenAt, lang) : '',
+      lastSeen: r.lastSeenAt ? formatTime(r.lastSeenAt, lang) : '',
+      camera: r.location ?? '',
+      minutesLate: r.minutesLate ?? null,
+    })),
+    cameras: toCameras(result.cameras, lang),
+  };
+}
 
-  // Read the filename the engine chose so the file is named after the day and
-  // group rather than after the endpoint.
-  const disposition = response.headers.get('Content-Disposition') ?? '';
-  const named = /filename="([^"]+)"/.exec(disposition)?.[1];
-  const blob = await response.blob();
-  const href = URL.createObjectURL(blob);
+/** A person's last seven working days ending on `date`, newest first. */
+export async function getWeek(
+  personId: string,
+  date: string,
+  lang: Language,
+): Promise<WeekDay[]> {
+  const days = await get<W.AttendanceDay[]>('/attendance/week', { person: personId, date });
+  return days.map((d) => ({
+    date: d.date,
+    status: d.status,
+    label: attendanceLabel(d.status, lang),
+    tone: attendanceTone(d.status),
+    time: d.seenAt ? formatTime(d.seenAt, lang) : '',
+    where: d.location ?? '',
+    minutesLate: d.minutesLate ?? null,
+  }));
+}
 
-  const link = document.createElement('a');
-  link.href = href;
-  link.download = named ?? `attendance-${query.date}.csv`;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  // Revoking immediately can cancel the download in some browsers.
-  setTimeout(() => URL.revokeObjectURL(href), 10_000);
+/** Mark one absence excused. Administrators only; the engine writes the audit
+ *  entry before it saves, and refuses with a plain reason (already arrived,
+ *  nothing recorded that day, a day that has not happened). */
+export async function excusePerson(personId: string, date: string): Promise<void> {
+  await post<W.AttendanceRecord>('/attendance/excused', { personId, date });
 }
 
 /* ---------- people counting ---------- */
@@ -897,6 +946,8 @@ function toDirectoryPerson(p: W.DirectoryPerson, lang: Language): DirectoryPerso
     // row says nothing at all rather than guessing.
     today: status ? attendanceLabel(status, lang) : '',
     todayTone: status ? attendanceTone(status) : 'neutral',
+    group: p.group ?? '',
+    photos: p.photos ?? 0,
   };
 }
 
@@ -1112,15 +1163,23 @@ export async function cancelEnrolment(sessionId: string): Promise<void> {
   await del<void>(`/enrolment/sessions/${sessionId}`);
 }
 
-export async function getGroups(lang: Language): Promise<GroupSummary[]> {
-  const groups = await get<W.GroupSummary[]>('/groups');
-  return groups.map((g) => ({
+function toGroupSummary(g: W.GroupSummary, lang: Language): GroupSummary {
+  return {
     name: g.name,
     count: g.classes
       ? `${formatCount(g.people, lang)} students · ${g.classes} classes`
       : `${formatCount(g.people, lang)} people`,
     here: g.here,
-  }));
+    attendance: groupAttendanceLine(g.attendance30d, g.recordedDays, lang),
+    attendance30d: g.attendance30d ?? null,
+    recordedDays: g.recordedDays ?? 0,
+    people: g.people,
+  };
+}
+
+export async function getGroups(lang: Language): Promise<GroupSummary[]> {
+  const groups = await get<W.GroupSummary[]>('/groups');
+  return groups.map((g) => toGroupSummary(g, lang));
 }
 
 export async function getGroup(
@@ -1130,13 +1189,7 @@ export async function getGroup(
   const detail = await get<W.GroupDetail>(`/groups/${encodeURIComponent(name)}`);
   const g = detail.summary;
   return {
-    summary: {
-      name: g.name,
-      count: g.classes
-        ? `${formatCount(g.people, lang)} students · ${g.classes} classes`
-        : `${formatCount(g.people, lang)} people`,
-      here: g.here,
-    },
+    summary: toGroupSummary(g, lang),
     roster: detail.roster.map((r) => ({
       name: r.person.name ?? translate(lang, 'person.unknown'),
       sub: r.location ?? '',
@@ -1161,7 +1214,8 @@ export async function getHistory(name: string, lang: Language): Promise<PersonHi
       date: t.date,
       day: t.label,
       label: attendanceLabel(t.status, lang),
-      pct: t.status === 'absent' ? 0 : 100,
+      // Absent and excused both mean "not here"; the colour says which.
+      pct: t.status === 'absent' || t.status === 'excused' ? 0 : 100,
       tone: attendanceTone(t.status),
     })),
     flags: h.flags.map((f) => ({

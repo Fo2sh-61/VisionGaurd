@@ -14,6 +14,8 @@ import type {
   AttendanceStatus,
   Box as WireBox,
   CameraView,
+  EnrolmentPhotoReason,
+  OfflineReason,
   GateAlert as WireGateAlert,
   Instant,
   Metric,
@@ -331,7 +333,8 @@ export function attendanceLabel(status: AttendanceStatus, lang: Language): strin
   // The language is a parameter, not a module-level "current" value. This
   // file is not a component and has to stay testable on its own, and a
   // hidden global would misbehave under React's double render.
-  const known = status === 'on_time' || status === 'late' || status === 'absent';
+  const known = status === 'on_time' || status === 'late' || status === 'absent'
+    || status === 'excused';
   return translate(lang, known
     ? (`attendance.status.${status}` as MessageKey)
     : 'attendance.status.unknown');
@@ -345,9 +348,95 @@ export function attendanceTone(status: AttendanceStatus): Tone {
       return 'warn';
     case 'absent':
       return 'bad';
+    case 'excused':
+      // A person's decision, neither here nor missing: no alarm colour.
+      return 'neutral';
     default:
       return 'neutral';
   }
+}
+
+/** Why a camera is offline, in words. null when it is not. */
+export function offlineReasonLabel(
+  reason: OfflineReason | null | undefined,
+  lang: Language,
+): string | null {
+  if (!reason) return null;
+  return translate(lang, `camera.offlineReason.${reason}` as MessageKey);
+}
+
+/** The sentence for one refused enrolment photo, from the engine's code.
+ *
+ *  The engine also sends an English `note`; the phone still reads it. Here the
+ *  code is what is worded, so the sentence can be Arabic and carry its number
+ *  ("2 faces in shot"). A code this build does not know says so plainly. */
+export function enrolmentReasonLine(
+  photo: { reason?: EnrolmentPhotoReason | null; reasonValue?: number | null },
+  lang: Language,
+): string {
+  const value = photo.reasonValue ?? 0;
+  switch (photo.reason) {
+    case 'no_face':
+    case 'cut_off':
+      return translate(lang, `enrol.photoReason.${photo.reason}` as MessageKey);
+    case 'too_small':
+      return translate(lang, 'enrol.photoReason.too_small', { pixels: Math.round(value) });
+    case 'several_faces':
+      return translate(lang, 'enrol.photoReason.several_faces', { count: Math.round(value) });
+    case 'unclear':
+      return translate(lang, 'enrol.photoReason.unclear', { score: Math.round(value * 100) });
+    case 'too_similar':
+      return translate(lang, 'enrol.photoReason.too_similar', { percent: Math.round(value * 100) });
+    default:
+      return translate(lang, 'enrol.photoReason.other');
+  }
+}
+
+/** A group's 30-day attendance in words: "82% over 11 days", or "no data".
+ *
+ *  `null` is never printed as 0%: nothing was watching is not the same claim
+ *  as nobody came (rule 5). */
+export function groupAttendanceLine(
+  attendance30d: number | null | undefined,
+  recordedDays: number | undefined,
+  lang: Language,
+): string {
+  const days = recordedDays ?? 0;
+  if (attendance30d === null || attendance30d === undefined || days <= 0) {
+    return translate(lang, 'people.card30dNone');
+  }
+  const percent = formatPercent(attendance30d, lang);
+  return days === 1
+    ? translate(lang, 'people.card30dOne', { percent })
+    : translate(lang, 'people.card30d', { percent, days });
+}
+
+/** Has today's late cut-off passed on the site's clock? undefined when the
+ *  cut-off cannot be read, so the caller shows nothing rather than guessing. */
+export function lateCutoffPassed(
+  cutoff: string | null | undefined,
+  tzOffsetMinutes: number,
+  nowMs: number = Date.now(),
+): boolean | undefined {
+  const match = /^(\d{1,2}):(\d{2})/.exec(cutoff ?? '');
+  if (!match) return undefined;
+  const local = new Date(nowMs + tzOffsetMinutes * 60_000);
+  const nowMinutes = local.getUTCHours() * 60 + local.getUTCMinutes();
+  return nowMinutes >= Number(match[1]) * 60 + Number(match[2]);
+}
+
+/** The sidebar badge for Attendance: late plus not arrived.
+ *
+ *  Only once today's cut-off has passed (before it, "not arrived" is just the
+ *  morning), and only with figures to stand on: no cut-off, recognition off,
+ *  nobody expected or a day not recorded all give `undefined`, which is "no
+ *  badge", never 0. */
+export function attendanceBadgeCount(
+  result: { late: number; absent: number; expected: number; recorded: boolean },
+  cutoffPassed: boolean | undefined,
+): number | undefined {
+  if (!cutoffPassed || !result.recorded || result.expected <= 0) return undefined;
+  return result.late + result.absent;
 }
 
 /** "On time · 7:42am" — the combined string the roster rows show. */
@@ -730,6 +819,8 @@ export function toCamera(
       : undefined,
     snapshotUrl: assetUrl(view.snapshotUrl),
     streamUrl: assetUrl(view.streamUrl),
+    offlineReason: offlineReasonLabel(view.offlineReason, lang) ?? undefined,
+    lastPictureUtc: view.capturedAt?.utc,
   };
 }
 
