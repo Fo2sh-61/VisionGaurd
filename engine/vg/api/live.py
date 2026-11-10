@@ -19,7 +19,10 @@ import logging
 import os
 import re
 import sqlite3
+import threading
+from dataclasses import replace as dc_replace
 from datetime import date, datetime, timedelta, timezone
+from typing import NamedTuple
 
 from dataclasses import replace as _replace
 
@@ -27,6 +30,8 @@ from vg import platetext
 from vg.areas import Area, AreaError, AreaStore, watching_at
 from vg.clock import Clock, clock_for
 from vg.events import vehicles as vehicle_events
+from vg.events.attendance import AttendanceLedger
+from vg.events.sightings import DailyRegister
 from vg.ingest.recorder import AlreadyRecording
 from vg.config import PERSON_FEATURES, CameraConfig, EngineConfig, HoursConfig
 from vg.settings_store import checked_changes, overlay
@@ -202,6 +207,15 @@ def _memory_reading() -> dict:
         return {"used_mb": None, "total_mb": None}
 
 
+class _Rolled(NamedTuple):
+    """Somebody who belonged on a day's register: who they were that day."""
+
+    id: str
+    name: str
+    type: str
+    group: str | None
+
+
 class LiveStore(MockStore):
     """Real cameras; demo data for everything not yet built."""
 
@@ -257,6 +271,22 @@ class LiveStore(MockStore):
         self.registry = registry
         self.gallery = gallery
         self.sightings = sightings
+        # What the register remembers that sightings cannot: excusals, people
+        # taken out of the system, the hours in force on past days. Lives in
+        # the sightings file. None says so (`ledger_error`) rather than
+        # pretending: an excuse then answers 503 with the reason.
+        self.ledger: AttendanceLedger | None = None
+        self.ledger_error: str | None = None
+        if sightings is not None:
+            try:
+                self.ledger = AttendanceLedger(sightings.path, sightings.clock)
+            except (sqlite3.Error, OSError, AttributeError) as exc:
+                log.exception("attendance ledger could not be opened")
+                self.ledger_error = f"{type(exc).__name__}: {exc}"
+        # Past registers, so thirty days of groups is not thirty reads every
+        # fifteen seconds. Never today. Keyed by date and the hours it used.
+        self._past_registers: dict[tuple, DailyRegister] = {}
+        self._past_lock = threading.Lock()
         self.recogniser = recogniser
         # The second recognition tier, or None when it is switched off.
         # Two things read it: the workers stage on System Health, and
@@ -426,6 +456,7 @@ class LiveStore(MockStore):
             return S.CameraView(
                 id=disabled.id, name=disabled.name,
                 area=self._area_of(disabled.id), offline=True, stale=True,
+                offline_reason="disabled",
             )
 
         frame = worker.last_frame()
@@ -436,6 +467,8 @@ class LiveStore(MockStore):
             area=worker.config.area,
             faces=worker.config.faces,
             offline=not online,
+            offline_reason=None if online else (
+                worker.status if worker.status in ("down", "auth") else "down"),
             captured_at=_instant(frame.captured_at if frame else None, self.clock),
             # Stale means "this pixel data is not current", which is true
             # whenever the stream is down but we still have something to show.
@@ -691,7 +724,9 @@ class LiveStore(MockStore):
                 confidence=face.score if face.identified else None,
                 kind="match" if face.identified else "face",
                 match=S.MatchKind.FACE if face.identified else S.MatchKind.NONE,
-                severity=S.Severity.INFO,
+                # Amber for a face nobody was named for. INFO painted it blue,
+                # which is the colour of clothing: "same body", not "no name".
+                severity=S.Severity.INFO if face.identified else S.Severity.WARN,
             )
             for face in self.recogniser.faces_on(camera_id)
         ]
@@ -4624,6 +4659,11 @@ class LiveStore(MockStore):
 
         self._log(actor, "person.remove", person.name,
                   "removed from the directory and the face gallery")
+        # Before the delete, like the audit entry: past days still list them by
+        # name, and a delete that then fails leaves a tombstone for somebody
+        # still enrolled, which `_roll_on` ignores.
+        if self.ledger is not None:
+            self.ledger.note_removed(person, datetime.now(timezone.utc), actor)
         return self.gallery.remove_person(person_id)
 
     def hours(self) -> HoursConfig:
@@ -4708,10 +4748,109 @@ class LiveStore(MockStore):
         treated the same way: they are in it regardless, and a second row with
         that name and a different count would be a page arguing with itself.
         """
-        group = (person.group or "").strip()
+        return self._specific_group(person.group)
+
+    def _specific_group(self, raw: str | None) -> str | None:
+        group = (raw or "").strip()
         if not group or group == self.EVERYONE:
             return None
         return group
+
+    def _today_str(self) -> str:
+        return self.sightings.local_date(datetime.now(timezone.utc))
+
+    def _roll_on(self, on: str) -> list[_Rolled]:
+        """Who belonged on the register of `on`, as they were that day.
+
+        Today it is whoever is enrolled with a photo, and a person removed a
+        minute ago is already gone. A past day is rebuilt: enrolled on or
+        before it, plus people since removed who were still there (removed after
+        that day, or seen on it). Without this a child enrolled in November
+        read "absent" every day of the October register.
+        """
+        today = self._today_str()
+        past = on < today
+        enrolled = self.gallery.people()
+        enrolled_ids = {p.id for p in enrolled}
+
+        roll: list[_Rolled] = []
+        for p in enrolled:
+            if not p.photo_on_file:
+                continue
+            if (past and p.created_at is not None
+                    and self.sightings.local_date(p.created_at) > on):
+                continue
+            roll.append(_Rolled(p.id, p.name, p.type, self._specific_group_of(p)))
+
+        if past and self.ledger is not None:
+            seen = self.sightings.people_seen_on(on)
+            for gone in self.ledger.removed_expected_on(on, seen):
+                if gone.person_id in enrolled_ids:
+                    continue  # a delete that failed: still here, counted above
+                roll.append(_Rolled(gone.person_id, gone.name, gone.type,
+                                    self._specific_group(gone.group)))
+        return roll
+
+    def _expected_on(self, on: str, wanted: str | None = None) -> list[str]:
+        return [r.id for r in self._roll_on(on)
+                if wanted is None or r.group == wanted]
+
+    def hours_on(self, on: str) -> HoursConfig:
+        """The hours that applied on `on`: its cut-off, its working days.
+
+        Today's hours are asked first and noted, so a change is dated the day
+        it was first read. A day older than anything noted uses today's hours:
+        nothing earlier is known, and the page does not claim otherwise.
+        """
+        hours = self.hours()
+        if self.ledger is None:
+            return hours
+        try:
+            self.ledger.note_hours(hours, self._today_str())
+            snap = self.ledger.hours_on(on)
+        except sqlite3.Error:
+            log.exception("hours history could not be read; using today's hours")
+            return hours
+        if snap is None:
+            return hours
+        return dc_replace(hours, start=snap.day_start, end=snap.day_end,
+                          late_cutoff=snap.late_cutoff,
+                          working_days=snap.working_days)
+
+    def _day_recorded(self, on: str) -> bool:
+        """Was the system watching that day? Today always counts: nobody here
+        yet is a normal morning. A past day with no sighting at all is one
+        nothing was recording, not one everybody stayed home."""
+        return on >= self._today_str() or self.sightings.has_day(on)
+
+    def _everyone_register(self, on: str) -> DailyRegister:
+        hours = self.hours_on(on)
+        past = on < self._today_str()
+        key = (on, hours.start, hours.end, hours.late_cutoff)
+        if past:
+            with self._past_lock:
+                hit = self._past_registers.get(key)
+            if hit is not None:
+                return hit
+
+        if past and not self.sightings.has_day(on):
+            register = DailyRegister(
+                date=on, cutoff=hours.late_cutoff.strftime("%H:%M"), entries=[])
+        else:
+            excused = self.ledger.excused_on(on) if self.ledger is not None else ()
+            register = self.sightings.register(
+                on, self._expected_on(on),
+                cutoff=hours.late_cutoff,
+                day_start=hours.start,
+                day_end=hours.end,
+                excused=excused,
+            )
+        # Only a recorded day is remembered. A day nothing was seen on stays
+        # a question until something is.
+        if past and register.entries:
+            with self._past_lock:
+                self._past_registers[key] = register
+        return register
 
     def _register(self, on: str, group: str | None = None):
         """The day's register. Absence is derived from missing sightings.
@@ -4727,21 +4866,22 @@ class LiveStore(MockStore):
         it has to give the same answer as asking for no group at all — they
         are the same question, and they used to be two different registers
         under one heading.
+
+        A past day is read as it was recorded (see `_roll_on`, `hours_on`), and
+        a past day with no sightings has no rows at all.
         """
-        hours = self.hours()
         wanted = None if group in (None, self.EVERYONE) else group
-        expected = [
-            p.id for p in self.gallery.people()
-            if p.photo_on_file
-            and (wanted is None or self._specific_group_of(p) == wanted)
-        ]
-        return self.sightings.register(
-            on,
-            expected,
-            cutoff=hours.late_cutoff,
-            day_start=hours.start,
-            day_end=hours.end,
-        )
+        full = self._everyone_register(on)
+        if wanted is None:
+            return full
+        keep = {r.id for r in self._roll_on(on) if r.group == wanted}
+        return DailyRegister(date=full.date, cutoff=full.cutoff,
+                             entries=[e for e in full.entries if e.person_id in keep])
+
+    def _forget_day(self, on: str) -> None:
+        with self._past_lock:
+            for key in [k for k in self._past_registers if k[0] == on]:
+                del self._past_registers[key]
 
     # -- honest emptiness ---------------------------------------------------
     #
@@ -4844,27 +4984,16 @@ class LiveStore(MockStore):
         # it either matches a bucket or matches nobody, and matching nobody is
         # the honest answer for a group that has no one in it.
         register = self._register(on, group=subject or None)
-        people = {p.id: p for p in self.gallery.people()}
+        # Who they were on that day, so a person removed since still reads by
+        # name on the days they belonged to.
+        people = {r.id: r for r in self._roll_on(on)}
 
         records = []
         for entry in register.entries:
             person = people.get(entry.person_id)
             if person is None:
                 continue
-            records.append(S.AttendanceRecord(
-                person=S.PersonRef(
-                    id=person.id, name=person.name,
-                    type=S.PersonType(person.type),
-                    match=(S.MatchKind.FACE if entry.status != "absent"
-                           else S.MatchKind.NONE),
-                    confidence=entry.confidence,
-                ),
-                status=S.AttendanceStatus(entry.status),
-                seen_at=_instant(entry.first_seen, self.clock),
-                camera_id=entry.camera_id,
-                location=self._camera_name(entry.camera_id),
-                minutes_late=entry.minutes_late,
-            ))
+            records.append(self._attendance_record(entry, person))
 
         # Say how many cameras were up. A register produced while half the
         # cameras were down is not the same claim as one produced with all of
@@ -4875,16 +5004,157 @@ class LiveStore(MockStore):
                      total=register.expected),
             S.Metric(key="late", label="Late", value=register.late),
             S.Metric(key="absent", label="Absent", value=register.absent),
+            S.Metric(key="excused", label="Excused", value=register.excused),
             S.Metric(key="cameras", label="Cameras up", value=online, total=total,
                      severity=S.Severity.INFO if online == total else S.Severity.WARN),
         ]
+
+        # The doorway strip: the cameras that feed attendance, offline ones
+        # kept. Cameras that identify people elsewhere are counted, not shown.
+        configs = self.registry.configs()
+        doorways = {c.id for c in configs if "attendance" in c.features}
+        elsewhere = sum(1 for c in configs
+                        if c.faces and c.enabled and c.id not in doorways)
 
         return S.AttendanceResult(
             mode="group", date=on, subject=subject or "Everyone",
             expected=register.expected, present=register.present,
             late=register.late, absent=register.absent,
-            metrics=metrics, records=records, cameras=self.live_cameras(),
+            excused=register.excused,
+            recorded=self._day_recorded(on),
+            recognition_elsewhere=elsewhere,
+            metrics=metrics, records=records,
+            cameras=[v for v in self.live_cameras() if v.id in doorways],
         )
+
+    def _attendance_record(self, entry, person: _Rolled) -> S.AttendanceRecord:
+        """One row of a day. A face names a person only when one was seen:
+        excused and absent rows carry no match."""
+        arrived = entry.status in ("on_time", "late")
+        return S.AttendanceRecord(
+            person=S.PersonRef(
+                id=person.id, name=person.name,
+                type=S.PersonType(person.type),
+                match=S.MatchKind.FACE if arrived else S.MatchKind.NONE,
+                confidence=entry.confidence,
+            ),
+            status=S.AttendanceStatus(entry.status),
+            seen_at=_instant(entry.first_seen, self.clock),
+            camera_id=entry.camera_id,
+            location=self._camera_name(entry.camera_id),
+            minutes_late=entry.minutes_late,
+            group=person.group,
+            last_seen_at=_instant(entry.last_seen, self.clock),
+        )
+
+    # -- excused, and the week ---------------------------------------------
+
+    def excuse(self, person_id: str, on: str, actor: str) -> S.AttendanceRecord:
+        """Account for one person's absence on one day.
+
+        Refusals say plainly why: `ValueError` (422) for a day that has not
+        happened, `NothingThere` (404) for somebody not on that day's roll,
+        `AlreadyBusy` (409) for a person who arrived, or a day nothing was
+        recorded. Then the audit entry, THEN the row: a crash between leaves an
+        audited intent, never an excusal nobody can account for.
+
+        Arrival wins. Nobody is excused who came; the row would only contradict
+        the evidence.
+        """
+        if not self.recognition_live or self.ledger is None:
+            raise SubsystemUnavailable(
+                "excusing needs face recognition and the attendance store, and "
+                + (self.ledger_error or "one of them is not running"))
+        try:
+            date.fromisoformat(on)
+        except ValueError:
+            raise ValueError(f"{on!r} is not a date") from None
+        if on > self._today_str():
+            raise ValueError("that day has not happened yet")
+
+        person = next((r for r in self._roll_on(on) if r.id == person_id), None)
+        if person is None:
+            raise NothingThere(f"nobody with id {person_id!r} was on the register that day")
+        if not self._day_recorded(on):
+            raise AlreadyBusy("nothing was recorded that day")
+
+        entry = self._register(on).entry(person_id)
+        if entry is not None and entry.status in ("on_time", "late"):
+            arrived = self.clock.local_time(entry.first_seen).strftime("%H:%M")
+            raise AlreadyBusy(f"already arrived at {arrived}")
+
+        self._log(actor, "attendance.excuse", person.name, on)
+        self.ledger.excuse(person_id, on, actor, datetime.now(timezone.utc))
+        self._forget_day(on)
+
+        entry = self._register(on).entry(person_id)
+        return self._attendance_record(entry, person)
+
+    def week(self, person_id: str, on: str) -> list[S.AttendanceDay]:
+        """Up to seven working days ending on `on`, newest first.
+
+        Working days are each day's own (`hours_on`), looking back at most 21
+        calendar days. One query for the person's arrivals, not seven
+        registers; `_lateness` decides on time or late exactly as the table
+        does, so the strip and the table cannot disagree. Empty with
+        recognition off. `unknown` means no record: the day was not recorded,
+        or they were not yet enrolled.
+        """
+        if not self.recognition_live or self.ledger is None:
+            return []
+        try:
+            end = date.fromisoformat(on)
+        except ValueError:
+            return []
+
+        who = self.gallery.person(person_id)
+        created, had_photo, removed_at = None, False, None
+        if who is not None:
+            created, had_photo = who.created_at, who.photo_on_file
+        else:
+            gone = next((g for g in self.ledger.removed_expected_on(on, {person_id})
+                         if g.person_id == person_id), None)
+            if gone is None:
+                return []
+            created, had_photo, removed_at = gone.created_at, True, gone.removed_at
+
+        days: list[tuple[str, HoursConfig]] = []
+        for back in range(22):
+            d = (end - timedelta(days=back)).isoformat()
+            hours = self.hours_on(d)
+            if (end - timedelta(days=back)).weekday() in hours.working_days:
+                days.append((d, hours))
+            if len(days) == 7:
+                break
+
+        dates = [d for d, _ in days]
+        arrivals = self.sightings.person_days(
+            person_id, dates,
+            bounds={d: (h.late_cutoff, h.start, h.end) for d, h in days})
+        excused = self.ledger.excused_among(person_id, dates)
+
+        out: list[S.AttendanceDay] = []
+        for d, _hours in days:
+            arrival = arrivals.get(d)
+            if arrival is not None:
+                out.append(S.AttendanceDay(
+                    date=d, status=S.AttendanceStatus(arrival.status),
+                    seen_at=_instant(arrival.first_seen, self.clock),
+                    location=self._camera_name(arrival.camera_id),
+                    minutes_late=arrival.minutes_late))
+                continue
+            enrolled = (had_photo and (
+                created is None or self.sightings.local_date(created) <= d))
+            if removed_at is not None and self.sightings.local_date(removed_at) <= d:
+                enrolled = False  # gone by then: no record, not an absence
+            if enrolled and d in excused:
+                status = S.AttendanceStatus.EXCUSED
+            elif enrolled and self._day_recorded(d):
+                status = S.AttendanceStatus.ABSENT
+            else:
+                status = S.AttendanceStatus.UNKNOWN
+            out.append(S.AttendanceDay(date=d, status=status))
+        return out
 
     # -- track a person -----------------------------------------------------
 
@@ -5600,17 +5870,81 @@ class LiveStore(MockStore):
             if register is None:
                 return None
             return sum(1 for m in members
-                       if (e := register.entry(m.id)) and e.status != "absent")
+                       if (e := register.entry(m.id))
+                       and e.status in ("on_time", "late"))
+
+        # One pass over the last 30 days serves every group.
+        thirty = self._thirty_days() if register is not None else {}
 
         def summary(name, members) -> S.GroupSummary:
+            figure, days = thirty.get(name, (None, 0))
             return S.GroupSummary(name=name, people=len(members), classes=None,
-                                  here=here(members))
+                                  here=here(members),
+                                  attendance_30d=figure, recorded_days=days)
 
         # Everyone first: it is the whole school, so it reads as the parent of
         # the rest rather than as one more grade sorted in among them.
         return [summary(self.EVERYONE, people)] + [
             summary(name, members) for name, members in sorted(by_group.items())
         ]
+
+    def _thirty_days(self) -> dict[str, tuple[float | None, int]]:
+        """Per group: arrived over expected across the recorded working days of
+        the last 30, and how many days that rests on.
+
+        Each day counts people as they were that day, with excused ones taken
+        out of the denominator (neither for nor against). A day that is not a
+        working day, or that nothing was recorded on, is not a day anyone can
+        be absent for and is skipped. No such day means (None, 0): "no data",
+        never 0%. Groups overlap, so a person counts in each of theirs.
+        """
+        today = date.fromisoformat(self._today_str())
+        arrived: dict[str, int] = {}
+        expected: dict[str, int] = {}
+        days: dict[str, int] = {}
+
+        for back in range(30):
+            d = today - timedelta(days=back)
+            iso = d.isoformat()
+            if d.weekday() not in self.hours_on(iso).working_days:
+                continue
+            # Recorded means somebody was seen. Not `_day_recorded`: that calls
+            # today recorded from midnight, and a morning before anybody has
+            # arrived would drag the figure down with a whole school "absent".
+            if not self.sightings.has_day(iso):
+                continue
+            # Today only once its late cut-off has passed: at 07:45 everybody
+            # not yet in would read absent and drag the figure down.
+            if back == 0 and self.sightings.clock.local_time(
+                    datetime.now(timezone.utc)) < self.hours_on(iso).late_cutoff:
+                continue
+            register = self._everyone_register(iso)
+            groups_of = {r.id: r.group for r in self._roll_on(iso)}
+
+            per_day: dict[str, list[int]] = {}
+            for entry in register.entries:
+                names = [self.EVERYONE]
+                specific = groups_of.get(entry.person_id)
+                if specific is not None:
+                    names.append(specific)
+                for name in names:
+                    cell = per_day.setdefault(name, [0, 0])
+                    if entry.status == "excused":
+                        continue
+                    cell[1] += 1
+                    if entry.status in ("on_time", "late"):
+                        cell[0] += 1
+            for name, (came, due) in per_day.items():
+                if due == 0:
+                    continue
+                arrived[name] = arrived.get(name, 0) + came
+                expected[name] = expected.get(name, 0) + due
+                days[name] = days.get(name, 0) + 1
+
+        return {
+            name: (min(1.0, max(0.0, arrived[name] / expected[name])), days[name])
+            for name in expected
+        }
 
     def group(self, name: str) -> S.GroupDetail | None:
         """One group's register for today.
@@ -5674,16 +6008,31 @@ class LiveStore(MockStore):
                 )],
             )
 
-        hours = self.hours()
-        recorded = self.sightings.days_recorded(limit=self.HISTORY_DAYS)
-        seen = self.sightings.history(
-            who.id, days=self.HISTORY_DAYS,
-            cutoff=hours.late_cutoff, day_start=hours.start, day_end=hours.end,
-        )
+        recorded_all = self.sightings.days_recorded(limit=self.HISTORY_DAYS)
+        # Days before they were enrolled are not days they could be absent.
+        enrolled_on = (self.sightings.local_date(who.created_at)
+                       if who.created_at is not None else None)
+        recorded = [d for d in recorded_all
+                    if enrolled_on is None or d >= enrolled_on]
+        day_hours = {d: self.hours_on(d) for d in recorded}
+        seen = self.sightings.person_days(
+            who.id, recorded,
+            bounds={d: (h.late_cutoff, h.start, h.end)
+                    for d, h in day_hours.items()})
+        excused: set[str] = set()
+        if self.ledger is not None:
+            try:
+                excused = self.ledger.excused_among(who.id, recorded)
+            except sqlite3.Error:
+                log.exception("excusals could not be read for the history")
+        # Arrival wins over an excusal, as on the register.
+        excused = {d for d in excused if d not in seen}
 
-        present = [d for d in recorded if d in seen]
+        # Excused days are neither for nor against: out of every count below.
+        counted = [d for d in recorded if d not in excused]
+        present = [d for d in counted if d in seen]
         late = [d for d in present if seen[d].status == "late"]
-        missed = [d for d in recorded if d not in seen]
+        missed = [d for d in counted if d not in seen]
 
         # Oldest first, so the chart reads left to right like a week does.
         trend = [
@@ -5692,6 +6041,7 @@ class LiveStore(MockStore):
                 label=_day_label(day),
                 present_ratio=1.0 if day in seen else 0.0,
                 status=(S.AttendanceStatus(seen[day].status) if day in seen
+                        else S.AttendanceStatus.EXCUSED if day in excused
                         else S.AttendanceStatus.ABSENT),
             )
             for day in reversed(recorded)
@@ -5705,7 +6055,7 @@ class LiveStore(MockStore):
             S.AttendanceFlag(
                 date=day, kind="late", severity=S.Severity.INFO,
                 detail=(f"Arrived {seen[day].minutes_late} minutes after the "
-                        f"{hours.late_cutoff.strftime('%H:%M')} cut-off"),
+                        f"{day_hours[day].late_cutoff.strftime('%H:%M')} cut-off"),
             )
             for day in late
         ]
@@ -5713,22 +6063,22 @@ class LiveStore(MockStore):
 
         metrics = [
             S.Metric(key="present", label="Days present", value=len(present),
-                     total=len(recorded)),
+                     total=len(counted)),
             S.Metric(key="late", label="Times late", value=len(late)),
         ]
         # A percentage of nothing is not 0%, it is unanswerable. Saying 0%
         # attendance for a school that has recorded no days is the kind of
         # number somebody acts on.
-        if recorded:
+        if counted:
             metrics.append(S.Metric(key="rate", label="Attendance",
-                                    value=len(present) / len(recorded),
+                                    value=len(present) / len(counted),
                                     unit="percent"))
 
         return S.PersonHistory(
             person=card,
-            period_label=(f"Last {len(recorded)} recorded days"
-                          if recorded else "No days recorded"),
-            present_days=len(present), total_days=len(recorded),
+            period_label=(f"Last {len(counted)} recorded days"
+                          if counted else "No days recorded"),
+            present_days=len(present), total_days=len(counted),
             metrics=metrics, trend=trend, flags=flags,
         )
 

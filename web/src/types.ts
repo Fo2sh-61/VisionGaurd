@@ -71,6 +71,10 @@ export interface Camera {
   /** MJPEG endpoint, used by the enlarged view only — it is far too much
    *  bandwidth to run on every tile in a grid. */
   streamUrl?: string;
+  /** Why it is offline, in words, when it is and the engine knows. */
+  offlineReason?: string;
+  /** UTC instant of its last good picture, so a page can say how long ago. */
+  lastPictureUtc?: string;
 }
 
 /* ---------- attendance ---------- */
@@ -114,6 +118,55 @@ export interface AttendanceResult {
   /** person mode only */
   days?: AttendanceDay[];
   cameras: Camera[];
+}
+
+/** Mirrors the engine's attendance status; the words come from `format.ts`. */
+export type RegisterStatus = 'on_time' | 'late' | 'absent' | 'excused' | 'unknown';
+
+/** One person on one day's register, typed, so the page can filter by status
+ *  and act on a row. The phone's `AttendanceRow` stays as it is. */
+export interface RegisterRow {
+  id: string;
+  name: string;
+  /** The department/group they are filed in, or "". */
+  group: string;
+  status: RegisterStatus;
+  label: string;
+  tone: Tone;
+  /** "7:42am", or "" when they have not arrived. */
+  arrived: string;
+  /** Their last sighting that day, formatted, or "". */
+  lastSeen: string;
+  /** The place the first sighting was, or "". */
+  camera: string;
+  minutesLate: number | null;
+}
+
+export interface Register {
+  date: string;
+  /** False: nothing was recorded that day, and the counts are not figures. */
+  recorded: boolean;
+  expected: number;
+  onTime: number;
+  late: number;
+  absent: number;
+  excused: number;
+  /** Cameras that recognise people but are not doorways. */
+  recognitionElsewhere: number;
+  rows: RegisterRow[];
+  cameras: Camera[];
+}
+
+/** One working day in a person's last-seven strip. */
+export interface WeekDay {
+  date: string;
+  status: RegisterStatus;
+  label: string;
+  tone: Tone;
+  /** "7:42am", or "". */
+  time: string;
+  where: string;
+  minutesLate: number | null;
 }
 
 /* ---------- people counting ---------- */
@@ -587,6 +640,10 @@ export interface DirectoryPerson {
   /** Today's attendance in words, or "" when nothing is recording it. */
   today: string;
   todayTone: Tone;
+  /** The group they are filed in, or "". */
+  group: string;
+  /** How many faces are on file. */
+  photos: number;
 }
 
 export interface GroupSummary {
@@ -594,6 +651,13 @@ export interface GroupSummary {
   count: string;
   /** null when nothing is recording attendance. */
   here: number | null;
+  /** "82% over 11 days", or "Last 30 days: no data". Never 0%. */
+  attendance: string;
+  /** The 30-day fraction, or null when there is no data. */
+  attendance30d: number | null;
+  recordedDays: number;
+  /** The raw people count, for the card. */
+  people: number;
 }
 
 export interface GroupMember {

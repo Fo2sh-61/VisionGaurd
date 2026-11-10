@@ -1,6 +1,6 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BrowserRouter } from 'react-router-dom';
+import { RouterProvider, createBrowserRouter } from 'react-router-dom';
 import { AuthProvider } from '@/app/AuthContext';
 import { CameraProvider } from '@/app/CameraContext';
 import { CapabilityProvider } from '@/app/CapabilityContext';
@@ -22,8 +22,8 @@ import '@/styles/app.css';
  *  has to sit under LanguageProvider, and moving a provider means checking
  *  this list again.
  */
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
+function Root() {
+  return (
     <ThemeProvider>
       <AuthProvider>
         {/* Inside AuthProvider because the account is what decides the
@@ -45,14 +45,25 @@ createRoot(document.getElementById('root')!).render(
                   number, because an empty register and a broken one arrive
                   looking identical. */}
               <CapabilityProvider>
-                <BrowserRouter>
-                  <AppRoutes />
-                </BrowserRouter>
+                <AppRoutes />
               </CapabilityProvider>
             </CameraProvider>
           </SiteProvider>
         </LanguageProvider>
       </AuthProvider>
     </ThemeProvider>
+  );
+}
+
+/*  A data router rather than `<BrowserRouter>`, because `useBlocker` (Enrol
+ *  asks before an in-app leave throws away staged photos) only works under
+ *  one. A single catch-all route keeps `AppRoutes` exactly as it was: it still
+ *  owns every path. The providers moved inside the route's element, which is
+ *  still above every page; none of them read the router. */
+const router = createBrowserRouter([{ path: '*', element: <Root /> }]);
+
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <RouterProvider router={router} />
   </StrictMode>,
 );

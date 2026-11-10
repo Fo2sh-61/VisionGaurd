@@ -30,6 +30,7 @@ import threading
 from dataclasses import dataclass
 from datetime import datetime, time, timezone
 from pathlib import Path
+from typing import Collection
 
 from vg import db
 from vg.clock import Clock, clock_for, minutes_late
@@ -72,7 +73,7 @@ class RegisterEntry:
     """One person's day."""
 
     person_id: str
-    status: str  # on_time | late | absent
+    status: str  # on_time | late | excused | absent
     first_seen: datetime | None
     last_seen: datetime | None
     camera_id: str | None
@@ -89,7 +90,8 @@ class DailyRegister:
 
     @property
     def present(self) -> int:
-        return sum(1 for e in self.entries if e.status != "absent")
+        """Arrived. Excused is neither here nor absent: it is accounted for."""
+        return sum(1 for e in self.entries if e.status in ("on_time", "late"))
 
     @property
     def late(self) -> int:
@@ -98,6 +100,10 @@ class DailyRegister:
     @property
     def absent(self) -> int:
         return sum(1 for e in self.entries if e.status == "absent")
+
+    @property
+    def excused(self) -> int:
+        return sum(1 for e in self.entries if e.status == "excused")
 
     @property
     def expected(self) -> int:
@@ -337,6 +343,7 @@ class SightingStore:
         cutoff: time,
         day_start: time | None = None,
         day_end: time | None = None,
+        excused: Collection[str] = (),
     ) -> DailyRegister:
         """Build the register for a day.
 
@@ -368,8 +375,13 @@ class SightingStore:
         for person_id in expected:
             row = by_person.get(person_id)
             if row is None:
+                # Excused is for someone who did not come. Arrival wins: a
+                # person excused who then turns up is on time or late, because
+                # the evidence is the status, and the excusal row stays.
                 entries.append(RegisterEntry(
-                    person_id=person_id, status="absent", first_seen=None,
+                    person_id=person_id,
+                    status="excused" if person_id in excused else "absent",
+                    first_seen=None,
                     last_seen=None, camera_id=None, confidence=None, sightings=0,
                 ))
                 continue
@@ -389,6 +401,85 @@ class SightingStore:
             ))
 
         return DailyRegister(date=on, cutoff=cutoff.strftime("%H:%M"), entries=entries)
+
+    def has_day(self, on: str) -> bool:
+        """Was anybody at all recorded on this site-local date?
+
+        The only honest test for "the system was watching that day": a day with
+        no sighting rows is a day nothing was recording, not a day everyone
+        stayed home.
+        """
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT 1 FROM sighting WHERE local_date = ? LIMIT 1", (on,)
+            ).fetchone()
+        return row is not None
+
+    def people_seen_on(self, on: str) -> set[str]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT DISTINCT person_id FROM sighting WHERE local_date = ?", (on,)
+            ).fetchall()
+        return {r["person_id"] for r in rows}
+
+    def person_days(
+        self,
+        person_id: str,
+        dates: Collection[str],
+        cutoffs: dict[str, time] | None = None,
+        day_start: time | None = None,
+        day_end: time | None = None,
+        bounds: dict[str, tuple[time | None, time | None, time | None]] | None = None,
+    ) -> dict[str, RegisterEntry]:
+        """One person's arrival on each of `dates`, in one query.
+
+        Same rule as `register` and `history`: the first sighting inside that
+        day's hours is the arrival and `_lateness` decides on time or late. A
+        date with no arrival is simply missing. `bounds` maps a date to
+        `(cutoff, day_start, day_end)` for days whose hours differ; any date not
+        in it uses `cutoffs`/`day_start`/`day_end`.
+        """
+        wanted = list(dates)
+        if not wanted:
+            return {}
+        marks = ",".join("?" for _ in wanted)
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT local_date, seen_at, confidence, camera_id FROM sighting "
+                f"WHERE person_id = ? AND local_date IN ({marks}) ORDER BY seen_at",
+                [person_id, *wanted],
+            ).fetchall()
+
+        grouped: dict[str, dict] = {}
+        for row in rows:
+            on = row["local_date"]
+            cutoff, start, end = (bounds or {}).get(
+                on, ((cutoffs or {}).get(on), day_start, day_end))
+            seen = _parse(row["seen_at"])
+            local = self.clock.local_time(seen)
+            if start is not None and local < start:
+                continue
+            if end is not None and local > end:
+                continue
+            entry = grouped.setdefault(on, {
+                "first_seen": seen, "last_seen": seen,
+                "camera_id": row["camera_id"], "n": 0, "conf": 0.0,
+                "cutoff": cutoff,
+            })
+            entry["last_seen"] = seen
+            entry["n"] += 1
+            entry["conf"] = max(entry["conf"], row["confidence"])
+
+        out: dict[str, RegisterEntry] = {}
+        for on, entry in grouped.items():
+            status, minutes = self._lateness(entry["first_seen"], entry["cutoff"])
+            out[on] = RegisterEntry(
+                person_id=person_id, status=status,
+                first_seen=entry["first_seen"], last_seen=entry["last_seen"],
+                camera_id=entry["camera_id"], confidence=entry["conf"],
+                sightings=entry["n"], minutes_late=minutes,
+            )
+        return out
 
     def _within_hours(
         self, on: str, day_start: time | None, day_end: time | None

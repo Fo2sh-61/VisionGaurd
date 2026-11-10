@@ -1,15 +1,19 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Badge, Card, DataNotice, Empty, LoadError, PageHeader } from '@/components/ui';
+import { Badge, Card, DataNotice, Empty, Field, LoadError, PageHeader, Select } from '@/components/ui';
 import { getGroups, getPeople, removePerson } from '@/services/api';
 import type { DirectoryPerson, GroupSummary, PersonType } from '@/types';
 import { useAccount } from '@/app/AuthContext';
 import { useCapability } from '@/app/CapabilityContext';
 import { useAsync } from '@/app/useAsync';
+import { useToday } from '@/app/SiteContext';
 import { useLanguage, useT } from '@/app/LanguageContext';
 import type { MessageKey } from '@/i18n';
 
 const TABS: (PersonType | 'All')[] = ['All', 'Student', 'Staff', 'Visitor'];
+
+/** The engine's group that holds everyone. A filter on it is no filter. */
+const EVERYONE = 'Everyone';
 
 /* What one tab calls the thing it is counting used to be a table of English
    nouns here, with singular and plural picked against the real number so
@@ -31,8 +35,19 @@ export function People() {
   const [tab, setTab] = useState<PersonType | 'All'>('All');
   // Ask lands here with the question resolved. See Attendance for why
   // reading these matters: a link nothing reads is decoration.
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const [query, setQuery] = useState(params.get('query') ?? '');
+  // `/people?group=` is where a group card leads.
+  const [group, setGroup] = useState(params.get('group') ?? '');
+  const today = useToday();
+  useEffect(() => { setGroup(params.get('group') ?? ''); }, [params]);
+
+  function chooseGroup(next: string) {
+    setGroup(next);
+    const copy = new URLSearchParams(params);
+    if (next) copy.set('group', next); else copy.delete('group');
+    setParams(copy, { replace: true });
+  }
   // Which row is mid-confirmation, and what the last removal said if it failed.
   const [confirming, setConfirming] = useState<string | null>(null);
   const [removing, setRemoving] = useState(false);
@@ -48,9 +63,7 @@ export function People() {
   /** The row is the link. History works for staff and visitors exactly as it
    *  does for students — the page was the only thing gating it. */
   function openHistory(p: DirectoryPerson) {
-    navigate(`/people/history/${encodeURIComponent(p.name)}`, {
-      state: { from: 'people' },
-    });
+    navigate(`/attendance?person=${encodeURIComponent(p.id)}&date=${encodeURIComponent(today)}`);
   }
 
   /** Remove someone, then re-read the directory from the engine.
@@ -75,12 +88,33 @@ export function People() {
     }
   }
 
+  // Real counts, from the rows the engine sent; the Student chip exists only
+  // when somebody is one.
+  const counts = useMemo(() => {
+    const c: Record<PersonType | 'All', number> = { All: people.length, Student: 0, Staff: 0, Visitor: 0 };
+    for (const p of people) c[p.type] += 1;
+    return c;
+  }, [people]);
+  const tabs = TABS.filter((key) => key !== 'Student' || counts.Student > 0);
+  // The Student chip disappears with the last student; never leave a tab nobody can see.
+  const activeTab = tabs.includes(tab) ? tab : 'All';
+  const groupNames = useMemo(
+    () => groups.map((g) => g.name).filter((n) => n !== EVERYONE),
+    [groups],
+  );
+  const groupOptions = useMemo(() => {
+    const names = ['', ...groupNames];
+    return group && !names.includes(group) ? [...names, group] : names;
+  }, [groupNames, group]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return people.filter(
-      (p) => (tab === 'All' || p.type === tab) && (!q || p.name.toLowerCase().includes(q)),
+      (p) => (activeTab === 'All' || p.type === activeTab)
+        && (!group || group === EVERYONE || p.group === group)
+        && (!q || p.name.toLowerCase().includes(q)),
     );
-  }, [people, tab, query]);
+  }, [people, activeTab, query, group]);
 
   // The heading used to come from a hard-coded table - "2,118 people",
   // "1,742 students" - which the page printed whatever the engine returned,
@@ -90,8 +124,8 @@ export function People() {
   // constitution forbids.
   const known = !peopleLoading && !peopleError;
   const counted = filtered.length === 1
-    ? t(`people.countOne.${tab}` as MessageKey)
-    : t(`people.count.${tab}` as MessageKey, { count: filtered.length });
+    ? t(`people.countOne.${activeTab}` as MessageKey)
+    : t(`people.count.${activeTab}` as MessageKey, { count: filtered.length });
   const heading = !known
     ? peopleError ? t('people.title') : t('people.counting')
     : query.trim()
@@ -117,24 +151,34 @@ export function People() {
             placeholder={t('people.searchByName')}
             style={{ flex: 1, minWidth: 200, height: 44, borderRadius: 11, fontSize: 14.5 }}
           />
-          <div style={{ display: 'flex', gap: 6 }}>
-            {TABS.map((key) => (
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {tabs.map((key) => (
               <button
                 key={key}
                 type="button"
-                className={`chip-btn ${tab === key ? 'chip-btn--on' : 'chip-btn--off'}`}
+                className={`chip-btn ${activeTab === key ? 'chip-btn--on' : 'chip-btn--off'}`}
                 onClick={() => setTab(key)}
               >
-                {t(`people.tab.${key}` as MessageKey)}
+                {t('people.chipLabel', {
+                  label: t(`people.tab.${key}` as MessageKey), count: counts[key],
+                })}
               </button>
             ))}
           </div>
+          <Field label={t('people.groupFilter')}>
+            <Select
+              value={group}
+              onChange={chooseGroup}
+              options={groupOptions}
+              label={(o) => (o === '' ? t('people.allGroups') : o)}
+            />
+          </Field>
           <button
             type="button"
             className="chip-btn chip-btn--on"
             onClick={() => navigate('/people/enrol')}
           >
-            Enrol a face
+            {t('attendance.enrolFace')}
           </button>
         </div>
       </Card>
@@ -142,8 +186,7 @@ export function People() {
       <Card>
         <div style={{ fontWeight: 700, fontSize: 21, letterSpacing: '-.01em' }}>{heading}</div>
         <div style={{ fontSize: 13.5, color: 'var(--tx2)', margin: '2px 0 10px' }}>
-          Click anyone to see their history. A face on file is what lets the
-          cameras recognise someone at the gates.
+          {known && t('people.showing', { shown: filtered.length, total: people.length })}
         </div>
 
         {filtered.map((p) => (
@@ -160,7 +203,7 @@ export function People() {
                 openHistory(p);
               }
             }}
-            style={{ gridTemplateColumns: '1.5fr .7fr 1.4fr 1.5fr .9fr .9fr' }}
+            style={{ gridTemplateColumns: '1.5fr .7fr .9fr 1.4fr 1.4fr .9fr 1fr' }}
           >
             <span>
               <span className="row__name">{p.name}</span>
@@ -174,17 +217,13 @@ export function People() {
                 {t(`person.type.${p.type}` as MessageKey)}
               </Badge>
             </span>
-            {/* What the cameras can actually do with this person, in a
-                sentence. "Photo on file" said the same thing in words nobody
-                could act on. */}
+            <span style={{ fontSize: 13, color: 'var(--tx2)' }}>{p.group}</span>
+            {/* What the cameras can actually do with this person: how many
+                faces are on file, or plainly that they cannot be recognised. */}
             <span style={{ fontSize: 13, lineHeight: 1.35, color: p.photoOnFile ? 'var(--tx2)' : 'var(--am)' }}>
-              {p.recognition}
-              {p.sub && p.enrolled && (
-                <>
-                  <br />
-                  <span style={{ color: 'var(--tx3)', fontSize: 12.5 }}>{p.enrolled}</span>
-                </>
-              )}
+              {p.photoOnFile
+                ? t(p.photos === 1 ? 'people.facesOne' : 'people.faces', { count: p.photos })
+                : t('people.cannotBeRecognised')}
             </span>
             {/* "Not seen yet" is a fact, and it is written as one. */}
             <span style={{ color: 'var(--tx2)', fontSize: 13, lineHeight: 1.35 }}>
@@ -196,6 +235,16 @@ export function People() {
               {p.today ? <Badge tone={p.todayTone}>{p.today}</Badge> : null}
             </span>
             <span style={{ display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                className="linkbtn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openHistory(p);
+                }}
+              >
+                {t('people.history')}
+              </button>
               {/* Administrators only. Two steps, with the consequence written
                   out — removal is rare and deliberate, and there is no undo. */}
               {isAdmin && confirming !== p.id && (
@@ -209,7 +258,7 @@ export function People() {
                     setConfirming(p.id);
                   }}
                 >
-                  Remove
+                  {t('action.remove')}
                 </button>
               )}
             </span>
@@ -227,11 +276,7 @@ export function People() {
                 }}
                 onClick={(e) => e.stopPropagation()}
               >
-                <span>
-                  Remove <strong>{p.name}</strong>? This deletes their face data.
-                  The cameras will no longer recognise them, and this cannot be
-                  undone.
-                </span>
+                <span>{t('people.removeSentence', { name: p.name })}</span>
                 <button
                   type="button"
                   className="chip-btn chip-btn--on"
@@ -270,7 +315,7 @@ export function People() {
               : people.length === 0
                 ? t('people.empty')
                 : t('people.noneOfType', {
-                  noun: t(`people.noun.${tab}` as MessageKey),
+                  noun: t(`people.noun.${activeTab}` as MessageKey),
                 })}
           </Empty>
         )}
@@ -286,23 +331,37 @@ export function People() {
         {!groupsLoading && !groupsError && groups.length === 0 && (
           <Empty>{t('people.noGroups')}</Empty>
         )}
-        {groups.map((g) => (
-          <button
-            key={g.name}
-            type="button"
-            className="list-row"
-            onClick={() => navigate(`/people/groups/${encodeURIComponent(g.name)}`)}
-          >
-            <span className="row__name">{g.name}</span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-              <span style={{ color: 'var(--tx2)', fontSize: 13 }}>{g.count}</span>
-              <span style={{ color: 'var(--ac)', fontWeight: 600, fontSize: 13 }}>
+        <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))' }}>
+          {groups.map((g) => (
+            <button
+              key={g.name}
+              type="button"
+              className="list-row"
+              style={{ display: 'block', textAlign: 'start', padding: 14, border: '1px solid var(--line)', borderRadius: 12 }}
+              onClick={() => chooseGroup(g.name === EVERYONE ? '' : g.name)}
+            >
+              <div className="row__name">{g.name === EVERYONE ? t('attendance.everyone') : g.name}</div>
+              <div style={{ color: 'var(--tx2)', fontSize: 13, marginTop: 4 }}>{g.count}</div>
+              <div style={{ color: 'var(--tx2)', fontSize: 13 }}>
+                {g.here === null
+                  ? t('people.cardHereUnknown')
+                  : t('people.cardHere', { count: g.here })}
+              </div>
+              {/* The figure with the days it rests on, or "no data": never a
+                  0% for a period nothing was watching. */}
+              <div style={{ fontSize: 13, fontWeight: 600, marginTop: 4 }}>{g.attendance}</div>
+              <div style={{ color: 'var(--ac)', fontWeight: 600, fontSize: 13, marginTop: 6 }}>
                 {t('people.seeWhoIsInIt')}{' '}
                 <span className="mirror-rtl" aria-hidden="true">→</span>
-              </span>
-            </span>
-          </button>
-        ))}
+              </div>
+            </button>
+          ))}
+        </div>
+        {groups.length > 0 && (
+          <div style={{ fontSize: 12.5, color: 'var(--tx3)', marginTop: 10 }}>
+            {t('people.groupOverlap')}
+          </div>
+        )}
       </Card>
     </>
   );

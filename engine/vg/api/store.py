@@ -148,6 +148,10 @@ class Store(Protocol):
     def attendance(
         self, mode: str, subject: str, on: str
     ) -> S.AttendanceResult: ...
+    def excuse(self, person_id: str, on: str, actor: str) -> S.AttendanceRecord: ...
+    def week(self, person_id: str, on: str) -> list[S.AttendanceDay]: ...
+    def note_enrolment(self, actor: str, name: str, group: str | None,
+                       photos: int) -> None: ...
     def count(self, place: str, window: str) -> S.CountResult: ...
     def note_lost_interest(self, camera_id: str) -> None: ...
     def track(self, query: S.TrackQuery, actor: str) -> S.TrackResult: ...
@@ -1297,6 +1301,19 @@ class MockStore:
                   "removed from the directory and the face gallery")
         self._people = [p for p in self._people if p.id != person_id]
         return True
+
+    def excuse(self, person_id: str, on: str, actor: str) -> S.AttendanceRecord:
+        # Demo mode keeps no ledger. Saying so beats a fake save (rule 4).
+        raise SubsystemUnavailable(
+            "demo mode keeps no attendance records, so nobody can be excused")
+
+    def week(self, person_id: str, on: str) -> list[S.AttendanceDay]:
+        return []
+
+    def note_enrolment(self, actor: str, name: str, group: str | None,
+                       photos: int) -> None:
+        self._log(actor, "person.enrol", name,
+                  f"{photos} photos" + (f", group {group}" if group else ""))
 
     def groups(self) -> list[S.GroupSummary]:
         # Everyone first and holding all of them, exactly as the live store

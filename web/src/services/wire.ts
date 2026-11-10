@@ -18,7 +18,7 @@ export type PersonType = 'Student' | 'Staff' | 'Visitor';
 export type ReviewVerdict = 'pending' | 'confirmed' | 'dismissed';
 export type BreachStatus = 'open' | 'authorised' | 'resolved';
 export type ScheduleMode = 'outside' | 'inside' | 'always';
-export type AttendanceStatus = 'on_time' | 'late' | 'absent' | 'unknown';
+export type AttendanceStatus = 'on_time' | 'late' | 'absent' | 'excused' | 'unknown';
 
 /** A moment in time.
  *
@@ -96,7 +96,11 @@ export interface CameraView {
   countLine?: number | null;
   snapshotUrl?: string | null;
   streamUrl?: string | null;
+  /** Why it is offline, when it is. */
+  offlineReason?: OfflineReason | null;
 }
+
+export type OfflineReason = 'down' | 'auth' | 'disabled';
 
 /** Everything that changes frame to frame, in one payload.
  *
@@ -322,6 +326,10 @@ export interface AttendanceRecord {
   cameraId?: string | null;
   location?: string | null;
   minutesLate?: number | null;
+  /** The specific group they are filed in, if any. */
+  group?: string | null;
+  /** Their last sighting that day, which may be long after the arrival. */
+  lastSeenAt?: Instant | null;
 }
 
 export interface AttendanceDay {
@@ -343,7 +351,14 @@ export interface AttendanceResult {
   metrics: Metric[];
   records: AttendanceRecord[];
   days: AttendanceDay[];
+  /** Group mode: the doorway cameras only, offline ones kept. */
   cameras: CameraView[];
+  /** Did not come, and a person has accounted for it. `expected = present + absent + excused`. */
+  excused: number;
+  /** False for a past day nothing was recorded on: its zeroes are not figures. */
+  recorded: boolean;
+  /** Cameras that identify people but are not doorways. */
+  recognitionElsewhere: number;
 }
 
 /* ---------- counting ---------- */
@@ -718,6 +733,11 @@ export interface GroupSummary {
   classes?: number | null;
   /** null when nothing is recording attendance. Zero would mean empty. */
   here: number | null;
+  /** Arrived over expected across the recorded working days of the last 30,
+   *  0..1. null is "no data", never 0%. */
+  attendance30d?: number | null;
+  /** How many recorded working days that figure rests on. */
+  recordedDays?: number;
 }
 
 export interface GroupDetail {
@@ -1184,7 +1204,14 @@ export interface EnrolmentPhoto {
   yaw: number;
   note: string;
   source: string;
+  /** Why it was refused, as a code the console words (`note` stays for the phone). */
+  reason?: EnrolmentPhotoReason | null;
+  /** Pixels (too_small), faces (several_faces), score (unclear), similarity (too_similar). */
+  reasonValue?: number | null;
 }
+
+export type EnrolmentPhotoReason =
+  | 'no_face' | 'too_small' | 'several_faces' | 'unclear' | 'cut_off' | 'too_similar';
 
 /** One face in the enrolment camera's latest frame.
  *

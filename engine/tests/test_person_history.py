@@ -75,7 +75,10 @@ def store():
             ("p-omar", "Omar Khaled", "Grade 8"),
             ("p-youssef", "Youssef Ali", "Grade 9"),
         ]:
-            gallery.add_person(pid, name, group=group)
+            # Enrolled well before the seeded mornings: a past register now only
+            # lists people who were enrolled by then.
+            gallery.add_person(pid, name, group=group,
+                               created_at=datetime(2026, 1, 1, tzinfo=timezone.utc))
             gallery.add_embedding(pid, unit(pid), MODEL)
 
         live = LiveStore(
@@ -220,6 +223,8 @@ class TestGroup:
         assert detail.summary.people == len(detail.roster) == 2
 
     def test_asking_for_a_group_register_narrows_it(self, store):
+        # A past day only has a register once something was recorded on it.
+        store.sightings.record(seen("p-layla", local(7, 40)), force=True)
         result = store.attendance("group", "Grade 9", "2026-08-17")
         assert result.expected == 1
         assert [r.person.name for r in result.records] == ["Youssef Ali"]
@@ -268,3 +273,36 @@ class TestWhenNothingIsRunning:
         """No gallery means no way to know the name is a person at all."""
         assert bare_live_store.history("Layla Ahmed") is None
         assert bare_live_store.group("Grade 8") is None
+
+
+# -- excused days and days before enrolment ---------------------------------
+
+
+class TestHistoryAgreesWithAttendance:
+    def test_an_excused_day_reads_excused_and_raises_no_absence(self, store):
+        """Attendance said "excused" while History said "absent" for one day."""
+        store.sightings.record(seen("p-layla", local(7, 40, day=17)), force=True)
+        store.sightings.record(seen("p-omar", local(7, 41, day=18)), force=True)
+        store.ledger.excuse("p-layla", "2026-08-18", "Admin",
+                            datetime(2026, 8, 19, tzinfo=timezone.utc))
+
+        history = store.history("Layla Ahmed")
+        by_day = {t.date: t.status for t in history.trend}
+        assert by_day["2026-08-18"] == S.AttendanceStatus.EXCUSED
+        assert [f for f in history.flags if f.kind == "absence"] == []
+        assert history.total_days == 1 and history.present_days == 1
+        rate = next(m for m in history.metrics if m.key == "rate")
+        assert rate.value == 1.0
+
+    def test_a_day_before_enrolment_is_not_listed_as_absent(self, store):
+        store.gallery.add_person(
+            "p-new", "New Arrival", group="Grade 8",
+            created_at=local(9, 0, day=18))
+        store.gallery.add_embedding("p-new", unit("p-new"), MODEL)
+        store.sightings.record(seen("p-layla", local(7, 40, day=17)), force=True)
+        store.sightings.record(seen("p-new", local(7, 40, day=18)), force=True)
+
+        history = store.history("New Arrival")
+        assert [t.date for t in history.trend] == ["2026-08-18"]
+        assert history.total_days == 1
+        assert [f for f in history.flags if f.kind == "absence"] == []

@@ -2814,6 +2814,39 @@ def _mount(app: FastAPI) -> None:
     ) -> S.AttendanceResult:
         return store.attendance(mode, subject, date)
 
+    @app.post("/attendance/excused", response_model=S.AttendanceRecord,
+              tags=["attendance"])
+    async def excuse_person(
+        body: S.ExcuseRequest, store: StoreDep, user: auth_deps.AdminUser,
+    ) -> S.AttendanceRecord:
+        """Account for one person's absence on one day.
+
+        Administrator-only by path (`/attendance`). The audit entry is written
+        before the row. Refusals say plainly why: a day that has not happened
+        (422), nobody of that id on that day's register (404), somebody who
+        arrived or a day nothing was recorded (409), nothing to save into (503).
+        """
+        try:
+            return store.excuse(body.person_id, body.date, user.name)
+        except SubsystemUnavailable as exc:
+            raise HTTPException(503, str(exc)) from exc
+        except NothingThere as exc:
+            raise HTTPException(404, str(exc)) from exc
+        except AlreadyBusy as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    @app.get("/attendance/week", response_model=list[S.AttendanceDay],
+             tags=["attendance"])
+    async def get_attendance_week(
+        store: StoreDep,
+        person: Annotated[str, Query(description="person id")],
+        date: Annotated[str, Query(description="ISO date, the newest day")],
+    ) -> list[S.AttendanceDay]:
+        """Up to seven working days ending on `date`, newest first."""
+        return store.week(person, date)
+
     @app.get(
         "/attendance/export",
         tags=["attendance"],
@@ -2844,7 +2877,7 @@ def _mount(app: FastAPI) -> None:
         buffer = _io.StringIO()
         writer = csv.writer(buffer, lineterminator="\n")
         writer.writerow([
-            "date", "name", "person_id", "type", "status",
+            "date", "name", "person_id", "type", "group", "status",
             "first_seen_local", "minutes_late", "camera", "confidence",
         ])
 
@@ -2861,6 +2894,7 @@ def _mount(app: FastAPI) -> None:
                 record.person.name or "",
                 record.person.id or "",
                 record.person.type.value if record.person.type else "",
+                record.group or "",
                 record.status.value,
                 seen_local,
                 record.minutes_late if record.minutes_late is not None else "",
@@ -2875,6 +2909,7 @@ def _mount(app: FastAPI) -> None:
         writer.writerow(["present", result.present])
         writer.writerow(["late", result.late])
         writer.writerow(["absent", result.absent])
+        writer.writerow(["excused", result.excused])
         writer.writerow(["exported_utc", datetime.now(timezone.utc).isoformat(timespec="seconds")])
         writer.writerow(["timezone_offset_minutes", offset])
 
@@ -3464,6 +3499,7 @@ def _mount(app: FastAPI) -> None:
                     id=p.id, usable=p.usable, score=p.score,
                     face_pixels=p.face_pixels, confidence=p.confidence,
                     similarity=p.similarity, yaw=p.yaw, note=p.note, source=p.source,
+                    reason=p.reason, reason_value=p.reason_value,
                 )
                 for p in session.photos
             ],
@@ -3625,7 +3661,10 @@ def _mount(app: FastAPI) -> None:
 
     @app.post("/enrolment/sessions/{session_id}/commit",
               response_model=S.DirectoryPerson, tags=["enrolment"])
-    async def commit_enrolment(session_id: str, request: Request) -> S.DirectoryPerson:
+    async def commit_enrolment(
+        session_id: str, request: Request, store: StoreDep,
+        user: auth_deps.AdminUser,
+    ) -> S.DirectoryPerson:
         """Write the person and their vectors to the gallery.
 
         Refuses below the photo floor with a 422 the UI shows inline. The Save
@@ -3633,6 +3672,14 @@ def _mount(app: FastAPI) -> None:
         or a direct API call — both deserve the same honest refusal.
         """
         service = _enrolment(request)
+        staged = service.session(session_id)
+        if staged is None:
+            raise HTTPException(404, "no such enrolment session, or it expired")
+        # Written before the person is, like every other change here: a commit
+        # that then fails leaves an audited attempt, never a person nobody can
+        # say who added.
+        store.note_enrolment(user.name, staged.name, staged.group,
+                             len(staged.usable))
         try:
             person = service.commit(session_id)
         except KeyError:

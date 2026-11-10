@@ -133,6 +133,9 @@ class AttendanceStatus(str, Enum):
     ON_TIME = "on_time"
     LATE = "late"
     ABSENT = "absent"
+    #: Did not come, and a person has accounted for it. Neither here nor absent.
+    EXCUSED = "excused"
+    #: No record: the day was not recorded, or they were not yet enrolled.
     UNKNOWN = "unknown"
 
 
@@ -264,6 +267,8 @@ class CameraView(Wire):
     #: point here and it runs the recogniser at full rate; false is the patrol
     #: tier. Shown on Settings and System Health, not on the Track page.
     faces: bool = False
+    #: Why it is offline, so the console can say more than NO SIGNAL.
+    offline_reason: Literal["down", "auth", "disabled"] | None = None
 
 
 #: Every overlay a camera tile can ask for.
@@ -654,6 +659,17 @@ class AttendanceRecord(Wire):
     camera_id: str | None = None
     location: str | None = None
     minutes_late: int | None = None
+    #: The specific group they are filed in, if any. Not "Everyone".
+    group: str | None = None
+    #: Their last sighting that day, which may be long after the arrival.
+    last_seen_at: Instant | None = None
+
+
+class ExcuseRequest(Wire):
+    """Mark one person excused for one day. The actor is the session, not the body."""
+
+    person_id: str
+    date: str  # ISO date
 
 
 class AttendanceDay(Wire):
@@ -678,11 +694,20 @@ class AttendanceResult(Wire):
     expected: int
     present: int
     late: int
+    #: Did not come and nobody has accounted for it. Excludes `excused`.
     absent: int
     metrics: list[Metric] = Field(default_factory=list)
     records: list[AttendanceRecord] = Field(default_factory=list)
     days: list[AttendanceDay] = Field(default_factory=list)
+    #: Group mode: the doorway cameras only, offline ones kept.
     cameras: list[CameraView] = Field(default_factory=list)
+    #: `expected = present + absent + excused`.
+    excused: int = 0
+    #: False for a past day nothing was recorded on. Its zeroes are not figures.
+    recorded: bool = True
+    #: Cameras that identify people but are not doorways. They add arrivals the
+    #: strip does not show, and the page says so.
+    recognition_elsewhere: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -1364,6 +1389,11 @@ class GroupSummary(Wire):
     people: int
     classes: int | None = None
     here: int | None = None
+    #: Arrived over expected (excused days left out), over the recorded working
+    #: days of the last 30. None is "no data", never 0%.
+    attendance_30d: Fraction | None = None
+    #: How many recorded working days that figure rests on.
+    recorded_days: int = 0
 
 
 class GroupDetail(Wire):
@@ -2034,6 +2064,11 @@ class EnrolmentPhoto(Wire):
     yaw: float
     note: str
     source: str = "upload"
+    #: Why it was refused, as a code the console words. `note` stays for the phone.
+    reason: Literal["no_face", "too_small", "several_faces", "unclear",
+                    "cut_off", "too_similar"] | None = None
+    #: Pixels (too_small), faces (several_faces), score (unclear), similarity (too_similar).
+    reason_value: float | None = None
 
 
 class PreviewFace(Wire):

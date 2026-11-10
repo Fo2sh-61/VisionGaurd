@@ -14,6 +14,8 @@ import {
   formatEventTime, formatTime, formatClock, formatDuration, formatSchedule,
   formatMetric, toDetectionBox, toCameraZone, severityToTone, boxColor, formatLongDate,
   identifiedByFace, formatCapacityRow, formatEngineBusy, capacityShare, populationLevel,
+  attendanceLabel, attendanceTone, offlineReasonLabel, enrolmentReasonLine, groupAttendanceLine,
+  lateCutoffPassed, attendanceBadgeCount,
 } from '../src/services/format';
 import { pictureRect, tileBoxRefreshMs, tileRefreshMs } from '../src/services/frame';
 import type { CapacityRowItem } from '../src/types';
@@ -222,6 +224,40 @@ eq('under 90% is Busy', populationLevel(89, 100), 'busy');
 eq('90% is Near capacity', populationLevel(90, 100), 'near');
 eq('exactly full is Near capacity', populationLevel(100, 100), 'near');
 eq('one over is Over capacity', populationLevel(101, 100), 'over');
+
+// Spec 023: excused is its own word and tone, unknown reads as "No record".
+eq('excused label', attendanceLabel('excused', 'en'), 'Excused');
+eq('excused is neutral, not an alarm', attendanceTone('excused'), 'neutral');
+eq('unknown reads No record', attendanceLabel('unknown', 'en'), 'No record');
+eq('offline reason down', offlineReasonLabel('down', 'en'), 'Not sending a picture');
+eq('no offline reason', offlineReasonLabel(null, 'en'), null);
+eq('photo reason several faces',
+   plain(enrolmentReasonLine({ reason: 'several_faces', reasonValue: 2 }, 'en')),
+   '2 faces in shot. One person at a time, please.');
+eq('photo reason too small',
+   plain(enrolmentReasonLine({ reason: 'too_small', reasonValue: 38 }, 'en')),
+   'Face too small (38px). Move closer.');
+eq('photo reason unknown code says so',
+   enrolmentReasonLine({ reason: null }, 'en'), 'This photo cannot be used.');
+eq('30-day figure with its days',
+   plain(groupAttendanceLine(0.82, 11, 'en')), '82% over 11 days');
+eq('30-day figure on one day', plain(groupAttendanceLine(0.5, 1, 'en')), '50% over 1 day');
+eq('30-day null is no data, never 0%', groupAttendanceLine(null, 0, 'en'), 'Last 30 days: no data');
+eq('30-day with no recorded days is no data', groupAttendanceLine(0, 0, 'en'), 'Last 30 days: no data');
+
+// The attendance badge (spec 023 R10). Cairo is UTC+3; cut-off 08:30 local.
+const at = (hh: number, mm: number) => Date.UTC(2026, 6, 29, hh - 3, mm);
+eq('before the cut-off: not passed', lateCutoffPassed('08:30', 180, at(8, 29)), false);
+eq('at the cut-off: passed', lateCutoffPassed('08:30', 180, at(8, 30)), true);
+eq('cut-off unreadable: unknown', lateCutoffPassed('', 180, at(9, 0)), undefined);
+const day = { late: 3, absent: 4, expected: 40, recorded: true };
+eq('badge is late plus not arrived after the cut-off', attendanceBadgeCount(day, true), 7);
+eq('no badge before the cut-off', attendanceBadgeCount(day, false), undefined);
+eq('no badge when the cut-off is unknown', attendanceBadgeCount(day, undefined), undefined);
+eq('no badge when nobody is expected', attendanceBadgeCount({ ...day, expected: 0 }, true), undefined);
+eq('no badge when the day was not recorded', attendanceBadgeCount({ ...day, recorded: false }, true), undefined);
+eq('a clean day after the cut-off is 0, not hidden',
+   attendanceBadgeCount({ late: 0, absent: 0, expected: 40, recorded: true }, true), 0);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
