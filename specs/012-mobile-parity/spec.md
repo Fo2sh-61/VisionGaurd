@@ -2,7 +2,7 @@
 
 **Feature Branch**: `012-mobile-parity`
 **Created**: 3 September 2026
-**Status**: Draft
+**Status**: Closed on 10 November 2026 — replaced in practice by `specs/015-phone-first-redesign`, which rebuilt the phone app. Its 12 open tasks are for screens that no longer exist.
 **Input**: User description: "now what I need is to copy all what I made to the mobile app I need everything in the web app be in it just clone our work in it"
 
 ## Why this feature

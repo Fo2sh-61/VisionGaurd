@@ -2,7 +2,7 @@
 
 **Feature Branch**: `004-knife-detection`
 **Created**: 2026-08-22
-**Status**: Draft
+**Status**: Built, then parked on 10 November 2026 — not part of console v2, may return in later work. Open tasks T058–T059 wait until then.
 **Input**: User description: "now we will work on knife detection page. we will find a new added knifebest.pt file use it. it will be so simple page that is if knife is detected on any camera a video is recorded for this scene, but avoid flickering generates multiple videos of the same scene. Period has to have more variations for better UX. be ready because this feature mainly on later spec will push alerts via whatsapp, sms, and gmail, so take this in consideration for later work. simple easy to use page. of course videos can be opened and played. ask me first discuss with me. applying such feature on all cameras is acceptable on processing?"
 
 ## Why this feature
