@@ -169,7 +169,10 @@ class FaceGallery:
         type: str = "Student",
         group: str | None = None,
         detail: str | None = None,
+        created_at: datetime | None = None,
     ) -> Person:
+        """`created_at` is for tests and imports that must say when somebody
+        was enrolled; a real enrolment leaves it out and gets now."""
         with self._lock:
             self._conn.execute(
                 "INSERT INTO person (id, name, type, grp, detail, created_at) "
@@ -177,7 +180,7 @@ class FaceGallery:
                 "ON CONFLICT(id) DO UPDATE SET name=excluded.name, "
                 "type=excluded.type, grp=excluded.grp, detail=excluded.detail",
                 (person_id, name, type, group, detail,
-                 datetime.now(timezone.utc).isoformat()),
+                 (created_at or datetime.now(timezone.utc)).isoformat()),
             )
             self._conn.commit()
         self.reload()

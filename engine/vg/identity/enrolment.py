@@ -146,6 +146,12 @@ class StagedPhoto:
     note: str
     vector: np.ndarray | None = None
     source: str = "upload"
+    #: Why it was refused, as a code the console words (`note` stays English
+    #: for the phone): no_face, too_small, several_faces, unclear, cut_off,
+    #: too_similar. None for a usable photo.
+    reason: str | None = None
+    #: The number behind it: pixels, faces, a score. None where there is none.
+    reason_value: float | None = None
 
 
 @dataclass
@@ -340,18 +346,20 @@ class EnrolmentService:
     ) -> StagedPhoto:
         photo_id = uuid.uuid4().hex[:12]
 
-        def reject(note: str, **kw) -> StagedPhoto:
+        def reject(note: str, reason: str,
+                   value: float | None = None) -> StagedPhoto:
             return StagedPhoto(
                 id=photo_id, usable=False, score=0.0, face_pixels=0,
                 confidence=0.0, similarity=0.0, yaw=0.0, note=note,
-                source=source, **kw,
+                source=source, reason=reason, reason_value=value,
             )
 
         # Detect below the recognition floor so we can say "too small" rather
         # than "no face", which sends the operator looking for the wrong problem.
         detections = self.pipeline.detector.detect(image, min_size=1)
         if not detections:
-            return reject("No face found. Move closer and face the camera.")
+            return reject("No face found. Move closer and face the camera.",
+                          "no_face")
 
         # Only faces big enough to be the subject count as candidates.
         #
@@ -366,20 +374,23 @@ class EnrolmentService:
             # Enrolling the wrong face here poisons the gallery permanently and
             # silently. Never guess which one is the subject.
             return reject(
-                f"{len(candidates)} faces in shot. Only the person being enrolled."
+                f"{len(candidates)} faces in shot. Only the person being enrolled.",
+                "several_faces", len(candidates),
             )
 
         if not candidates:
             biggest = max(min(f.w, f.h) for f in detections)
             return reject(
-                f"Too small ({biggest}px). Needs {MIN_FACE_PIXELS}px — move closer."
+                f"Too small ({biggest}px). Needs {MIN_FACE_PIXELS}px — move closer.",
+                "too_small", biggest,
             )
 
         face = candidates[0]
         pixels = min(face.w, face.h)
         if face.confidence < MIN_CONFIDENCE:
             return reject(
-                f"Unclear face ({face.confidence:.2f}). Check the light and try again."
+                f"Unclear face ({face.confidence:.2f}). Check the light and try again.",
+                "unclear", round(float(face.confidence), 3),
             )
 
         try:
@@ -387,7 +398,7 @@ class EnrolmentService:
         except Exception as exc:
             # A face clipped by the frame edge can fail to align.
             log.debug("could not embed staged photo: %s", exc)
-            return reject("Face is cut off at the edge of the shot.")
+            return reject("Face is cut off at the edge of the shot.", "cut_off")
 
         similarity = max(
             (float(np.dot(vector, p.vector)) for p in session.usable if p.vector is not None),
@@ -398,7 +409,8 @@ class EnrolmentService:
         if similarity > TOO_SIMILAR:
             return reject(
                 f"Too similar to a photo you already have ({similarity:.2f}). "
-                "Turn your head a little."
+                "Turn your head a little.",
+                "too_similar", round(similarity, 3),
             )
 
         return StagedPhoto(

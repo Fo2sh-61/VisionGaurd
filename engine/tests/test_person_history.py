@@ -75,7 +75,10 @@ def store():
             ("p-omar", "Omar Khaled", "Grade 8"),
             ("p-youssef", "Youssef Ali", "Grade 9"),
         ]:
-            gallery.add_person(pid, name, group=group)
+            # Enrolled well before the seeded mornings: a past register now only
+            # lists people who were enrolled by then.
+            gallery.add_person(pid, name, group=group,
+                               created_at=datetime(2026, 1, 1, tzinfo=timezone.utc))
             gallery.add_embedding(pid, unit(pid), MODEL)
 
         live = LiveStore(
@@ -220,6 +223,8 @@ class TestGroup:
         assert detail.summary.people == len(detail.roster) == 2
 
     def test_asking_for_a_group_register_narrows_it(self, store):
+        # A past day only has a register once something was recorded on it.
+        store.sightings.record(seen("p-layla", local(7, 40)), force=True)
         result = store.attendance("group", "Grade 9", "2026-08-17")
         assert result.expected == 1
         assert [r.person.name for r in result.records] == ["Youssef Ali"]

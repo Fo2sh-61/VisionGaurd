@@ -618,5 +618,158 @@ class TestEnrolmentApi:
         for photo in body["photos"]:
             assert set(photo) == {
                 "id", "usable", "score", "facePixels", "confidence",
-                "similarity", "yaw", "note", "source",
+                "similarity", "yaw", "note", "source", "reason", "reasonValue",
             }
+
+
+# ---------------------------------------------------------------------------
+# spec 023: reasons as codes, and an audited commit
+# ---------------------------------------------------------------------------
+
+class _CutOffEmbedder(FakeEmbedder):
+    def embed(self, image, face):
+        raise ValueError("landmarks outside the frame")
+
+
+class TestRejectionReasons:
+    """The console words the reason; the engine says which one and how much.
+    `note` stays an English sentence for the phone."""
+
+    def _photo(self, gallery, **kw):
+        svc = service(gallery, **kw)
+        session = svc.start("Ahmed Hassan")
+        return svc, session, svc.add_photo(session.id, IMAGE)
+
+    def test_no_face(self, gallery):
+        _, _, photo = self._photo(gallery, faces=[])
+        assert (photo.reason, photo.reason_value) == ("no_face", None)
+        assert "No face" in photo.note
+
+    def test_several_faces_carries_the_count(self, gallery):
+        _, _, photo = self._photo(
+            gallery, faces=[FakeFace(), FakeFace(x=300), FakeFace(x=500)])
+        assert (photo.reason, photo.reason_value) == ("several_faces", 3)
+        assert "3 faces" in photo.note
+
+    def test_too_small_carries_the_biggest_face_in_pixels(self, gallery):
+        _, _, photo = self._photo(gallery, faces=[FakeFace(w=61, h=61)])
+        assert (photo.reason, photo.reason_value) == ("too_small", 61)
+        assert "61px" in photo.note
+
+    def test_unclear_carries_the_score(self, gallery):
+        _, _, photo = self._photo(gallery, faces=[FakeFace(confidence=0.5)])
+        assert photo.reason == "unclear" and photo.reason_value == 0.5
+        assert "Unclear" in photo.note
+
+    def test_cut_off(self, gallery):
+        svc = service(gallery)
+        svc.pipeline.embedder = _CutOffEmbedder([])
+        session = svc.start("Ahmed Hassan")
+        photo = svc.add_photo(session.id, IMAGE)
+        assert (photo.reason, photo.reason_value) == ("cut_off", None)
+        assert "cut off" in photo.note
+
+    def test_too_similar_carries_the_similarity(self, gallery):
+        same = unit(1)
+        svc = service(gallery, vectors=[same, same])
+        session = svc.start("Ahmed Hassan")
+        svc.add_photo(session.id, IMAGE)
+        second = svc.add_photo(session.id, IMAGE)
+        assert second.reason == "too_similar"
+        assert second.reason_value > 0.92
+        assert "similar" in second.note.lower()
+
+    def test_a_usable_photo_has_no_reason(self, gallery):
+        _, _, photo = self._photo(gallery)
+        assert photo.usable and photo.reason is None and photo.reason_value is None
+
+    def test_the_wire_carries_them_camel_cased(self, client, gallery):
+        client.app.state.enrolment = service(gallery, faces=[FakeFace(w=61, h=61)])
+        session = client.post("/enrolment/sessions", json={"name": "A B"}).json()
+        photo = upload(client, session["id"]).json()["photos"][0]
+        assert photo["reason"] == "too_small"
+        assert photo["reasonValue"] == 61
+        assert "No face" not in photo["note"] and "61px" in photo["note"]
+
+
+class TestEnrolmentIsAudited:
+    def _staged(self, client, photos=REQUIRED_PHOTOS, **body):
+        session = client.post(
+            "/enrolment/sessions",
+            json={"name": "Ahmed Hassan", "group": "Grade 8", **body}).json()
+        for _ in range(photos):
+            upload(client, session["id"])
+        return session
+
+    def _entries(self):
+        from vg.api import app as app_module
+        return [e for e in app_module.get_store()._audit if e.action == "person.enrol"]
+
+    def test_commit_writes_the_entry_with_name_group_and_photo_count(self, client):
+        session = self._staged(client)
+        assert client.post(f"/enrolment/sessions/{session['id']}/commit").status_code == 200
+
+        (entry,) = self._entries()
+        assert entry.subject == "Ahmed Hassan"
+        assert str(REQUIRED_PHOTOS) in entry.detail and "Grade 8" in entry.detail
+        assert entry.actor == "Test Admin"
+
+    def test_the_entry_exists_before_the_commit_runs(self, client):
+        """Order is the guarantee: a commit that dies leaves an audited
+        attempt, never a person nobody can say who added."""
+        session = self._staged(client)
+        seen = {}
+        service_ = client.app.state.enrolment
+        real = service_.commit
+
+        def commit(session_id):
+            seen["entries"] = len(self._entries())
+            raise RuntimeError("disk full")
+
+        service_.commit = commit
+        with pytest.raises(RuntimeError):
+            client.post(f"/enrolment/sessions/{session['id']}/commit")
+        service_.commit = real
+        assert seen["entries"] == 1
+
+    def test_a_refused_commit_keeps_the_entry_and_the_session(self, client):
+        session = self._staged(client, photos=1)
+        r = client.post(f"/enrolment/sessions/{session['id']}/commit")
+        assert r.status_code == 422
+        assert len(self._entries()) == 1
+        assert client.get(f"/enrolment/sessions/{session['id']}").status_code == 200
+
+    def test_it_cannot_commit(self, client, authed):
+        session = self._staged(client)
+        it = authed(client.app, "it")
+        assert it.post(f"/enrolment/sessions/{session['id']}/commit").status_code == 403
+
+    def test_a_committed_session_leaves_rows_only_in_person_and_face_embedding(
+            self, client, gallery):
+        """Pins the photo note: nothing is kept but measurements."""
+        session = self._staged(client)
+        client.post(f"/enrolment/sessions/{session['id']}/commit")
+
+        tables = [r["name"] for r in gallery._conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name NOT LIKE 'sqlite_%'").fetchall()]
+        filled = {
+            t for t in tables
+            if gallery._conn.execute(f"SELECT COUNT(*) AS n FROM {t}").fetchone()["n"]
+        }
+        assert filled == {"person", "face_embedding"}
+
+    def test_a_cancelled_session_leaves_no_person_and_no_face(self, client, gallery):
+        session = self._staged(client)
+        assert client.delete(f"/enrolment/sessions/{session['id']}").status_code == 204
+        for table in ("person", "face_embedding"):
+            assert gallery._conn.execute(
+                f"SELECT COUNT(*) AS n FROM {table}").fetchone()["n"] == 0
+
+    def test_an_expired_session_leaves_no_person_and_no_face(self, client, gallery):
+        session = self._staged(client)
+        client.app.state.enrolment._sessions.clear()  # what the 30 minute TTL does
+        assert client.get(f"/enrolment/sessions/{session['id']}").status_code == 404
+        for table in ("person", "face_embedding"):
+            assert gallery._conn.execute(
+                f"SELECT COUNT(*) AS n FROM {table}").fetchone()["n"] == 0

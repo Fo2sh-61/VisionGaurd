@@ -60,7 +60,10 @@ def build(roll):
     sightings = SightingStore(Path(tmp.name) / "s.db", clock=CAIRO)
 
     for pid, name, group in roll:
-        gallery.add_person(pid, name, group=group)
+        # Enrolled well before the seeded mornings: a past register now only
+        # lists people who were enrolled by then.
+        gallery.add_person(pid, name, group=group,
+                           created_at=datetime(2026, 1, 1, tzinfo=timezone.utc))
         gallery.add_embedding(pid, unit(pid), MODEL)
 
     store = LiveStore(
@@ -220,6 +223,10 @@ class TestTheEveryoneRegister:
     def test_a_specific_group_is_still_only_that_group(self, store):
         """The other half of the rule. A page headed Grade 8 that listed the
         school would be read as a Grade 8 register."""
+        # A past day only has a register once something was recorded on it.
+        store.sightings.record(
+            Sighting("p-youssef", "cam-entrance", local(7, 40), 0.8, MODEL), force=True,
+        )
         register = store._register("2026-08-17", group="Grade 8")
 
         assert {e.person_id for e in register.entries} == {"p-layla", "p-omar"}
