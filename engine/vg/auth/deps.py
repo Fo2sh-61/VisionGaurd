@@ -145,6 +145,9 @@ OPERATOR_WRITE_PREFIXES: tuple[str, ...] = (
 #: or `/cameras/x` (a setup change) never matches (spec 022, P14-FR-110).
 OPERATOR_WRITE_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"^/cameras/[^/]+/recording/?$"),
+    # "This car has gone": the person on duty saying what they can see, not a
+    # change to the register. POST only, anchored (spec 024).
+    re.compile(r"^/vehicles/visits/[^/]+/gone/?$"),
 )
 
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})

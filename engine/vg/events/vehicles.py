@@ -143,6 +143,18 @@ CREATE TABLE IF NOT EXISTS vehicle_import_run (
     by_who        TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_import_at ON vehicle_import_run(at DESC);
+
+-- A visit somebody ended by hand: "this car is gone". The entry pass stays
+-- exactly as it was seen; this row only says a person closed the visit, and
+-- who. Never an exit pass: nobody saw the car leave, so no exit is invented.
+-- The audit entry is written BEFORE this row. CASCADE like vehicle_alert_ack:
+-- the mark describes an entry pass, so it has nothing left to be about when
+-- an administrator deletes that pass.
+CREATE TABLE IF NOT EXISTS vehicle_gone (
+    entry_pass_id TEXT PRIMARY KEY REFERENCES vehicle_pass(id) ON DELETE CASCADE,
+    by_who        TEXT NOT NULL,
+    at            TEXT NOT NULL
+);
 """
 
 
@@ -208,6 +220,12 @@ class VehiclePass:
     plate_crop: str | None = None
     #: Who typed this plate in by hand. None means the reader's own answer.
     corrected_by: str | None = None
+    #: Width in pixels of the plate in the photograph the reading came from.
+    #: None for a pass recorded before this was kept: unknown, never 0.
+    plate_width: int | None = None
+    #: What the reader itself read, kept when a person corrected the plate.
+    #: None until a correction happens.
+    read_plate: str | None = None
 
     @property
     def has_snapshot(self) -> bool:
@@ -242,6 +260,9 @@ class Visit:
     exit_pass_id: str | None = None
     entry_has_snapshot: bool = False
     exit_has_snapshot: bool = False
+    #: Who ended this visit by hand ("this car is gone"). Distinct from
+    #: `inferred` (the car was seen entering again) and from an observed exit.
+    ended_by: str | None = None
 
     def minutes(self, now: datetime) -> float:
         end = self.left_at or now
@@ -298,6 +319,11 @@ class VehicleStore:
             # a human's correction alone.
             ("vehicle_pass", "corrected_by", "TEXT"),
             ("vehicle_pass", "corrected_at", "TEXT"),
+            # How wide the plate was in the photograph, in pixels: the
+            # reader's own measure of how good a look it had. NULL = unknown.
+            ("vehicle_pass", "plate_width", "INTEGER"),
+            # What the reader read before a person corrected it.
+            ("vehicle_pass", "read_plate", "TEXT"),
         ):
             existing = {r["name"] for r in
                         self._conn.execute(f"PRAGMA table_info({table})")}
@@ -495,6 +521,7 @@ class VehicleStore:
         today: date,
         snapshot: str | None = None,
         plate_crop: str | None = None,
+        plate_width: int | None = None,
     ) -> VehiclePass:
         """Write one pass. The status is decided here and never revisited."""
         canonical = platetext.normalize(plate)
@@ -511,17 +538,18 @@ class VehicleStore:
             owner_name=vehicle.owner_name if vehicle else None,
             unit=vehicle.unit if vehicle else None,
             snapshot=snapshot, plate_crop=plate_crop,
+            plate_width=int(plate_width) if plate_width else None,
         )
         with self._lock:
             self._conn.execute(
                 "INSERT INTO vehicle_pass (id, at, camera_id, gate, direction,"
                 " plate, plate_display, status, vehicle_id, confidence, votes,"
-                " needs_review, snapshot, plate_crop, created_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                " needs_review, snapshot, plate_crop, created_at, plate_width)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (record.id, _iso(at), camera_id, record.gate, direction,
                  record.plate, record.plate_display, status, record.vehicle_id,
                  record.confidence, record.votes, int(record.needs_review),
-                 snapshot, plate_crop, _iso(_now())),
+                 snapshot, plate_crop, _iso(_now()), record.plate_width),
             )
             self._conn.commit()
         return record
@@ -535,18 +563,39 @@ class VehicleStore:
         status: str = "",
         since: datetime | None = None,
         until: datetime | None = None,
+        q: str = "",
+        exact: bool = False,
     ) -> list[VehiclePass]:
-        """The pass log, newest first, filtered."""
+        """The pass log, newest first, filtered.
+
+        `q` is the owner search: owner, unit, plate (raw, display and
+        canonical, so `1234` finds `١٢٣٤`). `exact` makes `plate` mean this
+        plate and no other, not a substring.
+        """
         sql = [
             "SELECT p.*, v.owner_name AS v_owner, v.unit AS v_unit",
             "FROM vehicle_pass p LEFT JOIN vehicle v ON v.id = p.vehicle_id",
         ]
         where, params = [], []
 
-        if plate:
+        if plate and exact:
+            where.append("p.plate = ?")
+            params.append(platetext.normalize(plate) or plate)
+        elif plate:
             canonical = platetext.normalize(plate)
             where.append("(p.plate LIKE ? OR p.plate_display LIKE ?)")
             params += [f"%{canonical or plate}%", f"%{plate}%"]
+        text = (q or "").strip()
+        if text:
+            like = f"%{text}%"
+            canonical = platetext.normalize(text)
+            clause = ("v.owner_name LIKE ? OR v.unit LIKE ? "
+                      "OR p.plate LIKE ? OR p.plate_display LIKE ?")
+            params += [like, like, like, like]
+            if canonical:
+                clause += " OR p.plate LIKE ?"
+                params.append(f"%{canonical}%")
+            where.append(f"({clause})")
         if gate is not None:
             where.append("p.gate = ?")
             params.append(int(gate))
@@ -645,7 +694,8 @@ class VehicleStore:
     def amend_pass(self, pass_id: str, plate: str, confidence: float,
                    votes: int, needs_review: bool, today: date,
                    snapshot: str | None = None,
-                   plate_crop: str | None = None) -> VehiclePass | None:
+                   plate_crop: str | None = None,
+                   plate_width: int | None = None) -> VehiclePass | None:
         """Correct a reading as more of the same car is seen.
 
         **This is not rewriting history.** The car arrived once; the row is
@@ -687,12 +737,15 @@ class VehicleStore:
                     "UPDATE vehicle_pass SET plate = ?, plate_display = ?,"
                     " status = ?, vehicle_id = ?, confidence = ?, votes = ?,"
                     " needs_review = ?"
-                    + (", snapshot = ?, plate_crop = ?" if snapshot else "")
+                    + (", snapshot = ?, plate_crop = ?, plate_width = ?"
+                       if snapshot else "")
                     + " WHERE id = ?",
                     (canonical, platetext.display(canonical), status,
                      vehicle.id if vehicle else None, float(confidence),
                      int(votes), int(bool(needs_review)))
-                    + ((snapshot, plate_crop) if snapshot else ())
+                    + ((snapshot, plate_crop,
+                        int(plate_width) if plate_width else None)
+                       if snapshot else ())
                     + (pass_id,))
             if snapshot:
                 for old in (row["snapshot"], row["plate_crop"]):
@@ -725,8 +778,11 @@ class VehicleStore:
                 "UPDATE vehicle_pass SET finished_at = ?"
                 " WHERE id = ? AND finished_at IS NULL", (_iso(_now()), pass_id))
             self._conn.commit()
-        # A failing hook costs a message, never the pass.
-        if cursor.rowcount == 1 and self.on_pass is not None:
+        # A failing hook costs a message, never the pass. A pass a person has
+        # already corrected sends nothing: somebody looked at the photograph,
+        # and a message built from it would be the reader's guess, not theirs.
+        if (cursor.rowcount == 1 and self.on_pass is not None
+                and not record.corrected_by):
             try:
                 self.on_pass(record)
             except Exception:
@@ -784,6 +840,9 @@ class VehicleStore:
                 self._conn.execute(
                     "UPDATE vehicle_pass SET plate = ?, plate_display = ?,"
                     " status = ?, vehicle_id = ?, needs_review = 0,"
+                    # The right side reads the OLD plate: the first fix keeps
+                    # what the reader read, a second fix keeps that first one.
+                    " read_plate = COALESCE(read_plate, plate),"
                     " corrected_by = ?, corrected_at = ? WHERE id = ?",
                     (canonical, platetext.display(canonical), status,
                      vehicle.id if vehicle else None, by_who, _iso(_now()),
@@ -879,8 +938,10 @@ class VehicleStore:
               FROM vehicle_pass p
               WINDOW w AS (PARTITION BY p.plate ORDER BY p.at)
             )
-            SELECT o.*, v.owner_name, v.unit, v.category
+            SELECT o.*, v.owner_name, v.unit, v.category,
+                   g.by_who AS gone_by, g.at AS gone_at
             FROM ordered o LEFT JOIN vehicle v ON v.id = o.vehicle_id
+            LEFT JOIN vehicle_gone g ON g.entry_pass_id = o.entry_id
             WHERE o.direction = 'entry'
         """
         params: list = []
@@ -901,15 +962,26 @@ class VehicleStore:
 
         out: list[Visit] = []
         for row in rows:
+            # A person's mark only closes a visit nothing else closed: an
+            # observed exit or a re-entry that came later is better evidence.
+            by_hand = (row["gone_by"] is not None
+                       and row["next_direction"] is None)
             exited = row["next_direction"] == "exit"
             closed_by_reentry = row["next_direction"] == "entry"
+            if by_hand:
+                left_at = _parse(row["gone_at"])
+            elif exited or closed_by_reentry:
+                left_at = _parse(row["next_at"])
+            else:
+                left_at = None
             out.append(Visit(
                 plate=row["plate"], plate_display=row["plate_display"],
                 entered=_parse(row["at"]), entry_gate=row["gate"],
-                left_at=_parse(row["next_at"]) if (exited or closed_by_reentry) else None,
+                left_at=left_at,
                 exit_gate=row["next_gate"] if exited else None,
                 owner_name=row["owner_name"], unit=row["unit"],
                 category=row["category"], inferred=closed_by_reentry,
+                ended_by=row["gone_by"] if by_hand else None,
                 entry_pass_id=row["entry_id"],
                 entry_has_snapshot=bool(row["entry_snapshot"]),
                 # Only for an observed exit. A visit closed by the car being
@@ -924,6 +996,24 @@ class VehicleStore:
     def inside(self, since: datetime | None = None,
                until: datetime | None = None) -> list[Visit]:
         return [v for v in self.visits(since, until) if v.inside]
+
+    def end_visit(self, entry_pass_id: str, by_who: str) -> bool:
+        """A person says this car has gone. False if the visit was not open.
+
+        **The audit entry is written by the caller, before this runs.** Only a
+        visit that is open right now can be ended; one already closed (seen
+        leaving, seen entering again, or marked before) changes nothing, so
+        pressing the button twice is not an error. No exit pass is invented.
+        """
+        with self._lock:
+            if not any(v.entry_pass_id == entry_pass_id
+                       for v in self.inside(since=None)):
+                return False
+            with self._conn:
+                self._conn.execute(
+                    "INSERT INTO vehicle_gone (entry_pass_id, by_who, at)"
+                    " VALUES (?, ?, ?)", (entry_pass_id, by_who, _iso(_now())))
+        return True
 
     def hourly(self, since: datetime, until: datetime,
                offset_minutes: int = 0) -> list[dict]:
@@ -1277,4 +1367,7 @@ def _to_pass(row: sqlite3.Row) -> VehiclePass:
         # Guarded like the joined columns above: a row selected before this
         # column existed still parses, which matters while a gate is running.
         corrected_by=row["corrected_by"] if "corrected_by" in keys else None,
+        plate_width=(int(row["plate_width"])
+                     if "plate_width" in keys and row["plate_width"] else None),
+        read_plate=row["read_plate"] if "read_plate" in keys else None,
     )

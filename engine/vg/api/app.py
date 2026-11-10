@@ -1446,6 +1446,15 @@ def _start_vehicles(cfg, registry, roster):
                 "The plate models are not configured in engine.yaml, so no "
                 "plate can be read.")
 
+        # Plates are read at full precision from the shipped `.pt`, always.
+        # Half precision changes 6.7% of readings and a compiled plan 26.6%
+        # (docs/PLAN.md), and a plate is evidence. The yaml cannot turn either
+        # on - and `config.py` defaults both to true, so a site file that
+        # merely omits the lines would have done so silently (spec 024).
+        if plates.half or plates.accelerate or chars.accelerate:
+            log.warning(
+                "plates: half/accelerate in engine.yaml are ignored; plate "
+                "reading always runs at full precision from the .pt weights")
         reader = PlateReader(
             plate_weights=plates.weights,
             char_weights=chars.weights,
@@ -1453,11 +1462,8 @@ def _start_vehicles(cfg, registry, roster):
             imgsz=plates.imgsz,
             conf=plates.conf,
             iou=plates.iou,
-            half=plates.half,
-            # Both models, one answer: a reader whose detector is accelerated
-            # and whose character model is not is still one reader, and
-            # System Health has one row to describe it.
-            accelerate=plates.accelerate and chars.accelerate,
+            half=False,
+            accelerate=False,
         )
 
         by_camera = {c.id: c for c in gates}
@@ -1487,6 +1493,11 @@ def _start_vehicles(cfg, registry, roster):
                 cfg.storage.gate_images_dir, camera_id, read.first_seen,
                 read.plate, read.image, read.image_box)
 
+            # How wide the plate was in the photograph: the reader's own
+            # measure of how good a look it had. A plain pixel count.
+            width_box = read.image_box or read.box
+            plate_width = width_box.w if width_box is not None else None
+
             if read.amends:
                 # The car is still in front of the camera and the vote has
                 # improved. One arrival, one row - corrected, not duplicated.
@@ -1495,6 +1506,7 @@ def _start_vehicles(cfg, registry, roster):
                     votes=read.votes, needs_review=read.needs_review,
                     today=date.fromisoformat(clock.today()),
                     snapshot=snapshot, plate_crop=crop,
+                    plate_width=plate_width,
                 )
                 return read.amends
 
@@ -1510,6 +1522,7 @@ def _start_vehicles(cfg, registry, roster):
                 today=date.fromisoformat(clock.today()),
                 snapshot=snapshot,
                 plate_crop=crop,
+                plate_width=plate_width,
             )
 
             now = datetime.now(timezone.utc)
@@ -3484,12 +3497,20 @@ def _mount(app: FastAPI) -> None:
         direction: str = "",
         status: str = "",
         day: str = "",
+        q: str = "",
+        days: int | None = Query(None, ge=1, le=31),
+        exact: bool = False,
     ) -> list[S.VehiclePass]:
-        """The pass log, newest first."""
+        """The pass log, newest first.
+
+        `q` searches the plate (either digit system) and the owner. `days` is
+        a window of that many days ending at the end of `day` (or today);
+        without it nothing changes. `exact` makes `plate` mean that plate.
+        """
         try:
             return store.vehicle_passes(limit=limit, plate=plate, gate=gate,
                                         direction=direction, status=status,
-                                        day=day)
+                                        day=day, q=q, days=days, exact=exact)
         except ValueError:
             raise HTTPException(
                 422, f"{day!r} is not a date. Use YYYY-MM-DD.") from None
@@ -3638,6 +3659,26 @@ def _mount(app: FastAPI) -> None:
         if not cleared:
             raise HTTPException(409, "That alert has already been dismissed.")
         return {"ok": True}
+
+    @app.post("/vehicles/visits/{entry_pass_id}/gone",
+              response_model=S.GoneResult, tags=["vehicles"])
+    async def mark_gone(entry_pass_id: str, store: StoreDep,
+                        user: auth_deps.CurrentUser) -> S.GoneResult:
+        """End a visit by hand: "this car is gone".
+
+        Open to a guard and to IT by an anchored path pattern in
+        `auth/deps.py`: it is the person on duty saying what they can see, not
+        a change to the register. The audit entry is written before the mark.
+
+        200 with `changed: false` when the visit was no longer open (the car
+        left meanwhile). 404 for no such pass, or an exit pass.
+        """
+        try:
+            return store.mark_gone(entry_pass_id, user.name)
+        except SubsystemUnavailable as exc:
+            raise HTTPException(503, str(exc)) from exc
+        except KeyError:
+            raise HTTPException(404, f"no entry pass {entry_pass_id!r}") from None
 
     @app.get("/vehicles/passes/{pass_id}/snapshot", tags=["vehicles"])
     async def vehicle_snapshot(pass_id: str, request: Request):
@@ -3819,8 +3860,9 @@ def _mount(app: FastAPI) -> None:
         direction: str = "",
         status: str = "",
         day: str = "",
+        q: str = "",
     ) -> Response:
-        """The pass log as a spreadsheet.
+        """The pass log as a spreadsheet. `q` follows the search on screen.
 
         A POST, deliberately. P6-FR-023 requires the audit entry to be
         written before the file is handed over, and a GET that writes is a
@@ -3831,7 +3873,7 @@ def _mount(app: FastAPI) -> None:
         try:
             body = store.export_passes(
                 user.name, limit=limit, plate=plate, gate=gate,
-                direction=direction, status=status, day=day)
+                direction=direction, status=status, day=day, q=q)
         except ValueError:
             raise HTTPException(
                 422, f"{day!r} is not a date. Use YYYY-MM-DD.") from None
