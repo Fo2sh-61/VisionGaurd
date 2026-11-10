@@ -21,7 +21,7 @@
  *  the gallery holds 128-number vectors and no images. */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useBlocker, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { CameraFrame } from '@/components/CameraFrame';
 import { Badge, Card, CardHeader, Field, PageHeader, Select, toneColors } from '@/components/ui';
 import {
@@ -38,7 +38,6 @@ import { useLanguage, useT } from '@/app/LanguageContext';
 import type { MessageKey } from '@/i18n';
 import { ApiError } from '@/services/http';
 import type * as W from '@/services/wire';
-import { enrolmentReasonLine } from '@/services/format';
 import type { Camera, PersonType, Tone } from '@/types';
 
 const TYPES: PersonType[] = ['Student', 'Staff', 'Visitor'];
@@ -49,11 +48,6 @@ const TYPES: PersonType[] = ['Student', 'Staff', 'Visitor'];
  *  after them, and it only runs while a session is open — nothing is detected
  *  on the engine when nobody is on this page. */
 const PREVIEW_REFRESH_MS = 300;
-
-/** A preview older than this is not a live picture, whatever it shows. On a
- *  slow machine the poll can fall behind; a stale outline over a moving person
- *  would be the page claiming to see something it no longer does. */
-const PREVIEW_STALE_MS = 3_000;
 
 /** Amber: a face the system can see but cannot name.
  *
@@ -121,9 +115,8 @@ export function Enrol() {
   const [cameraId, setCameraId] = useState<string>('');
   const [preview, setPreview] = useState<W.EnrolmentPreview | null>(null);
 
-  // Re-judges how old the preview is once a second, so a stalled poll turns
-  // into "no picture" by itself rather than freezing on the last outline.
-  const [now, setNow] = useState(() => Date.now());
+  // -- leaving mid-enrolment ---------------------------------------------
+  const [confirmLeave, setConfirmLeave] = useState(false);
 
   const fileInput = useRef<HTMLInputElement>(null);
   // Object URLs have to be revoked or the tab leaks a blob per photo.
@@ -133,9 +126,7 @@ export function Enrol() {
     void getCameras(language)
       .then((list) => {
         setCameras(list);
-        // The first camera that is sending a picture; an offline one cannot capture.
-        const firstOnline = list.find((c) => !c.offline);
-        if (firstOnline) setCameraId((current) => current || firstOnline.id);
+        if (list.length) setCameraId((current) => current || list[0].id);
       })
       .catch(() => setCameras([]));
   }, []);
@@ -151,35 +142,6 @@ export function Enrol() {
     () => cameras.find((c) => c.id === cameraId) ?? null,
     [cameras, cameraId],
   );
-
-  const hasPhotos = (session?.photos.length ?? 0) > 0;
-
-  // Leaving with photos taken asks first, whichever way the person goes: the
-  // Back link, the sidebar, the browser's back button. A data router
-  // (main.tsx) is what makes this possible.
-  const blocker = useBlocker(
-    ({ currentLocation, nextLocation }) =>
-      hasPhotos && currentLocation.pathname !== nextLocation.pathname,
-  );
-
-  // Closing the tab or the window cannot be intercepted with our own dialog;
-  // the browser's is the best there is, and the engine drops the unsaved
-  // session by itself when it expires.
-  useEffect(() => {
-    if (!hasPhotos) return;
-    const warn = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      event.returnValue = '';
-    };
-    window.addEventListener('beforeunload', warn);
-    return () => window.removeEventListener('beforeunload', warn);
-  }, [hasPhotos]);
-
-  useEffect(() => {
-    if (!session) return;
-    const timer = setInterval(() => setNow(Date.now()), 1_000);
-    return () => clearInterval(timer);
-  }, [session]);
 
   // Keyed on the id, not the session object: the engine returns a fresh
   // session after every staged photo, and depending on the object would tear
@@ -212,11 +174,6 @@ export function Enrol() {
     };
   }, [sessionId, cameraId]);
 
-  /** A picture counts as live only when the engine says it saw one and it is
-   *  recent. Offline, no timestamp or an old one all mean "no picture". */
-  const previewFresh = !!preview && !preview.offline && !!preview.at
-    && now - Date.parse(preview.at.utc) <= PREVIEW_STALE_MS;
-
   /** What the operator needs to hear right now, in plain words.
    *
    *  The engine's own advice is about the SET of photos — how many are usable,
@@ -226,8 +183,8 @@ export function Enrol() {
     if (!session) return '';
     if (!live) return session.advice;
     if (preview === null) return t('enrol.looking');
-    if (!previewFresh) {
-      return preview.offline ? t('enrol.cameraNoPicture') : t('enrol.staleCamera');
+    if (preview.offline) {
+      return t('enrol.cameraNoPicture');
     }
     if (preview.faces.length === 0) {
       return t('enrol.nobodyDetected');
@@ -235,7 +192,7 @@ export function Enrol() {
     if (preview.faces.length > 1) {
       return t('enrol.tooManyFaces', { count: preview.faces.length });
     }
-    return t('enrol.ready');
+    return session.advice;
   })();
 
   const say = useCallback((err: unknown) => {
@@ -341,9 +298,7 @@ export function Enrol() {
       setGroup('');
       setDetail('');
     } catch (err) {
-      // Say why, and keep the photos: the session is untouched.
-      const reason = err instanceof Error ? err.message : t('enrol.somethingWentWrong');
-      setError(t('enrol.saveFailed', { reason: reason.replace(/[.\s]+$/, '') }));
+      say(err);
     } finally {
       setBusy(false);
     }
@@ -365,22 +320,21 @@ export function Enrol() {
 
   /** Back to People, from any step.
    *
-   *  With photos staged the blocker asks once (Discard and leave / Stay). With
-   *  a session but no photos there is nothing to lose: the session is
-   *  cancelled and it simply navigates. */
+   *  With photos staged it asks once and then discards them — the session is
+   *  cancelled server-side, so nothing half-saved is left behind. With no
+   *  session there is nothing to lose and it simply navigates. */
   async function leave() {
-    if (session && !hasPhotos) await discard();
+    if (!session) {
+      navigate('/people');
+      return;
+    }
+    if (!confirmLeave) {
+      setConfirmLeave(true);
+      return;
+    }
+    await discard();
     navigate('/people');
   }
-
-  async function discardAndLeave() {
-    await discard();
-    blocker.proceed?.();
-  }
-
-  const step = saved ? 3 : session ? 2 : 1;
-  const onlineCameras = cameras.filter((c) => !c.offline);
-  const offlineCameras = cameras.filter((c) => c.offline);
 
   return (
     <>
@@ -395,17 +349,20 @@ export function Enrol() {
           <span className="mirror-rtl" aria-hidden="true">←</span>{' '}
           {t('enrol.backToPeople')}
         </button>
-        {blocker.state === 'blocked' && (
+        {confirmLeave && session && (
           <>
-            <span role="alert" style={{ fontSize: 13, color: 'var(--tx2)' }}>
-              <strong>{t('enrol.leaveTitle')}</strong>{' '}
-              {t((session?.photos.length ?? 0) === 1
+            <span style={{ fontSize: 13, color: 'var(--tx2)' }}>
+              {t(session.photos.length === 1
                 ? 'enrol.leaveWarningOne' : 'enrol.leaveWarning')}
             </span>
-            <button type="button" className="chip-btn chip-btn--on" onClick={() => void discardAndLeave()}>
+            <button type="button" className="chip-btn chip-btn--on" onClick={() => void leave()}>
               {t('enrol.discardAndLeave')}
             </button>
-            <button type="button" className="chip-btn chip-btn--off" onClick={() => blocker.reset?.()}>
+            <button
+              type="button"
+              className="chip-btn chip-btn--off"
+              onClick={() => setConfirmLeave(false)}
+            >
               {t('enrol.stay')}
             </button>
           </>
@@ -417,27 +374,11 @@ export function Enrol() {
         lead={t('enrol.lead')}
       />
 
-      <ol
-        aria-label={t('enrol.title')}
-        style={{ display: 'flex', gap: 8, listStyle: 'none', padding: 0, margin: '0 0 14px', flexWrap: 'wrap' }}
-      >
-        {(['details', 'photos', 'done'] as const).map((key, index) => (
-          <li
-            key={key}
-            aria-current={step === index + 1 ? 'step' : undefined}
-            className={`chip-btn ${step === index + 1 ? 'chip-btn--on' : 'chip-btn--off'}`}
-          >
-            {index + 1}. {t(`enrol.step.${key}`)}
-          </li>
-        ))}
-      </ol>
-
       {saved && (
         <Card tight>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
             <Badge tone="good">{t('enrol.saved')}</Badge>
             <div style={{ flex: 1, minWidth: 200 }}>
-              <strong>{t('enrol.doneTitle', { name: saved })}</strong>{' '}
               {t('enrol.savedLead', { name: saved })}
             </div>
             <button type="button" className="chip-btn chip-btn--off" onClick={() => navigate('/people')}>
@@ -512,18 +453,13 @@ export function Enrol() {
             >
               {t(busy ? 'enrol.starting' : 'enrol.start')}
             </button>
-            {!name.trim() && (
-              <span style={{ marginInlineStart: 10, fontSize: 12.5, color: 'var(--tx2)' }}>
-                {t('enrol.nameRequired')}
-              </span>
-            )}
           </div>
         </Card>
       ) : (
         <>
           <Card>
             <CardHeader
-              title={session.name}
+              title={`Enrol: ${session.name}`}
               sub={[session.type, session.group, session.detail].filter(Boolean).join(' · ')}
             />
 
@@ -536,7 +472,7 @@ export function Enrol() {
                 <div style={{ position: 'relative' }}>
                   <CameraFrame camera={live} size="lg" live detections={false} />
                   <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
-                    {(previewFresh ? preview?.faces ?? [] : []).map((face, i) => (
+                    {(preview?.offline ? [] : preview?.faces ?? []).map((face, i) => (
                       <div key={`box-${i}`}>
                         <div
                           style={{
@@ -589,29 +525,25 @@ export function Enrol() {
             )}
 
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-              {onlineCameras.length > 0 && (
+              {cameras.length > 0 && (
                 <>
                   <select
                     className="input"
                     value={cameraId}
                     onChange={(e) => setCameraId(e.target.value)}
-                    style={{ maxWidth: 260 }}
+                    style={{ maxWidth: 220 }}
                     aria-label={t('enrol.cameraToCaptureFrom')}
                   >
-                    {/* Offline cameras stay in the list, so nobody wonders
-                        where one went, but cannot be chosen. */}
                     {cameras.map((c) => (
-                      <option key={c.id} value={c.id} disabled={!!c.offline}>
-                        {c.offline
-                          ? `${c.name} (${c.offlineReason ?? t('camera.offlineReason.down')})`
-                          : c.name}
+                      <option key={c.id} value={c.id}>
+                        {c.name}
                       </option>
                     ))}
                   </select>
                   <button
                     type="button"
                     className="chip-btn chip-btn--on"
-                    disabled={busy || !cameraId || !live || !!live.offline || !previewFresh}
+                    disabled={busy || !cameraId}
                     onClick={() => void captureFromCamera()}
                   >
                     {t(busy ? 'enrol.working' : 'enrol.capture')}
@@ -625,7 +557,7 @@ export function Enrol() {
                 disabled={busy}
                 onClick={() => fileInput.current?.click()}
               >
-                {t('enrol.uploadPhotos')}
+                Upload photos
               </button>
               <input
                 ref={fileInput}
@@ -636,32 +568,19 @@ export function Enrol() {
                 onChange={(e) => void onFiles(e.target.files)}
               />
             </div>
-
-            {/* Why a camera is missing from the choice, and the way round it. */}
-            {offlineCameras.map((c) => (
-              <div key={c.id} style={{ fontSize: 12.5, color: 'var(--am)', marginTop: 8 }}>
-                {t('enrol.cameraOffline', {
-                  camera: c.name, reason: c.offlineReason ?? t('camera.offlineReason.down'),
-                })}
-              </div>
-            ))}
-            {onlineCameras.length === 0 && (
-              <div style={{ fontSize: 13, color: 'var(--am)', marginTop: 8 }}>
-                {t('enrol.noCameraCanCapture')}
-              </div>
-            )}
           </Card>
 
           <Card>
             <CardHeader
-              title={t('enrol.usableProgress', {
-                count: session.usableCount, required: session.requiredCount,
-              })}
+              title={`${session.usableCount} of ${session.requiredCount} usable`}
               sub={session.advice}
             />
 
             {session.photos.length === 0 ? (
-              <div className="empty">{t('enrol.noPhotosYet')}</div>
+              <div className="empty">
+                No photos yet. Capture from a camera, or upload a few taken from
+                different angles.
+              </div>
             ) : (
               session.photos.map((photo, index) => (
                 <div
@@ -709,16 +628,14 @@ export function Enrol() {
                     )}
                   </div>
 
-                  {/* The reason is worded here from the engine's code, so it
-                      reads in the page's language and carries its number. */}
                   <div style={{ fontSize: 13.5, color: photo.usable ? 'var(--tx2)' : 'var(--tx)' }}>
-                    {photo.usable ? photo.note : enrolmentReasonLine(photo, language)}
+                    {photo.note}
                   </div>
 
                   <button
                     type="button"
                     className="chip-btn chip-btn--off"
-                    aria-label={`${t('enrol.removePhoto')} ${t('enrol.photoN', { n: index + 1 })}`}
+                    aria-label={`Remove photo ${index + 1}`}
                     disabled={busy}
                     onClick={() => void drop(photo.id)}
                   >
@@ -745,10 +662,10 @@ export function Enrol() {
                 title={
                   session.ready
                     ? undefined
-                    : t('enrol.needsMore', { required: session.requiredCount })
+                    : `Needs ${session.requiredCount} usable photos from different angles`
                 }
               >
-                {t(busy ? 'enrol.saving' : 'enrol.save')}
+                {busy ? 'Saving…' : 'Save'}
               </button>
               <button
                 type="button"
@@ -756,9 +673,19 @@ export function Enrol() {
                 disabled={busy}
                 onClick={() => void discard()}
               >
-                {t('enrol.discard')}
+                Discard
               </button>
-              <div style={{ fontSize: 12.5, color: 'var(--tx2)' }}>{t('enrol.photoNote')}</div>
+              {/* Phone (spec 015): a touch screen has no hover, so the reason
+                  Save is disabled is written out, not left in `title`. */}
+              {!session.ready && (
+                <div style={{ fontSize: 13, color: 'var(--am)', flexBasis: '100%' }}>
+                  Needs {session.requiredCount} usable photos from different angles
+                </div>
+              )}
+              <div style={{ fontSize: 13, color: 'var(--tx2)' }}>
+                Nothing is stored until you press Save. Only the face measurements are
+                kept — never the photographs.
+              </div>
             </div>
           </Card>
         </>
