@@ -128,9 +128,11 @@ const STREAM_PATHS: { label: MessageKey; path: string }[] = [
 
 /** What a camera can be watched for, and what each costs to run.
  *
- *  All seven, not three. `track`, `vehicles`, `weapons` and `lostitems` could
- *  not be chosen here at all, so they could only ever be set by editing
- *  engine.yaml and restarting. */
+ *  Six, not three: `track`, `vehicles` and `lostitems` could not be chosen
+ *  here at all, so they could only ever be set by editing engine.yaml and
+ *  restarting. `weapons` is not offered any more (spec 022): knife detection
+ *  left the product's navigation, and a feature nobody can switch on here
+ *  must not be advertised. An existing camera that still has it keeps it. */
 const FEATURES: {
   key: string;
   label: MessageKey;
@@ -148,7 +150,6 @@ const FEATURES: {
   { key: 'attendance', label: 'source.feature.attendance', cost: 'source.feature.attendance.cost' },
   { key: 'track', label: 'source.feature.track', cost: 'source.feature.track.cost', fast: true },
   { key: 'vehicles', label: 'source.feature.vehicles', cost: 'source.feature.vehicles.cost', fast: true },
-  { key: 'weapons', label: 'source.feature.weapons', cost: 'source.feature.weapons.cost', fast: true },
   { key: 'lostitems', label: 'source.feature.lostitems', cost: 'source.feature.lostitems.cost' },
 ];
 

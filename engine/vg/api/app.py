@@ -40,7 +40,7 @@ from vg.api.store import (
     SubsystemUnavailable,
 )
 from vg.auth.passwords import WeakPassword
-from vg.auth.store import SELF_SIGNUP_ROLE, EmailTaken
+from vg.auth.store import SELF_SIGNUP_ROLE, EmailTaken, LastAdmin
 
 log = logging.getLogger(__name__)
 
@@ -420,6 +420,8 @@ async def lifespan(app: FastAPI):
             app.state.alerts,
             app.state.alerts_error,
         ) = _start_alerts(cfg, registry)
+        site_settings, site_settings_error = _start_site_settings(cfg)
+        app.state.site_settings = site_settings
         # Restricted zones. Shares the person detector; needs no other feature
         # switched on, and a camera nobody restricted costs it nothing.
         (
@@ -531,7 +533,9 @@ async def lifespan(app: FastAPI):
             patrol=patrol,
             alerts_store=app.state.alerts_store,
             alerts=app.state.alerts,
+            site_settings=site_settings,
         )
+        store.site_settings_error = site_settings_error
         store.recognition_error = app.state.recognition_error
         store.people_error = app.state.people_error
         store.zones_error = app.state.zones_error
@@ -545,7 +549,8 @@ async def lifespan(app: FastAPI):
             # And the noon report's counts, from the same register the
             # Attendance page reads.
             app.state.alerts.bind(camera_name=store._roster_name,
-                                  attendance_counts=store._attendance_counts)
+                                  attendance_counts=store._attendance_counts,
+                                  hours=store.hours)
             try:
                 app.state.alerts.start()
             except Exception as exc:
@@ -634,6 +639,9 @@ async def lifespan(app: FastAPI):
         alerts_store = getattr(app.state, "alerts_store", None)
         if alerts_store is not None and alerts_done:
             alerts_store.close_db()
+        site_settings = getattr(app.state, "site_settings", None)
+        if site_settings is not None:
+            site_settings.close_db()
 
 
 # Features that need to know where bodies are. Face recognition is
@@ -947,12 +955,29 @@ def _start_alerts(cfg, registry):
                      "list still works, nothing goes out by email")
             return store, None, None
         service = AlertService(cfg.alerts, store, registry,
-                               clock_for(cfg.timezone), hours=cfg.hours)
+                               clock_for(cfg.timezone), hours=lambda: cfg.hours)
         return store, service, None
     except Exception as exc:
         log.exception("alert delivery failed to start")
         _reraise_if_strict(exc, "alert delivery")
         return None, None, f"the alert database could not be opened: {_reason(exc)}"
+
+
+def _start_site_settings(cfg):
+    """What Settings saves over engine.yaml. Returns `(store, error)`.
+
+    A failure costs saving and nothing else: hours and the school name keep
+    coming from the file, and the reason reaches the person who tries to save
+    (rule 8).
+    """
+    try:
+        from vg.settings_store import SiteSettingsStore
+
+        return SiteSettingsStore(_database(cfg)), None
+    except Exception as exc:
+        log.exception("site settings failed to open")
+        _reraise_if_strict(exc, "site settings")
+        return None, f"the site settings database could not be opened: {_reason(exc)}"
 
 
 def _face_finder(cfg, pipeline, gallery):
@@ -1649,6 +1674,88 @@ def _reraise_if_strict(exc: BaseException, what: str) -> None:
         ) from exc
 
 
+#: Paths a browser navigates to that are the engine's own pages, not the
+#: console's. They keep going to the engine.
+_ENGINE_PAGES = ("/docs", "/redoc", "/openapi.json")
+
+
+def _console_dir() -> Path | None:
+    """The built console's folder, from `VG_CONSOLE_DIR`; None when unset.
+
+    A relative value is read from the repo root, so `web/dist` works from any
+    working directory.
+    """
+    raw = os.getenv("VG_CONSOLE_DIR", "").strip()
+    if not raw:
+        return None
+    folder = Path(raw)
+    return folder if folder.is_absolute() else vgconfig.REPO_DIR / folder
+
+
+def _serve_console(app: FastAPI, folder: Path | None) -> None:
+    """Serve the built console from the engine itself, when asked to.
+
+    The Ubuntu launcher opens one address, so the pages and the API share a
+    port (specs/022-console-v2-shell). On the Windows workstation `folder` is
+    None and this adds nothing.
+
+    What is served without a session is only what is in the folder: `/`, the
+    hashed `/assets/*`, and the other top-level files. Everything else still
+    goes through `authenticate`. A browser *navigation* - a reload on
+    `/cameras`, a typed address - gets `index.html`, because the console's
+    routes share paths with the API and the API's answer to a reload would be
+    a 401 in JSON. The price: a clip URL opened in a new tab shows the
+    console, not the video.
+    """
+    if folder is None:
+        return
+
+    root = folder.resolve()
+    index = root / "index.html"
+    if not index.is_file():
+        # There is no page to put this on, so the address itself says it.
+        log.error("console not served: %s does not exist - build it with "
+                  "`npm run build` in web/", index)
+
+    def page() -> Response:
+        if not index.is_file():
+            return Response(
+                f"The console is not built: {index} does not exist.\n",
+                status_code=503, media_type="text/plain")
+        # Never yesterday's console: index.html names the hashed assets.
+        return FileResponse(index, headers={"Cache-Control": "no-cache"})
+
+    def asset(path: str) -> Path | None:
+        if path in ("", "/") or path.endswith("/"):
+            return None
+        candidate = (root / path.lstrip("/")).resolve()
+        if not candidate.is_relative_to(root) or not candidate.is_file():
+            return None
+        if candidate == index:
+            return None
+        # Top-level files and anything under assets/, nothing deeper.
+        relative = candidate.relative_to(root).parts
+        if len(relative) == 1 or relative[0] == "assets":
+            return candidate
+        return None
+
+    @app.middleware("http")
+    async def console(request: Request, call_next):
+        if request.method not in ("GET", "HEAD"):
+            return await call_next(request)
+        path = request.url.path
+        if path == "/":
+            return page()
+        found = asset(path)
+        if found is not None:
+            return FileResponse(found)
+        navigating = (request.headers.get("sec-fetch-mode") == "navigate"
+                      and "text/html" in request.headers.get("accept", ""))
+        if navigating and not path.startswith(_ENGINE_PAGES):
+            return page()
+        return await call_next(request)
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
         title="VisionGuard engine",
@@ -1729,6 +1836,10 @@ def create_app() -> FastAPI:
                 )
 
         return await call_next(request)
+
+    # Added after `authenticate`, so it runs before it: the console's own
+    # files are served without a session, and nothing else is.
+    _serve_console(app, _console_dir())
 
     @app.exception_handler(Exception)
     async def unhandled(request: Request, exc: Exception):
@@ -2279,23 +2390,24 @@ def _mount(app: FastAPI) -> None:
     async def start_recording(
         camera_id: str,
         store: StoreDep,
-        actor: Annotated[str, Query(description="who pressed record")] = "unknown",
+        user: auth_deps.CurrentUser,
     ) -> S.RecordingResult:
-        return store.start_recording(camera_id, actor)
+        """Recorded under the signed-in account's name, never a query value."""
+        return store.start_recording(camera_id, user.name)
 
     @app.delete("/cameras/{camera_id}/recording", response_model=S.RecordingResult,
                 tags=["cameras"])
     async def stop_recording(
         camera_id: str,
         store: StoreDep,
-        actor: Annotated[str, Query(description="who pressed stop")] = "unknown",
+        user: auth_deps.CurrentUser,
     ) -> S.RecordingResult:
         """Waits for the file to be closed before answering.
 
         Returning early would hand back a path that cannot be opened yet and
         send the operator looking for a file that is still being written.
         """
-        return store.stop_recording(camera_id, actor)
+        return store.stop_recording(camera_id, user.name)
 
     # ------------------------------------------------------------- intrusion
     @app.get("/zones", response_model=list[S.Zone], tags=["intrusion"])
@@ -2538,6 +2650,7 @@ def _mount(app: FastAPI) -> None:
     async def ask(
         body: S.AskRequest,
         store: StoreDep,
+        user: auth_deps.CurrentUser,
         actor: Annotated[str, Query(description="who is asking")] = "unknown",
     ) -> S.AskAnswer:
         """Answer one plain-language question from one existing query.
@@ -2559,7 +2672,7 @@ def _mount(app: FastAPI) -> None:
         instead restricted to what the weakest role can already read, and
         `test_ask.py` holds that line.
         """
-        return store.ask(body.question, actor)
+        return store.ask(body.question, actor, role=user.role)
 
     @app.get("/audit", response_model=list[S.AuditEntry], tags=["track"])
     async def get_audit(
@@ -3326,6 +3439,24 @@ def _mount(app: FastAPI) -> None:
     async def get_users(store: StoreDep) -> list[S.User]:
         return store.users()
 
+    @app.patch("/users/{user_id}", response_model=S.User, tags=["people"])
+    async def set_user_role(
+        user_id: str, body: S.UserRoleUpdate, store: StoreDep,
+        user: auth_deps.CurrentUser,
+    ) -> S.User:
+        """Change an account's role, under the signed-in account's name.
+
+        Admin-only by path (`/users`). Audited by the store before anything
+        changes. 404 for an unknown id; 409, with a sentence, when it would
+        leave no enabled administrator.
+        """
+        try:
+            return store.set_user_role(user.name, user_id, body.role.value)
+        except KeyError:
+            raise HTTPException(404, f"no account {user_id!r}") from None
+        except LastAdmin as exc:
+            raise HTTPException(409, str(exc)) from None
+
     # --------------------------------------------------------- vehicle gate
     #
     # Everything under /vehicles is admin-WRITE by path (`auth/deps.py`), so
@@ -3744,6 +3875,20 @@ def _mount(app: FastAPI) -> None:
     @app.get("/settings/school", response_model=S.SchoolProfile, tags=["settings"])
     async def get_school(store: StoreDep) -> S.SchoolProfile:
         return store.school_profile()
+
+    @app.patch("/settings/site", response_model=S.SchoolProfile, tags=["settings"])
+    async def patch_site(body: S.SiteSettingsUpdate, store: StoreDep,
+                         user: auth_deps.CurrentUser) -> S.SchoolProfile:
+        """School name, hours, term and working days. Admin-only by path
+        (`/settings` write); audited by the store before it saves. 422 with
+        the reason when the values cannot work together, 503 when the
+        database behind it did not open."""
+        try:
+            return store.save_site_settings(user.name, body)
+        except SubsystemUnavailable as exc:
+            raise HTTPException(503, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(422, f"not accepted: {exc}") from exc
 
     # -------------------------------------------------------------- alerts
     #

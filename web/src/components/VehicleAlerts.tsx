@@ -8,6 +8,7 @@ import type * as W from '@/services/wire';
 import { useAsync } from '@/app/useAsync';
 import { LINKED_STYLE, useLinkedItem } from '@/app/useLinkedItem';
 import { useLanguage, useT } from '@/app/LanguageContext';
+import { useToast } from '@/app/ToastContext';
 
 /** Alerts change when a car passes, not frame by frame. */
 const REFRESH_MS = 4_000;
@@ -117,6 +118,7 @@ export function VehicleAlerts({ isAdmin, onRegister }: {
   onRegister: (alert: W.GateAlert) => void;
 }) {
   const t = useT();
+  const toast = useToast();
   const { data: alerts, error, loading, reload } = useAsync(
     () => getVehicleAlerts(), [], NONE, REFRESH_MS);
   // The alert bell and Home land here on one pass: `?pass=` is its id.
@@ -132,6 +134,7 @@ export function VehicleAlerts({ isAdmin, onRegister }: {
   async function clear(alert: W.GateAlert, actionTaken: boolean) {
     try {
       await dismissVehicleAlert(alert.passId, actionTaken);
+      toast.show(t('gate.dismissedToast'));
     } finally {
       // Reload either way. A dismissal that raced another screen comes back
       // 409, and the honest response to that is to show what is actually

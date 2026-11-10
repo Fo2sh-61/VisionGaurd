@@ -196,16 +196,6 @@ export function People() {
               {p.today ? <Badge tone={p.todayTone}>{p.today}</Badge> : null}
             </span>
             <span style={{ display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-              <button
-                type="button"
-                className="linkbtn"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  navigate('/track', { state: { autoRun: true, presetPerson: p.name } });
-                }}
-              >
-                Track today
-              </button>
               {/* Administrators only. Two steps, with the consequence written
                   out — removal is rare and deliberate, and there is no undo. */}
               {isAdmin && confirming !== p.id && (

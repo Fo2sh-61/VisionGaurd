@@ -484,6 +484,10 @@ export interface SystemHealth {
   /** The whole machine, 0–100, every program. What the CPU bar draws. */
   cpuMachinePercent?: number | null;
   storagePercent?: number | null;
+  /** System memory in MB. On a board where the processor and the graphics
+   *  share one pool this is the only memory reading there is. */
+  memoryUsedMb?: number | null;
+  memoryTotalMb?: number | null;
   uptimeSeconds?: number | null;
   metrics: Metric[];
   /** Absent rather than empty when nothing is running — "no workers" and
@@ -692,6 +696,20 @@ export interface SchoolProfile {
   termTo: string;
   lateCutoff: string;
   timezone: string;
+  /** Python weekday numbers (Monday is 0, Sunday is 6) the site works on. */
+  workingDays: number[];
+}
+
+/** `PATCH /settings/site`. Every field is optional; only what is sent changes.
+ *  The engine refuses an invalid set with a 422 and a plain reason. */
+export interface SiteSettingsUpdate {
+  name?: string;
+  hoursFrom?: string;
+  hoursTo?: string;
+  lateCutoff?: string;
+  termFrom?: string;
+  termTo?: string;
+  workingDays?: number[];
 }
 
 /* ---------- alert delivery (spec 013) ----------

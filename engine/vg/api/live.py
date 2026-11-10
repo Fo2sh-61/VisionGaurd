@@ -25,7 +25,8 @@ from vg import platetext
 from vg.clock import Clock, clock_for
 from vg.events import vehicles as vehicle_events
 from vg.ingest.recorder import AlreadyRecording
-from vg.config import PERSON_FEATURES, CameraConfig, EngineConfig
+from vg.config import PERSON_FEATURES, CameraConfig, EngineConfig, HoursConfig
+from vg.settings_store import checked_changes, overlay
 from vg.api import schemas as S
 from vg.api.notes import note
 from vg.api.store import (
@@ -186,6 +187,18 @@ def _cpu_readings() -> dict:
         return {"process": None, "machine": None}
 
 
+def _memory_reading() -> dict:
+    """The machine's memory, whole MB, or Nones when it cannot be read."""
+    try:
+        import psutil
+
+        memory = psutil.virtual_memory()
+        return {"used_mb": int(memory.used // 2**20),
+                "total_mb": int(memory.total // 2**20)}
+    except Exception:
+        return {"used_mb": None, "total_mb": None}
+
+
 class LiveStore(MockStore):
     """Real cameras; demo data for everything not yet built."""
 
@@ -214,8 +227,14 @@ class LiveStore(MockStore):
         patrol=None,
         alerts_store=None,
         alerts=None,
+        site_settings=None,
     ) -> None:
         super().__init__()
+        # What Settings saves over engine.yaml's school name, hours and
+        # working days. None when its database could not be opened: the seed
+        # still applies, and a save says so instead of pretending.
+        self.site_settings = site_settings
+        self.site_settings_error: str | None = None
         # Accounts. Real since P2, so the Users page stops saying the feature
         # does not exist while people are signing in with it.
         self.users_store = users
@@ -1015,7 +1034,7 @@ class LiveStore(MockStore):
         # attendance register included.
         now = datetime.now(timezone.utc)
         return S.SiteInfo(
-            name=self.config.site_name,
+            name=self._site_name(),
             today=self.clock.local_date(now),
             timezone=self.config.timezone,
             tz_offset_minutes=self.clock.offset_minutes(now),
@@ -2530,11 +2549,26 @@ class LiveStore(MockStore):
         """
         if self.users_store is None:
             return []
-        return [
-            S.User(id=u.id, name=u.name, email=u.email, role=u.role)
-            for u in self.users_store.users()
-            if not u.disabled
-        ]
+        return [self._user_wire(u) for u in self.users_store.users()
+                if not u.disabled]
+
+    def _user_wire(self, u) -> S.User:
+        return S.User(id=u.id, name=u.name, email=u.email, role=u.role,
+                      last_active=_instant(u.last_login_at, self.clock))
+
+    def set_user_role(self, actor: str, user_id: str, role: str) -> S.User:
+        """Change an account's role. The audit entry is written first.
+
+        `KeyError` for an unknown id and `LastAdmin` when this would leave no
+        enabled administrator; the route turns them into 404 and 409. The
+        entry is written before the check, so a refused attempt is on record
+        too - and a failed write to the audit stops the change.
+        """
+        if self.users_store is None:
+            raise SubsystemUnavailable(
+                "Accounts are not available, so roles cannot be changed.")
+        self._log(actor, "user.role", user_id, f"role -> {role}")
+        return self._user_wire(self.users_store.set_role(user_id, role))
 
     def audit(self, limit: int) -> list[S.AuditEntry]:
         # Real entries, from this process. They are lost on restart and
@@ -2741,8 +2775,12 @@ class LiveStore(MockStore):
         except sqlite3.Error as exc:
             raise SubsystemUnavailable(
                 f"The alert database could not be read ({exc}).") from exc
+        if not self._weapons_wanted():
+            # No camera looks for knives, so there is no rule to set. The
+            # stored row stays; it comes back the day a camera is given it.
+            rules.pop("weapon", None)
         sending, error = self._sending()
-        hours = self.config.hours
+        hours = self.hours()
         today = date.fromisoformat(self.clock.today())
         return S.AlertSettings(
             sending=sending, sending_error=error,
@@ -3046,6 +3084,18 @@ class LiveStore(MockStore):
                     "The detection log is not available, so nothing can be "
                     "shown even though the cameras are being watched.")
         return S.DataState.LIVE, None
+
+    def _weapons_wanted(self) -> bool:
+        """Whether any switched-on camera is set to look for knives.
+
+        Knife detection is not a product feature any more, but the code stays
+        for a site that asks for it. With no camera set to it, System Health
+        and the alert settings say nothing about knives rather than showing a
+        stage and a rule for something that is not there.
+        """
+        return self.weapons_worker is not None or any(
+            "weapons" in worker.config.features
+            for worker in self.registry.workers.values())
 
     def _weapons_state(self) -> tuple[S.DataState, str | None]:
         """Whether anything is actually looking for a knife.
@@ -3535,7 +3585,7 @@ class LiveStore(MockStore):
             self._recognition_stage(),
             self._people_stage(),
             self._clock_stage(),
-            self._weapons_stage(),
+            *([self._weapons_stage()] if self._weapons_wanted() else []),
             self._vehicles_stage(),
             self._lost_stage(),
             self._alerts_stage(),
@@ -3553,6 +3603,7 @@ class LiveStore(MockStore):
 
         gpu = _gpu_reading()
         cpu = _cpu_readings()
+        memory = _memory_reading()
         return S.SystemHealth(
             cameras_online=online, cameras_total=total,
             cameras_disabled=disabled,
@@ -3565,6 +3616,8 @@ class LiveStore(MockStore):
             gpu_percent=gpu.get("util"),
             gpu_memory_used_mb=gpu.get("used_mb"),
             gpu_memory_total_mb=gpu.get("total_mb"),
+            memory_used_mb=memory["used_mb"],
+            memory_total_mb=memory["total_mb"],
             metrics=[
                 S.Metric(key="cameras", label="Cameras up", value=online, total=total),
                 S.Metric(key="frames", label="Frames read",
@@ -3860,17 +3913,61 @@ class LiveStore(MockStore):
                   "removed from the directory and the face gallery")
         return self.gallery.remove_person(person_id)
 
+    def hours(self) -> HoursConfig:
+        """The hours in force now: what was saved, over `engine.yaml`'s seed.
+
+        Read on every call, so a save takes effect at once with no restart.
+        If the saved rows cannot be read, the seed answers and the log says
+        why - hours are never a reason for a page to fail.
+        """
+        if self.site_settings is None:
+            return self.config.hours
+        try:
+            return overlay(self.config.hours, self.site_settings.get_all())
+        except (sqlite3.Error, ValueError):
+            log.exception("site settings could not be applied; using engine.yaml")
+            return self.config.hours
+
+    def _site_name(self) -> str:
+        if self.site_settings is not None:
+            try:
+                return self.site_settings.get_all().get("name") or self.config.site_name
+            except sqlite3.Error:
+                log.exception("site name could not be read; using engine.yaml")
+        return self.config.site_name
+
     def school_profile(self) -> S.SchoolProfile:
-        hours = self.config.hours
+        hours = self.hours()
         return S.SchoolProfile(
-            name=self.config.site_name,
+            name=self._site_name(),
             hours_from=hours.start.strftime("%H:%M"),
             hours_to=hours.end.strftime("%H:%M"),
             term_from=hours.term_from,
             term_to=hours.term_to,
             late_cutoff=hours.late_cutoff.strftime("%H:%M"),
             timezone=self.config.timezone,
+            working_days=sorted(hours.working_days),
         )
+
+    def save_site_settings(self, actor: str,
+                           update: S.SiteSettingsUpdate) -> S.SchoolProfile:
+        """Save what changed. `ValueError` says why it cannot be (a 422).
+
+        Checked first against what is already saved, so nothing is written
+        for a change that cannot work; then the audit entry, then the write.
+        """
+        store = self.site_settings
+        if store is None:
+            raise SubsystemUnavailable(
+                "Settings cannot be saved: "
+                + (self.site_settings_error or "the site settings database is not open."))
+        changes = checked_changes(
+            self.config.hours, store.get_all(),
+            update.model_dump(exclude_unset=True, exclude_none=True))
+        self._log(actor, "settings.site", "site settings",
+                  ", ".join(f"{k} -> {v}" for k, v in sorted(changes.items())) or "no change")
+        store.save(changes, actor)
+        return self.school_profile()
 
     #: The group that holds the whole school. Every enrolled person is in it,
     #: always, and a specific group is something extra on top rather than
@@ -3918,7 +4015,7 @@ class LiveStore(MockStore):
         are the same question, and they used to be two different registers
         under one heading.
         """
-        hours = self.config.hours
+        hours = self.hours()
         wanted = None if group in (None, self.EVERYONE) else group
         expected = [
             p.id for p in self.gallery.people()
@@ -3999,7 +4096,7 @@ class LiveStore(MockStore):
             # properly. Same child, same morning, two screens, two answers.
             # The cutoff and the school-hours bound are the register's, so
             # there is now only one rule.
-            hours = self.config.hours
+            hours = self.hours()
             history = self.sightings.history(
                 person.id, days=self.HISTORY_DAYS,
                 cutoff=hours.late_cutoff,
@@ -4864,7 +4961,7 @@ class LiveStore(MockStore):
                 )],
             )
 
-        hours = self.config.hours
+        hours = self.hours()
         recorded = self.sightings.days_recorded(limit=self.HISTORY_DAYS)
         seen = self.sightings.history(
             who.id, days=self.HISTORY_DAYS,
@@ -4969,6 +5066,9 @@ class LiveStore(MockStore):
                 reason=f"{self._camera_name(camera_id)} is not sending frames, "
                        f"so there is nothing to record.")
 
+        # Audit first (AGENTS.md): IT may record since spec 022, so the entry
+        # naming who pressed Record is written before the recorder starts.
+        self._log(actor, "recording.start", camera_id, "start requested")
         try:
             # No frame rate is passed. `camera.fps` is the analytics rate -
             # how often models run - and handing it to the recorder is what
@@ -4982,12 +5082,12 @@ class LiveStore(MockStore):
                 recording=self._recording(current) if current else None,
                 reason="This camera is already recording.")
 
-        self._log(actor, "recording.start", camera_id, f"recording {rec.id}")
         return S.RecordingResult(ok=True, recording=self._recording(rec))
 
     def stop_recording(self, camera_id: str, actor: str) -> S.RecordingResult:
         if self.recorder is None:
             return S.RecordingResult(ok=False, reason=self.NO_RECORDER)
+        self._log(actor, "recording.stop", camera_id, "stop requested")
         rec = self.recorder.stop(camera_id, actor)
         if rec is None:
             # It may have ended itself a moment ago - the ten-minute limit, or
@@ -5002,7 +5102,8 @@ class LiveStore(MockStore):
                 ok=False, recording=self._recording(last),
                 reason=last.reason or "This recording had already been saved.")
 
-        self._log(actor, "recording.stop", camera_id,
+        # The request was audited above; this records what it produced.
+        self._log(actor, "recording.saved", camera_id,
                   f"recording {rec.id} - {rec.frames} frames")
         return S.RecordingResult(ok=True, recording=self._recording(rec))
 

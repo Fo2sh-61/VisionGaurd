@@ -13,7 +13,7 @@
 import {
   formatEventTime, formatTime, formatClock, formatDuration, formatSchedule,
   formatMetric, toDetectionBox, toCameraZone, severityToTone, boxColor, formatLongDate,
-  identifiedByFace, formatCapacityRow, formatEngineBusy, capacityShare,
+  identifiedByFace, formatCapacityRow, formatEngineBusy, capacityShare, populationLevel,
 } from '../src/services/format';
 import { pictureRect, tileBoxRefreshMs, tileRefreshMs } from '../src/services/frame';
 import type { CapacityRowItem } from '../src/types';
@@ -211,6 +211,17 @@ eq('the processor row keeps its share of cores x 1000',
 eq('the old arithmetic overstated the card', Math.round(340 / 10), 34);
 eq('a share is only honest against the budget the number came out of',
    capacityShare(1600, 8000), 20);
+
+// Population levels (spec 022 R6): no capacity means no level at all.
+eq('no capacity set: no level', populationLevel(40, 0), null);
+eq('capacity unknown: no level', populationLevel(40, undefined), null);
+eq('nobody there is Empty', populationLevel(0, 100), 'empty');
+eq('under 70% is Quiet', populationLevel(69, 100), 'quiet');
+eq('70% is Busy', populationLevel(70, 100), 'busy');
+eq('under 90% is Busy', populationLevel(89, 100), 'busy');
+eq('90% is Near capacity', populationLevel(90, 100), 'near');
+eq('exactly full is Near capacity', populationLevel(100, 100), 'near');
+eq('one over is Over capacity', populationLevel(101, 100), 'over');
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

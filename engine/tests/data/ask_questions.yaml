@@ -128,9 +128,6 @@ questions:
     identifiers: [ط ح ل 789]
 
   # -- safety ---------------------------------------------------------------
-  - ask: any knife alerts today
-    lang: en
-    query: weapons
   - ask: في حد دخل المعمل الاسبوع ده؟
     lang: eg
     query: zone_breaches
@@ -173,6 +170,10 @@ questions:
     query: null
     identifiers: [سارة]
     why: a reason, not a record. Nothing in the system stores why.
+  - ask: any knife alerts today
+    lang: en
+    query: null
+    why: knife detection is not a product feature, so Ask has no query for it.
   - ask: what will the weather be tomorrow
     lang: en
     query: null

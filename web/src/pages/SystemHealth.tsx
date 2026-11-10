@@ -3,7 +3,7 @@ import { CamGrid } from '@/components/CamGrid';
 import { Badge, Card, CardHeader, Empty, LoadError, PageHeader, Stats, toneGlyph } from '@/components/ui';
 import { getSystemHealth } from '@/services/api';
 import {
-  capacityShare, capacityTone, formatCapacityAsks, formatCapacityRow,
+  capacityShare, capacityTone, formatCapacityAsks, formatCapacityRow, formatCount,
   formatEngineBusy, formatWorkerQueue, formatWorkerThroughput,
 } from '@/services/format';
 import type { MessageKey } from '@/i18n/keys';
@@ -75,6 +75,22 @@ export function SystemHealth() {
           }
         />
         <Stats items={health.stats} columns={4} />
+
+        {/* One reading for the whole machine. With no graphics reading the
+            board has one pool that the processor and the graphics share, and
+            the label says so rather than implying a card of its own. */}
+        {health.memoryUsedMb != null && health.memoryTotalMb != null && (
+          <div className="row__muted" style={{ marginTop: 12 }}>
+            <span style={{ fontWeight: 600 }}>
+              {t(health.hasGpuReading ? 'health.memory' : 'health.memoryShared')}
+            </span>
+            {' · '}
+            {t('health.memoryValue', {
+              used: formatCount(health.memoryUsedMb, language),
+              total: formatCount(health.memoryTotalMb, language),
+            })}
+          </div>
+        )}
 
         <div className="section-title">{t('health.pipeline')}</div>
         {health.pipeline.length === 0 && (

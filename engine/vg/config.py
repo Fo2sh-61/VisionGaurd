@@ -698,6 +698,26 @@ class HoursConfig:
     late_cutoff: dtime = dtime(8, 0)
     term_from: str = ""
     term_to: str = ""
+    #: Python weekday numbers (Monday = 0). Saturday to Thursday by default;
+    #: Settings can change it and the noon report follows.
+    working_days: frozenset[int] = frozenset({5, 6, 0, 1, 2, 3})
+
+    def problem(self) -> str | None:
+        """Why these hours cannot be used, or None. One rule, two callers:
+        `parse` at startup and `LiveStore.save_site_settings` on a save."""
+        if not (self.start <= self.late_cutoff <= self.end):
+            return (
+                f"late_cutoff {self.late_cutoff} must fall between "
+                f"from {self.start} and to {self.end}. A cutoff outside school "
+                f"hours means nobody can ever be marked on time."
+            )
+        if self.term_from and self.term_to and self.term_from > self.term_to:
+            return (f"the term cannot end ({self.term_to}) before it starts "
+                    f"({self.term_from}).")
+        if not self.working_days or not all(
+                isinstance(d, int) and 0 <= d <= 6 for d in self.working_days):
+            return "working_days must name at least one day, each from 0 to 6."
+        return None
 
     @classmethod
     def parse(cls, raw: dict[str, Any] | None, where: str) -> "HoursConfig":
@@ -706,18 +726,26 @@ class HoursConfig:
         end = _parse_time(raw.get("to"), f"{where}.to") or cls.end
         cutoff = _parse_time(raw.get("late_cutoff"), f"{where}.late_cutoff") or cls.late_cutoff
 
-        if not (start <= cutoff <= end):
+        days = raw.get("working_days")
+        if days is None:
+            days = cls.working_days
+        elif (not isinstance(days, (list, tuple, set, frozenset)) or not days
+              or not all(isinstance(d, int) and not isinstance(d, bool)
+                         and 0 <= d <= 6 for d in days)):
             raise ConfigError(
-                f"{where}: late_cutoff {cutoff} must fall between "
-                f"from {start} and to {end}. A cutoff outside school hours "
-                f"means nobody can ever be marked on time."
-            )
+                f"{where}.working_days: give a list of weekday numbers, "
+                f"0 (Monday) to 6 (Sunday), with at least one day.")
 
-        return cls(
+        hours = cls(
             start=start, end=end, late_cutoff=cutoff,
             term_from=str(raw.get("term_from", "")),
             term_to=str(raw.get("term_to", "")),
+            working_days=frozenset(days),
         )
+        reason = hours.problem()
+        if reason:
+            raise ConfigError(f"{where}: {reason}")
+        return hours
 
 
 @dataclass(frozen=True)

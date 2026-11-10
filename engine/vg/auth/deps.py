@@ -25,6 +25,7 @@ it is has no bearing on what the engine allows.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, status
@@ -80,23 +81,32 @@ def is_public(path: str) -> bool:
 #: Enrolment writes a face into the gallery, which is the act that decides who
 #: the system is able to name. Sources decide what it watches at all. The
 #: constitution names both as admin-only, and neither is an IT-support task.
+#:
+#: Spec 022 (P14-FR-110) moved the register, the groups and the directory up
+#: here: who came, and who is enrolled, is personal data, and an IT account
+#: keeps the system running without needing to read it.
 ADMIN_PREFIXES: tuple[str, ...] = (
     "/enrolment",
     "/sources",
     "/users",
+    "/attendance",
+    "/groups",
+    "/people",
+    # Track a person answers with names, and v2 no longer offers it in the
+    # navigation. Left open, an IT account could read names here.
+    "/track",
+    "/tracking",
 )
 
 #: Prefixes where reading is fine but changing anything is administrator-only.
 #: An operator may look at the cameras and the zones; rearranging them is a
 #: configuration change.
 #:
-#: `/people` is here rather than in ADMIN_PREFIXES because the directory is
-#: data — an operator who cannot see who is enrolled cannot do their job.
-#: Removing somebody is the opposite: their face data leaves the system, which
-#: is precisely the kind of act the constitution wants gated and audited.
+#: `/people` used to be here (reads open, writes admin). Spec 022 reversed
+#: that: the directory is now admin-only for every method, so it moved to
+#: ADMIN_PREFIXES. Removing somebody still takes an administrator, as before.
 ADMIN_WRITE_PREFIXES: tuple[str, ...] = (
     "/cameras",
-    "/people",
     "/zones",
     # A guard has to read the vehicle register to do their job — that is the
     # whole point of the gate log. A guard must not be able to un-blacklist a
@@ -129,6 +139,14 @@ OPERATOR_WRITE_PREFIXES: tuple[str, ...] = (
     "/vehicles/alerts",
 )
 
+#: Same idea as `OPERATOR_WRITE_PREFIXES`, for a path with an id in the middle.
+#: Starting and stopping a recording is something the person on duty does; it
+#: is audited under their account name. POST and DELETE only, and anchored, so `/cameras/x/recording/y`
+#: or `/cameras/x` (a setup change) never matches (spec 022, P14-FR-110).
+OPERATOR_WRITE_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"^/cameras/[^/]+/recording/?$"),
+)
+
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 
@@ -157,6 +175,9 @@ def requires_admin(method: str, path: str) -> bool:
     # unreachable while still looking correct.
     if any(normalised == p or normalised.startswith(p + "/")
            for p in OPERATOR_WRITE_PREFIXES):
+        return False
+    if method.upper() in ("POST", "DELETE") and any(
+            pattern.match(normalised) for pattern in OPERATOR_WRITE_PATTERNS):
         return False
     return any(normalised == p or normalised.startswith(p + "/")
                for p in ADMIN_WRITE_PREFIXES)

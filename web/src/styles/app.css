@@ -1080,3 +1080,160 @@ select.input {
     grid-template-columns: 1fr;
   }
 }
+
+/* ---------- v2 shell (spec 022) ---------- */
+
+/* Arabic joins letters; any letter-spacing breaks the joins. The Latin
+   headings carry a negative one, so reset it for every element in RTL. */
+[dir='rtl'] * {
+  letter-spacing: 0 !important;
+}
+
+.toast {
+  position: fixed;
+  inset-inline: 0;
+  bottom: 28px;
+  margin-inline: auto;
+  width: fit-content;
+  max-width: min(520px, calc(100vw - 32px));
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 18px;
+  border-radius: var(--radius-lg);
+  background: var(--tx);
+  color: var(--bg);
+  font-size: 13.5px;
+  font-weight: 600;
+  box-shadow: 0 14px 36px rgba(20, 30, 25, 0.22);
+  z-index: 60;
+}
+
+.toast__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.navlink__badge {
+  margin-inline-start: auto;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 9px;
+  background: var(--am-bg);
+  color: var(--am);
+}
+
+.sidebar__status {
+  background: var(--card);
+  border-radius: var(--radius-lg);
+  padding: 12px 14px;
+  box-shadow: var(--sh);
+}
+
+.sidebar__status-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.sidebar__status-sub {
+  font-size: 12px;
+  color: var(--tx3);
+  margin-top: 2px;
+}
+
+/* The user menu in the top bar. Same dropdown idiom as the alert bell. */
+.usermenu {
+  position: relative;
+}
+
+.usermenu__button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border: none;
+  background: none;
+  padding: 4px 6px;
+  border-radius: var(--radius-md);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.usermenu__button:hover,
+.usermenu__button[aria-expanded='true'] {
+  background: var(--hover);
+}
+
+.usermenu__panel {
+  position: absolute;
+  inset-inline-end: 0;
+  top: calc(100% + 8px);
+  width: 270px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 14px 36px rgba(20, 30, 25, 0.16);
+  padding: 6px;
+  z-index: 50;
+}
+
+.usermenu__item {
+  display: block;
+  width: 100%;
+  text-align: start;
+  border: none;
+  background: none;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--tx);
+  cursor: pointer;
+}
+
+.usermenu__item:hover {
+  background: var(--hover);
+  text-decoration: none;
+}
+
+.usermenu__item--danger {
+  color: var(--rd);
+  font-weight: 600;
+}
+
+.usermenu__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--tx2);
+}
+
+.usermenu__sep {
+  height: 1px;
+  background: var(--line);
+  margin: 6px 0;
+}
+
+/* Arabic top bar, right to left: date, cameras up, avatar, name, bell last
+   (FR-107). Flex order only; the markup is the same in both languages. */
+[dir='rtl'] .topbar__right {
+  gap: 16px;
+}
+[dir='rtl'] .bell {
+  order: 3;
+}
+[dir='rtl'] .usermenu {
+  order: 2;
+}
+[dir='rtl'] .usermenu__button {
+  flex-direction: row-reverse;
+}

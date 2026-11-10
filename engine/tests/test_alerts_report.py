@@ -1,6 +1,7 @@
 """The noon attendance report (spec 013, user story 5).
 
-At 12:00 site time on a school day - Sunday to Thursday, inside the term -
+At 12:00 site time on a school day - one of the working days (Saturday to
+Thursday unless Settings says otherwise), inside the term -
 each recipient on an enabled channel gets present, late and absent counts per
 group, and nothing that names a student. The engine has no scheduler: the
 sender's own tick fires it, and the delivery log is what stops it firing
@@ -14,7 +15,8 @@ The rules held here:
   afterwards - it was not down;
 - no counts (face recognition not running) is a logged skip, never a report
   of zeros that reads "everyone absent";
-- Friday, Saturday and days outside the term send nothing.
+- Friday (not a working day by default) and days outside the term send nothing;
+  a day Settings unticks sends nothing either, from the next tick on.
 """
 
 from __future__ import annotations
@@ -81,7 +83,9 @@ def alerts(tmp_path):
 def sender(alerts, clock, *, hours=TERM, counts=lambda day: GROUPS, config=None,
            courier=None):
     courier = courier or Courier()
-    service = AlertService(config or AlertsConfig(), alerts, None, CAIRO, hours=hours,
+    # The service takes a callable, so a saved change is read at the next tick.
+    service = AlertService(config or AlertsConfig(), alerts, None, CAIRO,
+                           hours=hours if callable(hours) else (lambda: hours),
                            senders=lambda channel: courier, now=clock)
     service.bind(attendance_counts=counts)
     service.start(run_thread=False)
@@ -152,11 +156,34 @@ class TestNoonReport:
         drain(service)
         assert alerts.recent(10) == [] and courier.sent == []
 
-    @pytest.mark.parametrize("day", [FRIDAY, FRIDAY + 1])
-    def test_friday_and_saturday_send_nothing(self, alerts, day):
-        service, courier = sender(alerts, Clockwork(local(day, 12, 0)))
+    def test_friday_sends_nothing(self, alerts):
+        service, courier = sender(alerts, Clockwork(local(FRIDAY, 12, 0)))
         drain(service)
         assert alerts.recent(10) == [] and courier.sent == []
+
+    def test_saturday_is_a_school_day_now(self, alerts):
+        service, courier = sender(alerts, Clockwork(local(FRIDAY + 1, 12, 0)))
+        drain(service)
+        assert len(courier.sent) == 2
+
+    def test_a_day_settings_unticks_sends_nothing(self, alerts):
+        no_tuesday = dataclasses.replace(
+            TERM, working_days=TERM.working_days - {1})        # Tuesday is 1
+        service, courier = sender(alerts, Clockwork(local(TUESDAY, 12, 0)),
+                                  hours=no_tuesday)
+        drain(service)
+        assert alerts.recent(10) == [] and courier.sent == []
+
+    def test_a_change_saved_before_noon_is_read_at_noon(self, alerts):
+        current = {"hours": TERM}
+        clock = Clockwork(local(TUESDAY, 11, 59))
+        service, courier = sender(alerts, clock, hours=lambda: current["hours"])
+        drain(service)
+        current["hours"] = dataclasses.replace(
+            TERM, working_days=TERM.working_days - {1})
+        clock.now = local(TUESDAY, 12, 0)
+        drain(service)
+        assert courier.sent == []
 
     def test_outside_the_term_sends_nothing(self, alerts):
         service, courier = sender(alerts, Clockwork(local(TUESDAY, 12, 0)), hours=ENDED)

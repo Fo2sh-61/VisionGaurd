@@ -801,19 +801,25 @@ class TestNoRecorderIsHonest:
 
 
 class TestWhoIsAllowedTo:
-    def test_following_and_recording_are_open_to_it(self, follow_app, authed):
-        # `/tracking` is deliberately not under an admin prefix: following
-        # somebody is operator work. The control is the audit trail, not the
-        # role. This pins it so nobody adds the prefix by reflex.
+    def test_following_is_administrator_only(self, follow_app, authed):
+        # This used to pin `/tracking` open to IT ("operator work"). Spec 022
+        # reversed it on purpose: a follow answers with a name, and v2 keeps
+        # people's names from IT accounts (P14-FR-110). Track also left the
+        # navigation, so nobody on duty depends on it.
         app, worker, stage, _ = follow_app
         sees(worker, stage, "cam-a", 0.0, [BODY_A])
 
         it = authed(app, role="it")
         assert it.post("/tracking/follow",
                        json={"cameraId": "cam-a", "x": 0.15, "y": 0.3}
-                       ).status_code == 200
-        assert it.get("/tracking/follow").status_code == 200
-        assert it.delete("/tracking/follow").status_code == 200
+                       ).status_code == 403
+        assert it.get("/tracking/follow").status_code == 403
+        assert it.post("/track", json={}).status_code == 403
+
+        admin = authed(app, role="admin")
+        assert admin.post("/tracking/follow",
+                          json={"cameraId": "cam-a", "x": 0.15, "y": 0.3}
+                          ).status_code == 200
 
     def test_a_stranger_is_refused(self, follow_app):
         from fastapi.testclient import TestClient
@@ -830,7 +836,7 @@ class TestWhoIsAllowedTo:
         app, worker, stage, _ = follow_app
         sees(worker, stage, "cam-a", 0.0, [BODY_A])
 
-        client = authed(app, role="it")
+        client = authed(app, role="admin")
         client.post("/tracking/follow", json={"cameraId": "cam-a", "x": 0.15, "y": 0.3})
         client.delete("/tracking/follow")
 

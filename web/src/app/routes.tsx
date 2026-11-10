@@ -71,17 +71,22 @@ export function AppRoutes() {
 
       <Route element={<RequireSignIn><AppShell /></RequireSignIn>}>
         <Route index element={<Home />} />
-        <Route path="attendance" element={<Attendance />} />
+        {/* Attendance and People are admin-only (spec 022). The engine refuses
+            an IT account on these paths; this only stops it landing on a page
+            whose every call would fail. */}
+        <Route path="attendance" element={<RequireRole role="admin"><Attendance /></RequireRole>} />
         <Route path="counting" element={<Counting />} />
         <Route path="intrusion" element={<Intrusion />} />
+        {/* Weapons, lost-items and track: out of the navigation (spec 022),
+            code kept, still reachable by address. */}
         <Route path="weapons" element={<Weapons />} />
         <Route path="vehicles" element={<VehicleGate />} />
         <Route path="lost-items" element={<LostItems />} />
         <Route path="track" element={<TrackPerson />} />
-        <Route path="people" element={<People />} />
-        <Route path="people/enrol" element={<Enrol />} />
-        <Route path="people/groups/:name" element={<PeopleGroup />} />
-        <Route path="people/history/:name" element={<PersonHistory />} />
+        <Route path="people" element={<RequireRole role="admin"><People /></RequireRole>} />
+        <Route path="people/enrol" element={<RequireRole role="admin"><Enrol /></RequireRole>} />
+        <Route path="people/groups/:name" element={<RequireRole role="admin"><PeopleGroup /></RequireRole>} />
+        <Route path="people/history/:name" element={<RequireRole role="admin"><PersonHistory /></RequireRole>} />
         <Route path="settings" element={<Settings />} />
         {/* System health is open to both roles, matching the design's nav —
             IT owns it, but an admin needs to be able to see what's down. */}

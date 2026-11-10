@@ -71,6 +71,11 @@ CODES: frozenset[str] = frozenset({
     #: search. Saying "nothing found" would describe a search that never ran.
     "ask.not_recorded",
 
+    #: An IT account asked about attendance or the people directory, which
+    #: are administrator-only (spec 022). The wording must say whose records
+    #: they are, so it does not read as "no data".
+    "ask.adminsOnly",
+
     #: Words the site did not recognise, sent as typed. `words` lists them.
     #: The accepted limit from the spec, on screen rather than buried: a
     #: visitor's name typed into the box does leave the site, and the person

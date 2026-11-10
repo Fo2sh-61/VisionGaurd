@@ -47,7 +47,9 @@ def live_store(tmp_path, registry=None, config=None, **kw) -> LiveStore:
         registry = CameraRegistry([
             CameraConfig.parse(
                 {"id": "cam-a", "name": "Main entrance", "source": "webcam:0",
-                 "features": ["counting"]}, "cam-a"),
+                 # `weapons`: the rules list shows the knife rule only while a
+                 # camera is set to look for knives (spec 022).
+                 "features": ["counting", "weapons"]}, "cam-a"),
         ])
     config = config or vgconfig.load()
     object.__setattr__(config.storage, "clips_dir", Path(tmp_path) / "clips")

@@ -17,8 +17,8 @@ export const SUGGESTED_QUESTIONS: MessageKey[] = [
   'ask.q.absent',
   'ask.q.cafeteria',
   'ask.q.lab',
-  'ask.q.backpack',
-  'ask.q.where',
+  'ask.q.carsInside',
+  'ask.q.carsToday',
 ];
 
 /** What each role may do, shown on the Users page.
@@ -28,10 +28,12 @@ export const SUGGESTED_QUESTIONS: MessageKey[] = [
  *  product rule, not a security boundary. */
 export const CAPABILITIES: { capability: MessageKey; admin: boolean; it: boolean }[] = [
   { capability: 'capability.seeAlerts', admin: true, it: true },
-  { capability: 'capability.reviewWeapon', admin: true, it: false },
-  { capability: 'capability.track', admin: true, it: false },
+  { capability: 'capability.record', admin: true, it: true },
+  { capability: 'capability.plates', admin: true, it: true },
+  { capability: 'capability.markGone', admin: true, it: true },
   { capability: 'capability.attendance', admin: true, it: false },
-  { capability: 'capability.cameras', admin: true, it: true },
+  { capability: 'capability.cameras', admin: true, it: false },
+  { capability: 'capability.zones', admin: true, it: false },
   { capability: 'capability.users', admin: true, it: false },
 ];
 

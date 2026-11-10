@@ -158,10 +158,20 @@ export interface CountArea {
   h: number;
   /** Measured by a camera, as opposed to a demo figure. */
   live: boolean;
+  /** Empty .. Over capacity. Absent when no capacity is set. */
+  level?: PopulationLevel;
 }
+
+/** How full a place is, from count and capacity. See `populationLevel`. */
+export type PopulationLevel = 'empty' | 'quiet' | 'busy' | 'near' | 'over';
 
 export interface CountResult {
   place: string;
+  /** The people counted, summed over cameras. An upper bound where cameras
+   *  overlap - nothing here de-duplicates. */
+  count: number;
+  /** Absent when no capacity is set: no percentage and no level then. */
+  level?: PopulationLevel;
   heading: string;
   sub: string;
   stats: Stat[];
@@ -383,6 +393,12 @@ export interface SystemHealth {
   camerasTotal: number;
   /** Switched off on purpose — not offline, and not a fault. */
   camerasDisabled: number;
+  /** System memory. Absent when the engine could not read it - never 0. */
+  memoryUsedMb?: number;
+  memoryTotalMb?: number;
+  /** True when the engine could read the graphics card. False means the
+   *  board has no separate graphics memory, so the memory above is shared. */
+  hasGpuReading: boolean;
   summary: string;
   stats: Stat[];
   /** Absent when no worker is running. Not zero — that would read as a

@@ -69,10 +69,11 @@ class AskQuery:
     id: str
     describe: str
     params: tuple[Param, ...]
-    #: The API path this stands for. The permission test reads this: no menu
-    #: entry may map under `auth/deps.py::ADMIN_PREFIXES`, because one path
-    #: (`POST /ask`) cannot be permissioned per-query and Ask must not become
-    #: a second place where a role is decided.
+    #: The API path this stands for. `MockStore.ask` runs it through
+    #: `auth/deps.py::requires_admin` and refuses a non-admin asker an entry
+    #: that lands under an admin-only prefix (spec 022). One path
+    #: (`POST /ask`) cannot be permissioned per-query, so the role stays
+    #: decided by the path table and Ask is not a second place that decides it.
     reads: str
     run: Callable[[Any, dict[str, str]], Answer]
     route: Callable[[dict[str, str]], str]
@@ -164,10 +165,10 @@ def _run_breaches(store: Any, p: dict[str, str]) -> Answer:
 
 
 # ---------------------------------------------------------------------------
-# weapons
+# periods
 # ---------------------------------------------------------------------------
 
-#: Period names the Weapons and Restricted-zones pages already use, and how
+#: Period names the Restricted-zones page already uses, and how
 #: many days back each one means. Ask must pick from this list rather than
 #: invent its own, or the page it links to would show a different period from
 #: the answer above it — the one thing SC-001 forbids.
@@ -182,20 +183,6 @@ def _since(window: str) -> Any:
 
     days = WINDOWS.get(window)
     return None if days is None else datetime.now(timezone.utc) - timedelta(days=days)
-
-
-def _run_weapons(store: Any, p: dict[str, str]) -> Answer:
-    rows = [
-        S.AskRow(
-            label=d.item,
-            at=d.at,
-            camera=d.camera_name,
-            confidence=d.confidence,
-            clip_url=d.clip.url if d.clip else None,
-        )
-        for d in store.weapons(_since(p.get("window", "last30")), None)
-    ]
-    return Answer(rows=rows)
 
 
 # ---------------------------------------------------------------------------
@@ -370,15 +357,6 @@ QUERIES: tuple[AskQuery, ...] = (
         reads="/breaches",
         run=_run_breaches,
         route=lambda p: "/intrusion" + _q(p, "window"),
-    ),
-    AskQuery(
-        id="weapons",
-        describe="Knife detections and whether a person has reviewed them.",
-        params=(Param("window", "the period: today, yesterday, last7, last30 "
-                                "or last90", default="last30"),),
-        reads="/weapons/detections",
-        run=_run_weapons,
-        route=lambda p: "/weapons" + _q(p, "window"),
     ),
     AskQuery(
         id="vehicle_passes",

@@ -476,16 +476,17 @@ class TestRemovalPermissions:
             "/people/p-layla"
         ).status_code == 204
 
-    def test_people_get_stays_open_to_non_admins(self, removal_app, authed):
-        """The other half of the rule.
+    def test_people_get_is_admin_only(self, removal_app, authed):
+        """Reversed by spec 022 (P14-FR-110).
 
-        Reads must not become admin-only by accident: an operator who cannot
-        see the directory cannot do their job, and the directory is data about
-        who is enrolled, not a lever that changes anything.
+        The directory used to be readable by any signed-in account. Who is
+        enrolled is personal data, so reading it now takes an administrator,
+        like every other method on `/people`.
         """
         application, _ = removal_app
 
-        response = authed(application, role="it").get("/people")
+        assert authed(application, role="it").get("/people").status_code == 403
+        response = authed(application, role="admin").get("/people")
 
         assert response.status_code == 200
         assert len(response.json()) == 2
@@ -494,8 +495,8 @@ class TestRemovalPermissions:
         """Without HTTP in the way."""
         from vg.auth import deps as auth_deps
 
-        assert not auth_deps.requires_admin("GET", "/people")
-        assert not auth_deps.requires_admin("GET", "/people/p-layla/history")
+        assert auth_deps.requires_admin("GET", "/people")
+        assert auth_deps.requires_admin("GET", "/people/p-layla/history")
         assert auth_deps.requires_admin("DELETE", "/people/p-layla")
         # A lookalike prefix must not be swept in, and a real one must not be
         # escapable by hanging something off the end of it.

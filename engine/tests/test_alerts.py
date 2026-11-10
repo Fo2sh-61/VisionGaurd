@@ -20,6 +20,7 @@ from datetime import date, datetime, timedelta, timezone
 import pytest
 
 from vg.alerts import events
+from vg.config import HoursConfig
 
 NOW = datetime(2026, 10, 6, 9, 30, tzinfo=timezone.utc)   # a Tuesday
 
@@ -132,28 +133,30 @@ class TestOfflineCameras:
 
 
 class TestSchoolDays:
-    TERM = ("2026-09-20", "2027-06-15")
+    #: The term and the working days a school gets out of the box.
+    TERM = ("2026-09-20", "2027-06-15", HoursConfig().working_days)
 
     def test_a_tuesday_in_term_is_a_school_day(self):
         assert events.is_school_day(date(2026, 10, 6), *self.TERM)
 
-    @pytest.mark.parametrize("day", [date(2026, 10, 9), date(2026, 10, 10)])
-    def test_friday_and_saturday_are_not(self, day):
-        assert not events.is_school_day(day, *self.TERM)
+    def test_friday_is_not(self):
+        assert not events.is_school_day(date(2026, 10, 9), *self.TERM)
 
-    def test_sunday_is(self):
+    def test_saturday_and_sunday_are(self):
+        assert events.is_school_day(date(2026, 10, 10), *self.TERM)
         assert events.is_school_day(date(2026, 10, 4), *self.TERM)
 
     def test_outside_the_term_is_not(self):
         assert not events.is_school_day(date(2026, 9, 15), *self.TERM)
 
     def test_no_term_dates_means_no_school_day(self):
-        assert not events.is_school_day(date(2026, 10, 6), "", "")
+        assert not events.is_school_day(date(2026, 10, 6), "", "", self.TERM[2])
 
     def test_the_states_settings_says(self):
-        assert events.report_state(date(2026, 10, 6), *self.TERM) == "scheduled"
-        assert events.report_state(date(2026, 9, 1), *self.TERM) == "before_term"
-        assert events.report_state(date(2027, 7, 1), *self.TERM) == "after_term"
+        term = self.TERM[:2]
+        assert events.report_state(date(2026, 10, 6), *term) == "scheduled"
+        assert events.report_state(date(2026, 9, 1), *term) == "before_term"
+        assert events.report_state(date(2027, 7, 1), *term) == "after_term"
         assert events.report_state(date(2026, 10, 6), "", "") == "no_term_dates"
 
     def test_the_shipped_term_has_ended(self):

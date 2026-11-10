@@ -988,8 +988,11 @@ class TestHonestStates:
         assert cap.reason is None
 
         # And System Health agrees with the capability, on both stores.
-        broken = {s.key: s for s in bare_live_store.health().pipeline}["weapons"]
-        assert broken.healthy is False
+        # No camera is set to knives on the bare store, so System Health says
+        # nothing about them (spec 022); the capability above is where the
+        # reason lives. A camera that asks for knives and has no worker keeps
+        # its stage: see test_shell_v2.TestKnivesAreOptional.
+        assert "weapons" not in {s.key for s in bare_live_store.health().pipeline}
         working = {s.key: s for s in store.health().pipeline}["weapons"]
         assert working.healthy is True
 

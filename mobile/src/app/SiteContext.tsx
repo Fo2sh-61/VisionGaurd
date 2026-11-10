@@ -77,7 +77,7 @@ export function SiteProvider({ children }: { children: ReactNode }) {
       todayLabel,
       refresh: () => setTick((n) => n + 1),
     };
-  }, [site, loading, error]);
+  }, [site, loading, error, language]);
 
   return <SiteContext.Provider value={value}>{children}</SiteContext.Provider>;
 }

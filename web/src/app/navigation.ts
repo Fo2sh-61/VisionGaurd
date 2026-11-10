@@ -1,6 +1,8 @@
 import type { Role, ToolId } from '@/types';
 
-export type NavSection = 'ask' | 'watch' | 'manage';
+/** Spec 022: one group of tools under Home, then SYSTEM. The old ask / watch /
+ *  manage split is gone with the pages it organised. */
+export type NavSection = 'main' | 'system';
 
 export interface NavEntry {
   id: ToolId;
@@ -36,20 +38,37 @@ const ICON = {
 
 export const HOME_ICON = ICON.home;
 
+/** The sidebar, top to bottom (spec 022 FR-102, FR-129).
+ *
+ *  Attendance and People are admin-only. The engine refuses an IT account on
+ *  `/attendance`, `/groups` and `/people` whatever this table says; `role`
+ *  only stops the sidebar offering a page that would be refused.
+ *
+ *  Lost bag, Track a person and Knife detection are no longer in the product's
+ *  navigation (their code stays; see `UNLISTED`). */
 export const NAV: NavEntry[] = [
-  { id: 'attendance', path: '/attendance', section: 'ask', icon: ICON.attendance },
-  { id: 'counting', path: '/counting', section: 'ask', icon: ICON.counting },
-  { id: 'lost-items', path: '/lost-items', section: 'ask', icon: ICON['lost-items'] },
-  { id: 'track', path: '/track', section: 'ask', icon: ICON.track },
+  { id: 'attendance', path: '/attendance', section: 'main', icon: ICON.attendance, role: 'admin' },
+  { id: 'people', path: '/people', section: 'main', icon: ICON.people, role: 'admin' },
+  { id: 'counting', path: '/counting', section: 'main', icon: ICON.counting },
+  { id: 'vehicles', path: '/vehicles', section: 'main', icon: ICON.vehicles },
+  { id: 'intrusion', path: '/intrusion', section: 'main', icon: ICON.intrusion },
 
-  { id: 'intrusion', path: '/intrusion', section: 'watch', icon: ICON.intrusion },
-  { id: 'weapons', path: '/weapons', section: 'watch', icon: ICON.weapons },
-  { id: 'vehicles', path: '/vehicles', section: 'watch', icon: ICON.vehicles },
-
-  { id: 'people', path: '/people', section: 'manage', icon: ICON.people },
-  { id: 'system', path: '/system', section: 'manage', icon: ICON.system },
-  { id: 'settings', path: '/settings', section: 'manage', icon: ICON.settings },
+  { id: 'system', path: '/system', section: 'system', icon: ICON.system },
+  { id: 'settings', path: '/settings', section: 'system', icon: ICON.settings },
 ];
+
+/** Pages that still exist at their old address but are in no menu. Kept so an
+ *  old alert or bookmark still resolves, and so `Icon` can still draw them. */
+const UNLISTED: Record<string, { path: string; icon: string }> = {
+  weapons: { path: '/weapons', icon: ICON.weapons },
+  'lost-items': { path: '/lost-items', icon: ICON['lost-items'] },
+  track: { path: '/track', icon: ICON.track },
+};
+
+/** The icon for any tool id, listed or not. */
+export function iconFor(tool: ToolId): string {
+  return NAV.find((n) => n.id === tool)?.icon ?? UNLISTED[tool]?.icon ?? '';
+}
 
 export function navFor(role: Role): NavEntry[] {
   return NAV.filter((n) => !n.role || n.role === role);
@@ -57,25 +76,17 @@ export function navFor(role: Role): NavEntry[] {
 
 export function navSectionsFor(role: Role): { section: NavSection; items: NavEntry[] }[] {
   const items = navFor(role);
-  return (['ask', 'watch', 'manage'] as NavSection[])
+  return (['main', 'system'] as NavSection[])
     .map((section) => ({ section, items: items.filter((n) => n.section === section) }))
     .filter((group) => group.items.length > 0);
 }
 
 export function pathFor(tool: ToolId): string {
-  return NAV.find((n) => n.id === tool)?.path ?? '/';
+  return NAV.find((n) => n.id === tool)?.path ?? UNLISTED[tool]?.path ?? '/';
 }
 
-/** Home's tool grid mirrors the design: the everyday tools, then People. */
-const HOME_ORDER: ToolId[] = [
-  'attendance',
-  'counting',
-  'lost-items',
-  'track',
-  'intrusion',
-  'weapons',
-  'people',
-];
+/** Home's tool cards: the three the design shows (spec 022 FR-116). */
+const HOME_ORDER: ToolId[] = ['attendance', 'counting', 'vehicles'];
 
 export function homeTools(): NavEntry[] {
   const byId = new Map(NAV.map((n) => [n.id, n]));

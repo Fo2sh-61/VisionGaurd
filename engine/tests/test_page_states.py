@@ -41,7 +41,14 @@ PAGES = REPO / "web" / "src" / "pages"
 # a fetch to one of them trips the test rather than silently exempting it.
 NO_DATA = {
     "Login",       # a form; the sign-in call reports its own failure inline
-    "Home",        # navigation and static copy only
+}
+
+# Pages that load several independent figures and report each failure on the
+# figure itself instead of one page-wide <LoadError>. Each must still carry
+# the i18n keys that say "unavailable" and "nothing here", so deleting those
+# messages trips the test (spec 022: Home's three cards and camera strip).
+PER_FIGURE = {
+    "Home": ("home.card.unavailable", "home.cameras.unavailable", "home.cameras.none"),
 }
 
 # Pages whose lists live in a component they mount, which must then say
@@ -105,6 +112,13 @@ class TestPagesReportFailure:
         if not _fetches(source):
             return
 
+        if page.stem in PER_FIGURE:
+            missing = [k for k in PER_FIGURE[page.stem] if f"'{k}'" not in source]
+            assert not missing, (
+                f"{page.stem} reports failures per figure, but no longer says: "
+                f"{', '.join(missing)}")
+            return
+
         assert _reports_failure(source), (
             f"{page.stem} loads from the engine but has no failure path. A "
             f"request that throws will leave the page rendering its initial "
@@ -115,7 +129,7 @@ class TestPagesReportFailure:
     @pytest.mark.parametrize("page", _pages(), ids=lambda p: p.stem)
     def test_a_page_that_loads_a_list_says_when_it_is_empty(self, page: Path):
         source = page.read_text(encoding="utf-8")
-        if page.stem in NO_DATA or not _fetches(source):
+        if page.stem in NO_DATA or page.stem in PER_FIGURE or not _fetches(source):
             return
 
         mounted = ""

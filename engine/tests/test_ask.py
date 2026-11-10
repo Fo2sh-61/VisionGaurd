@@ -103,20 +103,19 @@ class TestMenu:
         endpoint being permissioned per query.
 
         One path (`POST /ask`) reaches every query, so `auth/deps.py` cannot
-        see what is about to run. The menu is therefore kept inside what the
-        weakest role can already read. A test holds this rather than a comment,
-        because the day somebody adds an enrolment query is the day the comment
-        gets skipped.
+        see what is about to run. Since spec 022 the register and the directory
+        are admin-only, so some entries DO reach admin paths; `MockStore.ask`
+        refuses those to a non-admin asker (`ask.adminsOnly`, tested in
+        test_shell_v2.py). What may never be on the menu is enrolment, sources
+        or accounts, which no asker may read through Ask.
         """
-        from vg.auth.deps import ADMIN_PREFIXES
-
         leaks = [
             q.id for q in QUERIES
-            if any(q.reads.startswith(p) for p in ADMIN_PREFIXES)
+            if q.reads.startswith(("/enrolment", "/sources", "/users"))
         ]
         assert not leaks, (
-            f"these menu entries reach administrator-only paths: {leaks}. Ask "
-            "must not become a way to read past a role."
+            f"these menu entries reach enrolment, sources or accounts: {leaks}. "
+            "Ask must not become a way to read past a role."
         )
 
     def test_no_entry_can_write(self):

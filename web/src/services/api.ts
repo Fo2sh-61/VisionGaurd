@@ -61,6 +61,7 @@ import {
   formatDuration,
   formatPercent,
   formatShortDate,
+  populationLevel,
   formatTime,
   severityToNeutralTone,
   severityToTone,
@@ -267,7 +268,9 @@ export async function getCount(query: CountQuery, lang: Language): Promise<Count
     name: a.name,
     value: a.count,
     capacity: a.capacity,
-    pct: Math.round((a.count / a.capacity) * 100),
+    // No capacity means no percentage and no level, never 0% or Infinity.
+    pct: a.capacity > 0 ? Math.round((a.count / a.capacity) * 100) : 0,
+    level: populationLevel(a.count, a.capacity) ?? undefined,
     tone: severityToTone(a.severity),
     x: a.x * 100,
     y: a.y * 100,
@@ -300,10 +303,19 @@ export async function getCount(query: CountQuery, lang: Language): Promise<Count
 
   return {
     place: result.place,
-    heading: `${formatCount(result.count, lang)} people in the ${result.place.toLowerCase()}`,
+    count: result.count,
+    level: populationLevel(result.count, capacity) ?? undefined,
+    heading: translate(lang, 'counting.heading', {
+      count: formatCount(result.count, lang),
+      place: result.place,
+    }),
     sub: capacity
-      ? `${pct}% of safe capacity (${capacity})${result.deduplicated ? ' · counted once across overlapping cameras' : ''}`
-      : `Measured ${formatTime(result.measuredAt, lang)}`,
+      ? translate(
+          lang,
+          result.deduplicated ? 'counting.subCapacityOnce' : 'counting.subCapacity',
+          { pct, capacity: formatCount(capacity, lang) },
+        )
+      : translate(lang, 'counting.subMeasured', { time: formatTime(result.measuredAt, lang) }),
     stats: formatMetrics(result.metrics, lang),
     barsTitle: result.barsTitle ?? undefined,
     bars,
@@ -733,6 +745,11 @@ export async function getSystemHealth(lang: Language): Promise<SystemHealth> {
     camerasOnline: health.camerasOnline,
     camerasTotal: health.camerasTotal,
     camerasDisabled: health.camerasDisabled ?? 0,
+    // Left undefined when the engine could not read it: 0 MB used of 0 MB
+    // would be a claim.
+    memoryUsedMb: health.memoryUsedMb ?? undefined,
+    memoryTotalMb: health.memoryTotalMb ?? undefined,
+    hasGpuReading: health.gpuPercent != null || health.gpuMemoryTotalMb != null,
     summary: parts.length
       ? `${parts.join('; ')}.`
       : 'Everything is recording and being analysed.',
@@ -826,6 +843,12 @@ export async function getUsers(lang: Language): Promise<User[]> {
     email: u.email,
     lastActive: u.lastActive ? formatEventTime(u.lastActive, lang) : '—',
   }));
+}
+
+/** Change an account's role. The engine writes the audit entry first and
+ *  refuses (409, with the reason) to leave the site with no administrator. */
+export async function updateUserRole(id: string, role: W.User['role']): Promise<void> {
+  await patch<W.User>(`/users/${encodeURIComponent(id)}`, { role });
 }
 
 /* ---------- people directory ---------- */
@@ -1194,31 +1217,23 @@ export async function getRecording(
   );
 }
 
+/** No `actor`: the engine records the signed-in account from the session. */
 export async function startRecording(
   cameraId: string,
-  actor: string,
   lang: Language,
 ): Promise<RecordingResult> {
   return toRecordingResult(
-    await post<W.RecordingResult>(
-      `/cameras/${encodeURIComponent(cameraId)}/recording`,
-      undefined,
-      { actor },
-    ),
+    await post<W.RecordingResult>(`/cameras/${encodeURIComponent(cameraId)}/recording`),
     lang,
   );
 }
 
 export async function stopRecording(
   cameraId: string,
-  actor: string,
   lang: Language,
 ): Promise<RecordingResult> {
   return toRecordingResult(
-    await del<W.RecordingResult>(
-      `/cameras/${encodeURIComponent(cameraId)}/recording`,
-      { actor },
-    ),
+    await del<W.RecordingResult>(`/cameras/${encodeURIComponent(cameraId)}/recording`),
     lang,
   );
 }
@@ -1388,6 +1403,10 @@ export async function acknowledgeAttention(id: string): Promise<void> {
 /* ---------- settings ---------- */
 
 export const getSchoolProfile = () => get<W.SchoolProfile>('/settings/school');
+
+/** Admin only. Returns the profile as saved; a 422 carries the reason. */
+export const updateSiteSettings = (change: W.SiteSettingsUpdate) =>
+  patch<W.SchoolProfile>('/settings/site', change);
 
 /* ---------- alert delivery (spec 013) ----------
  *

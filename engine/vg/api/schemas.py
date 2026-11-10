@@ -884,6 +884,12 @@ class SystemHealth(Wire):
     #: Graphics memory in use / fitted, whole device, from the driver.
     gpu_memory_used_mb: float | None = None
     gpu_memory_total_mb: float | None = None
+    #: The machine's memory in use / fitted, whole numbers of MB, from the
+    #: operating system. On a board where the processor and the graphics
+    #: chip share one memory (the Jetson) this is the only memory figure
+    #: there is, and the page says it is shared. None when it cannot be read.
+    memory_used_mb: int | None = None
+    memory_total_mb: int | None = None
     #: This process's share of one second of processor time (can exceed
     #: 100 on a multi-core machine - it is a sum over cores).
     cpu_percent: float | None = None
@@ -1300,6 +1306,12 @@ class User(Wire):
     last_active: Instant | None = None
 
 
+class UserRoleUpdate(Wire):
+    """`PATCH /users/{id}`: the new role. Nothing else about an account changes here."""
+
+    role: Role
+
+
 class SchoolProfile(Wire):
     name: str
     hours_from: str
@@ -1308,6 +1320,25 @@ class SchoolProfile(Wire):
     term_to: str
     late_cutoff: str
     timezone: str
+    #: Python weekday numbers (Monday = 0), ascending. Saturday to Thursday by default.
+    working_days: list[int]
+
+
+class SiteSettingsUpdate(Wire):
+    """`PATCH /settings/site`: only what changed. Every field is optional.
+
+    Times are "HH:MM", dates "YYYY-MM-DD" (or "" to clear a term date). The
+    engine checks them together, against what is already saved, and answers
+    422 with the reason when they cannot work.
+    """
+
+    name: str | None = None
+    hours_from: str | None = None
+    hours_to: str | None = None
+    late_cutoff: str | None = None
+    term_from: str | None = None
+    term_to: str | None = None
+    working_days: list[int] | None = None
 
 
 # ---------------------------------------------------------------------------

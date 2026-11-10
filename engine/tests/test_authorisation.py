@@ -344,7 +344,9 @@ class TestAdminOnlyEndpoints:
         ("post", "/sources/dvr"),
         ("delete", "/sources/anything"),
         ("patch", "/zones/z1"),
-        ("post", "/cameras/c1/recording"),
+        # Recording left this list in spec 022: an IT account may start and
+        # stop one. Changing the camera itself is still refused:
+        ("patch", "/cameras/c1"),
     ])
     def test_it_support_is_refused(self, it_client, method, path):
         """403, not 401. They are signed in; this is simply not theirs."""
@@ -395,7 +397,7 @@ class TestAdminPathRule:
 
     @pytest.mark.parametrize("method", ["POST", "PATCH", "DELETE", "PUT"])
     def test_changing_cameras_and_zones_is_admin_only(self, method):
-        assert auth_deps.requires_admin(method, "/cameras/c1/recording")
+        assert auth_deps.requires_admin(method, "/cameras/c1")
         assert auth_deps.requires_admin(method, "/zones/z1")
 
     @pytest.mark.parametrize("method", ["POST", "PATCH", "DELETE", "PUT"])

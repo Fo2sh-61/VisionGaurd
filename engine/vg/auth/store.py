@@ -87,6 +87,14 @@ class EmailTaken(ValueError):
     """
 
 
+class LastAdmin(ValueError):
+    """The change would leave the system with no enabled administrator.
+
+    Distinct so the endpoint can answer 409 with a sentence, while an unknown
+    role (also a ValueError) stays a different failure. Safe to show a user.
+    """
+
+
 @dataclass(frozen=True)
 class User:
     """A person who can sign in. Never carries the password hash outward."""
@@ -100,6 +108,8 @@ class User:
     #: gate station is shared, and a browser-wide setting would hand the next
     #: guard on shift the previous guard's language.
     language: str = "en"
+    #: The last successful sign-in, if there ever was one.
+    last_login_at: datetime | None = None
 
     @property
     def is_admin(self) -> bool:
@@ -113,6 +123,15 @@ class User:
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _parse_time(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
 
 
 def _token_hash(token: str) -> str:
@@ -197,14 +216,50 @@ class UserStore:
     def users(self) -> list[User]:
         with self._lock:
             rows = self._conn.execute(
-                "SELECT id, email, name, role, disabled, language FROM app_user"
-                " ORDER BY name"
+                "SELECT id, email, name, role, disabled, language,"
+                " last_login_at FROM app_user ORDER BY name"
             ).fetchall()
         return [
             User(id=r["id"], email=r["email"], name=r["name"], role=r["role"],
-                 disabled=bool(r["disabled"]), language=r["language"])
+                 disabled=bool(r["disabled"]), language=r["language"],
+                 last_login_at=_parse_time(r["last_login_at"]))
             for r in rows
         ]
+
+    def set_role(self, user_id: str, role: str) -> User:
+        """Change an account's role.
+
+        `ValueError` for an unknown role, `KeyError` for an unknown account,
+        `LastAdmin` if this would leave no enabled administrator. The count
+        and the update happen under one lock hold, so two simultaneous
+        demotions cannot each see the other admin still standing. Nothing is
+        cached: `user_for_token` reads the role on every request, so the new
+        role applies from the next one.
+        """
+        if role not in ROLES:
+            raise ValueError(f"unknown role: {role!r}; expected one of {ROLES}")
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT id, email, name, role, disabled, language, last_login_at"
+                " FROM app_user WHERE id = ?", (user_id,)).fetchone()
+            if row is None:
+                raise KeyError(user_id)
+            if row["role"] == "admin" and role != "admin" and not row["disabled"]:
+                others = self._conn.execute(
+                    "SELECT COUNT(*) AS n FROM app_user"
+                    " WHERE role = 'admin' AND disabled = 0 AND id != ?",
+                    (user_id,)).fetchone()["n"]
+                if others == 0:
+                    raise LastAdmin(
+                        "This is the only administrator. Make someone else an "
+                        "administrator first.")
+            self._conn.execute("UPDATE app_user SET role = ? WHERE id = ?",
+                               (role, user_id))
+            self._conn.commit()
+        return User(id=row["id"], email=row["email"], name=row["name"],
+                    role=role, disabled=bool(row["disabled"]),
+                    language=row["language"],
+                    last_login_at=_parse_time(row["last_login_at"]))
 
     def count(self) -> int:
         with self._lock:

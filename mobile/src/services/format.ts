@@ -22,7 +22,7 @@ import type {
   Schedule,
 } from './wire';
 import type {
-  BoxColor, Camera, CameraZone, CapacityRowItem, DetectionBox, Stat, Tone,
+  BoxColor, Camera, CameraZone, CapacityRowItem, DetectionBox, PopulationLevel, Stat, Tone,
   WorkerLoadItem,
 } from '@/types';
 import { assetUrl } from './http';
@@ -181,6 +181,23 @@ export function formatDuration(seconds: number, lang: Language): string {
   const h = Math.floor(seconds / 3600);
   const m = Math.round((seconds % 3600) / 60);
   return translate(lang, 'time.hoursMinutes', { h, m: String(m).padStart(2, '0') });
+}
+
+/* ---------- population level ----------
+ *
+ *  Computed here, from the count and the capacity somebody set, so the engine
+ *  stays free of wording. With no capacity there is nothing to compare with,
+ *  and the answer is null: no level, no percentage. The thresholds are the
+ *  engine's own 0.7 and 0.9 for the warn and critical severities. */
+
+export function populationLevel(count: number, capacity: number | null | undefined): PopulationLevel | null {
+  if (!capacity || capacity <= 0) return null;
+  if (count <= 0) return 'empty';
+  const share = count / capacity;
+  if (share < 0.7) return 'quiet';
+  if (share < 0.9) return 'busy';
+  if (share <= 1) return 'near';
+  return 'over';
 }
 
 /* ---------- severity and tone ----------

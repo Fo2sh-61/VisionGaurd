@@ -2,10 +2,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAutoRun } from '@/app/useAutoRun';
 import { CamGrid } from '@/components/CamGrid';
-import { Card, CardHeader, DataNotice, Empty, Field, PageHeader, Select, Stats } from '@/components/ui';
+import { Badge, Card, CardHeader, DataNotice, Empty, Field, PageHeader, Select, Stats } from '@/components/ui';
 import { getCount } from '@/services/api';
 import { useChoice, usePlaces } from '@/app/useOptions';
-import type { CountArea, CountResult, CountWindow, Tone } from '@/types';
+import type { CountArea, CountResult, CountWindow, PopulationLevel, Tone } from '@/types';
 import { useCapability } from '@/app/CapabilityContext';
 import { useLanguage, useT } from '@/app/LanguageContext';
 import type { MessageKey } from '@/i18n';
@@ -21,6 +21,15 @@ const WINDOW_KEY: Record<CountWindow, MessageKey> = {
   'Right now': 'counting.window.now',
   'Today by hour': 'counting.window.todayByHour',
   'This week by day': 'counting.window.weekByDay',
+};
+
+/** How each level is drawn. A level exists only where a capacity was set. */
+const LEVEL_TONE: Record<PopulationLevel, Tone> = {
+  empty: 'neutral',
+  quiet: 'good',
+  busy: 'warn',
+  near: 'warn',
+  over: 'bad',
 };
 
 /** Colours for the per-area segments of a stacked bar. Distinct hues, not a
@@ -108,10 +117,15 @@ export function Counting() {
         <>
           <Card>
             <CardHeader title={result.heading} sub={result.sub} />
+            {result.level && (
+              <div style={{ marginBottom: 12 }}>
+                <Badge tone={LEVEL_TONE[result.level]}>{t(`counting.level.${result.level}` as const)}</Badge>
+              </div>
+            )}
             <Stats items={result.stats} />
 
             <div className="section-title" style={{ marginTop: 22, marginBottom: 12 }}>
-              Where those people are right now
+              {t('counting.plan')}
             </div>
             <CampusPlan areas={result.areas} />
 
@@ -125,13 +139,10 @@ export function Counting() {
                     so a measured segment is never confused with an invented
                     one sitting next to it in the same bar. */}
                 <div style={{ fontSize: 12.5, color: 'var(--tx2)', marginBottom: 12 }}>
-                  Each bar is split by area. Hover a segment for its number.
+                  {t('counting.barsNote')}
                 </div>
                 {result.bars.length === 0 ? (
-                  <Empty>
-                    Nothing recorded yet — headcount history starts from the moment the engine
-                    began running, so this fills in as the day goes on.
-                  </Empty>
+                  <Empty>{t('counting.barsEmpty')}</Empty>
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                     {result.bars.map((bar) => (
@@ -146,7 +157,10 @@ export function Counting() {
                             bar.parts.map((part, i) => (
                               <div
                                 key={part.name}
-                                title={`${part.name}: ${part.value}${part.live ? '' : ' (demo figure)'}`}
+                                title={t(part.live ? 'counting.segment' : 'counting.segmentDemo', {
+                                  name: part.name,
+                                  value: part.value,
+                                })}
                                 style={{
                                   width: `${(part.pct * bar.pct) / 100}%`,
                                   height: '100%',
@@ -326,22 +340,29 @@ function CampusPlan({ areas }: { areas: CountArea[] }) {
               {a.name}
               {!a.live && (
                 <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--am)', marginInlineStart: 8 }}>
-                  demo figure
+                  {t('counting.demoShort')}
                 </span>
               )}
             </span>
-            <div className="bar-track" style={{ flex: 'none', width: 96, height: 8 }}>
-              <div className="bar-fill" style={{ width: `${a.pct}%`, background: TONE_BORDER[a.tone] }} />
-            </div>
+            {/* A bar and a level mean "of a capacity". With none set there is
+                nothing to be a share of, so neither is drawn. */}
+            {a.level ? (
+              <>
+                <div className="bar-track" style={{ flex: 'none', width: 96, height: 8 }}>
+                  <div className="bar-fill" style={{ width: `${Math.min(a.pct, 100)}%`, background: TONE_BORDER[a.tone] }} />
+                </div>
+                <Badge tone={LEVEL_TONE[a.level]}>{t(`counting.level.${a.level}` as const)}</Badge>
+              </>
+            ) : (
+              <span style={{ fontSize: 11.5, color: 'var(--tx3)' }}>{t('counting.noCapacity')}</span>
+            )}
             <span style={{ width: 36, textAlign: 'end', fontSize: 13.5, fontWeight: 700, flexShrink: 0 }}>
               {a.value}
             </span>
           </div>
         ))}
         <div style={{ fontSize: 12.5, color: 'var(--tx3)', marginTop: 12, lineHeight: 1.45 }}>
-          Counts are how many people the cameras covering each area can see right now. Areas with
-          more than one camera are added together — a person standing where two cameras overlap is
-          counted twice, so treat those areas as an upper bound.
+          {t('counting.upperBound')}
         </div>
       </div>
     </div>

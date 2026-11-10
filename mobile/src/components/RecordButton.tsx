@@ -20,7 +20,6 @@
  *  explanation is the thing this whole change exists to remove. */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useAccount } from '@/app/AuthContext';
 import { useLanguage } from '@/app/LanguageContext';
 import { useCapability } from '@/app/CapabilityContext';
 import { getRecording, startRecording, stopRecording } from '@/services/api';
@@ -42,7 +41,6 @@ export function RecordButton({
   note?: string;
   disabled?: boolean;
 }) {
-  const account = useAccount();
   const { language } = useLanguage();
   const capability = useCapability('recording');
   const [recording, setRecording] = useState<Recording | null>(null);
@@ -90,8 +88,8 @@ export function RecordButton({
     setMessage(null);
     try {
       const result = running
-        ? await stopRecording(cameraId, account.name, language)
-        : await startRecording(cameraId, account.name, language);
+        ? await stopRecording(cameraId, language)
+        : await startRecording(cameraId, language);
 
       setRecording(result.recording);
       if (result.recording?.state === 'recording') {
@@ -114,7 +112,7 @@ export function RecordButton({
     } finally {
       setBusy(false);
     }
-  }, [account.name, cameraId, running]);
+  }, [cameraId, language, running]);
 
   const unavailable = capability !== null && capability.state !== 'live';
   const blocked = disabled || unavailable;

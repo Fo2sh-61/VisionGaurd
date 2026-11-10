@@ -27,10 +27,10 @@ const inputStyle = {
   width: '100%',
   height: 46,
   border: '1px solid var(--line)',
-  borderRadius: 11,
-  padding: '0 14px',
+  borderRadius: 10,
+  padding: '0 13px',
   fontSize: 14.5,
-  background: 'var(--card)',
+  background: 'var(--bg)',
   color: 'var(--tx)',
   outline: 'none',
   boxSizing: 'border-box',
@@ -166,15 +166,20 @@ export function Login() {
           }}
         >
           <Logo size={38} />
-          <div
-            style={{
-              fontWeight: 800,
-              fontSize: 22,
-              letterSpacing: '-.02em',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            VisionGuard <span style={{ fontWeight: 500, color: 'var(--tx3)' }}>AI</span>
+          <div>
+            <div
+              style={{
+                fontWeight: 700,
+                fontSize: 18,
+                letterSpacing: '-.01em',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              VisionGuard
+            </div>
+            {siteName && (
+              <div style={{ fontSize: 12, color: 'var(--tx3)', lineHeight: 1.2 }}>{siteName}</div>
+            )}
           </div>
         </div>
 
@@ -182,21 +187,15 @@ export function Login() {
           onSubmit={submit}
           style={{
             background: 'var(--card)',
-            borderRadius: 18,
-            padding: '34px 32px',
-            boxShadow: 'var(--sh)',
+            borderRadius: 16,
+            padding: '36px',
+            boxShadow: '0 14px 36px rgba(20, 30, 25, 0.16)',
           }}
         >
-          <div style={{ fontWeight: 700, fontSize: 17, marginBottom: siteName ? 0 : 22 }}>
+          {/* The site name sits beside the brand above, once. */}
+          <div style={{ fontWeight: 700, fontSize: 22, letterSpacing: '-.01em', marginBottom: 22 }}>
             {t(signingUp ? 'login.createAccountTitle' : 'login.signIn')}
           </div>
-          {/* No site name until a deployment sets one. The product name is
-              already above the card, so repeating it here says nothing. */}
-          {siteName && (
-            <div style={{ fontSize: 13.5, color: 'var(--tx2)', margin: '2px 0 22px' }}>
-              {siteName}
-            </div>
-          )}
 
           {signingUp && (
             <label style={{ display: 'block', marginBottom: 14 }}>
@@ -271,11 +270,11 @@ export function Login() {
               width: '100%',
               height: 48,
               border: 'none',
-              borderRadius: 12,
+              borderRadius: 10,
               background: 'var(--ac)',
               color: 'var(--on-ac)',
               fontSize: 15,
-              fontWeight: 600,
+              fontWeight: 700,
               cursor: busy || !ready ? 'not-allowed' : 'pointer',
               opacity: busy || !ready ? 0.6 : 1,
             }}

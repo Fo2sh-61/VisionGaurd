@@ -22,6 +22,9 @@ from datetime import date, datetime, time, timedelta, timezone
 from typing import Protocol
 
 from vg.api import schemas as S
+from vg.auth.deps import requires_admin
+from vg.config import HoursConfig
+from vg.settings_store import checked_changes, overlay
 
 log = logging.getLogger(__name__)
 
@@ -211,6 +214,7 @@ class Store(Protocol):
     def attention(self) -> list[S.AttentionItem]: ...
     def acknowledge(self, item_id: str, actor: str) -> S.AttentionItem | None: ...
     def school_profile(self) -> S.SchoolProfile: ...
+    def save_site_settings(self, actor: str, update: S.SiteSettingsUpdate) -> S.SchoolProfile: ...
 
     # -- alert delivery (spec 013) --
     #
@@ -255,6 +259,9 @@ class MockStore:
 
     def __init__(self, seed: int = 7) -> None:
         self._rng = random.Random(seed)
+        #: What a demo "save" on Settings keeps, over the demo's own hours.
+        self._site: dict = {}
+        self._seed_hours = HoursConfig(term_from="2025-09-01", term_to="2026-06-20")
         self._started = datetime.now(timezone.utc)
         self._zones = self._build_zones()
         self._breaches = self._build_breaches()
@@ -1179,6 +1186,9 @@ class MockStore:
                    role=S.Role.IT, last_active=at(8, 12)),
         ]
 
+    def set_user_role(self, actor: str, user_id: str, role: str) -> S.User:
+        raise SubsystemUnavailable("Accounts are not available in demo mode.")
+
     # -- attention / settings / audit ---------------------------------------
 
     def _build_attention(self) -> list[S.AttentionItem]:
@@ -1207,11 +1217,26 @@ class MockStore:
         return None
 
     def school_profile(self) -> S.SchoolProfile:
+        hours = overlay(self._seed_hours, self._site)
         return S.SchoolProfile(
-            name=SCHOOL_NAME, hours_from="07:30", hours_to="15:00",
-            term_from="2025-09-01", term_to="2026-06-20", late_cutoff="08:00",
-            timezone="Africa/Cairo",
+            name=self._site.get("name", SCHOOL_NAME),
+            hours_from=hours.start.strftime("%H:%M"),
+            hours_to=hours.end.strftime("%H:%M"),
+            term_from=hours.term_from, term_to=hours.term_to,
+            late_cutoff=hours.late_cutoff.strftime("%H:%M"),
+            timezone="Africa/Cairo", working_days=sorted(hours.working_days),
         )
+
+    def save_site_settings(self, actor: str,
+                           update: S.SiteSettingsUpdate) -> S.SchoolProfile:
+        """Held in memory, like everything else the demo store does."""
+        changes = checked_changes(
+            self._seed_hours, self._site,
+            update.model_dump(exclude_unset=True, exclude_none=True))
+        self._log(actor, "settings.site", "site settings",
+                  ", ".join(f"{k} -> {v}" for k, v in sorted(changes.items())))
+        self._site.update(changes)
+        return self.school_profile()
 
     # -- alert delivery (spec 013) --------------------------------------------
     #
@@ -1380,8 +1405,14 @@ class MockStore:
     # -----------------------------------------------------------------------
 
     def ask(self, question: str, actor: str,
-            parser: object | None = None) -> S.AskAnswer:
-        """Answer one question from one existing query, or say why not."""
+            parser: object | None = None, role: str = "admin") -> S.AskAnswer:
+        """Answer one question from one existing query, or say why not.
+
+        `role` is the asker's. A query whose `reads` path is admin-only under
+        `auth/deps.py` is refused to anyone else with `ask.adminsOnly`, so
+        the role rule stays decided in one place - the path table - and Ask
+        is not a way around it. The route always passes the session's role.
+        """
         from vg.api import notes
         from vg.ask import Dictionary, find, mask, unmask, unrecognised
         from vg.ask.mask import AMBIGUOUS
@@ -1435,6 +1466,14 @@ class MockStore:
             entry.detail = f"{entry.detail} -> unsupported"
             return answer(S.AskOutcome.UNSUPPORTED,
                           note=notes.note("ask.unsupported"))
+
+        # 3b. The same path rule the rest of the API obeys. Refused before any
+        #     parameter is resolved or any store method runs, and the audit
+        #     row above already records that it was asked.
+        if role != "admin" and requires_admin("GET", query.reads):
+            entry.detail = f"{entry.detail} -> {query.id} refused: admins only"
+            return answer(S.AskOutcome.UNSUPPORTED,
+                          note=notes.note("ask.adminsOnly"))
 
         # 4. Resolve placeholders back to real values, locally.
         params = unmask(dict(parsed.params), used)

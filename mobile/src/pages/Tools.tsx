@@ -1,9 +1,10 @@
 import { useNavigate } from 'react-router-dom';
+import { useAccount } from '@/app/AuthContext';
 import { useCapabilities } from '@/app/CapabilityContext';
 import { useT } from '@/app/LanguageContext';
 import { toolEntries } from '@/app/tabs';
 import { Icon } from '@/components/Icon';
-import type { NavEntry, NavSection } from '@/app/navigation';
+import type { NavEntry } from '@/app/navigation';
 
 /** The Tools tab (spec 015, P13-FR-048).
  *
@@ -26,20 +27,15 @@ import type { NavEntry, NavSection } from '@/app/navigation';
 const CAPABILITY_KEY: Partial<Record<NavEntry['id'], string>> = {
   attendance: 'attendance',
   counting: 'count',
-  'lost-items': 'search_lost',
-  track: 'track',
   intrusion: 'breaches',
-  weapons: 'weapons',
   vehicles: 'vehicles',
 };
-
-const SECTIONS: NavSection[] = ['ask', 'watch'];
 
 export function Tools() {
   const navigate = useNavigate();
   const t = useT();
   const { of } = useCapabilities();
-  const entries = toolEntries();
+  const entries = toolEntries(useAccount().role);
 
   return (
     <>
@@ -48,18 +44,13 @@ export function Tools() {
         <p className="lead">{t('mobile.tools.lead')}</p>
       </div>
 
-      {SECTIONS.map((section) => {
-        const items = entries.filter((entry) => entry.section === section);
-        if (items.length === 0) return null;
-        return (
-          <section key={section} className="stack" aria-labelledby={`tools-${section}`}>
-            <div className="sechead">
-              <h2 className="sechead__title" id={`tools-${section}`} style={{ margin: 0 }}>
-                {t(`nav.section.${section}`)}
-              </h2>
-            </div>
+      {/* One list: the console's sidebar has no group heading above its tools
+          either, since spec 022 collapsed ask / watch / manage. */}
+      {entries.length > 0 && (
+        <>
+          <section className="stack" aria-label={t('nav.tab.tools')}>
             <div className="list">
-              {items.map((entry) => {
+              {entries.map((entry) => {
                 const key = CAPABILITY_KEY[entry.id];
                 const capability = key ? of(key) : null;
                 const notLive = !!capability && capability.state !== 'live';
@@ -96,8 +87,8 @@ export function Tools() {
               })}
             </div>
           </section>
-        );
-      })}
+        </>
+      )}
     </>
   );
 }

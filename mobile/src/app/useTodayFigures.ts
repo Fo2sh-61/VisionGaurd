@@ -1,3 +1,4 @@
+import { useAccount } from '@/app/AuthContext';
 import { useCapability, type Capability } from '@/app/CapabilityContext';
 import { useLanguage } from '@/app/LanguageContext';
 import { useSite, useToday } from '@/app/SiteContext';
@@ -48,6 +49,9 @@ export function useTodayFigures(): TodayFigure[] {
   const { language, t } = useLanguage();
   const { error: engineError } = useSite();
   const today = useToday();
+  // Spec 022: attendance is administrator-only, and the engine refuses it to
+  // IT. Asking anyway would only show IT a figure that always says "failed".
+  const isAdmin = useAccount().role === 'admin';
   const group = useChoice(useGroupNames(), '');
   const place = useChoice(usePlaces(), '');
 
@@ -57,8 +61,8 @@ export function useTodayFigures(): TodayFigure[] {
   const breachesCap = useCapability('breaches');
 
   const attendance = useAsync(
-    () => (group ? getAttendance({ mode: 'group', group, date: today }, language) : Promise.resolve(null)),
-    [group, today, language], null, REFRESH_MS,
+    () => (isAdmin && group ? getAttendance({ mode: 'group', group, date: today }, language) : Promise.resolve(null)),
+    [isAdmin, group, today, language], null, REFRESH_MS,
   );
   const count = useAsync(
     () => (place ? getCount({ place, when: 'Right now' }, language) : Promise.resolve(null)),
@@ -166,5 +170,5 @@ export function useTodayFigures(): TodayFigure[] {
     to: '/intrusion',
   };
 
-  return [arrived, inView, carsIn, restricted];
+  return isAdmin ? [arrived, inView, carsIn, restricted] : [inView, carsIn, restricted];
 }

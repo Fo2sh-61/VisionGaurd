@@ -15,6 +15,7 @@
 
 import { NAV, type NavEntry } from '@/app/navigation';
 import type { MessageKey } from '@/i18n';
+import type { Role } from '@/types';
 import type { IconName } from '@/components/Icon';
 
 export type TabId = 'home' | 'cameras' | 'tools' | 'people' | 'more';
@@ -87,8 +88,11 @@ export function tabFor(pathname: string): TabId {
   return screenFor(pathname)?.tab ?? 'home';
 }
 
-/** The Tools tab's list: the console's `ask` and `watch` sections, in its
- *  order. `manage` is not here - People is a tab, the rest are under More. */
-export function toolEntries(): NavEntry[] {
-  return NAV.filter((entry) => entry.section === 'ask' || entry.section === 'watch');
+/** The Tools tab's list: the console's `main` section, in its order, without
+ *  People (a tab of its own). The `system` section is under More. An entry
+ *  with a `role` is left out for any other role, as in the console's sidebar:
+ *  the engine would refuse an IT account on Attendance anyway. */
+export function toolEntries(role: Role): NavEntry[] {
+  return NAV.filter((entry) => entry.section === 'main' && entry.id !== 'people'
+    && (!entry.role || entry.role === role));
 }

@@ -1,217 +1,282 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useAccount } from '@/app/AuthContext';
 import { useLanguage } from '@/app/LanguageContext';
 import { useTheme } from '@/app/ThemeContext';
+import { useToast } from '@/app/ToastContext';
 import { AlertSettingsCards } from '@/components/AlertSettings';
 import { Card, LoadError, PageHeader, Toggle } from '@/components/ui';
 import { LANGUAGES } from '@/i18n';
-import { getSchoolProfile, getZones } from '@/services/api';
+import { getSchoolProfile, updateSiteSettings } from '@/services/api';
 import { formatDayMonthYear } from '@/services/format';
-import type { SchoolProfile, Zone } from '@/types';
+import type { SchoolProfile, SiteSettingsUpdate } from '@/services/wire';
 
-const EMPTY_PROFILE: SchoolProfile = {
-  name: '',
-  hoursFrom: '',
-  hoursTo: '',
-  termFrom: '',
-  termTo: '',
-  cutoff: '',
-};
+/** Python weekday numbers (Monday is 0), in the order this site reads a week:
+ *  Saturday first. */
+const WEEK = [5, 6, 0, 1, 2, 3, 4] as const;
+const DAY_KEY = {
+  0: 'settings.day.0', 1: 'settings.day.1', 2: 'settings.day.2', 3: 'settings.day.3',
+  4: 'settings.day.4', 5: 'settings.day.5', 6: 'settings.day.6',
+} as const;
 
-function fmtTime(t: string) {
-  if (!t) return '';
-  const [h, m] = t.split(':');
-  const hour = Number(h);
-  const ap = hour >= 12 ? 'pm' : 'am';
-  const h12 = hour % 12 || 12;
-  return `${h12}:${m}${ap}`;
-}
-
-// Dates go through `format.ts` like every other rendered value. This was
-// `toLocaleDateString('en-US', …)`, which showed an Arabic reader an American
-// date - and an English one a format the rest of the console does not use.
-
-type ProfileKey = 'name' | 'hours' | 'term' | 'cutoff';
+type ProfileKey = 'name' | 'hours' | 'calendar' | 'cutoff';
 
 export function Settings() {
-  const navigate = useNavigate();
   const { dark, toggle } = useTheme();
+  const { language, setLanguage, t } = useLanguage();
+  const toast = useToast();
+  // A hint for what to draw. The engine refuses a non-administrator's write
+  // whatever this page shows.
+  const admin = useAccount().role === 'admin';
 
-  const [profile, setProfile] = useState<SchoolProfile>(EMPTY_PROFILE);
+  const [profile, setProfile] = useState<SchoolProfile | null>(null);
   const [editKey, setEditKey] = useState<ProfileKey | null>(null);
+  // What the open row is being changed to. Sent when the person presses Done.
+  const [draft, setDraft] = useState<SiteSettingsUpdate>({});
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
-  const [zones, setZones] = useState<Zone[]>([]);
-
-  // Independent reads. One failing must not blank the other, so each keeps
-  // its own reason and the page renders whatever did arrive. The alert cards
-  // load and save on their own (`AlertSettingsCards`).
   const [loadError, setLoadError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
-  const note = (what: string) => (error: unknown) =>
-    setLoadError(
-      `${what} could not be loaded: ${error instanceof Error ? error.message : 'the engine did not answer'}`,
-    );
 
   useEffect(() => {
     setLoadError(null);
-    void getSchoolProfile().then((p) =>
-      setProfile({
-        name: p.name,
-        hoursFrom: p.hoursFrom,
-        hoursTo: p.hoursTo,
-        termFrom: p.termFrom,
-        termTo: p.termTo,
-        cutoff: p.lateCutoff,
-      }),
-    ).catch(note('The school profile'));
-
-    // Zones are managed on the Intrusion page; this is a read-only summary, so
-    // both pages agree on the count.
-    void getZones().then(setZones).catch(note('The zone summary'));
+    void getSchoolProfile()
+      .then(setProfile)
+      .catch((error: unknown) =>
+        setLoadError(
+          t('settings.loadFailed', {
+            error: error instanceof Error ? error.message : t('settings.engineSilent'),
+          }),
+        ),
+      );
+    // `t` changes with the language only; the profile does not.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tick]);
 
-  const { language, setLanguage, t } = useLanguage();
+  /** Send a change; the engine answers with the profile as saved, or says why
+   *  not. Nothing is shown as saved until it has answered. */
+  async function save(change: SiteSettingsUpdate): Promise<boolean> {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      setProfile(await updateSiteSettings(change));
+      toast.show(t('settings.saved'));
+      return true;
+    } catch (error) {
+      setSaveError(
+        t('settings.saveFailed', {
+          reason: error instanceof Error ? error.message : t('common.engineRefused'),
+        }),
+      );
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }
 
-  const zonesPaused = zones.filter((z) => !z.enabled).length;
-  // "0 protected areas · all active" is a reassuring sentence to print when
-  // the request simply failed, so it is only printed when zones arrived.
-  const zoneSummary = zones.length === 0 && loadError
-    ? 'Zone summary unavailable — managed on the Intrusion page'
-    : `${zones.length} protected areas · ${
-        zonesPaused ? `${zonesPaused} paused` : 'all active'
-      } — managed on the Intrusion page, so there is one source of truth`;
+  function open(key: ProfileKey) {
+    setSaveError(null);
+    setDraft({});
+    setEditKey(key);
+  }
 
-  const profileRows: { key: ProfileKey; label: string; display: string }[] = [
-    { key: 'name', label: 'School name', display: profile.name },
-    {
-      key: 'hours',
-      label: 'School hours',
-      display: `${fmtTime(profile.hoursFrom)} – ${fmtTime(profile.hoursTo)}`,
-    },
-    {
-      key: 'term',
-      label: 'Term',
-      // Through the message catalogue rather than joined here, so the two
-      // dates are isolated from the Arabic around them. A range built with a
-      // bare dash reorders in right-to-left text and reads back to front -
-      // a term that appears to end before it starts.
-      display: t('settings.termRange', {
-        from: formatDayMonthYear(profile.termFrom, language),
-        to: formatDayMonthYear(profile.termTo, language),
-      }),
-    },
-    {
-      key: 'cutoff',
-      label: 'Attendance cut-off',
-      display: `${fmtTime(profile.cutoff)} — later arrivals count as late`,
-    },
-  ];
+  function cancel() {
+    setEditKey(null);
+    setDraft({});
+    setSaveError(null);
+  }
+
+  async function done() {
+    // Nothing changed: close without a request.
+    if (Object.keys(draft).length === 0) return cancel();
+    if (await save(draft)) cancel();
+  }
+
+  async function toggleDay(day: number) {
+    if (!profile) return;
+    const next = profile.workingDays.includes(day)
+      ? profile.workingDays.filter((d) => d !== day)
+      : [...profile.workingDays, day];
+    await save({ workingDays: next });
+  }
+
+  const time = (hhmm: string) => {
+    const [h, m] = hhmm.split(':').map(Number);
+    if (Number.isNaN(h) || Number.isNaN(m)) return hhmm;
+    return new Date(2000, 0, 1, h, m).toLocaleTimeString(language, {
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+  };
+
+  const rows: { key: ProfileKey; label: string; display: string }[] = profile
+    ? [
+        { key: 'name', label: t('settings.field.name'), display: profile.name },
+        {
+          key: 'hours',
+          label: t('settings.field.hours'),
+          display: t('settings.hoursRange', { from: time(profile.hoursFrom), to: time(profile.hoursTo) }),
+        },
+        {
+          key: 'calendar',
+          label: t('settings.field.calendar'),
+          // Through the message catalogue rather than joined here, so the two
+          // dates are isolated from the Arabic around them.
+          display: profile.termFrom && profile.termTo
+            ? t('settings.termRange', {
+                from: formatDayMonthYear(profile.termFrom, language),
+                to: formatDayMonthYear(profile.termTo, language),
+              })
+            : t('settings.calendarNotSet'),
+        },
+        {
+          key: 'cutoff',
+          label: t('settings.field.cutoff'),
+          display: t('settings.cutoffDisplay', { time: time(profile.lateCutoff) }),
+        },
+      ]
+    : [];
+
+  const timeInput = (
+    value: string,
+    field: 'hoursFrom' | 'hoursTo' | 'lateCutoff',
+    autoFocus = false,
+  ) => (
+    <input
+      className="edit-input"
+      type="time"
+      autoFocus={autoFocus}
+      defaultValue={value}
+      onChange={(e) => e.target.value && setDraft((d) => ({ ...d, [field]: e.target.value }))}
+    />
+  );
+
+  const dateInput = (
+    value: string,
+    field: 'termFrom' | 'termTo',
+    autoFocus = false,
+  ) => (
+    <input
+      className="edit-input"
+      type="date"
+      autoFocus={autoFocus}
+      defaultValue={value}
+      onChange={(e) => e.target.value && setDraft((d) => ({ ...d, [field]: e.target.value }))}
+    />
+  );
 
   return (
     <>
       <LoadError error={loadError} onRetry={() => setTick((n) => n + 1)} />
-      <PageHeader title="Settings" lead="Your school, your alerts, and how the console looks." />
+      <PageHeader title={t('settings.title')} lead={t('settings.lead')} />
 
       <Card>
-        <div style={{ fontWeight: 700, fontSize: 15 }}>School profile</div>
+        <div style={{ fontWeight: 700, fontSize: 15 }}>{t('settings.profile.title')}</div>
         <div style={{ fontSize: 13, color: 'var(--tx2)', margin: '2px 0 4px' }}>
-          Click a value to change it — edits save on their own.
+          {t(admin ? 'settings.profile.lead' : 'settings.profile.adminOnly')}
         </div>
+        {saveError && (
+          <div
+            role="alert"
+            style={{ fontSize: 13.5, color: 'var(--rd)', background: 'var(--rd-bg)', padding: '8px 14px', borderRadius: 10, margin: '8px 0' }}
+          >
+            {saveError}
+          </div>
+        )}
 
-        {profileRows.map((row) => (
+        {rows.map((row) => (
           <div key={row.key} className="edit-row">
             <span style={{ color: 'var(--tx2)' }}>{row.label}</span>
 
-            {editKey === row.key ? (
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            {editKey === row.key && profile ? (
+              <div
+                style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void done();
+                  if (e.key === 'Escape') cancel();
+                }}
+              >
                 {row.key === 'name' && (
                   <input
                     className="edit-input"
                     autoFocus
                     defaultValue={profile.name}
-                    onChange={(e) => setProfile((p) => ({ ...p, name: e.target.value }))}
-                    onKeyDown={(e) => (e.key === 'Enter' || e.key === 'Escape') && setEditKey(null)}
+                    onChange={(e) => setDraft({ name: e.target.value })}
                   />
                 )}
                 {row.key === 'hours' && (
                   <>
-                    <input
-                      className="edit-input"
-                      type="time"
-                      autoFocus
-                      defaultValue={profile.hoursFrom}
-                      onChange={(e) => e.target.value && setProfile((p) => ({ ...p, hoursFrom: e.target.value }))}
-                    />
-                    <span style={{ color: 'var(--tx3)', fontSize: 13 }}>to</span>
-                    <input
-                      className="edit-input"
-                      type="time"
-                      defaultValue={profile.hoursTo}
-                      onChange={(e) => e.target.value && setProfile((p) => ({ ...p, hoursTo: e.target.value }))}
-                    />
+                    {timeInput(profile.hoursFrom, 'hoursFrom', true)}
+                    <span style={{ color: 'var(--tx3)', fontSize: 13 }}>{t('settings.to')}</span>
+                    {timeInput(profile.hoursTo, 'hoursTo')}
                   </>
                 )}
-                {row.key === 'term' && (
+                {row.key === 'calendar' && (
                   <>
-                    <input
-                      className="edit-input"
-                      type="date"
-                      autoFocus
-                      defaultValue={profile.termFrom}
-                      onChange={(e) => e.target.value && setProfile((p) => ({ ...p, termFrom: e.target.value }))}
-                    />
-                    <span style={{ color: 'var(--tx3)', fontSize: 13 }}>to</span>
-                    <input
-                      className="edit-input"
-                      type="date"
-                      defaultValue={profile.termTo}
-                      onChange={(e) => e.target.value && setProfile((p) => ({ ...p, termTo: e.target.value }))}
-                    />
+                    {dateInput(profile.termFrom, 'termFrom', true)}
+                    <span style={{ color: 'var(--tx3)', fontSize: 13 }}>{t('settings.to')}</span>
+                    {dateInput(profile.termTo, 'termTo')}
                   </>
                 )}
-                {row.key === 'cutoff' && (
-                  <input
-                    className="edit-input"
-                    type="time"
-                    autoFocus
-                    defaultValue={profile.cutoff}
-                    onChange={(e) => e.target.value && setProfile((p) => ({ ...p, cutoff: e.target.value }))}
-                  />
-                )}
+                {row.key === 'cutoff' && timeInput(profile.lateCutoff, 'lateCutoff', true)}
               </div>
             ) : (
-              <span style={{ fontWeight: 600, cursor: 'pointer' }} onClick={() => setEditKey(row.key)}>
+              <span
+                style={{ fontWeight: 600, cursor: admin ? 'pointer' : 'default' }}
+                onClick={admin ? () => open(row.key) : undefined}
+              >
                 {row.display}
               </span>
             )}
 
-            <span
-              style={{ color: 'var(--ac)', fontWeight: 600, fontSize: 13, cursor: 'pointer', textAlign: 'end' }}
-              onClick={() => setEditKey(editKey === row.key ? null : row.key)}
-            >
-              {editKey === row.key ? 'Done' : 'Edit'}
-            </span>
+            {admin && (
+              <button
+                type="button"
+                className="linkbtn"
+                style={{ textAlign: 'end' }}
+                disabled={saving}
+                onClick={() => (editKey === row.key ? void done() : open(row.key))}
+              >
+                {t(editKey === row.key ? 'settings.done' : 'settings.edit')}
+              </button>
+            )}
           </div>
         ))}
+
+        {profile && (
+          <div className="edit-row">
+            <span style={{ color: 'var(--tx2)' }}>{t('settings.field.days')}</span>
+            <div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {WEEK.map((day) => {
+                  const on = profile.workingDays.includes(day);
+                  return (
+                    <button
+                      key={day}
+                      type="button"
+                      className={`chip-btn ${on ? 'chip-btn--on' : 'chip-btn--off'}`}
+                      aria-pressed={on}
+                      disabled={!admin || saving}
+                      onClick={() => void toggleDay(day)}
+                    >
+                      {t(DAY_KEY[day])}
+                    </button>
+                  );
+                })}
+              </div>
+              <div style={{ fontSize: 12.5, color: 'var(--tx3)', marginTop: 6 }}>
+                {t('settings.daysHint')}
+              </div>
+            </div>
+            <span />
+          </div>
+        )}
       </Card>
 
       <AlertSettingsCards />
 
-      <Card tight>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14 }}>
-          <div>
-            <div style={{ fontWeight: 700, fontSize: 15 }}>Detection zones</div>
-            <div style={{ fontSize: 13, color: 'var(--tx2)', marginTop: 2 }}>{zoneSummary}</div>
-          </div>
-          <button type="button" className="linkbtn" style={{ whiteSpace: 'nowrap' }} onClick={() => navigate('/intrusion')}>
-            {t('settings.manageOnRestricted')}{' '}
-            <span className="mirror-rtl" aria-hidden="true">→</span>
-          </button>
-        </div>
-      </Card>
-
       <Card>
-        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>Appearance &amp; language</div>
+        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>{t('settings.appearance.title')}</div>
         <div
           style={{
             display: 'flex',
@@ -223,12 +288,10 @@ export function Settings() {
           }}
         >
           <div>
-            <div style={{ fontWeight: 600, fontSize: 14 }}>Dark mode</div>
-            <div style={{ fontSize: 12.5, color: 'var(--tx2)' }}>
-              Easier on the eyes when the console is open all day.
-            </div>
+            <div style={{ fontWeight: 600, fontSize: 14 }}>{t('settings.dark')}</div>
+            <div style={{ fontSize: 12.5, color: 'var(--tx2)' }}>{t('settings.dark.lead')}</div>
           </div>
-          <Toggle on={dark} onToggle={toggle} label="Dark mode" />
+          <Toggle on={dark} onToggle={toggle} label={t('settings.dark')} />
         </div>
         <div
           style={{

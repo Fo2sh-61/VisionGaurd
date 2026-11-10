@@ -29,6 +29,10 @@
   --hover: rgba(255, 255, 255, 0.55);
   --toggle-off: #c3ccc4;
 
+  /* window chrome, and the dark picture frame cameras sit in (console v2) */
+  --chrome: #e4eae5;
+  --frame: #1b2420;
+
   /* detection-overlay colours (fixed — they read against the dark camera frame) */
   --det-green: #3ec776;
   --det-red: #e5564a;
@@ -61,6 +65,8 @@ body.dark {
   --on-ac: #10201a;
   --hover: rgba(255, 255, 255, 0.06);
   --toggle-off: #3c4a43;
+  --chrome: #111714;
+  --frame: #0d1210;
 
   color-scheme: dark;
 }

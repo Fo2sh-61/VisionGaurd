@@ -1,13 +1,26 @@
 import { useState, type KeyboardEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAccount } from '@/app/AuthContext';
-import { useT } from '@/app/LanguageContext';
+import { useCameras } from '@/app/CameraContext';
+import { useLanguage, useT } from '@/app/LanguageContext';
 import { homeTools, pathFor } from '@/app/navigation';
+import { usePlaces } from '@/app/useOptions';
+import { useToday } from '@/app/SiteContext';
+import { useToast } from '@/app/ToastContext';
+import { useAsync } from '@/app/useAsync';
+import { CameraFrame } from '@/components/CameraFrame';
+import { Plate } from '@/components/Plate';
 import { Badge } from '@/components/ui';
 import { ask } from '@/services/ask';
+import { getCount, getVehiclePasses } from '@/services/api';
 import { SUGGESTED_QUESTIONS } from '@/services/content';
+import { formatCount, formatEventTime } from '@/services/format';
+import { getNotArrivedCount } from '@/services/navBadges';
 import { useAttention } from '@/app/useAttention';
 import type { ToolId } from '@/types';
+
+/** The strip shows four cameras. More than that is the Cameras page's job. */
+const STRIP = 4;
 
 export function Home() {
   const t = useT();
@@ -18,7 +31,9 @@ export function Home() {
 
   const firstName = account.name.split(' ')[0];
   const { items: attention, acknowledge } = useAttention();
-  const tools = homeTools();
+  const toast = useToast();
+  // IT has no Attendance, so it has no Attendance card either.
+  const tools = homeTools().filter((tool) => tool.id !== 'attendance' || account.role === 'admin');
 
   function open(tool: ToolId, autoRun = true) {
     navigate(pathFor(tool), { state: { autoRun } });
@@ -107,7 +122,7 @@ export function Home() {
       )}
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 42 }}>
-        {SUGGESTED_QUESTIONS.map((q) => (
+        {SUGGESTED_QUESTIONS.filter((q) => q !== 'ask.q.absent' || account.role === 'admin').map((q) => (
           <button
             type="button"
             key={q}
@@ -173,7 +188,13 @@ export function Home() {
               </button>
               {/* Takes the item off Home under the signed-in name. It changes
                   nothing else: a knife still waits for its verdict. */}
-              <button type="button" className="linkbtn" onClick={() => void acknowledge(item.id)}>
+              <button
+                type="button"
+                className="linkbtn"
+                onClick={() => void acknowledge(item.id).then((done) => {
+                  if (done) toast.show(t('home.acknowledged'));
+                })}
+              >
                 {t('attention.acknowledge')}
               </button>
             </div>
@@ -182,7 +203,7 @@ export function Home() {
       </div>
 
       <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 12 }}>{t('home.tools')}</div>
-      <div className="grid-4" style={{ marginBottom: 0 }}>
+      <div className="grid-4" style={{ marginBottom: 42 }}>
         {tools.map((tool) => (
           <button
             type="button"
@@ -200,10 +221,112 @@ export function Home() {
             }}
           >
             <div style={{ fontWeight: 600, fontSize: 13.5 }}>{t(`nav.${tool.id}.label`)}</div>
-            <div style={{ fontSize: 12, color: 'var(--tx3)', marginTop: 2 }}>{t(`nav.${tool.id}.blurb`)}</div>
+            <FeatureValue tool={tool.id} />
           </button>
         ))}
       </div>
+
+      <CameraStrip />
+    </>
+  );
+}
+
+/** What one feature card says right now, from the engine's own answer.
+ *
+ *  Each card asks for itself and fails alone: one call failing prints
+ *  "Unavailable right now" on that card, never a 0 or an empty value. */
+function FeatureValue({ tool }: { tool: ToolId }) {
+  const t = useT();
+  const { language } = useLanguage();
+  const today = useToday();
+  // The site's first place is the whole site ("All"); the engine owns the name.
+  const allPlaces = usePlaces()[0];
+
+  const notArrived = useAsync<number | null>(
+    () => (tool === 'attendance' ? getNotArrivedCount(today) : Promise.resolve(null)),
+    [tool, today], null, 15_000);
+  const people = useAsync<number | null>(
+    async () => {
+      if (tool !== 'counting' || !allPlaces) return null;
+      const result = await getCount({ place: allPlaces, when: 'Right now' }, language);
+      // Only places a camera actually measured. A demo figure added into the
+      // total would put an invented number on Home.
+      const live = result.areas.filter((a) => a.live);
+      return live.length ? live.reduce((sum, a) => sum + a.value, 0) : null;
+    },
+    [tool, language, allPlaces], null, 15_000);
+  const lastPass = useAsync(
+    async () => (tool === 'vehicles' ? (await getVehiclePasses({ limit: 1 }))[0] ?? null : null),
+    [tool], null, 15_000);
+
+  const sub = { fontSize: 12, color: 'var(--tx3)', marginTop: 2 } as const;
+  const big = { fontSize: 20, fontWeight: 700, marginTop: 8 } as const;
+  const unavailable = <div style={sub}>{t('home.card.unavailable')}</div>;
+
+  if (tool === 'attendance') {
+    if (notArrived.loading && notArrived.data === null) return null;
+    if (notArrived.error || notArrived.data === null) return unavailable;
+    return <div style={big}>{t('home.card.notArrived', { count: formatCount(notArrived.data, language) })}</div>;
+  }
+  if (tool === 'counting') {
+    if (people.loading && people.data === null) return null;
+    if (people.error || people.data === null) return unavailable;
+    return (
+      <>
+        <div style={big}>{t('home.card.population', { count: formatCount(people.data, language) })}</div>
+        <div style={sub}>{t('home.card.populationSub')}</div>
+      </>
+    );
+  }
+  if (tool === 'vehicles') {
+    if (lastPass.error) return unavailable;
+    if (lastPass.loading && !lastPass.data) return null;
+    if (!lastPass.data) return <div style={sub}>{t('home.card.noPlate')}</div>;
+    return (
+      <>
+        <div style={{ marginTop: 8 }}><Plate display={lastPass.data.plateDisplay} compact /></div>
+        <div style={sub}>
+          {t('home.card.lastPlate')} · {formatEventTime(lastPass.data.at, language)}
+        </div>
+      </>
+    );
+  }
+  return null;
+}
+
+/** Up to four cameras that are up, as pictures. `detections={false}`: Home
+ *  shows a view, not who is in it, so no recognition box carrying a name is
+ *  fetched here. Snapshots, not a stream: four held-open streams would use
+ *  up the connections the browser allows this site. */
+function CameraStrip() {
+  const t = useT();
+  const navigate = useNavigate();
+  const { cameras, error, loading } = useCameras();
+  const up = cameras.filter((c) => !c.offline).slice(0, STRIP);
+
+  return (
+    <>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 12 }}>
+        <div style={{ fontWeight: 700, fontSize: 16 }}>{t('home.cameras.title')}</div>
+        {/* Spec 027 adds a Cameras page; until then, System health lists them. */}
+        <button type="button" className="linkbtn" onClick={() => navigate(pathFor('system'))}>
+          {t('home.cameras.all')} <span className="mirror-rtl" aria-hidden="true">→</span>
+        </button>
+      </div>
+      {up.length === 0 ? (
+        <div style={{ fontSize: 13.5, color: 'var(--tx3)' }}>
+          {t(error && !loading ? 'home.cameras.unavailable' : 'home.cameras.none')}
+        </div>
+      ) : (
+        <div className="grid-4">
+          {up.map((camera) => (
+            <div key={camera.id}>
+              <CameraFrame camera={camera} detections={false} badge={null} />
+              <div style={{ fontSize: 12.5, fontWeight: 600, marginTop: 6 }}>{camera.name}</div>
+            </div>
+          ))}
+        </div>
+      )}
     </>
   );
 }

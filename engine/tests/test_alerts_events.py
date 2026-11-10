@@ -873,6 +873,8 @@ class TestTheEngineWiresTheSender:
         assert {kw.arg: ast.unparse(kw.value) for kw in bind.keywords} == {
             "camera_name": "store._roster_name",
             "attendance_counts": "store._attendance_counts",
+            # The hours Settings saved, read at each tick (spec 022).
+            "hours": "store.hours",
         }
         assert "app.state.alerts.start" in names
         assert names.index("alerts.stop") < names.index("alerts_store.close_db")

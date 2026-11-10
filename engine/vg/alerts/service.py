@@ -81,7 +81,9 @@ class AlertService:
         self.store = store
         self.registry = registry
         self.clock = clock or clock_for(0)
-        #: `HoursConfig`, for the term dates the noon report needs.
+        #: Returns the `HoursConfig` in force now, for the term dates and the
+        #: working days the noon report needs. A callable, not a value, so a
+        #: save in Settings reaches the next tick without a restart.
         self.hours = hours
         self._senders = senders or (
             lambda channel: providers.for_channel(channel, config.timeout_seconds))
@@ -105,8 +107,11 @@ class AlertService:
     # -- lifecycle -----------------------------------------------------------
 
     def bind(self, *, camera_name: Callable[[str], str | None] | None = None,
-             attendance_counts: Callable[[str], Any] | None = None) -> None:
+             attendance_counts: Callable[[str], Any] | None = None,
+             hours: Callable[[], Any] | None = None) -> None:
         """What the sender needs from the rest of the engine, once it exists."""
+        if hours is not None:
+            self.hours = hours
         if camera_name is not None:
             self._camera_name = camera_name
         if attendance_counts is not None:
@@ -556,7 +561,7 @@ class AlertService:
         """The noon attendance report: once a school day, never twice, never late.
 
         Fires in `[report_time, report_time + 10 min)` site time on a school
-        day - Sunday to Thursday inside the term - when nothing is recorded
+        day - one of the working days inside the term - when nothing is recorded
         for today yet. The log is what makes "once" survive a restart. Past
         the window with nothing recorded, one `skipped: engine_down_at_noon`
         row per switched-on channel - but only when the sender started after
@@ -566,12 +571,14 @@ class AlertService:
         """
         if self.hours is None:
             return
+        hours = self.hours()
         local = self.clock.local(now)
         day = local.date()
         day_iso = day.isoformat()
         if self._report_day == day_iso:
             return
-        if not events.is_school_day(day, self.hours.term_from, self.hours.term_to):
+        if not events.is_school_day(day, hours.term_from, hours.term_to,
+                                    hours.working_days):
             self._report_day = day_iso
             return
         start = datetime.combine(day, self.config.report_time)

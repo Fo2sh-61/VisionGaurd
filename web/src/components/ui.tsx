@@ -276,3 +276,16 @@ export function StatusDot({ tone, children }: { tone: Tone; children: ReactNode 
     </span>
   );
 }
+
+/** The line that confirms a save, bottom-centre. Drawn by `ToastProvider`
+ *  (`app/ToastContext.tsx`); pages call `useToast().show(...)` rather than
+ *  render this themselves. Tone only picks the dot: a failure keeps its
+ *  inline notice on the page and does not come here. */
+export function Toast({ text, tone = 'good' }: { text: string; tone?: Tone }) {
+  return (
+    <div className="toast" role="status">
+      <span className="toast__dot" style={{ background: toneColors[tone].fg }} aria-hidden="true" />
+      {text}
+    </div>
+  );
+}

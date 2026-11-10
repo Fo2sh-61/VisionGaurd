@@ -34,6 +34,8 @@ function Frame() {
   const navigate = useNavigate();
   const t = useT();
   const chrome = usePageChrome();
+  const role = useAuth().account?.role;
+  const tabs = TABS.filter((tab) => tab.id !== 'people' || role === 'admin');
 
   // The phone scrolls a div inside a fixed viewport, not the window, so that
   // is what has to be sent back to the top on a new screen. Without this,
@@ -71,8 +73,11 @@ function Frame() {
 
       {/* The bar needs no `dir` handling: it is a grid, and the document's
           `dir` - set by LanguageContext - reverses the column order for free. */}
-      <nav className="tabbar">
-        {TABS.map((tab) => {
+      {/* People is administrator-only since spec 022; an IT account gets no
+          tab that would only send it back to Home. */}
+      <nav className="tabbar"
+           style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))` }}>
+        {tabs.map((tab) => {
           const on = active === tab.id;
           return (
             <button

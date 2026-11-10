@@ -106,7 +106,7 @@ export function Home() {
           </div>
         )}
         <div className="chips" style={{ margin: '0 -12px', padding: '2px 12px' }}>
-          {SUGGESTED_QUESTIONS.map((q) => (
+          {SUGGESTED_QUESTIONS.filter((q) => q !== 'ask.q.absent' || account.role === 'admin').map((q) => (
             <button
               type="button"
               key={q}

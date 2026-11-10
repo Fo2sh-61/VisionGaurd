@@ -66,7 +66,7 @@ numbers.
 - H.264 clips on Linux: copy `021-cloud-trial:engine/vg/ingest/encoder.py` (`PIPE_X264`, `_ffmpeg_candidates`, `_ffmpeg_with_x264`) and the matching `recorder.py` pipe handling if the diff has any.
 - Linux process handling (pid files, SIGINT, then kill): `021-cloud-trial:tools/cloud/stop.sh::stop_pid`.
 - A store on SQLite: `engine/vg/alerts/store.py` (`__init__` uses `db.connect(self.path)`).
-- Audit-first endpoints: `live.py::delete_vehicle_pass` (~L1836), whose docstring says "The audit entry is written first".
+- Audit-first endpoints: `live.py::delete_pass` (~L1828), which writes the audit entry first.
 - Test clients: `authed(app, role=…)`, `sign_in` and `bare_live_store` in `engine/tests/conftest.py`; `test_authorisation.py` for path rules.
 - Admin-only hint in the UI: `AlertSettings.tsx:122` (`useAccount().role === 'admin'`) and the `settings.alerts.adminOnly` key.
 

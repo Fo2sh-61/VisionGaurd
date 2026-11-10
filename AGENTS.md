@@ -142,6 +142,30 @@ the shortcuts with `.\tools\install-shortcut.ps1` (`-Mobile` for the phone
 app's); both icons are generated from `web/src/components/Logo.tsx` by
 `tools/make_icon.py`.
 
+### Starting on Ubuntu (Jetson)
+
+```bash
+./launch.sh                 # engine + the built console, in its own window
+./launch.sh --clip          # the labelled recording; --mock for fixtures
+./launch.sh --no-browser    # start it, open nothing
+tools/install-shortcut.sh   # menu entry + trusted Desktop icon (--remove undoes it)
+```
+
+`launch.sh` is `launch.ps1`'s counterpart. There is **no dev server**: the engine
+serves `web/dist` itself when `VG_CONSOLE_DIR` is set, so build once with
+`cd web && npm ci && npm run build`. The window is `chromium-browser --app`
+with its own profile under `$HOME` (the snap refuses one elsewhere); closing it
+stops the engine — SIGINT first, SIGKILL after 10 s, and `setpriv --pdeathsig
+KILL` if the launcher itself is killed. Errors show in `zenity`, else
+`notify-send`, else the terminal; the engine's log is
+`~/.local/state/visionguard/engine.log`. Clips are saved as H.264 through the
+`ffmpeg` program (`PIPE_X264`), because OpenCV's Linux wheel cannot.
+
+**The Jetson reached over SSH is a test bench only.** Do not install VisionGuard
+on it or connect to it from a task; the launcher is checked on the new board.
+On Windows nothing changes: `VG_CONSOLE_DIR` is unset and Media Foundation is
+still the first encoder.
+
 - **Debug against the recorded clip, not the webcam.** It is identical every run, locks no device, and has 21 labelled ground-truth points. Use the webcam only for final confirmation.
 - **Tests beat hot reload.** Write a test and run `pytest` — milliseconds, no server. Do not enable `--reload` on the engine; it orphans processes on Windows.
 - Check types with `npx tsc -b --force`, never `tsc --noEmit` (project references make it a silent no-op).

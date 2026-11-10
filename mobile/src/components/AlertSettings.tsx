@@ -202,7 +202,8 @@ export function AlertSettingsCards() {
         )}
         {saveError && <Notice>{saveError}</Notice>}
 
-        {s?.rules.map((rule) => (
+        {/* Knife detection is not part of v2 (spec 022, P14-FR-129). */}
+        {s?.rules.filter((rule) => rule.kind !== 'weapon').map((rule) => (
           <div key={rule.kind} style={{ padding: '13px 0', borderBottom: '1px solid var(--line)' }}>
             <div
               style={{

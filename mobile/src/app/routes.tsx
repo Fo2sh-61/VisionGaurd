@@ -102,7 +102,7 @@ export function AppRoutes() {
 
         {/* The Tools tab, and the seven screens behind it. */}
         <Route path="tools" element={<Tools />} />
-        <Route path="attendance" element={<Attendance />} />
+        <Route path="attendance" element={<RequireRole role="admin"><Attendance /></RequireRole>} />
         <Route path="counting" element={<Counting />} />
         <Route path="intrusion" element={<Intrusion />} />
         <Route path="weapons" element={<Weapons />} />
@@ -111,13 +111,13 @@ export function AppRoutes() {
         <Route path="track" element={<TrackPerson />} />
 
         {/* The People tab. Enrolment is admin-only, matching the console. */}
-        <Route path="people" element={<People />} />
+        <Route path="people" element={<RequireRole role="admin"><People /></RequireRole>} />
         <Route
           path="people/enrol"
           element={<RequireRole role="admin"><div className="legacy"><Enrol /></div></RequireRole>}
         />
-        <Route path="people/groups/:name" element={<PeopleGroup />} />
-        <Route path="people/history/:name" element={<PersonHistory />} />
+        <Route path="people/groups/:name" element={<RequireRole role="admin"><PeopleGroup /></RequireRole>} />
+        <Route path="people/history/:name" element={<RequireRole role="admin"><PersonHistory /></RequireRole>} />
 
         {/* The More tab. Camera setup is inside System health, not beside it. */}
         <Route path="more" element={<More />} />

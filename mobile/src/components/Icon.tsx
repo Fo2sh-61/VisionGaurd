@@ -1,4 +1,4 @@
-import { HOME_ICON, NAV } from '@/app/navigation';
+import { HOME_ICON, iconFor } from '@/app/navigation';
 import type { ToolId } from '@/types';
 
 /** The phone's stroked icons, 18 x 18, in the console's hand.
@@ -54,7 +54,7 @@ export function Icon({
   /** Arrows that mean "back" or "forward" point the other way in Arabic. */
   mirror?: boolean;
 }) {
-  const d = tool ? NAV.find((n) => n.id === tool)?.icon ?? '' : name ? PATHS[name] : '';
+  const d = tool ? iconFor(tool) : name ? PATHS[name] : '';
   return (
     <svg
       width={size}

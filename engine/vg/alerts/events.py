@@ -48,9 +48,6 @@ ALLOWED_FACTS: frozenset[str] = frozenset({
     "since",        # when an entry or an outage began
 })
 
-#: `date.weekday()` numbers for Sunday to Thursday - the Egyptian school week.
-SCHOOL_WEEKDAYS: frozenset[int] = frozenset({6, 0, 1, 2, 3})
-
 
 @dataclass(frozen=True)
 class GroupCount:
@@ -244,7 +241,11 @@ def report_state(day: date, term_from: str, term_to: str) -> str:
     return "scheduled"
 
 
-def is_school_day(day: date, term_from: str, term_to: str) -> bool:
-    """Sunday to Thursday, inside the term. No term dates: no school day."""
+def is_school_day(day: date, term_from: str, term_to: str,
+                  working_days: frozenset[int]) -> bool:
+    """One of the working days, inside the term. No term dates: no school day.
+
+    The days are Settings' (`HoursConfig.working_days`), not a constant here.
+    """
     return (report_state(day, term_from, term_to) == "scheduled"
-            and day.weekday() in SCHOOL_WEEKDAYS)
+            and day.weekday() in working_days)

@@ -18,6 +18,7 @@
 import { useState, type ReactNode } from 'react';
 import { useAccount } from '@/app/AuthContext';
 import { useLanguage } from '@/app/LanguageContext';
+import { useToast } from '@/app/ToastContext';
 import { useAsync } from '@/app/useAsync';
 import { Badge, Card, Empty, Field, Select, Toggle } from '@/components/ui';
 import {
@@ -120,6 +121,7 @@ export function AlertSettingsCards() {
   // A hint for what to show. The engine refuses a non-administrator's write
   // whatever this page draws.
   const admin = useAccount().role === 'admin';
+  const toast = useToast();
 
   const settings = useAsync<AlertSettings | null>(getAlertSettings, [], null);
   const log = useAsync<DeliveryLog | null>(() => getDeliveries(20), [], null, 10_000);
@@ -141,6 +143,8 @@ export function AlertSettingsCards() {
     setSaveError(null);
     try {
       await action();
+      // Success is a toast; a failure stays here as a notice with its reason.
+      toast.show(t('settings.alerts.saved'));
     } catch (error) {
       setSaveError(t('settings.alerts.saveFailed', { error: why(error) }));
     }
@@ -202,7 +206,9 @@ export function AlertSettingsCards() {
         )}
         {saveError && <Notice>{saveError}</Notice>}
 
-        {s?.rules.map((rule) => (
+        {/* Knife detection is not part of v2 (spec 022, P14-FR-129): no row,
+            even when demo data or an old config still carries the rule. */}
+        {s?.rules.filter((rule) => rule.kind !== 'weapon').map((rule) => (
           <div key={rule.kind} style={{ padding: '13px 0', borderBottom: '1px solid var(--line)' }}>
             <div
               style={{
@@ -348,6 +354,12 @@ export function AlertSettingsCards() {
                   onToggle={() => void save(() => updateRecipient(person.id, { enabled: !person.enabled }))}
                 />
               </div>
+            )}
+            {/* Read-only for IT: the state, in words, with no switch to press. */}
+            {!admin && (
+              <Badge tone={person.enabled ? 'good' : 'neutral'}>
+                {t(person.enabled ? 'settings.alerts.receiving' : 'settings.alerts.switchedOff')}
+              </Badge>
             )}
           </div>
         ))}
