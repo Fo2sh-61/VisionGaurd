@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link href="https://fonts.googleapis.com/css2?family=Albert+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<style>html,body{margin:0;background:#cdd3ce}a{color:#33705b}a:hover{color:#285948}</style>
+</helmet>
+<section style="padding:60px; display:flex; flex-direction:column; gap:24px; font-family:'Albert Sans', sans-serif; color:#1f2b26">
+  <div style="display:flex; flex-direction:column; gap:4px">
+    <div style="font-size:28px; font-weight:700">VisionGuard desktop console · Ubuntu</div>
+    <div style="font-size:16px; color:#57655d">Attendance, population, car plates, restricted zones and work stations. Language, theme, sign out live in the user menu; System health, Settings and Accounts too.</div>
+  </div>
+  <div style="display:flex; flex-wrap:wrap; gap:60px; align-items:flex-start">
+    <div id="1a" style="display:flex; flex-direction:column; gap:14px">
+      <div style="display:flex; align-items:center; gap:10px; font-size:17px; font-weight:600"><span style="background:#1f2b26; color:#fff; padding:2px 10px; border-radius:6px; font-size:14px">Admin</span>Mohamed Fouad · everything, including attendance, people, the vehicle register and accounts</div>
+      <div style="width:1440px; height:900px; border-radius:12px; box-shadow:0 30px 70px rgba(0,0,0,.28), 0 0 0 1px rgba(0,0,0,.12)">
+        <dc-import name="VisionGuard Console" variant="A" theme="light" lang="en" role="admin" style="width:1440px; height:900px" hint-size="1440px,900px"></dc-import>
+      </div>
+    </div>
+    <div id="it" style="display:flex; flex-direction:column; gap:14px">
+      <div style="display:flex; align-items:center; gap:10px; font-size:17px; font-weight:600"><span style="background:#57655d; color:#fff; padding:2px 10px; border-radius:6px; font-size:14px">IT</span>Youssef Hamdy · cameras, recorders and system health; reads gates, zones and stations; no attendance, people or accounts</div>
+      <div style="width:1440px; height:900px; border-radius:12px; box-shadow:0 30px 70px rgba(0,0,0,.28), 0 0 0 1px rgba(0,0,0,.12)">
+        <dc-import name="VisionGuard Console" variant="A" theme="light" lang="en" role="it" style="width:1440px; height:900px" hint-size="1440px,900px"></dc-import>
+      </div>
+    </div>
+  </div>
+</section>
+</x-dc>
+</body>
+</html>
