@@ -1166,6 +1166,12 @@ export interface VehiclePass {
    *  answer. A corrected row says so, and is not corrected again by the
    *  reader as the car approaches. */
   correctedBy: string | null;
+  /** How wide the plate was in the photograph, in pixels. Null on passes
+   *  recorded before this was kept: say "not recorded", never 0. */
+  plateWidth: number | null;
+  /** What the reader first saw, shown only when somebody changed it to
+   *  something different. */
+  readPlateDisplay: string | null;
 }
 
 export interface RegisteredVehicle {
@@ -1217,6 +1223,10 @@ export interface VehicleVisit {
   unit: string | null;
   category: string | null;
   inferred: boolean;
+  /** Who ended this visit by hand (marked Gone). Three different closings
+   *  exist and never share a label: observed exit, `inferred` (the car came
+   *  in again), and this. */
+  endedBy: string | null;
   /** The passes this visit was derived from, so a row can show its evidence.
    *  The snapshot flags are separate from the ids because an image is deleted
    *  at thirty days while its pass row is kept for ever — false means "no
@@ -1225,6 +1235,12 @@ export interface VehicleVisit {
   exitPassId: string | null;
   entryHasSnapshot: boolean;
   exitHasSnapshot: boolean;
+}
+
+export interface GoneResult {
+  ok: boolean;
+  /** False when the visit was no longer open. Not an error. */
+  changed: boolean;
 }
 
 export interface VehicleImportResult {

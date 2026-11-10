@@ -15,8 +15,9 @@
  *    entitled to know that before they click, not after.
  */
 
-import { type MutableRefObject, useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useLanguage, useT } from '@/app/LanguageContext';
+import { useToast } from '@/app/ToastContext';
 import type { MessageKey } from '@/i18n';
 import { Plate } from '@/components/Plate';
 import { Badge, Card, Empty, LoadError, Select } from '@/components/ui';
@@ -26,7 +27,7 @@ import {
 } from '@/services/api';
 import { apiBase } from '@/services/http';
 import {
-  formatCount, formatEventTime, vehicleCategoryTone,
+  canonicalPlate, foldDigits, formatCount, formatEventTime, vehicleCategoryTone,
 } from '@/services/format';
 import type * as W from '@/services/wire';
 import { useAsync } from '@/app/useAsync';
@@ -47,18 +48,43 @@ const EMPTY_FORM: W.VehicleRegistration = {
   carMake: '', carColour: '', validUntil: '', notes: '',
 };
 
+/** Somebody acting on a car elsewhere on the page: an alert's Add or Renew, or
+ *  a read's Add to blacklist. The form opens with the plate filled in.
+ *
+ *  `passId` is the alert to clear **after the form has saved**, never before.
+ *  `renew` focuses the expiry date. `category` pre-selects a category. */
+export interface RegisterPrefill {
+  plate: string;
+  category?: string;
+  passId?: string;
+  renew?: boolean;
+}
+
+/** A plate shown as "ب ج د ١٢٣٤" back into its two halves for the two inputs.
+ *  The number comes out in Western digits, which is what the engine keeps. */
+function splitPlate(text: string): { letters: string; number: string } {
+  const number = foldDigits(text).replace(/[^0-9]/g, '');
+  const letters = text.replace(/[0-9٠-٩۰-۹]/g, '').replace(/\s+/g, ' ').trim();
+  return { letters, number };
+}
+
 const inputStyle = {
   height: 42, border: '1px solid var(--line)', borderRadius: 10,
   padding: '0 12px', fontSize: 14, background: 'var(--card)',
   color: 'var(--tx)', outline: 'none', boxSizing: 'border-box' as const,
 };
 
-export function VehicleRegisterTab({ isAdmin, prefillPlate }: {
+export function VehicleRegisterTab({ isAdmin, prefill, onPrefillUsed, onSaved }: {
   isAdmin: boolean;
-  prefillPlate: MutableRefObject<string | null>;
+  prefill: RegisterPrefill | null;
+  /** Called once the prefill has been read, so it is not read again. */
+  onPrefillUsed: () => void;
+  /** The register saved. `passId` is the alert that sent the guard here. */
+  onSaved: (passId: string | undefined) => void;
 }) {
   const { language } = useLanguage();
   const t = useT();
+  const toast = useToast();
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('all');
   const [form, setForm] = useState<W.VehicleRegistration | null>(null);
@@ -66,6 +92,14 @@ export function VehicleRegisterTab({ isAdmin, prefillPlate }: {
   const [confirming, setConfirming] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  // The plate is two inputs, joined with a space on save: letters and number
+  // are separate halves of a plate and one box invites the wrong order.
+  const [letters, setLetters] = useState('');
+  const [number, setNumber] = useState('');
+  // The alert waiting on this form, and what to say about how it opened.
+  const [alertPass, setAlertPass] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const [focusDate, setFocusDate] = useState(false);
   const [imported, setImported] = useState<W.VehicleImportResult | null>(null);
   // The last import that actually ran, from the database. The design
   // draws "Last import: 2,140 rows · 6 skipped · 12 Aug" — that line is
@@ -78,28 +112,102 @@ export function VehicleRegisterTab({ isAdmin, prefillPlate }: {
   } = useAsync(() => getVehicleRegister(query, category), [query, category],
     NO_VEHICLES);
 
-  // A plate carried over from the Live tab's Register button. Read once and
-  // cleared, so switching tabs again does not reopen the form.
+  const alive = useRef(true);
   useEffect(() => {
-    if (prefillPlate.current) {
-      setForm({ ...EMPTY_FORM, plate: prefillPlate.current });
-      setEditing(null);
-      prefillPlate.current = null;
-    }
-  }, [prefillPlate]);
+    alive.current = true;
+    return () => { alive.current = false; };
+  }, []);
+
+  function openForm(vehicle: W.RegisteredVehicle | null, plate: string) {
+    const halves = splitPlate(vehicle ? vehicle.plateDisplay : plate);
+    setLetters(halves.letters);
+    setNumber(halves.number);
+    setEditing(vehicle?.id ?? null);
+    setProblem(null);
+    setForm(vehicle ? {
+      plate: vehicle.plateDisplay,
+      category: vehicle.category,
+      owner: vehicle.owner ?? '',
+      phone: vehicle.phone ?? '',
+      unit: vehicle.unit ?? '',
+      carMake: vehicle.carMake ?? '',
+      carColour: vehicle.carColour ?? '',
+      validUntil: vehicle.validUntil ?? '',
+      notes: vehicle.notes ?? '',
+    } : { ...EMPTY_FORM, plate });
+  }
+
+  /** The plate on the register, looked up by its exact canonical form. */
+  async function findOnRegister(plate: string): Promise<W.RegisteredVehicle | null> {
+    const wanted = canonicalPlate(plate);
+    const found = await getVehicleRegister(wanted);
+    return found.find((v) => canonicalPlate(v.plate) === wanted) ?? null;
+  }
+
+  // A car carried over from the Live tab. Read once and handed back, so
+  // switching tabs again does not reopen the form. A plate already on the
+  // register opens its EDIT form: adding it again would only be refused.
+  useEffect(() => {
+    if (!prefill) return;
+    const next = prefill;
+    onPrefillUsed();
+    setAlertPass(next.passId ?? null);
+    setFocusDate(Boolean(next.renew));
+    setNote(null);
+    void (async () => {
+      let existing: W.RegisteredVehicle | null = null;
+      let lookupFailed = false;
+      try {
+        existing = await findOnRegister(next.plate);
+      } catch {
+        lookupFailed = true;
+      }
+      if (!alive.current) return;
+      openForm(existing, next.plate);
+      if (next.category) {
+        setForm((now) => (now ? { ...now, category: next.category } : now));
+      }
+      setNote(lookupFailed ? t('register.prefillLookupFailed')
+        : existing ? t('register.prefillExists')
+          : t('register.prefillNew'));
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefill]);
+
+  function close() {
+    // Closing without saving leaves the alert where it was, and says so.
+    if (alertPass) setNote(t('register.alertKept'));
+    else setNote(null);
+    setAlertPass(null);
+    setForm(null);
+    setEditing(null);
+    setProblem(null);
+    setFocusDate(false);
+  }
 
   async function save() {
-    if (!form?.plate.trim()) {
+    const plate = `${letters.trim()} ${number.trim()}`.trim();
+    if (!form || !plate) {
       setProblem(t('register.needsPlate'));
       return;
     }
     setBusy(true);
     setProblem(null);
     try {
-      if (editing) await editVehicle(editing, form);
-      else await addVehicle(form);
+      if (!editing && await findOnRegister(plate)) {
+        setProblem(t('register.duplicate'));
+        return;
+      }
+      const body = { ...form, plate };
+      if (editing) await editVehicle(editing, body);
+      else await addVehicle(body);
+      const waiting = alertPass ?? undefined;
       setForm(null);
       setEditing(null);
+      setAlertPass(null);
+      setNote(null);
+      setFocusDate(false);
+      onSaved(waiting);
       // Re-read rather than patching in place: the canonical plate and the
       // expiry come from the engine, and inventing them here is how a page
       // shows a save that did not happen the way it thinks it did.
@@ -116,6 +224,7 @@ export function VehicleRegisterTab({ isAdmin, prefillPlate }: {
     setProblem(null);
     try {
       await removeVehicle(id);
+      toast.show(t('register.removedToast'));
       setConfirming(null);
       reload();
     } catch (err) {
@@ -141,7 +250,7 @@ export function VehicleRegisterTab({ isAdmin, prefillPlate }: {
   }
 
   const field = (key: keyof W.VehicleRegistration, label: string,
-                 placeholder = '', hint = '') => (
+                 placeholder = '', hint = '', autoFocus = false) => (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       <label style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--tx2)' }}>
         {label}
@@ -149,12 +258,9 @@ export function VehicleRegisterTab({ isAdmin, prefillPlate }: {
       <input
         value={(form?.[key] as string) ?? ''}
         placeholder={placeholder}
+        autoFocus={autoFocus}
         onChange={(e) => setForm({ ...form!, [key]: e.target.value })}
-        style={key === 'plate'
-          ? { ...inputStyle, direction: 'rtl', textAlign: 'center',
-              fontFamily: "'Noto Sans Arabic', sans-serif", fontSize: 15,
-              fontWeight: 700 }
-          : inputStyle}
+        style={inputStyle}
       />
       {hint && (
         <span style={{ fontSize: 11.5, color: 'var(--tx3)', lineHeight: 1.35 }}>
@@ -287,7 +393,7 @@ export function VehicleRegisterTab({ isAdmin, prefillPlate }: {
           {isAdmin && (
             <button
               type="button"
-              onClick={() => { setForm({ ...EMPTY_FORM }); setEditing(null); }}
+              onClick={() => { setNote(null); setAlertPass(null); openForm(null, ''); }}
               style={{
                 padding: '10px 17px', borderRadius: 10, border: 'none',
                 background: 'var(--ac)', color: 'var(--on-ac)',
@@ -299,6 +405,20 @@ export function VehicleRegisterTab({ isAdmin, prefillPlate }: {
             </button>
           )}
         </div>
+
+        {!isAdmin && (
+          <div style={{ fontSize: 12.5, color: 'var(--tx3)', marginBottom: 12 }}>
+            {t('gate.adminOnlyNote')}
+          </div>
+        )}
+
+        {note && !form && (
+          <div role="status" style={{
+            fontSize: 13, color: 'var(--am)', marginBottom: 12,
+          }}>
+            {note}
+          </div>
+        )}
 
         {/* One form for add and edit. A second form for editing is a second
             thing to keep in step, and they drift. */}
@@ -318,8 +438,39 @@ export function VehicleRegisterTab({ isAdmin, prefillPlate }: {
               display: 'grid', gap: 12,
               gridTemplateColumns: 'repeat(auto-fit,minmax(190px,1fr))',
             }}>
-              {field('plate', t('register.plate'), 'ب ج د ١٢٣٤',
-                t('register.plateHint'))}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <label style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--tx2)' }}>
+                  {t('register.plate')}
+                </label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input
+                    value={letters}
+                    aria-label={t('register.plateLetters')}
+                    placeholder="ب ج د"
+                    onChange={(e) => setLetters(e.target.value)}
+                    style={{
+                      ...inputStyle, flex: 1, minWidth: 0, direction: 'rtl',
+                      textAlign: 'center', fontFamily: "'Noto Sans Arabic', sans-serif",
+                      fontSize: 15, fontWeight: 700,
+                    }}
+                  />
+                  <input
+                    value={number}
+                    aria-label={t('register.plateNumber')}
+                    placeholder="1234"
+                    inputMode="numeric"
+                    dir="ltr"
+                    onChange={(e) => setNumber(e.target.value)}
+                    style={{
+                      ...inputStyle, width: 90, textAlign: 'center',
+                      fontSize: 15, fontWeight: 700,
+                    }}
+                  />
+                </div>
+                <span style={{ fontSize: 11.5, color: 'var(--tx3)', lineHeight: 1.35 }}>
+                  {t('register.plateHint')}
+                </span>
+              </div>
               {field('owner', t('register.owner'), t('register.ownerPlaceholder'))}
               {field('phone', t('register.phone'), t('register.phonePlaceholder'))}
               {field('unit', t('register.unit'), t('register.unitPlaceholder'))}
@@ -340,10 +491,20 @@ export function VehicleRegisterTab({ isAdmin, prefillPlate }: {
                 />
               </div>
               {field('validUntil', t('register.validUntil'), 'YYYY-MM-DD',
-                t('register.validUntilHint'))}
+                t('register.validUntilHint'), focusDate)}
               {field('carMake', t('register.carMake'), t('register.carMakePlaceholder'))}
               {field('carColour', t('register.colour'), t('register.colourPlaceholder'))}
             </div>
+            {note && (
+              <div role="status" style={{
+                marginTop: 12, fontSize: 13, color: 'var(--tx2)',
+              }}>
+                {note}
+                {focusDate && ` ${t('register.renewHint')}`}
+                {form.category === 'blacklist'
+                  && ` ${t('register.blacklistHint')}`}
+              </div>
+            )}
             <div style={{ marginTop: 12 }}>
               {field('notes', t('register.notes'), t('register.notesPlaceholder'))}
             </div>
@@ -373,7 +534,7 @@ export function VehicleRegisterTab({ isAdmin, prefillPlate }: {
               </button>
               <button
                 type="button"
-                onClick={() => { setForm(null); setEditing(null); setProblem(null); }}
+                onClick={close}
                 style={{
                   height: 42, padding: '0 18px', border: '1px solid var(--line)',
                   borderRadius: 10, background: 'var(--card)', color: 'var(--tx)',
@@ -441,18 +602,10 @@ export function VehicleRegisterTab({ isAdmin, prefillPlate }: {
                       type="button"
                       className="linkbtn"
                       onClick={() => {
-                        setEditing(vehicle.id);
-                        setForm({
-                          plate: vehicle.plateDisplay,
-                          category: vehicle.category,
-                          owner: vehicle.owner ?? '',
-                          phone: vehicle.phone ?? '',
-                          unit: vehicle.unit ?? '',
-                          carMake: vehicle.carMake ?? '',
-                          carColour: vehicle.carColour ?? '',
-                          validUntil: vehicle.validUntil ?? '',
-                          notes: vehicle.notes ?? '',
-                        });
+                        setNote(null);
+                        setAlertPass(null);
+                        setFocusDate(false);
+                        openForm(vehicle, vehicle.plateDisplay);
                       }}
                     >
                       Edit

@@ -482,6 +482,12 @@ export async function getVehiclePasses(
   filters: {
     limit?: number; plate?: string; gate?: number;
     direction?: string; status?: string; day?: string;
+    /** Owner or plate, either digit system. */
+    q?: string;
+    /** The last N days ending on `day` (or today). 1 to 31. */
+    days?: number;
+    /** `plate` must match the whole plate, not a part of it. */
+    exact?: boolean;
   } = {},
 ): Promise<W.VehiclePass[]> {
   const query = new URLSearchParams();
@@ -502,6 +508,16 @@ export async function getVehiclePasses(
  *  itself be deleted. */
 export async function deleteVehiclePass(id: string): Promise<void> {
   await del<{ ok: boolean }>(`/vehicles/passes/${encodeURIComponent(id)}`);
+}
+
+/** End a visit by hand: the car is not inside any more.
+ *
+ *  Open to a guard as well as an administrator. Not a deletion: the passes
+ *  stay, and the visit is closed as "ended by hand", apart from an observed
+ *  exit. `changed: false` means somebody already closed it. */
+export async function markVehicleGone(entryPassId: string): Promise<W.GoneResult> {
+  return post<W.GoneResult>(
+    `/vehicles/visits/${encodeURIComponent(entryPassId)}/gone`);
 }
 
 /** Gate cameras only. A camera with no gate number is not watching a gate. */
@@ -677,7 +693,7 @@ export async function getVehicleLastImport(): Promise<W.VehicleImportRun | null>
 export async function exportVehiclePasses(
   filters: {
     plate?: string; gate?: number; direction?: string; status?: string;
-    day?: string;
+    day?: string; q?: string;
   } = {},
 ): Promise<void> {
   const query: Record<string, string> = {};

@@ -71,6 +71,8 @@ class FeatureWorker(ABC, Generic[R]):
     # reading of now rather than an average of the afternoon; long enough
     # that a 2/sec camera has several frames in it.
     WINDOW_SECONDS = 5.0
+    #: Consecutive raising frames after which a camera counts as failing.
+    FAILING_AFTER = 5
 
     def __init__(
         self,
@@ -150,6 +152,14 @@ class FeatureWorker(ABC, Generic[R]):
         # 2026 while System Health said "all keeping up". Double underscore
         # for the same reason as `__load_window`: a subclass cannot take it.
         self.__died_on: set[str] = set()
+
+        # Cameras whose frames keep raising. `_run` catches each one so a
+        # single bad frame cannot kill the feature - which also means a model
+        # that fails EVERY frame (out of memory, a broken engine file) looks
+        # exactly like a camera that sees nothing. Camera -> (frames in a row
+        # that raised, the last error text). Cleared by one good frame.
+        # Double underscore, as above.
+        self.__failing: dict[str, tuple[int, str]] = {}
 
     # -- what a feature implements -----------------------------------------
 
@@ -288,10 +298,15 @@ class FeatureWorker(ABC, Generic[R]):
                 started = time.perf_counter()
                 try:
                     payload = self.analyse(frame)
-                except Exception:
+                except Exception as exc:
                     # One bad frame must not kill the feature for that camera.
                     log.exception("%s failed on %s", self.name, camera_id)
+                    with self._lock:
+                        run = self.__failing.get(camera_id, (0, ""))[0] + 1
+                        self.__failing[camera_id] = (run, str(exc)[:200])
                     continue
+                with self._lock:
+                    self.__failing.pop(camera_id, None)
                 total_ms = (time.perf_counter() - started) * 1000
                 shared_ms = take_borrowed_ms()
 
@@ -318,6 +333,7 @@ class FeatureWorker(ABC, Generic[R]):
             except Exception:
                 log.exception("%s failed closing %s", self.name, camera_id)
             with self._lock:
+                self.__failing.pop(camera_id, None)
                 self._subs.pop(camera_id, None)
                 if self._drop.get(camera_id) is dropped:
                     self._drop.pop(camera_id, None)
@@ -433,6 +449,9 @@ class FeatureWorker(ABC, Generic[R]):
             # Only cameras still served: one switched off since is not dead,
             # just no longer this worker's.
             died_on = sorted(c for c in self.__died_on if c in self.cameras)
+            # Five frames in a row is not a bad frame, it is a broken reader.
+            failing_on = {c: err for c, (run, err) in self.__failing.items()
+                          if run >= self.FAILING_AFTER and c in self.cameras}
 
         # Deepest queue and total drops across this worker's cameras. The
         # worst camera is the one worth naming: an average would hide a
@@ -471,4 +490,7 @@ class FeatureWorker(ABC, Generic[R]):
             # none has, so a reader can tell "none died" from a worker that
             # cannot say at all (the key is missing).
             "died_on": died_on,
+            # Cameras whose frames have raised FAILING_AFTER times running,
+            # with the last error text. Empty when none has.
+            "failing_on": failing_on,
         }

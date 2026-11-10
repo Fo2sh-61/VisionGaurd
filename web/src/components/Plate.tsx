@@ -30,9 +30,13 @@ interface PlateProps {
    *  Arabic; the Latin line is for an exported report and for searching from
    *  a keyboard that has no Arabic on it. On a dense live row it is noise. */
   latin?: boolean;
+  /** The big one, for a detail panel. */
+  large?: boolean;
 }
 
-export function Plate({ display, compact = false, latin = false }: PlateProps) {
+export function Plate({
+  display, compact = false, latin = false, large = false,
+}: PlateProps) {
   if (!display) {
     // A pass whose plate could not be read still happened, and the row still
     // has to render. An em-dash says "not read" without implying a value.
@@ -54,7 +58,7 @@ export function Plate({ display, compact = false, latin = false }: PlateProps) {
       <span
         style={{
           fontFamily: "'Noto Sans Arabic', sans-serif",
-          fontSize: compact ? 6.5 : 7,
+          fontSize: large ? 9 : compact ? 6.5 : 7,
           fontWeight: 700,
           color: '#57655d',
           textAlign: 'center',
@@ -69,11 +73,11 @@ export function Plate({ display, compact = false, latin = false }: PlateProps) {
       <span
         style={{
           fontFamily: "'Noto Sans Arabic', sans-serif",
-          fontSize: compact ? 12 : 13.5,
+          fontSize: large ? 24 : compact ? 12 : 13.5,
           fontWeight: 700,
           color: '#1f2b26',
           textAlign: 'center',
-          padding: compact ? '1px 7px 2px' : '1px 8px 2px',
+          padding: large ? '2px 14px 4px' : compact ? '1px 7px 2px' : '1px 8px 2px',
           direction: 'rtl',
           unicodeBidi: 'isolate',
           letterSpacing: '.05em',
@@ -90,7 +94,9 @@ export function Plate({ display, compact = false, latin = false }: PlateProps) {
   return (
     <span style={{ display: 'inline-block' }}>
       {chip}
-      <span style={{
+      {/* `dir="ltr"`: the Latin line is Latin in the Arabic console too, so
+          "B G D 1234" never reorders to "1234 D G B" (SC-008). */}
+      <span dir="ltr" style={{
         display: 'block', fontSize: 11, color: 'var(--tx3)', marginTop: 2,
         fontFamily: 'ui-monospace, Menlo, monospace', letterSpacing: '.02em',
       }}>

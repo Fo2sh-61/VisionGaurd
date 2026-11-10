@@ -1495,6 +1495,26 @@ class LiveStore(MockStore):
     def _vehicles_state(self) -> tuple[S.DataState, str | None]:
         """Whether plates are being read, and if not, exactly why not.
 
+        Everything `_vehicles_base_state` checks, plus a reader that is dead
+        or failing on every gate camera (spec 024).
+        """
+        state, reason = self._vehicles_base_state()
+        if state is not S.DataState.LIVE:
+            return state, reason
+        # A reader that raises on every frame, or whose thread died, is not
+        # reading. When that is true of EVERY gate camera there is nothing to
+        # count, so the counts go and the reason shows (never "0 cars").
+        trouble = self._plate_trouble()
+        gate_ids = [c.id for c in self._gate_cameras()]
+        if gate_ids and all(c in trouble for c in gate_ids):
+            return (S.DataState.UNAVAILABLE,
+                    "Plate reading is not working on any gate camera: "
+                    + self._trouble_sentence(gate_ids, trouble))
+        return S.DataState.LIVE, None
+
+    def _vehicles_base_state(self) -> tuple[S.DataState, str | None]:
+        """Whether plates are being read, and if not, exactly why not.
+
         Four different nothings, and an operator can act on only some of them:
         no gate camera is theirs to fix, a model that would not load is not.
         Collapsing them into one empty list is what makes a page look broken
@@ -1514,6 +1534,38 @@ class LiveStore(MockStore):
                     "The vehicle log is not available, so nothing can be "
                     "shown even though the gate cameras are being watched.")
         return S.DataState.LIVE, None
+
+    def _plate_trouble(self) -> dict[str, str]:
+        """Gate cameras whose plate reader is dead or failing, with why.
+
+        Camera id -> a short plain reason. From the worker's own counters:
+        `died_on` (its thread ended) and `failing_on` (every frame raises, for
+        instance when the board is out of memory). Never raises: a worker that
+        cannot describe itself simply reports no trouble here, and
+        `_vehicles_stage` already says "could not report its counters".
+        """
+        stats = self._stats_of(self.vehicles_worker)
+        trouble: dict[str, str] = {}
+        for camera_id in self._died_on(stats):
+            trouble[camera_id] = "the plate reader stopped"
+        failing = (stats or {}).get("failing_on")
+        if isinstance(failing, dict):
+            for camera_id, error in failing.items():
+                text = str(error or "").strip()
+                if "out of memory" in text.lower():
+                    trouble[str(camera_id)] = "the plate reader ran out of memory"
+                else:
+                    trouble[str(camera_id)] = (
+                        "the plate reader keeps failing"
+                        + (f" ({text})" if text else ""))
+        return trouble
+
+    def _trouble_sentence(self, camera_ids: list[str],
+                          trouble: dict[str, str]) -> str:
+        """"Gate A: it ran out of memory; Gate B: ..." for the page."""
+        names = {c.id: c.name for c in self._gate_cameras()}
+        return "; ".join(f"{names.get(c, c)}: {trouble[c]}"
+                         for c in camera_ids if c in trouble) + "."
 
     def vehicle_summary(self) -> S.GateSummary:
         """The six Live tiles.
@@ -1568,11 +1620,23 @@ class LiveStore(MockStore):
         """
         cameras = self._gate_cameras()
         down: list[str] = []
+        trouble = self._plate_trouble()
+        broken: list[str] = []
         for camera in cameras:
             worker = self.registry.worker(camera.id) if self.registry else None
             if worker is None or worker.status != "ok":
                 direction = camera.direction or "gate"
                 down.append(f"{camera.name} ({direction})")
+            elif camera.id in trouble:
+                # Streaming fine, but its plate reader is not reading.
+                broken.append(camera.id)
+
+        if broken:
+            note = ("Plates are not being read: "
+                    + self._trouble_sentence(broken, trouble))
+            if down:
+                note += f" {', '.join(down)} offline."
+            return len(cameras) - len(down) - len(broken), len(cameras), note
 
         if not down:
             return len(cameras), len(cameras), None
@@ -1647,8 +1711,19 @@ class LiveStore(MockStore):
             return []
         limit = int(filters.pop("limit", 100) or 100)
         day = filters.pop("day", "")
+        days = filters.pop("days", None)
+        # `exact` is a flag, so False must reach the store as False; the
+        # filter below only drops None and "".
         applied = {k: v for k, v in filters.items() if v not in (None, "")}
-        if day:
+        if days:
+            # A window of `days` days ending at the end of `day` (or today).
+            # `days` with no `day` means today; no `days` and no `day` still
+            # means all time, which other callers (Ask links) rely on.
+            first = date.fromisoformat(day) if day else self._site_today()
+            first -= timedelta(days=int(days) - 1)
+            applied["since"] = self._day_bounds(first.isoformat())[0]
+            applied["until"] = self._day_bounds(day)[1]
+        elif day:
             applied["since"], applied["until"] = self._day_bounds(day)
         records = self.vehicle_store.passes(limit=limit, **applied)
         return [self._to_wire_pass(p) for p in records]
@@ -1670,6 +1745,13 @@ class LiveStore(MockStore):
             unit=record.unit,
             has_snapshot=record.has_snapshot,
             corrected_by=record.corrected_by,
+            plate_width=record.plate_width,
+            # What the reader read, only once a person changed it to something
+            # else. A correction equal to the reading says nothing new.
+            read_plate_display=(
+                platetext.display(record.read_plate)
+                if record.corrected_by and record.read_plate
+                and record.read_plate != record.plate else None),
         )
 
     def vehicle_cameras(self) -> list[S.CameraView]:
@@ -1785,6 +1867,7 @@ class LiveStore(MockStore):
             unit=visit.unit,
             category=visit.category,
             inferred=visit.inferred,
+            ended_by=visit.ended_by,
         )
 
     def vehicle_gates(self, day: str = "") -> list[S.GateTotals]:
@@ -1865,6 +1948,30 @@ class LiveStore(MockStore):
                   f"{record.direction} at gate {record.gate}, "
                   f"read {record.confidence:.2f} over {record.votes} frames")
         return store.delete_pass(pass_id)
+
+    def mark_gone(self, entry_pass_id: str, actor: str) -> S.GoneResult:
+        """A person says this car has gone: close its open visit by hand.
+
+        KeyError when there is no such pass or it is an exit (an exit has no
+        visit of its own to end). `changed` is false when the visit was no
+        longer open - the car left meanwhile - which is an answer, not an error.
+
+        **The audit entry goes first**, naming the plate, the entry time and
+        the gate; the mark is the change it describes. A visit that is no
+        longer open is not marked and not logged: nothing happened, so no
+        entry claims it did.
+        """
+        store = self._need_register()
+        record = store.pass_by_id(entry_pass_id)
+        if record is None or record.direction != "entry":
+            raise KeyError(entry_pass_id)
+        if not store.is_open(entry_pass_id):
+            return S.GoneResult(ok=True, changed=False)
+        self._log(actor, "vehicle.visit.gone", record.plate,
+                  f"entered {record.at.isoformat()} at gate {record.gate}, "
+                  "marked as gone by hand")
+        return S.GoneResult(ok=True,
+                            changed=store.end_visit(entry_pass_id, actor))
 
     def plate_alphabet(self) -> S.PlateAlphabet:
         """What a plate may contain, and what the reader mixes up.
@@ -3755,7 +3862,10 @@ class LiveStore(MockStore):
         The reason is the same sentence the capability gives, so the page and
         System Health cannot disagree about whether plates are being read.
         """
-        state, reason = self._vehicles_state()
+        # The base state, not the one with trouble folded in: a dead or failing
+        # reader gets its own, more specific row further down, which is the
+        # row this stage has always shown for a stopped thread.
+        state, reason = self._vehicles_base_state()
         if state is not S.DataState.LIVE:
             return S.PipelineStage(
                 key="vehicles", name="Plate reading",
@@ -3774,6 +3884,16 @@ class LiveStore(MockStore):
                                       "no plates are read")
         if stopped is not None:
             return stopped
+        failing = self._plate_trouble()
+        if failing:
+            # Alive but failing every frame: never shown as running.
+            return S.PipelineStage(
+                key="vehicles", name="Plate reading",
+                detail=("Failing on "
+                        + self._trouble_sentence(sorted(failing), failing)
+                        + " No plates are read there."),
+                healthy=False, severity=S.Severity.CRITICAL, restartable=False,
+            )
         reader = getattr(self.vehicles_worker, "reader", None)
         detail = (f"{self._running_on(reader)} - {stats['cameras']} camera(s), "
                   f"{stats['last_inference_ms']}ms last inference")

@@ -59,17 +59,20 @@ function AlertRow({ alert, isAdmin, onResolve, onDismiss, linkedRef }: {
         {formatClock(alert.at)}
       </span>
 
-      {/* No action button on a blacklisted car: there is nothing the console
-          can do about a car that has already driven in, and a button that
-          implied otherwise would be a dead control. Acting on the other two
-          means writing the register, which stays admin-only — the server
-          refuses it regardless of what this draws. */}
+      {/* A blacklisted car has the dismissal and nothing else: there is
+          nothing the console can do about a car that has already driven in,
+          and a button that implied otherwise would be a dead control. Acting
+          on the other two means writing the register, which stays
+          admin-only — the server refuses it regardless of what this draws. */}
       {action && isAdmin && (
         <button
           type="button"
           className="chip-btn"
           disabled={busy}
-          onClick={() => { setBusy(true); onResolve(alert); }}
+          // Only opens the register form. The alert stays until the form
+          // has actually saved: dismissing here recorded "acted on" for
+          // somebody who then closed the form and did nothing.
+          onClick={() => onResolve(alert)}
           style={{
             fontSize: 12.5, fontWeight: 600, color: 'var(--on-ac)',
             cursor: 'pointer', padding: '8px 14px', borderRadius: 9,
@@ -169,7 +172,7 @@ export function VehicleAlerts({ isAdmin, onRegister }: {
             key={alert.passId}
             alert={alert}
             isAdmin={isAdmin}
-            onResolve={(a) => { onRegister(a); void clear(a, true); }}
+            onResolve={(a) => onRegister(a)}
             onDismiss={(a) => { void clear(a, false); }}
             linkedRef={alert.passId === linked.id ? linked.ref : undefined}
           />

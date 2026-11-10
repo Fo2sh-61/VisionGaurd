@@ -2027,6 +2027,12 @@ class VehiclePass(Wire):
     #: answer. Shown on the row so a corrected reading is visibly a person's
     #: judgement rather than the model's, and so nobody re-corrects it.
     corrected_by: str | None = None
+    #: How wide the plate was in the photograph, in pixels: how good a look the
+    #: reader had. None for a pass recorded before this was kept - never 0.
+    plate_width: int | None = None
+    #: What the reader itself read, shown only when a person corrected the
+    #: plate to something different. None otherwise.
+    read_plate_display: str | None = None
 
 
 class RegisteredVehicle(Wire):
@@ -2139,6 +2145,17 @@ class VehicleVisit(Wire):
     exit_pass_id: str | None = None
     entry_has_snapshot: bool = False
     exit_has_snapshot: bool = False
+    #: Who ended this visit by hand ("this car is gone"). Three closings never
+    #: share a label: observed exit, `inferred`, and this.
+    ended_by: str | None = None
+
+
+class GoneResult(Wire):
+    """What pressing "Gone" did. `changed` is false when the visit was no
+    longer open (the car left meanwhile): not an error, the page reloads."""
+
+    ok: bool
+    changed: bool
 
 
 class VehicleImportResult(Wire):
