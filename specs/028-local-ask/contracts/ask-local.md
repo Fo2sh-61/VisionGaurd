@@ -45,7 +45,8 @@ payload (rule 7). `sent_off_site` is always `""`.
 
 1. Look up the ref in the ledger. If it is missing → 200 with
    `cause=expired_ref`.
-2. Check the caller may run `query_id`. If not → 403.
+2. Check the caller may reach the ref's `permission_path`: the query's
+   `reads`, or `/path/legs` for a past moment on a named camera. If not → 403.
 3. `_log(actor, "ask.clip", camera_name, f"{moment} ±{clip_seconds}s from {audit_id}")`.
    **This is written before anything is fetched or returned.**
 4. A saved clip returns `{kind:"saved", url}`. A recorder clip submits a plain
@@ -61,6 +62,7 @@ payload (rule 7). `sent_off_site` is always `""`.
 | Method | Path | Does |
 |---|---|---|
 | GET | `/ask/examples?state=` | the list, newest first |
+| POST | `/ask/examples/preview` | body `{question}` → `AskCorrectionPreview` (masked text, possible names) |
 | POST | `/ask/examples` | body `AskCorrection` → 201 `AskExample`, or 409 `AskExampleRefused` |
 | POST | `/ask/examples/{id}/approve` | suggested → active, or 409 if the guard fails |
 | DELETE | `/ask/examples/{id}` | → removed (kept in history) |

@@ -19,6 +19,8 @@ Rules:
 - `value` is the canonical spelling, because `_ask_unresolvable` matches
   places and groups by exact casefold.
 - Two places matched in one question: needs_detail. The lexicon never picks one.
+- `gate` is sent as the gate **number** in a string. `menu._run_passes` does
+  `int(p["gate"])`, so a gate name would fail as needs_detail.
 - Video and live words are removed from the model's text, so "وريني" does not
   pull every question towards the same examples.
 
@@ -48,7 +50,7 @@ __refuse__:
 | added_by, added_at | TEXT | the account; site-local instant |
 | approved_by, approved_at | TEXT NULL | set when suggested becomes active |
 | removed_by, removed_at | TEXT NULL | |
-| from_audit | TEXT NULL | the audit id of the question it came from |
+| asked_at | TEXT NULL | when the original question was asked. Audit ids restart at `a1` after every restart (in-memory audit), so they are not stored as a link |
 
 State changes:
 - `admin` correction → `active` at once. It is refused if the guard fails.
@@ -60,8 +62,11 @@ State changes:
 ## 3. Ledger (in memory, bounded)
 
 ```
-LedgerEntry(audit_id, actor, role, query_id, at, refs: {clip_ref: ClipTarget})
-ClipTarget(camera_id, camera_name, moment, saved_url | None)
+LedgerEntry(audit_id, actor, role, at, masked_text, query_id, params,
+            choices: [AskChoice] | None,          # set for a CHOOSE answer
+            refs: {clip_ref: ClipTarget})
+ClipTarget(camera_id, camera_name, moment, saved_url | None,
+           permission_path)                       # the query's reads, or /path/legs for a past camera moment
 ```
 
 It holds the last 500 entries, oldest dropped first. It is lost on restart, and
@@ -75,6 +80,8 @@ an unknown ref gives an honest note (`ask.clip.expired_ref`), never a 500.
 ```
 AskChoice      { query: str, params: dict[str,str] }               # one button
 AskRow         + clip_ref: str | None                             # only where the query declares clips
+AttendanceDay  + camera_id: str | None                            # the clip needs an id; today only `location`
+VehiclePass    + camera_id: str | None                            # today only gate / gate_name
 AskAnswer      + choices: list[AskChoice] = []                    # exactly 2 when outcome=choose
                + live_camera_id: str | None                       # set when outcome=live
                + wants_video: bool = False                        # client fetches row 0 at once
@@ -90,13 +97,19 @@ AskClipCause   no_archive | unreachable | not_yet | expired | not_recorded | no_
 
 AskExample     { id, query, text, state, source, added_by, added_at,
                  approved_by?, approved_at?, removed_by?, removed_at? }
-AskCorrection  { question: str, query: str }
+AskCorrection  { question: str, query: str, confirmed_words: list[str] = [] }
+                 # confirmed_words: possible-name words the admin says are ordinary
+AskCorrectionPreview { masked: str, possible_names: list[str] }   # 200 from POST /ask/examples/preview
 AskExampleRefused { breaks: str, wanted: str, would_get: str }    # 409 body
 ```
 
-`AskState` (System Health) adds `accuracy: Fraction | None` and
-`measured_on: date | None`, read from the evidence file the corpus tool writes.
-None means "not measured on this site yet".
+System Health: there is no `AskState` type. The existing tuple
+`_ask_state() -> (DataState, reason)` feeds `S.Capability`, and a new
+`_ask_stage()` returns an `S.PipelineStage` (copying `_weapons_stage`). Its
+`detail` names the model copy (fp32 or int8) and the device, plus the last
+measured accuracy and date from the evidence file the corpus tool writes, or
+"not measured on this site yet". Uncalibrated thresholds put the capability
+in `UNAVAILABLE` with the reason "not calibrated yet".
 
 ## 5. Note codes
 
@@ -121,9 +134,9 @@ ask:
   model: models/ask/model.onnx          # path now, not a Gemini id
   tokenizer: models/ask/tokenizer.json
   examples: engine/data/ask/examples.yaml
-  floor: 0.0          # set by ask_calibrate.py from the tuning part
-  margin: 0.0
-  refuse_floor: 0.0
+  floor: null         # set by ask_calibrate.py from the tuning part.
+  margin: null        # null = not calibrated: Ask reports itself unavailable
+  refuse_floor: null  # rather than answering everything confidently
   clip_seconds: 10    # each side of the moment
 archive:
   # existing keys unchanged, plus:

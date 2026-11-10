@@ -55,10 +55,11 @@ plays.
    expired or was never recorded, **When** a clip is asked for, **Then** Ask
    says which of these it is in plain words. The button never spins forever and
    never fails silently.
-7. **Given** a feature that is switched off on this site (knife, lost bag or
-   tracking under console v2), **When** a question about it is asked, **Then**
-   Ask says the feature is switched off on this site. It does not say "nothing
-   found" and does not answer with another query.
+7. **Given** a feature that no camera on this site runs (for example lost
+   bag), **When** a question about it is asked, **Then** Ask says the feature
+   is switched off on this site. It does not say "nothing found" and does not
+   answer with another query. Knife questions under console v2 get the plain
+   refusal instead (P15-FR-021).
 8. **Given** nobody is asking anything, **When** the cameras are running,
    **Then** Ask does no work at all.
 9. **Given** Ask understood "مين اللي اتزوغ من تالتة ب" as the wrong query,
@@ -81,9 +82,9 @@ plays.
 - **The recorder is fine but the moment is only seconds old.** The recording
   may not be readable yet. Ask says the footage is not available yet, not
   that it does not exist.
-- **A row has a time but no camera, or a camera but no time** (a gate total, a
-  directory entry). It gets no "watch clip" button. The button is never shown
-  disabled.
+- **A row whose query has no footage behind it** (a gate total, a directory
+  entry, a health row) gets no "watch clip" button, even if it shows a camera
+  and a time. The button is never shown disabled.
 - **A video word with nothing to show** ("وريني الفيديو" on an empty result).
   Ask shows the empty result as it is and fetches nothing.
 - **A date word Ask does not know** ("أول امبارح العصر"). If it cannot place
@@ -160,13 +161,16 @@ unless a line below replaces it.
 - **P15-FR-012**: Ask MUST learn from use without training. A learned
   question becomes one more example for its query and takes effect from the
   next question. It MUST be stored masked: names, plates and dates are
-  replaced by placeholders (decided 10 Nov 2026).
+  replaced by placeholders (decided 10 Nov 2026). A word that could be a name
+  the site does not know MUST be shown to the administrator before the
+  example is kept, and MUST be replaced by a placeholder unless the
+  administrator confirms it is an ordinary word.
 
 ### Learning from use
 
 - **P15-FR-022**: An administrator MUST be able to mark any answered question
-  as misunderstood and choose the right query. That question becomes a
-  learned example straight away.
+  as misunderstood, right from the answer, and choose the right query. That
+  question becomes a learned example straight away.
 - **P15-FR-023**: An operator's choice on a "did you mean" button MUST be kept
   as a *suggested* example. It becomes a learned example only once an
   administrator approves it. Operators can teach, but they cannot change Ask
@@ -186,11 +190,14 @@ unless a line below replaces it.
 
 ### Clips
 
-- **P15-FR-013**: Every answer row with both a camera and a time MUST offer
-  "watch clip". A row without both MUST NOT show the button at all.
+- **P15-FR-013**: Every answer row of a query that has footage behind it
+  (breaches, weapons, attendance, a person's path, vehicle passes, a past
+  moment on a named camera) MUST offer "watch clip". Each query declares this
+  itself. Any other row MUST NOT show the button at all.
 - **P15-FR-014**: Rows that already have a saved clip (breaches, weapons) MUST
   play that clip. Every other row MUST get a clip from the recorder, from about
-  10 s before that moment to 10 s after it.
+  10 s before that moment to 10 s after it. The clip MAY arrive in short
+  pieces, so playback starts before the whole span has been fetched.
 - **P15-FR-015**: Fetching from the recorder MUST work for any camera and any
   time the recorder holds, not only for tracking legs. Opening the recorder up
   this way MUST NOT change how tracking uses it.
@@ -201,18 +208,23 @@ unless a line below replaces it.
   span, which question it came from) **before** the clip plays.
 - **P15-FR-018**: When a clip cannot be shown, Ask MUST give the real reason:
   the recorder is unreachable, the footage has expired, it was never recorded,
-  it is not available yet, or the clip queue is full. It MUST NOT show a dead
-  button or a spinner that never ends.
+  it is not available yet, or the clip queue is full. "Expired" and "never
+  recorded" MUST be told apart only when the site's recorder retention is
+  known; otherwise Ask MUST say the recorder has no video for that moment and
+  that it cannot tell why. It MUST NOT show a dead button or a spinner that
+  never ends.
 - **P15-FR-019**: A clip MUST be shown only to an account allowed to run the
-  query that produced the row, decided server-side as today. Ask MUST fetch
-  only a moment it offered itself; it is not a way to pull any camera at any
-  time.
+  query that produced the row, decided server-side as today. A past moment on
+  a named camera needs the same permission as browsing recorded footage on
+  the Track page. Ask MUST fetch only a moment it offered itself, so it never
+  gives an account more footage than it could already reach.
 - **P15-FR-020**: A question asking to see a camera or place with no past
   time ("وريني كاميرا البوابة دلوقتي") MUST open that camera's live view, as
-  the console already shows it. This is one new menu entry that reads no data
-  and does no calculation (decided 10 Nov 2026). With a past time, the same
-  question gets that moment's clip (P15-FR-014). An offline or forbidden
-  camera gets the same honest state the camera page shows.
+  the console already shows it, without names or boxes. This is one new menu
+  entry that reads only the camera list and does no calculation (decided 10
+  Nov 2026). With a past time, the same question gets that moment's clip
+  (P15-FR-014). An offline or forbidden camera gets the same honest state the
+  camera page shows.
 
 ### Honest about what is switched off
 
@@ -259,7 +271,9 @@ unless a line below replaces it.
 - Writing answers with a model. P12-FR-003 still holds: every sentence comes
   from the console's own wording.
 - New queries or calculations. The one exception is the live-view entry in
-  P15-FR-020, which reads no data.
+  P15-FR-020, which reads only the camera list.
+- Changing what any existing query returns. "Today" and "yesterday" keep the
+  windows the pages already use.
 - Learning that changes a model's weights. Learning only adds examples.
 - Searching footage for things ("find the red bag in yesterday's video").
   Clips are fetched for a known camera and moment only.
@@ -295,35 +309,40 @@ unless a line below replaces it.
   that it does not slow the cameras while it answers. If the model fails to
   load, only Ask is affected, and the UI says so.
 - **Settled rules.** The owner supplies the model. It is never downloaded,
-  trained or sourced by us. The `.engine` file is built on the Jetson.
+  trained or sourced by us. Any converted copy of it (int8 or `.engine`) is
+  built on the Jetson from his file.
 
 ## Assumptions
 
 - **The meaning model is multilingual-e5-small** (MIT licence, about 118 million
-  parameters, Arabic supported, checked on Hugging Face). Mohamed supplies
-  `onnx/model.onnx` (about 470 MB) and `onnx/tokenizer.json` (about 17 MB) into
-  `models/ask/`. On the Jetson it runs as a half-precision engine built on the
-  board. The 500 MB in SC-005 is a starting budget, to be challenged once
+  parameters, Arabic supported, checked on Hugging Face). Mohamed supplied
+  `onnx/model.onnx` (448 MiB) and `onnx/tokenizer.json` (16 MiB) into
+  `models/ask/` on 10 Nov 2026. **How it runs on the Jetson is pending
+  decision D2 in the plan**: on the processor (recommended, likely as an int8
+  copy made on the board to fit 500 MB), or as a half-precision engine on the
+  GPU. The 500 MB in SC-005 is a starting budget, to be challenged once
   measured.
-- **The fourteen menu entries from spec 010 stay as they are, plus live view
-  (P15-FR-020).** Each has about 15 example questions, written first and then
+- **The menu entries from spec 010 stay as they are, plus live view
+  (P15-FR-020).** That is 14 on `Fo2sh`, or 13 once console v2 removes knife
+  (pending decision D1). Each has about 15 example questions, written first and then
   corrected by Mohamed.
 - **Operators' "did you mean" choices wait for approval** before they teach
   Ask (P15-FR-023), because one mis-click by a guard should not change the
   answers for everybody. Challenge this if approving them is too much work.
-- **The model files are downloaded by Mohamed on his own machine.** This
-  session's network cannot reach Hugging Face, and the 470 MB file cannot go
-  through git. `models/ask/` is ignored by git for that reason.
+- **The model files are downloaded by Mohamed on his own machine** (done 10
+  Nov 2026). The 448 MiB file cannot go through git. `models/ask/` is ignored by git for that reason.
 - **The archive's `dvr` backend is the recorder** for clips. On a development
   machine the `footage` backend stands in, so clips are testable without a
   recorder.
 - **±10 s** is the default clip span, adjustable in configuration.
 - **A clip is a plain recording**, with no outlines drawn on it. Tracking's
   outlined chunks stay as they are.
-- **Who may watch a clip:** anyone allowed to see the row and that camera live.
-  No new role.
+- **Who may watch a clip:** anyone allowed to run the query behind the row
+  (P15-FR-019). No new role.
 - **The test set is new and separate** from spec 010's 37 questions. Those 37
-  stay in it.
+  stay in it. Like spec 010's corpus, it uses its own made-up roster of names
+  and plates, so no real child's name is ever in git, and the learning check
+  can run on any site.
 - **System Health shows Ask's last measured accuracy** and its date, or
   "not measured on this site yet". It does not claim a figure nobody measured.
 - **"No camera runs it" is what "switched off" means.** The engine already

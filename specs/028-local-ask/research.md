@@ -29,15 +29,17 @@ it is. Pending his approval.
   that moves can move the top match.
 
 **Memory is the risk, not speed.** The FP32 file is 448 MiB (measured on
-Mohamed's download), and runtime overhead comes on top, so 500 MB is tight.
-The fallback, in order:
-1. Measure resident memory on the board.
-2. If it is over budget, make an int8 copy *on the board from his file*
-   (`onnxruntime.quantization.quantize_dynamic`). The vocabulary table becomes
+Mohamed's download), and runtime overhead comes on top, so it will almost
+certainly break 500 MB. The plan, in order:
+1. On the board, make an int8 copy from his file
+   (`onnxruntime.quantization.quantize_dynamic`, which needs `onnx`, already
+   in requirements). Both the vocabulary lookup and the layer weights become
    1 byte per number: about 120 MB. This is a build output, like an
    `.engine`, never a downloaded model.
-3. Keep the int8 copy only if it routes every tuning question identically
-   to FP32.
+2. Keep it only if it routes every tuning question identically to FP32.
+   FP32 stays the reference and the fallback.
+3. Measure resident memory for whichever copy is kept, then re-run the
+   scoring part on that copy.
 
 **Alternatives considered**
 - *TensorRT FP16 on the board.* Rejected for the first step because it needs
@@ -87,13 +89,16 @@ examples cover every student and every day.
 
 ## 4. Date words
 
-**Decision**: `when.py` maps words in all four scripts to the windows the app
-already uses, with site-local midnights from the same clock as
-`weapon_window()` (`app.py`).
+**Decision**: `when.py` maps words in all four scripts to the **existing**
+window tokens and `@today` and dates, unchanged. Ask must keep showing the
+same figure the page shows (spec 010 SC-001), so it does not redefine a
+window.
 
-**Trap found**: `menu.WINDOWS["yesterday"] = 2` is a rolling two days, but
-`weapon_window` uses the calendar day. "Yesterday" must mean the calendar day
-everywhere, and the fix lands in one place.
+**Inconsistency found, not fixed here**: `menu.WINDOWS` treats "today" (1
+day) and "yesterday" (2 days) as rolling periods, while `app.py::weapon_window`
+uses calendar days from the site's local midnight. Whether "today" means "since
+midnight" or "the last 24 hours" is a product decision for the pages
+themselves, not for Ask. It is raised separately.
 
 An unknown date word ("أول امبارح العصر") produces needs_detail asking which
 day. It never silently falls back to today.
@@ -109,6 +114,13 @@ The learning guard (P15-FR-024) uses the tuning part.
 times (thresholds, guard and score), which makes 95% an overfitted number.
 
 ## 6. Clips: their own lane in the existing archive
+
+**Playback speed**: `DvrBackend.fetch` runs ffmpeg `-t {span}` against an RTSP
+playback URL. Most recorders stream playback in real time, so a 20 s clip
+takes 20 s or more. The Ask lane uses 5 s pieces and plays from the first,
+and its timeout covers connecting plus the first piece, not the whole span.
+Whether the site's recorder plays back faster than real time is measured,
+not assumed.
 
 **Decision**: reuse `ArchiveRunner` and its backends with `plain=True` and
 `lane="ask"`.
@@ -159,9 +171,9 @@ entry for every change, written first.
 - The `sent_off_site` **field stays on the wire and is always `""`**. Removing
   it would be a schema change for no gain, and P15-FR-002 asks it to read
   empty.
-- `AskConfig.model` and `timeout_seconds`: an old `engine.yaml` that still has
-  them must load with a clear warning, not a crash. They are accepted and
-  ignored for one release.
+- `AskConfig.model` now means the path to the model file. An old Gemini
+  value (no `.onnx`) loads with a warning and falls back to the default path.
+  `timeout_seconds` is accepted and ignored for one release.
 
 ## 10. Open, to be measured on the board (not decidable by reading)
 

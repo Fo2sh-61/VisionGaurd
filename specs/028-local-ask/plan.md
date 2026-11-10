@@ -43,7 +43,7 @@ he decides.
 | # | Question | Recommended | Why |
 |---|---|---|---|
 | D1 | Build 028 on top of console v2 (`console-v2-jetson`), not on `Fo2sh`? | **Yes. Implement after v2 merges.** | v2 already rewrites Ask's foundations: 13 menu entries (knife removed), role checks per query, the signed-in account as the audit actor, and new admin paths. Building 028 on Fo2sh rebuilds all of that and then conflicts with it. v2 is 7 commits and 126 files ahead. |
-| D2 | Run the meaning model with **onnxruntime on the processor** instead of a TensorRT half-precision engine? | **Yes, with one measured fallback.** | One question costs about 1–2 billion operations, which takes tens of milliseconds on the processor, and the processor is only busy when someone asks. The GPU stays fully with the cameras (SC-006). The repo has no TensorRT code for anything except YOLO, and its own plate measurements showed half precision changing answers. **If the 470 MB model breaks the 500 MB budget on the board**, a smaller int8 copy is made *on the board from his file* (nothing downloaded) and kept only if it routes the tuning set identically. TensorRT stays a later option behind the same seam. This changes one spec assumption. |
+| D2 | Run the meaning model with **onnxruntime on the processor** instead of a TensorRT half-precision engine? | **Yes, as an int8 copy made on the board.** | One question costs about 1–2 billion operations, which takes tens of milliseconds on the processor, and the processor is only busy when someone asks. The GPU stays fully with the cameras (SC-006). The repo has no TensorRT code for anything except YOLO, and its own plate measurements showed half precision changing answers. **The 448 MiB file plus runtime overhead will almost certainly break the 500 MB budget**, so the planned default is an int8 copy (about 120 MB) made *on the board from his file*, with nothing downloaded. It is kept only if it routes the tuning set identically to his FP32 file, which stays the reference. TensorRT stays a later option behind the same seam. This changes one spec assumption, now marked pending in the spec. |
 | D3 | Knife questions under v2: plain refusal (P14-FR-129) instead of "switched off"? | **Yes.** Already written into P15-FR-021. | v2 says knife has no Ask answer at all. Lost bag and tracking keep their engines, so "switched off" applies to them only when no camera runs them. |
 
 ## Technical Context
@@ -155,16 +155,21 @@ engine/vg/auth/deps.py  # + "/ask/examples" in ADMIN_PREFIXES
 engine/vg/config.py     # AskConfig: model paths, thresholds; archive: ask-lane keys
 engine/tools/ask_corpus.py    # rewritten: local, offline, scores params + both parts
 engine/tools/ask_calibrate.py # NEW: prints thresholds from the tuning part
+engine/tools/ask_quantize.py  # NEW: makes the int8 copy on the board, checks it routes identically
+engine/tools/measure_ask.py   # NEW: SC-004/005/006 on the board, writes evidence
+docs/PLAN.md                  # + the P15 phase (after P14 lands with console v2)
 engine/tests/test_ask.py      # updated (Gemini tests out, local seam in)
 engine/tests/test_ask_local.py   # NEW: lexicon, when, matcher, examples, clips
 engine/requirements.txt       # + onnxruntime, tokenizers; − google-genai
 
 web/src/  and  mobile/src/    # both apps
-├── components/AskAnswer.tsx  # NEW: understood line, rows, clip, did-you-mean, live
+├── components/AskAnswer.tsx  # NEW: understood line, rows, clip, did-you-mean, live,
+│                             #      and (admin) "understood wrong → pick the right query"
 ├── components/AskClip.tsx    # NEW: plays a saved URL or polls a recorder job
 ├── pages/Home.tsx            # renders AskAnswer under the bar
 ├── pages/Settings.tsx        # + admin card: learned and suggested examples
 ├── services/ask.ts, api.ts, wire.ts, i18n/*   # parity files, copied as bytes
+├── (web) components/CameraModal.tsx  # + a detections prop, passed to CameraFrame
 └── (web) Home ?camera=<id> opens CameraModal with detections={false}
 ```
 
@@ -186,8 +191,11 @@ question
             video words, live words           flags, removed from the text
  → audit entry written                        (before anything else can fail)
  → LocalParser.parse(masked)                  query + score + runner-up
-      score < refuse_floor           → UNSUPPORTED (P12-FR-013)
-      score < floor or gap < margin  → CHOOSE (two buttons)
+      thresholds not calibrated      → UNAVAILABLE ("not calibrated yet")
+      top is __refuse__              → UNSUPPORTED (P12-FR-013)
+      score < refuse_floor           → UNSUPPORTED
+      score < floor or gap < margin  → CHOOSE (two buttons; __refuse__ is never a button,
+                                        and if it is the runner-up the next real query is)
       else                           → that query
  → slots → that query's params                (lexicon decides; the model never does)
  → existing path: unmask, defaults, needs_detail, unknown person, switched off, run
@@ -198,8 +206,9 @@ question
 ### 2. What the model is and is not
 
 - It is `multilingual-e5-small` (MIT licence, supplied by Mohamed). Input is
-  prefixed `"query: "`. It uses mean pooling and L2-normalised 384-number
-  vectors.
+  prefixed `"query: "` on both examples and questions. Pooling is a mean
+  weighted by the attention mask (padding excluded), then L2-normalised to
+  384 numbers.
 - Examples are embedded **once when the engine starts** (about 225 sentences, a
   few seconds) and again only when an example is added. That is "nothing
   runs between questions" (P15-FR-010). Loading lazily on the first question
@@ -212,11 +221,20 @@ question
 
 ### 3. Learning (P15-FR-012, 022–026)
 
-- An admin correction is `POST /ask/examples {question, query}`. The server
-  masks the question, refuses it if it breaks any tuning question, then stores
-  it as active.
+- An admin correction comes straight from the answer view: "understood
+  wrong", then pick the right query. It sends `POST /ask/examples {question,
+  query}`. The server masks the question and shows any word that could be an
+  unknown name (the existing `unrecognised()` check). Those words become
+  `NAME` unless the admin confirms they are ordinary. The server refuses the
+  example if it breaks any tuning question, then stores it as active.
+- The tuning questions are masked with **their own made-up roster** from the
+  test file, never the site's people. The check works on any site, and no
+  real name is in git.
 - An operator's "did you mean" pick is stored inside `POST /ask` as
-  *suggested*. `POST /ask/examples/{id}/approve` makes it active.
+  *suggested*, with every possible-name word already replaced by `NAME`.
+  The admin may edit the text before `POST /ask/examples/{id}/approve` makes
+  it active. The pick must match a `choose` answer the ledger holds for the
+  same account.
 - Remove sets the state to `removed`. History is kept and the example is
   dropped from the matrix.
 - Owner examples are a YAML file and are never touched by any of this.
@@ -227,6 +245,11 @@ question
 - `AskQuery.clips = "saved" | "recorder" | None`, **declared per query, never
   inferred** from a row having a time and a camera. Health rows have both and
   must not get a button.
+- Clips are declared on `attendance`, `person_path`, `vehicle_passes`
+  (recorder), `zone_breaches` and `weapons` (saved), and on `live_view` with a
+  past time (recorder). Attendance and vehicle passes **gain a `camera_id`**
+  in their store results, because today they carry only a location or gate
+  name.
 - Each clip-able row gets `clip_ref`: an opaque id in the ledger, mapping to
   `(audit_id, query_id, camera_id, moment, saved_url)`. The ledger keeps the
   last 500 refs in memory. An unknown or old ref returns an honest "ask the
@@ -236,8 +259,14 @@ question
   (recorder). `GET /ask/clips/jobs/{id}` is polled; `…/chunks/{n}` serves the
   file.
 - The archive gets a `lane="ask"` with **1 worker, a queue of 2, plain copy (no
-  detector), its own retention (`keep_ask_clips`) and its own timeout**
-  (default 15 s). Tracking's two workers, queue and `keep_legs` are untouched.
+  detector), its own retention (`keep_ask_clips`), 5 s pieces and its own
+  timeout**. Tracking's two workers, queue and `keep_legs` are untouched.
+- Recorders usually play back in real time, so a 20 s span takes at least
+  20 s to fetch. The clip therefore arrives as four 5 s pieces and plays from
+  the first one, which keeps SC-007's 10 s within reach. The timeout covers
+  *connecting and the first piece* (default 15 s). After that, each piece
+  gets its own length plus a margin. Both figures are measured on the site's
+  recorder before SC-007 is claimed.
 - Failure causes are typed on `ArchiveUnavailable.cause`:
 
   | Cause | When |
@@ -247,8 +276,8 @@ question
   | `not_yet` | the moment + 10 s is newer than now − `recorder_lag_seconds` |
   | `expired` | older than `retention_days`, when that is set |
   | `not_recorded` | the recorder answered but holds nothing |
-  | `no_video` | without `retention_days` the DVR cannot tell expired from never recorded, and the wording says exactly that |
-  | `busy` | the queue is full |
+  | `no_video` | without `retention_days` the DVR cannot tell expired from never recorded, and the wording says exactly that (P15-FR-018 as amended) |
+  | `busy` | the queue is full (`QueueFull`) |
 
 - The footage backend clamps the span to the file that holds the moment, so a
   moment near a file's start still plays.
@@ -262,13 +291,21 @@ question
   whether it is online), so it still "answers with data".
 - New outcome `live`. The console opens `CameraModal` via `?camera=<id>` on
   Home with **`detections={false}`**; the phone navigates to `/cameras/:id`.
-- A past time ("الساعة ٨") turns the same question into a clip of that moment.
+- A past time ("الساعة ٨") turns the same question into one row (camera,
+  moment) with a recorder `clip_ref`, and `wants_video` set. That clip is
+  gated like Track's footage browsing (P15-FR-019): the ledger records
+  `/path/legs` as the permission to check, not `/cameras`.
 
 ### 6. Switched off (P15-FR-021)
 
 - `AskQuery.feature` names the camera feature it needs. If no enabled camera
   has it (the existing `_feature_cameras` test), the answer is the new note
   `ask.switched_off` and the query is not run.
+- **A missing store is a different answer.** Several LiveStore reads return
+  `[]` when their store is None: `weapons`, `breaches`, `vehicle_passes`,
+  `vehicles_inside` and `vehicle_register`. For `vehicle_registered` that
+  reads as "not registered". Ask checks the store first and answers
+  `ask.subsystem_unavailable` with the real reason.
 - On v2, knife has no entry and its phrasings are `__refuse__` examples.
 
 ## Complexity Tracking
