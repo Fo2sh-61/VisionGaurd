@@ -146,9 +146,21 @@ def cameras(tmp_path) -> CameraStore:
     store.close()
 
 
+def full_frame_areas(ids):
+    """One whole-frame, always-on zone per camera id: an old "restricted camera"."""
+    from vg.areas import FULL_FRAME, Area
+
+    return [Area(id=i, kind="zone", name=i, camera_id=i, polygon=FULL_FRAME,
+                 hours_mode="always", alert_after_seconds=0.0) for i in ids]
+
+
 def worker(scenes, *, detector=None, recorder=None, restricted=("cam-a",),
-           cameras=("cam-a", "cam-b")):
-    """A ZonesWorker with no thread started — `analyse` is called directly."""
+           cameras=("cam-a", "cam-b"), areas=None, **kw):
+    """A ZonesWorker with no thread started — `analyse` is called directly.
+
+    `restricted` is shorthand for whole-frame zones named after their cameras;
+    `areas` passes real ones. There is one way to say a camera is watched.
+    """
     from vg.features.zones import ZonesWorker
 
     class NoBus:
@@ -157,7 +169,8 @@ def worker(scenes, *, detector=None, recorder=None, restricted=("cam-a",),
 
     return ZonesWorker(
         NoBus(), detector or FakeDetector(), list(cameras), scenes,
-        recorder=recorder, restricted=set(restricted),
+        recorder=recorder,
+        areas=full_frame_areas(restricted) if areas is None else areas, **kw,
     )
 
 
@@ -354,13 +367,34 @@ def live_store(tmp_path, camera_store=None, scene_store=None, **kw):
     return store
 
 
+def with_areas(store, tmp_path):
+    """Give a LiveStore the zones an old site had: both cameras, paused.
+
+    This is what the one-time import makes of two cameras that were never
+    switched on, so the tests below read as they did when a zone was a camera.
+    """
+    from vg.areas import AreaStore, import_legacy
+    from vg.config import HoursConfig
+
+    areas = AreaStore(tmp_path / "areas.db")
+    import_legacy(
+        areas, cameras_restricted={"cam-a": False, "cam-b": False},
+        scene_camera_ids=[],
+        camera_names={"cam-a": "Main entrance", "cam-b": "Back door"},
+        yaml_zones=[], hours=HoursConfig())
+    store.area_store = areas
+    return areas
+
+
 @pytest.fixture
 def store_and_cameras(tmp_path, scenes):
     cameras = CameraStore(tmp_path / "cameras.db")
     cameras.add("cam-a", "Main entrance", "webcam:0", features=("counting",))
     cameras.add("cam-b", "Back door", "webcam:1", features=("counting",))
     store = live_store(tmp_path, camera_store=cameras, scene_store=scenes)
+    areas = with_areas(store, tmp_path)
     yield store, cameras
+    areas.close_db()
     cameras.close()
 
 
@@ -377,6 +411,8 @@ class TestCameraList:
             "a zone IS a camera, so the ids must be the same"
         )
         assert all(z.enabled is False for z in zones), "default is off"
+        assert all(z.status == "paused" for z in zones), (
+            "a paused zone says so; it is never reported as clear")
 
     def test_no_invented_zone_names_from_live_store(self, store_and_cameras):
         # The P0-01 bug class, with its own guard. "Server room" is the name of
@@ -416,18 +452,19 @@ class TestCameraList:
         updated = store.set_zone_enabled("cam-a", True)
 
         assert updated is not None and updated.enabled is True
-        assert cameras.restricted_ids() == {"cam-a"}, "written to the database"
+        assert store.area_store.get("cam-a").paused is False, (
+            "written to the database")
         assert [z.enabled for z in store.zones()] == [True, False]
 
     def test_toggling_an_unknown_camera_returns_none_so_the_api_404s(
             self, store_and_cameras):
         store, cameras = store_and_cameras
         assert store.set_zone_enabled("no-such-camera", True) is None
-        assert "no-such-camera" not in cameras.restricted_ids(), (
+        assert [a.id for a in store.area_store.list()] == ["cam-a", "cam-b"], (
             "a rejected toggle must not be written"
         )
 
-    def test_a_camera_that_is_only_in_engine_yaml_can_be_toggled(
+    def test_a_zone_can_be_drawn_on_a_camera_that_is_only_in_engine_yaml(
             self, store_and_cameras):
         # The roster is engine.yaml plus the store. This is the case that made
         # the toggle 404 on the walk-through clip: it exists, it is on screen,
@@ -440,9 +477,12 @@ class TestCameraList:
              "source": "webcam:9", "features": ["counting"]}, "cam-yaml")
         store.registry.disabled["cam-yaml"] = yaml_only
 
-        updated = store.set_zone_enabled("cam-yaml", True)
-        assert updated is not None and updated.enabled is True
-        assert "cam-yaml" in cameras.restricted_ids()
+        created = store.create_zone(S.ZoneCreate(
+            name="Desk", camera_id="cam-yaml",
+            polygon=[S.RawPoint(x=0.2, y=0.2), S.RawPoint(x=0.8, y=0.2),
+                     S.RawPoint(x=0.8, y=0.8)],
+            watched=S.WatchedHours(mode="always")), "mona")
+        assert created.enabled is True and created.camera_id == "cam-yaml"
 
     def test_breaches_today_counts_that_cameras_scenes(self, store_and_cameras, scenes):
         store, _ = store_and_cameras
@@ -451,7 +491,8 @@ class TestCameraList:
         scenes.open("cam-b", datetime.now(timezone.utc))
 
         counts = {z.id: z.breaches_today for z in store.zones()}
-        assert counts == {"cam-a": 2, "cam-b": 1}
+        assert counts == {"cam-a": 2, "cam-b": 1}, (
+            "a scene with no zone named belongs to the camera's own zone")
 
     def test_intrusion_cameras_have_no_zone_overlay(self, store_and_cameras):
         # P4-FR-002. The zone is the frame, so there is no rectangle to draw.
@@ -664,8 +705,8 @@ class TestSceneMachine:
         assert scenes.recent(since_days=1)[0].running is True
 
         # The toggle is a single assignment; the camera's own thread closes
-        # its scene on the next frame. See `set_restricted` for why.
-        zw.set_restricted(set())
+        # its scene on the next frame. See `set_areas` for why.
+        zw.set_areas([])
         walk(zw, detector, [(2.5, 1)])
 
         logged = scenes.recent(since_days=1)[0]
@@ -685,9 +726,9 @@ class TestSceneMachine:
         zw = worker(scenes, detector=detector, recorder=recorder)
         walk(zw, detector, ARRIVES)
 
-        zw.set_restricted(set())
+        zw.set_areas([])
         assert scenes.recent(since_days=1)[0].running is True, (
-            "set_restricted must not close anything itself"
+            "set_areas must not close anything itself"
         )
         assert recorder.stopped == [], "nor stop a recording from another thread"
 
@@ -704,7 +745,7 @@ class TestSceneMachine:
         walk(zw, detector, ARRIVES)
         assert scenes.recent(since_days=1) == []
 
-        zw.set_restricted({"cam-a"})
+        zw.set_areas(full_frame_areas(["cam-a"]))
         walk(zw, detector, [(3.0, 1), (5.0, 1)])
         assert len(scenes.recent(since_days=1)) == 1
 
@@ -814,11 +855,12 @@ class TestBreachLog:
         store.scenes = None
         assert store.breaches(30) == []
 
-    def test_a_replaced_entry_drops_off_the_log(
+    def test_a_replaced_entry_stays_on_the_log_without_a_clip(
             self, store_and_cameras, scenes, tmp_path):
-        # Owner decision 2026-08-21: an entry whose clip has been replaced
-        # leaves the log rather than sitting there with a disabled button.
-        # The row is NOT deleted — see the test below — it stops being listed.
+        # Spec 025, P14-FR-410: the log is complete. An entry whose clip was
+        # replaced used to leave it (owner decision 2026-08-21); it now stays,
+        # says why there is no clip, and offers no dead button - `clip` is
+        # None. Today's "entries today" is then simply the length of the log.
         store, _ = store_and_cameras
         base = datetime.now(timezone.utc) - timedelta(minutes=10)
         ids = []
@@ -830,7 +872,10 @@ class TestBreachLog:
             ids.append(scene_id)
 
         listed = {b.id: b for b in store.breaches(1)}
-        assert ids[0] not in listed, "a replaced entry must not be listed"
+        assert ids[0] in listed, "a replaced entry is listed"
+        assert listed[ids[0]].clip is None
+        assert listed[ids[0]].clip_state == "replaced"
+        assert "no longer kept" in listed[ids[0]].clip_reason
         for kept in ids[1:]:
             assert listed[kept].clip is not None
 
@@ -853,15 +898,14 @@ class TestBreachLog:
             scenes.attach_clip(
                 scenes.open("cam-a", base + timedelta(minutes=i + 1)), later)
 
-        assert first not in {b.id for b in store.breaches(1)}
+        assert first in {b.id for b in store.breaches(1)}, (
+            "listed, with no clip, since spec 025")
         kept = scenes.get(first)
         assert kept is not None, "the row must never be deleted"
         assert kept.clip_state == "replaced"
         assert kept.peak_people == 4
         assert kept.seconds == pytest.approx(30.0)
-        assert first in {s.id for s in scenes.recent(since_days=1)}, (
-            "the store still reads it; only the log filters it out"
-        )
+        assert first in {s.id for s in scenes.recent(since_days=1)}
 
     def test_the_log_shows_at_most_three_clips_per_camera(
             self, store_and_cameras, scenes, tmp_path):
@@ -874,12 +918,13 @@ class TestBreachLog:
                 scenes.attach_clip(
                     scenes.open(camera, base + timedelta(minutes=i)), path)
 
-        per_camera: dict[str, int] = {}
+        with_clip: dict[str, int] = {}
         for entry in store.breaches(1):
-            per_camera[entry.camera_id] = per_camera.get(entry.camera_id, 0) + 1
+            if entry.clip is not None:
+                with_clip[entry.camera_id] = with_clip.get(entry.camera_id, 0) + 1
 
-        assert per_camera == {"cam-a": 3, "cam-b": 3}
-        assert all(b.clip is not None for b in store.breaches(1))
+        assert with_clip == {"cam-a": 3, "cam-b": 3}
+        assert len(store.breaches(1)) == 12, "nothing is hidden, only unwatchable"
 
     def test_a_detection_whose_clip_failed_is_still_listed(
             self, store_and_cameras, scenes):
@@ -1030,7 +1075,7 @@ class TestRecording:
         scene = scenes.recent(since_days=1)[0]
         assert scene.running is False, "the scene is still logged"
         assert scene.clip_state == "failed"
-        assert scene.clip_reason and "already running" in scene.clip_reason
+        assert scene.clip_reason and "recorded under the other zone" in scene.clip_reason
         assert recorder.stopped == [], "we must not stop somebody else's file"
 
     def test_no_recorder_at_all_still_logs_the_scene(self, scenes):

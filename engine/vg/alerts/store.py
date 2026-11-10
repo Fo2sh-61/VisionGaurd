@@ -96,6 +96,7 @@ DEFAULT_RULES = (
     ("vehicles", 1, 0, 1, 1, 1),
     ("camera", 1, 0, None, None, None),
     ("attendance", None, 0, None, None, None),
+    ("station", 1, 0, None, None, None),
 )
 
 RULE_FLAGS = ("in_app", "email",

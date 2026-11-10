@@ -395,20 +395,171 @@ class Schedule(Wire):
     end: str | None = None  # "16:00"
 
 
+#: Built from the worker's last result, never defaulted to `clear`.
+ZoneStatus = Literal["personInZone", "clear", "paused", "outsideHours",
+                     "cameraOffline", "detectorStopped"]
+
+
+class WatchedHours(Wire):
+    """When an area is watched. Zone: always | outsideWorking | custom.
+    Station: working | custom. `from`/`to` are "HH:MM", only for custom."""
+
+    mode: Literal["always", "outsideWorking", "working", "custom"]
+    from_: str | None = Field(default=None, alias="from")
+    to: str | None = None
+
+
+class RawPoint(Wire):
+    """A point as the client drew it. Unconstrained on purpose: the server
+    refuses a point outside the frame with a sentence, not a schema error."""
+
+    x: float
+    y: float
+
+
 class Zone(Wire):
+    """One drawn zone. Everything after `breaches_today` is additive."""
+
     id: str
     name: str
     camera_id: str
+    #: Retired: always `{mode: "always", days: []}`, kept so the phone parses.
     schedule: Schedule
     enabled: bool
     polygon: list[Point] = Field(min_length=3)
     # Disabled zones stay in every response. The UI promises a paused zone
     # remains visible, so filtering it out server-side would be a lie.
     breaches_today: int = 0
+    status: ZoneStatus | None = None
+    #: People with feet inside; null unless the status is personInZone/clear.
+    in_zone_now: int | None = None
+    watched: WatchedHours | None = None
+    alert_after_seconds: float = 0.0
+    notify_in_app: bool = True
+    notify_email: bool = False
+    paused_by: str | None = None
+    paused_at: Instant | None = None
+    #: What an old schedule could not say, in plain words.
+    import_note: str | None = None
+    deleted_at: Instant | None = None
+
+
+class ZoneCreate(Wire):
+    name: str
+    camera_id: str
+    polygon: list[RawPoint]
+    watched: WatchedHours
+    alert_after_seconds: float | None = None
+    #: Left out: the Settings row's value for this kind.
+    notify_in_app: bool | None = None
+    notify_email: bool | None = None
 
 
 class ZoneUpdate(Wire):
-    enabled: bool
+    """Every field optional. An old client sending only `enabled` still works:
+    false pauses, true resumes."""
+
+    enabled: bool | None = None
+    name: str | None = None
+    camera_id: str | None = None
+    polygon: list[RawPoint] | None = None
+    watched: WatchedHours | None = None
+    alert_after_seconds: float | None = None
+    notify_in_app: bool | None = None
+    notify_email: bool | None = None
+
+
+# -- work stations -----------------------------------------------------------
+
+StationState = Literal["on", "away", "absent", "notStarted", "closed", "unknown"]
+
+
+class TimelineSegment(Wire):
+    state: Literal["on", "away", "absent", "notWatched"]
+    from_: Instant = Field(alias="from")
+    to: Instant
+
+
+class StationAlertRef(Wire):
+    event_id: str
+    at: Instant
+
+
+class Station(Wire):
+    id: str
+    name: str
+    camera_id: str
+    camera_name: str
+    polygon: list[Point]
+    watched: WatchedHours
+    assignee_id: str | None = None
+    #: Only for admins: IT reads people's names nowhere (spec 022).
+    assignee_name: str | None = None
+    #: An assignee is set but gone from the directory.
+    assignee_missing: bool = False
+    limit_minutes: int
+    notify_in_app: bool = True
+    notify_email: bool = False
+    face_check: Literal["anyone", "face", "facesTooSmall"] = "anyone"
+    #: Widest face measured in the last 10 minutes, if any.
+    face_px: float | None = None
+    state: StationState
+    state_since: Instant | None = None
+    unknown_reason: Literal["cameraOffline", "detectorStopped", "notRunning"] | None = None
+    #: Somebody is inside and nobody matched. Live, never stored.
+    present_not_recognised: bool = False
+    opens_at: str | None = None
+    work_seconds: float = 0.0
+    absent_seconds: float = 0.0
+    not_watched_seconds: float = 0.0
+    #: null until some time has been watched.
+    rate: float | None = None
+    timeline: list[TimelineSegment] = Field(default_factory=list)
+    unacknowledged_alert: StationAlertRef | None = None
+    deleted_at: Instant | None = None
+
+
+class StationEvent(Wire):
+    id: str
+    at: Instant
+    kind: Literal["atStation", "leftStation", "absenceAlert", "acknowledged"]
+    limit_minutes: int | None = None
+    by_who: str | None = None
+
+
+class StationDetail(Station):
+    events: list[StationEvent] = Field(default_factory=list)
+
+
+class StationCreate(Wire):
+    name: str
+    camera_id: str
+    polygon: list[RawPoint]
+    watched: WatchedHours
+    assignee_id: str | None = None
+    limit_minutes: int
+    notify_in_app: bool | None = None
+    notify_email: bool | None = None
+
+
+class StationUpdate(Wire):
+    """Every field optional; `assignee_id: null` clears the assignment."""
+
+    name: str | None = None
+    camera_id: str | None = None
+    polygon: list[RawPoint] | None = None
+    watched: WatchedHours | None = None
+    assignee_id: str | None = None
+    limit_minutes: int | None = None
+    notify_in_app: bool | None = None
+    notify_email: bool | None = None
+
+
+class FaceReach(Wire):
+    """One face-detector pass on a camera's last picture: a number, never a name."""
+
+    face_px: float | None = None
+    needed: int = 80
 
 
 class Breach(Wire):
@@ -1259,7 +1410,8 @@ class AttentionItem(Wire):
     """
 
     id: str
-    kind: Literal["weapon", "intrusion", "vehicles", "camera", "attendance", "system"]
+    kind: Literal["weapon", "intrusion", "vehicles", "camera", "attendance",
+                  "station", "system"]
     at: Instant
     severity: Severity
     title: str
@@ -1349,7 +1501,8 @@ class SiteSettingsUpdate(Wire):
 # is no console at the far end of an email — and that never crosses this API.
 # ---------------------------------------------------------------------------
 
-AlertKind = Literal["weapon", "intrusion", "vehicles", "camera", "attendance"]
+AlertKind = Literal["weapon", "intrusion", "vehicles", "camera", "attendance",
+                    "station"]
 AlertChannel = Literal["email"]
 AlertLanguage = Literal["en", "ar"]
 DeliveryOutcome = Literal["queued", "sent", "failed", "skipped"]
@@ -1467,7 +1620,8 @@ class DeliveryRow(Wire):
 
     id: str
     at: Instant
-    kind: Literal["weapon", "intrusion", "vehicles", "camera", "attendance", "test"]
+    kind: Literal["weapon", "intrusion", "vehicles", "camera", "attendance",
+                  "station", "test"]
     channel: AlertChannel | None = None
     recipient_name: str | None = None
     outcome: DeliveryOutcome

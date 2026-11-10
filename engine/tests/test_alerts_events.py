@@ -292,8 +292,12 @@ def zone_worker(scenes):
             raise AssertionError("never started in these tests")
 
     detector = FakeDetector()
+    from vg.areas import FULL_FRAME, Area
+
+    zone = Area(id="cam-a", kind="zone", name="cam-a", camera_id="cam-a",
+                polygon=FULL_FRAME, hours_mode="always", alert_after_seconds=0.0)
     return ZonesWorker(NoBus(), detector, ["cam-a"], scenes, recorder=None,
-                       restricted={"cam-a"}), detector
+                       areas=[zone]), detector
 
 
 @pytest.fixture
@@ -839,6 +843,10 @@ class TestTheEngineWiresTheSender:
             "app.state.vehicle_store.on_pass": "app.state.alerts.on_pass",
         }
         offered = {name for name in vars(AlertService) if name.startswith("on_")}
+        # `on_station_absent` is built (spec 025) and is wired where the work
+        # stations start, which is a later task. Remove this line then: the
+        # test is what makes a hook nobody connected impossible to miss.
+        offered -= {"on_station_absent"}
         assert {value.rsplit(".", 1)[1] for value in wired.values()} == offered
 
     def test_the_gate_reader_says_when_a_pass_is_final(self):
@@ -875,6 +883,8 @@ class TestTheEngineWiresTheSender:
             "attendance_counts": "store._attendance_counts",
             # The hours Settings saved, read at each tick (spec 022).
             "hours": "store.hours",
+            # Each zone's own Notify choice (spec 025).
+            "zone_channels": "store.zone_channels",
         }
         assert "app.state.alerts.start" in names
         assert names.index("alerts.stop") < names.index("alerts_store.close_db")

@@ -111,9 +111,15 @@ class Store(Protocol):
     """Everything the API needs. Implement this to go live."""
 
     def site(self) -> S.SiteInfo: ...
-    def zones(self) -> list[S.Zone]: ...
-    def set_zone_enabled(self, zone_id: str, enabled: bool) -> S.Zone | None: ...
-    def breaches(self, since_days: int) -> list[S.Breach]: ...
+    def zones(self, include_deleted: bool = False) -> list[S.Zone]: ...
+    def set_zone_enabled(self, zone_id: str, enabled: bool,
+                         actor: str = "unknown") -> S.Zone | None: ...
+    def create_zone(self, req: S.ZoneCreate, actor: str = "unknown") -> S.Zone: ...
+    def update_zone(self, zone_id: str, req: S.ZoneUpdate,
+                    actor: str = "unknown") -> S.Zone | None: ...
+    def delete_zone(self, zone_id: str, actor: str = "unknown") -> bool: ...
+    def breaches(self, since_days: int,
+                 zone_id: str | None = None) -> list[S.Breach]: ...
     def clip_for_breach(self, breach_id: str): ...
     def intrusion_cameras(self) -> list[S.CameraView]: ...
 
@@ -419,16 +425,22 @@ class MockStore:
                 schedule=S.Schedule(mode=S.ScheduleMode.OUTSIDE, days=weekdays,
                                     start="08:00", end="16:00"),
                 enabled=True, polygon=poly(0.10, 0.18, 0.52, 0.62), breaches_today=1,
+                status="personInZone", in_zone_now=1,
+                watched=S.WatchedHours(mode="outsideWorking"),
             ),
             S.Zone(
                 id="server", name="Server room", camera_id="i-server",
                 schedule=S.Schedule(mode=S.ScheduleMode.ALWAYS, days=[]),
                 enabled=True, polygon=poly(0.20, 0.22, 0.48, 0.58), breaches_today=0,
+                status="clear", in_zone_now=0,
+                watched=S.WatchedHours(mode="always"),
             ),
             S.Zone(
                 id="roof", name="Roof access", camera_id="i-roof",
                 schedule=S.Schedule(mode=S.ScheduleMode.ALWAYS, days=[]),
                 enabled=True, polygon=poly(0.14, 0.24, 0.55, 0.60), breaches_today=0,
+                status="clear", in_zone_now=0,
+                watched=S.WatchedHours(mode="always"),
             ),
             S.Zone(
                 id="pool", name="Swimming pool", camera_id="i-pool",
@@ -437,6 +449,7 @@ class MockStore:
                 # Paused, and deliberately still returned — the UI promises a
                 # disabled zone stays visible rather than vanishing.
                 enabled=False, polygon=poly(0.12, 0.20, 0.60, 0.64), breaches_today=0,
+                status="paused", watched=S.WatchedHours(mode="outsideWorking"),
             ),
         ]
 
@@ -480,19 +493,78 @@ class MockStore:
             ),
         ]
 
-    def zones(self) -> list[S.Zone]:
-        return list(self._zones)
+    # Demo mode keeps its own zones in memory (rule 4: the demo is allowed its
+    # own world; the live store never reaches this). The shape matches the live
+    # one so the page renders the same thing in both.
 
-    def set_zone_enabled(self, zone_id: str, enabled: bool) -> S.Zone | None:
+    def zones(self, include_deleted: bool = False) -> list[S.Zone]:
+        return [z for z in self._zones if include_deleted or z.deleted_at is None]
+
+    def set_zone_enabled(self, zone_id: str, enabled: bool,
+                         actor: str = "unknown") -> S.Zone | None:
+        return self.update_zone(zone_id, S.ZoneUpdate(enabled=enabled), actor)
+
+    def create_zone(self, req: S.ZoneCreate, actor: str = "unknown") -> S.Zone:
+        from vg.areas import validate_polygon
+
+        points = validate_polygon([(p.x, p.y) for p in req.polygon])
+        self._log(actor, "zone.create", req.name, f"on {req.camera_id}")
+        zone = S.Zone(
+            id=f"z{len(self._zones) + 1}", name=req.name.strip(),
+            camera_id=req.camera_id,
+            schedule=S.Schedule(mode=S.ScheduleMode.ALWAYS, days=[]),
+            enabled=True, polygon=[S.Point(x=x, y=y) for x, y in points],
+            status="clear", in_zone_now=0, watched=req.watched,
+            alert_after_seconds=req.alert_after_seconds or 0.0,
+            notify_in_app=True if req.notify_in_app is None else req.notify_in_app,
+            notify_email=bool(req.notify_email),
+        )
+        self._zones.append(zone)
+        return zone
+
+    def update_zone(self, zone_id: str, req: S.ZoneUpdate,
+                    actor: str = "unknown") -> S.Zone | None:
         for i, zone in enumerate(self._zones):
-            if zone.id == zone_id:
-                self._zones[i] = zone.model_copy(update={"enabled": enabled})
-                return self._zones[i]
+            if zone.id != zone_id or zone.deleted_at is not None:
+                continue
+            changes: dict = {}
+            if req.enabled is not None and req.enabled != zone.enabled:
+                self._log(actor, "zone.resume" if req.enabled else "zone.pause",
+                          zone.name, None)
+                changes.update(
+                    enabled=req.enabled,
+                    status="clear" if req.enabled else "paused",
+                    paused_by=None if req.enabled else actor,
+                    paused_at=None if req.enabled else now())
+            rest = req.model_dump(exclude={"enabled", "polygon"},
+                                  exclude_none=True)
+            if rest or req.polygon is not None:
+                self._log(actor, "zone.edit", zone.name, None)
+            changes.update({k: v for k, v in rest.items() if k != "watched"})
+            if req.watched is not None:
+                changes["watched"] = req.watched
+            if req.polygon is not None:
+                from vg.areas import validate_polygon
+
+                pts = validate_polygon([(p.x, p.y) for p in req.polygon])
+                changes["polygon"] = [S.Point(x=x, y=y) for x, y in pts]
+            self._zones[i] = zone.model_copy(update=changes)
+            return self._zones[i]
         return None
 
-    def breaches(self, since_days: int) -> list[S.Breach]:
+    def delete_zone(self, zone_id: str, actor: str = "unknown") -> bool:
+        for i, zone in enumerate(self._zones):
+            if zone.id == zone_id and zone.deleted_at is None:
+                self._log(actor, "zone.delete", zone.name, None)
+                self._zones[i] = zone.model_copy(update={"deleted_at": now()})
+                return True
+        return False
+
+    def breaches(self, since_days: int,
+                 zone_id: str | None = None) -> list[S.Breach]:
         cutoff = datetime.now(timezone.utc) - timedelta(days=since_days)
-        return [b for b in self._breaches if b.at.utc >= cutoff]
+        return [b for b in self._breaches
+                if b.at.utc >= cutoff and (zone_id is None or b.zone_id == zone_id)]
 
     def clip_for_breach(self, breach_id: str):
         """Demo mode has no files. `(path, reason)` — the reason is honest."""

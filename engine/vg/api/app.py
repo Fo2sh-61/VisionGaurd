@@ -26,6 +26,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 
 from vg import config as vgconfig
+from vg.areas import AreaError
 from vg.auth import deps as auth_deps
 from vg.auth import dev_signin  # DEV-SIGNIN: temporary, development only
 from vg.api import schemas as S
@@ -321,6 +322,7 @@ async def lifespan(app: FastAPI):
     app.state.zones_error: str | None = None
     app.state.zones = None
     app.state.scenes = None
+    app.state.areas = None
     app.state.weapons_error: str | None = None
     app.state.weapons = None
     app.state.weapon_scenes = None
@@ -424,13 +426,22 @@ async def lifespan(app: FastAPI):
         app.state.site_settings = site_settings
         # Restricted zones. Shares the person detector; needs no other feature
         # switched on, and a camera nobody restricted costs it nothing.
+        # The drawn areas come first: the worker is handed them, and a site's
+        # old whole-camera zones are imported into them once, before anything
+        # watches (spec 025).
+        app.state.areas, areas_error = _start_areas(
+            cfg, roster, cameras, app.state.alerts_store)
         (
             app.state.zones,
             app.state.scenes,
             app.state.zones_error,
         ) = _start_zones(
             cfg, registry, roster, getattr(people, "detector", None), cameras,
+            app.state.areas,
         )
+        if areas_error and not app.state.zones_error:
+            # Rule 8: the page says so, not only the log.
+            app.state.zones_error = areas_error
         # The breach message - spec 013. Attached the moment the store exists.
         if app.state.alerts is not None and app.state.scenes is not None:
             app.state.scenes.on_open = app.state.alerts.on_zone_open
@@ -534,7 +545,11 @@ async def lifespan(app: FastAPI):
             alerts_store=app.state.alerts_store,
             alerts=app.state.alerts,
             site_settings=site_settings,
+            area_store=app.state.areas,
         )
+        if app.state.zones is not None:
+            # The site's hours as Settings holds them, not engine.yaml's seed.
+            app.state.zones.set_hours(store.hours)
         store.site_settings_error = site_settings_error
         store.recognition_error = app.state.recognition_error
         store.people_error = app.state.people_error
@@ -550,7 +565,8 @@ async def lifespan(app: FastAPI):
             # Attendance page reads.
             app.state.alerts.bind(camera_name=store._roster_name,
                                   attendance_counts=store._attendance_counts,
-                                  hours=store.hours)
+                                  hours=store.hours,
+                                  zone_channels=store.zone_channels)
             try:
                 app.state.alerts.start()
             except Exception as exc:
@@ -1210,7 +1226,51 @@ def _start_tracking(cfg, registry, roster, detector, recorder=None):
         return None, _reason(exc)
 
 
-def _start_zones(cfg, registry, roster, detector, cameras_store):
+def _start_areas(cfg, roster, cameras_store, alerts_store):
+    """The drawn zones and stations, with the old zone settings imported once.
+
+    Returns `(store, error)`. Imports whole-camera zones (a `camera_restricted`
+    row, or scenes in the log) and the polygons in engine.yaml; a second start
+    adds nothing, and a deleted zone does not return (`import_key`).
+    """
+    try:
+        from vg.areas import AreaStore, import_legacy
+        from vg.events.zones import SceneStore
+
+        database = _database(cfg)
+        store = AreaStore(database)
+        scene_cameras: list[str] = []
+        history = SceneStore(database)
+        try:
+            scene_cameras = history.camera_ids()
+        finally:
+            history.close_db()
+
+        # What a new zone ticks under Notify is what the Settings row said,
+        # so an imported zone behaves exactly as it did.
+        notify = (True, False)
+        try:
+            rule = alerts_store.rules().get("intrusion") if alerts_store else None
+            if rule is not None:
+                notify = (bool(rule.in_app), bool(rule.email))
+        except Exception:
+            log.exception("could not read the restricted-area alert rule")
+
+        import_legacy(
+            store,
+            cameras_restricted=(cameras_store.restriction_rows()
+                                if cameras_store else {}),
+            scene_camera_ids=scene_cameras,
+            camera_names={c.id: c.name for c in roster},
+            yaml_zones=cfg.zones, hours=cfg.hours, notify=notify)
+        return store, None
+    except Exception as exc:
+        log.exception("the list of drawn areas failed to start")
+        _reraise_if_strict(exc, "drawn areas")
+        return None, f"the list of zones could not be opened ({_reason(exc)})"
+
+
+def _start_zones(cfg, registry, roster, detector, cameras_store, areas=None):
     """Restricted zones: log and record anyone on a camera marked restricted.
 
     Serves the cameras with `intrusion` in their features.
@@ -1235,10 +1295,10 @@ def _start_zones(cfg, registry, roster, detector, cameras_store):
     """
     watched = _zone_cameras(roster)
     if not watched:
-        log.info("no camera has 'intrusion'; restricted areas are not watched")
-        return None, None, (
-            "No camera is set to watch a restricted area, so nothing is being "
-            "checked. Add 'intrusion' to a camera to start.")
+        # No longer an error. The worker still starts, so the first zone drawn
+        # in the console has something to hand the camera to: saving a zone
+        # adds `intrusion` to its camera and `watch()` brings the thread up.
+        log.info("no camera has 'intrusion' yet; restricted areas wait for a zone")
 
     if detector is None:
         # The exact sentence the page shows. Not "unavailable" on its own: an
@@ -1264,7 +1324,6 @@ def _start_zones(cfg, registry, roster, detector, cameras_store):
         # still standing in a restricted area, forever.
         scenes.close_orphans()
 
-        restricted = cameras_store.restricted_ids() if cameras_store else set()
         rate = min((c.fps for c in roster if c.id in watched), default=2.0)
 
         worker = ZonesWorker(
@@ -1282,14 +1341,18 @@ def _start_zones(cfg, registry, roster, detector, cameras_store):
             # and neither can stop the other's file.
             recorder=Recorder(
                 registry.bus, cfg.storage.zone_clips_dir, clock=cfg.timezone),
-            restricted=restricted,
+            areas=areas.list(kind="zone") if areas is not None else (),
             rate_hz=rate,
             boost_hz=12.0,
+            # Engine.yaml's hours until the store that owns Settings exists;
+            # the lifespan then points the worker at `LiveStore.hours`.
+            clock=clock_for(cfg.timezone),
+            hours=lambda: cfg.hours,
         )
         worker.start()
         log.info(
-            "restricted zones on %d camera(s), %d switched on - %.0f Hz idle",
-            len(watched), len(restricted), rate,
+            "restricted zones on %d camera(s), %d zone(s) - %.0f Hz idle",
+            len(watched), len(worker.restricted()), rate,
         )
         return worker, scenes, None
     except Exception as exc:
@@ -2411,25 +2474,64 @@ def _mount(app: FastAPI) -> None:
 
     # ------------------------------------------------------------- intrusion
     @app.get("/zones", response_model=list[S.Zone], tags=["intrusion"])
-    async def get_zones(store: StoreDep) -> list[S.Zone]:
-        """All zones, including disabled ones.
+    async def get_zones(
+        store: StoreDep,
+        include_deleted: Annotated[bool, Query(alias="includeDeleted")] = False,
+    ) -> list[S.Zone]:
+        """All zones, including paused ones.
 
         A paused zone stays visible in the UI, so it is never filtered here.
+        Deleted ones appear only when asked for.
         """
+        if include_deleted:
+            return store.zones(include_deleted=True)
         return store.zones()
 
+    @app.post("/zones", response_model=S.Zone, status_code=201, tags=["intrusion"])
+    async def post_zone(body: S.ZoneCreate, store: StoreDep,
+                        user: auth_deps.CurrentUser) -> S.Zone:
+        """Draw a zone. Admin only, by path. Refusals say why in words."""
+        try:
+            return store.create_zone(body, user.name)
+        except AreaError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        except SubsystemUnavailable as exc:
+            raise HTTPException(503, str(exc)) from exc
+
     @app.patch("/zones/{zone_id}", response_model=S.Zone, tags=["intrusion"])
-    async def patch_zone(zone_id: str, update: S.ZoneUpdate, store: StoreDep) -> S.Zone:
-        zone = store.set_zone_enabled(zone_id, update.enabled)
+    async def patch_zone(zone_id: str, update: S.ZoneUpdate, store: StoreDep,
+                         user: auth_deps.CurrentUser) -> S.Zone:
+        """Edit, pause or resume. `{enabled}` alone is the old toggle."""
+        try:
+            zone = store.update_zone(zone_id, update, user.name)
+        except AreaError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        except SubsystemUnavailable as exc:
+            raise HTTPException(503, str(exc)) from exc
         if zone is None:
             raise HTTPException(404, f"no zone {zone_id!r}")
         return zone
+
+    @app.delete("/zones/{zone_id}", status_code=204, tags=["intrusion"])
+    async def delete_zone(zone_id: str, store: StoreDep,
+                          user: auth_deps.CurrentUser) -> Response:
+        """Soft delete: the log and the totals stay."""
+        try:
+            gone = store.delete_zone(zone_id, user.name)
+        except SubsystemUnavailable as exc:
+            raise HTTPException(503, str(exc)) from exc
+        if not gone:
+            raise HTTPException(404, f"no zone {zone_id!r}")
+        return Response(status_code=204)
 
     @app.get("/breaches", response_model=list[S.Breach], tags=["intrusion"])
     async def get_breaches(
         store: StoreDep,
         window: Annotated[WindowToken, Query()] = "today",
+        zone_id: Annotated[str | None, Query(alias="zoneId")] = None,
     ) -> list[S.Breach]:
+        if zone_id:
+            return store.breaches(window_days(window), zone_id=zone_id)
         return store.breaches(window_days(window))
 
     @app.get("/breaches/{breach_id}/clip", tags=["intrusion"])

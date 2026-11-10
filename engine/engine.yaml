@@ -597,3 +597,15 @@ zones:
       days: [mon, tue, wed, thu, fri]
       from: "08:00"
       to: "16:00"
+
+# ---------------------------------------------------------------------------
+# Work stations (spec 025). The stations themselves are drawn in the console
+# and live in the database; this block is only how a station decides somebody
+# is there or has gone. Starting values, tuned on the recorded clip.
+# ---------------------------------------------------------------------------
+stations:
+  leave_confirm_seconds: 8     # nobody this long = Away
+  return_confirm_seconds: 3    # somebody this long = back
+  gap_tolerance_seconds: 2     # a missed detection shorter than this does not break a run
+  stall_seconds: 10            # no frame this long = not watched
+  min_face_px: 80              # below this, faces are too small to check an assignee

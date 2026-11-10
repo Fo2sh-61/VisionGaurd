@@ -108,6 +108,10 @@ ADMIN_PREFIXES: tuple[str, ...] = (
 ADMIN_WRITE_PREFIXES: tuple[str, ...] = (
     "/cameras",
     "/zones",
+    # Drawing, editing and removing a work station is a setup change like a
+    # zone. Reading is open; acknowledging an absence is the one narrow write
+    # below, in OPERATOR_WRITE_PATTERNS.
+    "/stations",
     # A guard has to read the vehicle register to do their job — that is the
     # whole point of the gate log. A guard must not be able to un-blacklist a
     # car. One line decides both.
@@ -145,6 +149,9 @@ OPERATOR_WRITE_PREFIXES: tuple[str, ...] = (
 #: or `/cameras/x` (a setup change) never matches (spec 022, P14-FR-110).
 OPERATOR_WRITE_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"^/cameras/[^/]+/recording/?$"),
+    # "I have seen this empty-station alert." Anchored, so `/stations/x` (a
+    # setup change) and `/stations/x/acknowledge/extra` never match (spec 025).
+    re.compile(r"^/stations/[^/]+/acknowledge/?$"),
 )
 
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})

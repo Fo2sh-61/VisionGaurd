@@ -55,16 +55,27 @@ CREATE TABLE IF NOT EXISTS zone_scene (
     clip_path    TEXT,
     clip_state   TEXT NOT NULL DEFAULT 'none',
     clip_reason  TEXT,
-    end_reason   TEXT
+    end_reason   TEXT,
+    zone_id      TEXT,                   -- the area it happened in (spec 025)
+    alerted      INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_zone_scene_camera
     ON zone_scene(camera_id, started_at DESC);
 """
 
+#: Columns spec 025 added. An existing database gets them by ALTER, then every
+#: old row is given the zone it always was: the camera. The index on them can
+#: only be made once they exist, so it is made here and not in `SCHEMA`.
+_ADDED_COLUMNS = (
+    ("zone_id", "TEXT"),
+    ("alerted", "INTEGER NOT NULL DEFAULT 0"),
+)
+
 #: Why a scene ended. Stored so an entry cut at the limit does not read like a
-#: person who left.
-END_REASONS = ("nobody", "limit", "switched_off", "shutdown")
+#: person who left. `hours` is the watched hours ending while somebody was
+#: still there.
+END_REASONS = ("nobody", "limit", "switched_off", "shutdown", "hours")
 
 #: What happened to the clip. `saved` is the only one with a playable file.
 CLIP_STATES = ("none", "recording", "saved", "replaced", "failed")
@@ -96,6 +107,10 @@ class Scene:
     clip_state: str = "none"
     clip_reason: str | None = None
     end_reason: str | None = None
+    #: The area this happened in. An old row's zone is its camera.
+    zone_id: str | None = None
+    #: Whether this entry's alert was raised (spec 025 alert-after-N).
+    alerted: bool = False
 
     @property
     def running(self) -> bool:
@@ -124,38 +139,94 @@ class SceneStore:
         self._lock = threading.RLock()
         self._conn = db.connect(self.path)
         self._conn.executescript(SCHEMA)
+        self._migrate()
         self._conn.commit()
         #: Called after a scene's row is committed, with
-        #: `(scene_id, camera_id, started_at, continues)`. Alert delivery
-        #: (spec 013) sets it; it must only hand the event over.
+        #: `(scene_id, camera_id, started_at, continues, zone_id)`. Alert
+        #: delivery (spec 013) sets it; it must only hand the event over.
         self.on_open = None
+
+    def _migrate(self) -> None:
+        """Bring a database written before spec 025 up to date, once."""
+        have = {row["name"] for row in
+                self._conn.execute("PRAGMA table_info(zone_scene)").fetchall()}
+        for name, kind in _ADDED_COLUMNS:
+            if name not in have:
+                self._conn.execute(
+                    f"ALTER TABLE zone_scene ADD COLUMN {name} {kind}")
+        # Every scene before areas existed happened in "the camera", and an
+        # imported whole-camera zone takes the camera's id, so history and
+        # clips follow with no copying.
+        self._conn.execute(
+            "UPDATE zone_scene SET zone_id = camera_id WHERE zone_id IS NULL")
+        self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_zone_scene_zone "
+            "ON zone_scene(zone_id, started_at DESC)")
 
     # -- writing ------------------------------------------------------------
 
     def open(self, camera_id: str, started_at: datetime,
-             continues: bool = False) -> str:
+             continues: bool = False, zone_id: str | None = None,
+             alert_now: bool = True) -> str:
         """Start a scene. Returns its id.
 
         `continues` marks the scene the worker opens at once when it cuts a
         long visit at the two-minute limit: the same person, still there. A
         new row, not a new alert.
+
+        `zone_id` is the area it happened in; left out, it is the camera's id,
+        which is exactly what an imported whole-camera zone is called.
+
+        `alert_now` is whether the hook runs at all. A zone told to alert only
+        after N seconds opens its scene quietly and calls `alert()` later, if
+        the visit lasts. `alerted` is set here only for an alert that really
+        goes: a continuation is logged but never alerted.
         """
         scene_id = uuid.uuid4().hex
+        zone_id = zone_id or camera_id
+        alerts = 1 if (alert_now and not continues) else 0
         with self._lock:
             self._conn.execute(
                 "INSERT INTO zone_scene (id, camera_id, started_at, peak_people, "
-                "clip_state) VALUES (?, ?, ?, 1, 'none')",
-                (scene_id, camera_id, _iso(started_at)),
+                "clip_state, zone_id, alerted) VALUES (?, ?, ?, 1, 'none', ?, ?)",
+                (scene_id, camera_id, _iso(started_at), zone_id, alerts),
             )
             self._conn.commit()
+        if alert_now:
+            self._hand_over(scene_id, camera_id, started_at, continues, zone_id)
+        return scene_id
+
+    def alert(self, scene_id: str) -> bool:
+        """The visit has lasted long enough: raise its alert, once.
+
+        Marks the entry `alerted` and runs the same hook `open` would have, as
+        a new incident. Returns False, doing nothing, when the scene is
+        unknown or was already alerted, so a worker may call it on every frame
+        without sending twice.
+        """
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT camera_id, started_at, zone_id FROM zone_scene "
+                "WHERE id = ? AND alerted = 0", (scene_id,)).fetchone()
+            if row is None:
+                return False
+            self._conn.execute(
+                "UPDATE zone_scene SET alerted = 1 WHERE id = ?", (scene_id,))
+            self._conn.commit()
+        self._hand_over(scene_id, row["camera_id"], _parse(row["started_at"]),
+                        False, row["zone_id"] or row["camera_id"])
+        return True
+
+    def _hand_over(self, scene_id: str, camera_id: str, started_at: datetime,
+                   continues: bool, zone_id: str) -> None:
         # After the commit: the row is the event, and a failing hook costs a
         # message, never the record that somebody was there.
-        if self.on_open is not None:
-            try:
-                self.on_open(scene_id, camera_id, started_at, continues)
-            except Exception:
-                log.exception("zone scene %s: the alert hook failed", scene_id[:8])
-        return scene_id
+        if self.on_open is None:
+            return
+        try:
+            self.on_open(scene_id, camera_id, started_at, continues, zone_id)
+        except Exception:
+            log.exception("zone scene %s: the alert hook failed", scene_id[:8])
 
     def note_people(self, scene_id: str, count: int) -> None:
         """Raise the peak if this frame was busier. Never lowers it."""
@@ -282,13 +353,14 @@ class SceneStore:
         since_days: int,
         camera_id: str | None = None,
         include_replaced: bool = True,
+        zone_id: str | None = None,
     ) -> list[Scene]:
         """Scenes that started within the window, newest first.
 
         `include_replaced=False` leaves out the ones whose clip a newer scene
-        has already pushed out. That is what the console's log asks for — an
-        entry with nothing to watch is clutter on a page whose job is to show
-        what was recorded.
+        has already pushed out. The console's log no longer asks for that
+        (spec 025: the log is complete and says "No clip kept"), but the filter
+        stays for anyone who wants only what can be watched.
 
         It is a filter and never a delete: the default returns everything, so
         the rows are still here to be read, counted and audited. Losing the
@@ -300,6 +372,9 @@ class SceneStore:
         if camera_id:
             query += " AND camera_id = ?"
             params.append(camera_id)
+        if zone_id:
+            query += " AND zone_id = ?"
+            params.append(zone_id)
         if not include_replaced:
             query += " AND clip_state != 'replaced'"
         query += " ORDER BY started_at DESC"
@@ -325,6 +400,24 @@ class SceneStore:
                 (_iso(since),),
             ).fetchall()
         return {row["camera_id"]: int(row["n"]) for row in rows}
+
+    def counts_since_by_zone(self, since: datetime) -> dict[str, int]:
+        """Scenes per area since an instant. Areas with none are absent."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT zone_id, COUNT(*) AS n FROM zone_scene "
+                "WHERE started_at >= ? GROUP BY zone_id",
+                (_iso(since),),
+            ).fetchall()
+        return {row["zone_id"]: int(row["n"]) for row in rows}
+
+    def camera_ids(self) -> list[str]:
+        """Every camera that has ever had a scene: the import reads this."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT DISTINCT camera_id FROM zone_scene ORDER BY camera_id"
+            ).fetchall()
+        return [row["camera_id"] for row in rows]
 
     def close_db(self) -> None:
         with self._lock:
@@ -370,4 +463,6 @@ def _to_scene(row: sqlite3.Row) -> Scene:
         clip_state=row["clip_state"],
         clip_reason=row["clip_reason"],
         end_reason=row["end_reason"],
+        zone_id=row["zone_id"] or row["camera_id"],
+        alerted=bool(row["alerted"]),
     )
