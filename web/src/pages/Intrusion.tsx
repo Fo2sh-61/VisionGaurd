@@ -235,7 +235,8 @@ export function Intrusion() {
             <Card key={zone.id} tight>
               <button type="button" className="list-row" aria-pressed={selectedId === zone.id}
                 onClick={() => setSelectedId(selectedId === zone.id ? null : zone.id)}
-                style={{ textAlign: 'start', width: '100%' }}>
+                style={{ textAlign: 'start', width: '100%',
+                  display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}>
                 {camera ? (
                   <AreaPicture camera={camera} polygon={zone.polygon} tone={tone} />
                 ) : (

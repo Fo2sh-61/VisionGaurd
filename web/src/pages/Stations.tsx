@@ -276,6 +276,7 @@ export function Stations() {
                 aria-pressed={selectedId === s.id}
                 onClick={() => { setSelectedId(selectedId === s.id ? null : s.id); setDay(''); }}
                 style={{ textAlign: 'start', width: '100%',
+                  display: 'flex', flexDirection: 'column', alignItems: 'stretch',
                   ...(s.id === linked.id ? LINKED_STYLE : null) }}
               >
                 {camera ? (

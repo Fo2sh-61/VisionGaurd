@@ -36,6 +36,15 @@ Not merged into Fo2sh yet. On that branch:
 - **Jetson**: `launch.sh` + `tools/install-shortcut.sh` written; engine serves `web/dist` when `VG_CONSOLE_DIR` is set; clips use ffmpeg/x264 on Linux. **Not run on a Jetson**: the SSH Jetson is a test bench only, so these wait for the new board.
 - Tests: 2050 passed, 14 skipped (was 1940).
 
+## Console v2 pages: people, car plates, zones and stations (10 Nov 2026) - branch `console-v2-jetson`
+
+Specs 023, 024 and 025, built on 022 and merged here. Not merged into Fo2sh yet.
+- **People (023)**: Attendance shows any past day as it was recorded (who was enrolled then, that day's hours); a day with no data says so. New status **Excused** (admin only, audited first). Detail panel with a seven-working-day strip; groups show a 30-day figure with the days it rests on, or "no data", and today counts only after the cut-off. People has real counts and a true removal sentence. Enrol gives each rejected photo a reason in the page's language, guards leaving with unsaved photos, and the save is audited. Unrecognised faces are amber. History now agrees with Attendance on excused days and days before enrolment. An enrolment session now really expires after its time.
+- **Car plates (024)**: the gate page has Live, Movements and Registered vehicles tabs. Tiles filter today's table; a detail panel shows the reader's figures; Fix keeps the original reading and sends no message for a car still in view. New **Gone** closes a visit by hand (admin and IT, audited, logged only when it changes something). The alert is dismissed only after the register save succeeds. A plate reader failing frame after frame now says so instead of "running"; plates always run as `.pt` at full precision.
+- **Zones and stations (025)**: a zone is now a polygon drawn on a camera, and only feet inside count; old whole-camera zones were imported once. Alert after N seconds, pause, watched hours, delete. New **Work stations** page: a drawn area that must stay staffed, On / Away / Absent, one alert per absence, acknowledge (admin and IT), optional assigned person checked by face on each frame with nothing remembered. The phone shows a plain "on the console" page for stations. The shared face detector is now locked, so stations and recognition cannot corrupt each other's boxes. Zone and station pictures show only their drawn shape (the old one-zone rectangle no longer shows through).
+- **Not checked yet**: nothing was looked at by eye on a running engine or on the recorded clip (zone scenes SC-404, station timings SC-502, the 80 px face floor); every Jetson item waits for the new board. The new Arabic strings are unreviewed drafts.
+- Tests: 2465 passed, 15 skipped on Linux (was 2050 passed, 14 skipped on Windows). The one Linux failure, `test_recording.py` mp4v fallback, fails before these changes too: it is written for Windows and this Linux box has ffmpeg.
+
 ## P0 progress
 
 **All ten done.** Each shipped with its regression test.

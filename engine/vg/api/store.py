@@ -590,14 +590,14 @@ class MockStore:
                         S.Point(x=x1, y=y1), S.Point(x=x0, y=y1)]
             self._stations_demo = [
                 S.Station(
-                    id="demo-reception", name="Reception", camera_id="i-lobby",
-                    camera_name="Lobby", polygon=box(0.2, 0.4, 0.6, 0.9),
+                    id="demo-desk", name="Server room desk", camera_id="i-server",
+                    camera_name="Server room - door", polygon=box(0.2, 0.4, 0.6, 0.9),
                     watched=S.WatchedHours(mode="working"), limit_minutes=5,
                     state="on", work_seconds=5400.0, absent_seconds=600.0,
                     rate=0.9),
                 S.Station(
-                    id="demo-lab", name="Lab bench 2", camera_id="i-lab",
-                    camera_name="Lab", polygon=box(0.3, 0.45, 0.7, 0.95),
+                    id="demo-lab", name="Lab bench 2", camera_id="i-chem",
+                    camera_name="Chemistry lab - door", polygon=box(0.3, 0.45, 0.7, 0.95),
                     watched=S.WatchedHours(mode="working"), limit_minutes=10,
                     state="absent", work_seconds=1800.0, absent_seconds=2400.0,
                     rate=0.43,

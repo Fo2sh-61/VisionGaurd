@@ -1,5 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { CameraFrame } from '@/components/CameraFrame';
+import { withoutZone } from '@/components/AreaPicture';
 import { Card, Field, Select } from '@/components/ui';
 import { useT } from '@/app/LanguageContext';
 import type { PictureRect } from '@/services/frame';
@@ -187,7 +188,7 @@ export function AreaEditor({
 
       {camera && hasPicture ? (
         <div style={{ position: 'relative' }} dir="ltr">
-          <CameraFrame camera={camera} size="lg" live detections={false} badge={null}
+          <CameraFrame camera={withoutZone(camera)} size="lg" live detections={false} badge={null}
             onPicture={setRect} />
           {rect && (
             <div

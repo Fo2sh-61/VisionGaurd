@@ -23,6 +23,15 @@ const STROKE: Record<Tone, string> = {
  *  inside the PICTURE rectangle `CameraFrame` reports, not inside the tile:
  *  the two are rarely the same shape and reading one as the other is what once
  *  put boxes beside people. */
+/** The camera without its old one-zone overlay. `CameraFrame` draws
+ *  `camera.zone` (the pre-025 rectangle) even with `detections={false}`; on a
+ *  zone or station picture that is a second, possibly stale shape, and on a
+ *  station it is another feature's overlay (rule 3). The drawn polygon is the
+ *  only shape these pictures show. */
+export function withoutZone(camera: Camera): Camera {
+  return { ...camera, zone: undefined };
+}
+
 export function AreaPicture({
   camera,
   polygon,
@@ -39,7 +48,7 @@ export function AreaPicture({
   return (
     <div style={{ position: 'relative' }} dir="ltr">
       <CameraFrame
-        camera={camera}
+        camera={withoutZone(camera)}
         size={size}
         detections={false}
         badge={null}
