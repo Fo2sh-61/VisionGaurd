@@ -90,11 +90,10 @@ function Tile({ label, value, note, tone, selected, onClick }: {
 }
 
 export function VehicleLive({
-  isAdmin, summary, summaryError, onRegister, onInside,
+  isAdmin, summary, onRegister, onInside,
 }: {
   isAdmin: boolean;
   summary: W.GateSummary | null;
-  summaryError: string | null;
   onRegister: (prefill: RegisterPrefill) => void;
   /** Inside now is a list of visits, which lives on the Movements tab. */
   onInside: () => void;
@@ -135,12 +134,6 @@ export function VehicleLive({
           renew: alert.kind === 'expired',
         })}
       />
-
-      {/* A request that threw must not leave six dashes on screen: a
-          dash means "the engine declined to claim a number", and a failed
-          fetch means "we do not know whether it would have". Those read
-          identically and are not the same thing. */}
-      {summaryError && <LoadError error={summaryError} />}
 
       <div style={{
         display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))',

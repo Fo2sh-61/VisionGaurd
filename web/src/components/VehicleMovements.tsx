@@ -27,15 +27,14 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useLanguage, useT } from '@/app/LanguageContext';
+import { useToast } from '@/app/ToastContext';
 import { Plate } from '@/components/Plate';
-import { VehiclePassesCard } from '@/components/VehiclePasses';
 import { Badge, Card, CardHeader, Empty, LoadError } from '@/components/ui';
 import {
-  deleteVehiclePass, exportVehiclePasses, getVehicleGates,
-  getVehicleTraffic, getVehicleVisits,
-  getVehiclesInside, vehiclePassSnapshotUrl,
+  exportVehiclePasses, getVehicleGates, getVehicleTraffic, getVehicleVisits,
+  getVehiclesInside, markVehicleGone, vehiclePassSnapshotUrl,
 } from '@/services/api';
-import { formatDuration, formatTime } from '@/services/format';
+import { foldDigits, formatDuration, formatTime } from '@/services/format';
 import type * as W from '@/services/wire';
 import { useAsync } from '@/app/useAsync';
 
@@ -161,29 +160,33 @@ function TrafficChart({ hours }: { hours: W.TrafficHour[] }) {
   );
 }
 
-function VisitRow({ visit, showLeft, isAdmin, onRemoved }: {
+function VisitRow({ visit, showLeft, onGone }: {
   visit: W.VehicleVisit;
   showLeft: boolean;
-  /** Only on "inside now", and only for an administrator: with no exit
-   *  camera nobody is ever seen leaving, so clearing a car that has gone is
-   *  a manual job until a second camera exists. Removing the entry pass is
-   *  what takes it off this list — the same permanent, audited delete as
-   *  anywhere else. */
-  isAdmin?: boolean;
-  onRemoved?: () => void;
+  /** Only on "inside now". With no exit camera nobody is ever seen leaving,
+   *  so saying a car has gone is a manual job. Gone closes the visit as
+   *  "ended by hand" and deletes nothing: the passes and photos stay. Open
+   *  to a guard as well as an administrator (the server allows it). */
+  onGone?: () => void;
 }) {
   const { language } = useLanguage();
   const t = useT();
-  const [removing, setRemoving] = useState(false);
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
 
-  async function remove() {
+  async function gone() {
     if (!visit.entryPassId) return;
-    setRemoving(true);
+    setBusy(true);
     try {
-      await deleteVehiclePass(visit.entryPassId);
-      onRemoved?.();
+      // `changed: false` means somebody already closed it: not an error.
+      await markVehicleGone(visit.entryPassId);
+      toast.show(t('moves.goneToast'));
+      onGone?.();
+    } catch (err) {
+      toast.show(err instanceof Error && err.message
+        ? err.message : t('moves.goneFailed'));
     } finally {
-      setRemoving(false);
+      setBusy(false);
     }
   }
 
@@ -222,7 +225,9 @@ function VisitRow({ visit, showLeft, isAdmin, onRemoved }: {
         <span style={{ fontSize: 13, color: 'var(--tx2)' }}>
           out at {formatTime(visit.leftAt, language)}
           <span style={{ display: 'block', fontSize: 12, color: 'var(--tx3)' }}>
-            {visit.exitGate === null ? 'gate not observed' : `gate ${visit.exitGate}`}
+            {visit.endedBy
+              ? t('moves.endedByHandBy', { name: visit.endedBy })
+              : visit.exitGate === null ? 'gate not observed' : `gate ${visit.exitGate}`}
           </span>
         </span>
       )}
@@ -235,19 +240,23 @@ function VisitRow({ visit, showLeft, isAdmin, onRemoved }: {
         {visit.inferred && (
           <Badge tone="warn">{t('moves.exitEstimated')}</Badge>
         )}
+        {/* A third, separate closing: a person said so. Never the same
+            label as an estimate, which is the engine's own guess. */}
+        {visit.endedBy && (
+          <Badge tone="neutral">{t('moves.endedByHand')}</Badge>
+        )}
         <span style={{ fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap' }}>
           {length(visit.minutes)}
         </span>
-        {isAdmin && onRemoved && visit.entryPassId && (
+        {onGone && visit.entryPassId && (
           <button
             type="button"
             className="linkbtn"
-            disabled={removing}
-            onClick={() => { void remove(); }}
-            title={t('moves.goneTitle')}
-            style={{ color: 'var(--rd)' }}
+            disabled={busy}
+            onClick={() => { void gone(); }}
+            title={t('moves.goneMarkTitle')}
           >
-            {t(removing ? 'passes.removing' : 'moves.gone')}
+            {t(busy ? 'passes.removing' : 'moves.gone')}
           </button>
         )}
       </span>
@@ -291,12 +300,20 @@ export function VehicleMovementsTab({ isAdmin, summary }: {
   const matches = (visit: W.VehicleVisit) =>
     (!gate || String(visit.entryGate) === gate)
     && (!needle
-      || visit.plateDisplay.includes(query.trim())
+      // Both sides folded, so `1234` finds a plate drawn `١٢٣٤` and back.
+      || foldDigits(visit.plateDisplay).includes(foldDigits(query.trim()))
+      || foldDigits(visit.plate).includes(foldDigits(query.trim()))
       || (visit.owner ?? '').toLowerCase().includes(needle));
 
   const insideShown = inside.filter(matches);
   const visitsShown = visits.filter(matches);
   const filtering = Boolean(needle || gate);
+
+  // Three different closings, counted apart: seen leaving, the car came in
+  // again (an estimate), and somebody pressed Gone.
+  const byHand = visitsShown.filter((v) => v.endedBy).length;
+  const estimated = visitsShown.filter((v) => !v.endedBy && v.inferred).length;
+  const seen = visitsShown.length - byHand - estimated;
 
   // **One unpairable gate makes the total unknowable, not smaller.** Summing
   // the gates that can be paired and printing that as "all gates" would be a
@@ -317,6 +334,7 @@ export function VehicleMovementsTab({ isAdmin, summary }: {
     try {
       await exportVehiclePasses({
         day, gate: gate ? Number(gate) : undefined,
+        q: query.trim() || undefined,
       });
     } catch (err) {
       setProblem(err instanceof Error ? err.message : t('moves.exportFailed'));
@@ -345,7 +363,7 @@ export function VehicleMovementsTab({ isAdmin, summary }: {
             display: 'flex', flexDirection: 'column', gap: 6, flex: 1, minWidth: 190,
           }}>
             <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--tx2)' }}>
-              Plate or owner
+              {t('moves.search')}
             </span>
             <input
               value={query}
@@ -386,6 +404,12 @@ export function VehicleMovementsTab({ isAdmin, summary }: {
           )}
         </div>
 
+        {!isAdmin && (
+          <div style={{ fontSize: 12.5, color: 'var(--tx3)', marginTop: 10 }}>
+            {t('gate.adminOnlyNote')}
+          </div>
+        )}
+
         {problem && (
           <div style={{ fontSize: 13, color: 'var(--rd)', marginTop: 10 }}>
             {problem}
@@ -405,11 +429,6 @@ export function VehicleMovementsTab({ isAdmin, summary }: {
               : t('moves.everythingIsToday')}
         </div>
       </Card>
-
-      {/* First, because on a gate with one camera this is the ONLY place a
-          recorded car appears: everything below needs an exit camera to pair
-          against and correctly refuses to guess without one. */}
-      <VehiclePassesCard isAdmin={isAdmin} day={day} />
 
       <Card>
         <CardHeader
@@ -510,7 +529,7 @@ export function VehicleMovementsTab({ isAdmin, summary }: {
       <Card>
         <CardHeader
           title={t('moves.insideNow')}
-          sub={t('moves.insideNowNote')}
+          sub={t('moves.insideRightNow')}
         />
 
         {insideError && <LoadError error={insideError} />}
@@ -531,12 +550,10 @@ export function VehicleMovementsTab({ isAdmin, summary }: {
             padding: '10px 12px', borderRadius: 10,
             background: 'var(--am-bg)', marginBottom: 12,
           }}>
-            No exit camera is configured, so no car is ever seen leaving.
-            This is therefore every car that came in — an over-count, not a
-            count of what is on site. Adding a second camera with{' '}
-            <code>direction: exit</code> at this gate is what turns it into
-            an answer. Until then, remove a row by hand once you know the car
-            has gone.
+            {t('moves.noExitFigure')}{' '}
+            Adding a second camera with <code>direction: exit</code> at this
+            gate is what turns it into an answer. Until then, press Gone on a
+            row once you know the car has left.
           </div>
         )}
 
@@ -554,8 +571,7 @@ export function VehicleMovementsTab({ isAdmin, summary }: {
             key={`${visit.plate}-${visit.entered.utc}`}
             visit={visit}
             showLeft={false}
-            isAdmin={isAdmin}
-            onRemoved={reloadInside}
+            onGone={reloadInside}
           />
         ))}
       </Card>
@@ -565,6 +581,15 @@ export function VehicleMovementsTab({ isAdmin, summary }: {
           title={t('moves.completedVisits')}
           sub={t('moves.completedVisitsNote')}
         />
+
+        {visitsShown.length > 0 && (
+          <div style={{ fontSize: 13, color: 'var(--tx2)', marginBottom: 6 }}>
+            {t('moves.visitSplit', {
+              seen: String(seen), estimated: String(estimated),
+              byHand: String(byHand),
+            })}
+          </div>
+        )}
 
         {visitsShown.length === 0 && (
           <Empty>

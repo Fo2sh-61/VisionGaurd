@@ -480,6 +480,27 @@ const TRANSLIT: Record<string, string> = {
   '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9',
 };
 
+/** Arabic-Indic and extended Arabic-Indic digits to Western, so a search for
+ *  `1234` finds a plate drawn `١٢٣٤` and the other way round. Everything that
+ *  is not one of those digits is returned untouched. */
+export function foldDigits(text: string): string {
+  return text.replace(/[٠-٩۰-۹]/g, (ch) => {
+    const code = ch.charCodeAt(0);
+    return String(code >= 0x06F0 ? code - 0x06F0 : code - 0x0660);
+  });
+}
+
+/** A plate as the engine stores it: letters run together, a space, then the
+ *  number in Western digits ("ب ج د ١٢٣٤" -> "بجد 1234"). For recognising a
+ *  plate that is already on the register; the engine's own text stays the
+ *  authority, so prefer a plate it sent over one built here. */
+export function canonicalPlate(text: string): string {
+  const folded = foldDigits(text);
+  const digits = folded.replace(/[^0-9]/g, '');
+  const letters = folded.replace(/[0-9\s]/g, '');
+  return `${letters} ${digits}`.trim();
+}
+
 export function plateLatin(display: string): string {
   if (!display) return '';
   return [...display].map((ch) => TRANSLIT[ch] ?? ch).join('');
@@ -534,7 +555,9 @@ export function alertMessage(alert: WireGateAlert, lang: Language): string {
 /** The label on the button that clears an alert without acting on it. */
 export function alertDismissLabel(kind: WireGateAlert['kind']): string {
   if (kind === 'blacklist') return 'I have dealt with it';
-  if (kind === 'expired') return 'Leave it expired';
+  // Not "Leave it expired": that read as a choice to leave the permit lapsed,
+  // and the button is also what somebody presses after renewing it.
+  if (kind === 'expired') return 'I have dealt with it';
   return 'Just a one-off';
 }
 

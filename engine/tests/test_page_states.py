@@ -57,6 +57,7 @@ PER_FIGURE = {
 COMPONENTS = REPO / "web" / "src" / "components"
 LISTS_IN = {
     "Settings": "AlertSettings",   # recipients, rules, the delivery log (spec 013)
+    "VehicleGate": "VehicleLive",  # today's reads and the camera strip (spec 024)
 }
 
 

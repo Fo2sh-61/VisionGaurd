@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { VehicleLive } from '@/components/VehicleLive';
 import { VehicleMovementsTab } from '@/components/VehicleMovements';
 import { type RegisterPrefill, VehicleRegisterTab } from '@/components/VehicleRegister';
-import { DataNotice, PageHeader } from '@/components/ui';
+import { DataNotice, LoadError, PageHeader } from '@/components/ui';
 import { dismissVehicleAlert, getVehicleSummary } from '@/services/api';
 import { useAccount } from '@/app/AuthContext';
 import { useCapability } from '@/app/CapabilityContext';
@@ -71,6 +71,11 @@ export function VehicleGate() {
         lead={t('gate.lead')}
       />
 
+      {/* A summary request that threw must not leave dashes on screen: a
+          dash means "the engine declined to claim a number", and a failed
+          fetch means "we do not know whether it would have". */}
+      {summaryError && <LoadError error={summaryError} />}
+
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 18 }}>
         {TABS.map((key) => (
           <button
@@ -95,7 +100,6 @@ export function VehicleGate() {
         <VehicleLive
           isAdmin={isAdmin}
           summary={summary}
-          summaryError={summaryError}
           onRegister={register}
           onInside={() => setTab('movements')}
         />
