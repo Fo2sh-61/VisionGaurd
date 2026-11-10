@@ -124,13 +124,18 @@ unless a line below replaces it.
   still apply.
 - **P15-FR-004**: Choosing the query MUST stay behind the single seam of
   P12-FR-022. Nothing else in Ask changes when the chooser changes.
+- **P15-FR-027**: P12-FR-018 (read-only) is narrowed, not dropped. Ask MUST
+  never change any feature's data. It may write only its own: audit entries,
+  suggested and learned examples, and the clip files it fetches.
 
 ### Understanding the question, cheapest first
 
 - **P15-FR-005**: Ask MUST recognise, from word lists and before anything
   heavier runs: enrolled names and registered plates (existing), the site's
-  places and groups (from site data, so a new room or class is known without a
-  code change), date words, and video words.
+  places, groups, gates and cameras (from site data, so a new room or class is
+  known without a code change), date words, direction words (دخل / خرج, in /
+  out), colour words, and video and live words. The meaning model only picks
+  the query; every detail the query needs comes from these lists.
 - **P15-FR-006**: Date words MUST be understood in all four ways people write
   them: Egyptian Arabic (النهاردة, امبارح, الاسبوع ده), standard Arabic
   (اليوم, أمس, هذا الأسبوع), Arabic in Latin letters (ennaharda, embare7) and
@@ -142,8 +147,9 @@ unless a line below replaces it.
   training.
 - **P15-FR-008**: When the best match is below a confidence floor, or the top
   two are closer than a set margin, Ask MUST offer "did you mean A or B?"
-  buttons instead of answering. Both thresholds MUST be set from the test set
-  (SC-001), not chosen by hand, and MUST be changeable without a code change.
+  buttons instead of answering. Both thresholds MUST be set from the tuning
+  part of the test set (SC-001), not chosen by hand, and MUST be changeable
+  without a code change.
 - **P15-FR-009**: A question that matches nothing on the menu well enough MUST
   get the P12-FR-013 refusal, not a "did you mean".
 - **P15-FR-010**: Ask MUST do no work between questions: no background
@@ -166,7 +172,8 @@ unless a line below replaces it.
   administrator approves it. Operators can teach, but they cannot change Ask
   on their own.
 - **P15-FR-024**: Before a learned example is kept, Ask MUST check it against
-  the test set (SC-001). If it would send any test question that is correct
+  the tuning part of the test set (SC-001). If it would send any tuning
+  question that is correct
   today to the wrong query, it MUST be refused, naming the question it would
   break.
 - **P15-FR-025**: Administrators MUST see every learned example: the masked
@@ -196,8 +203,10 @@ unless a line below replaces it.
   the recorder is unreachable, the footage has expired, it was never recorded,
   it is not available yet, or the clip queue is full. It MUST NOT show a dead
   button or a spinner that never ends.
-- **P15-FR-019**: A clip MUST be shown only to an account allowed to see that
-  row and that camera, decided server-side by path as today.
+- **P15-FR-019**: A clip MUST be shown only to an account allowed to run the
+  query that produced the row, decided server-side as today. Ask MUST fetch
+  only a moment it offered itself; it is not a way to pull any camera at any
+  time.
 - **P15-FR-020**: A question asking to see a camera or place with no past
   time ("وريني كاميرا البوابة دلوقتي") MUST open that camera's live view, as
   the console already shows it. This is one new menu entry that reads no data
@@ -207,11 +216,11 @@ unless a line below replaces it.
 
 ### Honest about what is switched off
 
-- **P15-FR-021**: A query whose feature is switched off on this site (under
-  console v2, P14-FR-129: knife, lost bag, tracking) MUST answer "this feature
-  is switched off on this site". It MUST NOT answer "nothing found", MUST NOT
-  be routed to a neighbouring query, and MUST still appear in what Ask says it
-  can answer about, marked as switched off.
+- **P15-FR-021**: A query whose feature no camera on this site runs MUST
+  answer "this feature is switched off on this site". It MUST NOT answer
+  "nothing found" and MUST NOT be routed to a neighbouring query. Knife
+  detection is the exception: under console v2 (P14-FR-129) it has no Ask
+  answer at all, so a knife question gets the plain P12-FR-013 refusal.
 
 ## Success Criteria *(mandatory)*
 
@@ -219,7 +228,10 @@ unless a line below replaces it.
   written or corrected by Mohamed, Ask picks the right query with the right
   details for at least 95% of them, overall **and** for Egyptian Arabic on its
   own. A "did you mean" whose two buttons include the right query counts as
-  not wrong but is reported separately. Measured with the existing corpus tool.
+  not wrong but is reported separately. The set is split once, before any
+  tuning: the **tuning part** sets the thresholds and guards learning, and the
+  **scoring part** (at least 120 questions) is used for this score and nothing
+  else, so 95% is not a number the tuning has already seen.
 - **SC-002**: On the same set, no more than 2% of questions get a confident
   answer to the wrong query, meaning no "did you mean" was shown and the
   answer is wrong. Out-of-scope questions are refused at least 90% of the time.
@@ -312,4 +324,7 @@ unless a line below replaces it.
   No new role.
 - **The test set is new and separate** from spec 010's 37 questions. Those 37
   stay in it.
-- **Ask stays marked "not ready"** in System Health until SC-001 is met.
+- **System Health shows Ask's last measured accuracy** and its date, or
+  "not measured on this site yet". It does not claim a figure nobody measured.
+- **"No camera runs it" is what "switched off" means.** The engine already
+  decides this per feature from the camera list. There is no separate switch.
