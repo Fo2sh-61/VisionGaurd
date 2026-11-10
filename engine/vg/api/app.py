@@ -848,6 +848,9 @@ def _start_recognition(cfg, registry, roster=None, face=None, tracking=None,
             shared=detector,
             gated=[c.id for c in all_cameras
                    if c.id in cameras and c.gates_faces],
+            # Cameras that run the face models only while something moves.
+            wake=[c.id for c in all_cameras
+                  if c.id in cameras and c.face_wake == "motion"],
         )
         recogniser.start()
         log.info(
@@ -1506,6 +1509,8 @@ def _start_vehicles(cfg, registry, roster):
             on_pass=record, on_final=final, rate_hz=rate, boost_hz=12.0,
             dedupe_seconds=cfg.vehicles.dedupe_seconds,
             near_dedupe_seconds=cfg.vehicles.near_dedupe_seconds,
+            # Gates that read plates only while something moves.
+            wake=[c.id for c in gates if c.plate_wake == "motion"],
         )
         worker.start()
         log.info(

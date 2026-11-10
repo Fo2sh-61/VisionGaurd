@@ -54,6 +54,16 @@ def _total(bench, share, decode_hz):
 
 
 class TestCaptureArithmetic:
+    @pytest.fixture(autouse=True)
+    def the_12_sep_figures(self, bench, monkeypatch):
+        """These tests replay the 30 Aug / 12 Sep arithmetic, so they pin the
+        figures it ran on. The defaults moved to a real NVR on 5 Nov 2026."""
+        monkeypatch.setitem(bench.ASSUMED_MS, "decode", 6.0)
+        monkeypatch.setitem(bench.ASSUMED_MS, "faces", 44.0)
+        monkeypatch.setitem(bench.ASSUMED_MS, "patrol", 44.0)
+        monkeypatch.setitem(bench.ASSUMED_MS, "plates", 12.0)
+        monkeypatch.setattr(bench, "CAMERA_FPS", 25.0)
+
     def test_the_published_after_figure_needed_retrieve_to_be_the_whole_decode(self, bench):
         # 9.17 is exactly what you get if retrieve() were 100% of a frame's
         # cost - the assumption this test file exists to retire.

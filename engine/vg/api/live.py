@@ -785,6 +785,8 @@ class LiveStore(MockStore):
             "direction": current.direction,
             "face_gate": current.face_gate,
             "live_capture": current.live_capture,
+            "face_wake": current.face_wake,
+            "plate_wake": current.plate_wake,
             "neighbours": list(current.neighbours),
             **changes,
         }
@@ -798,7 +800,8 @@ class LiveStore(MockStore):
             features=config.features, rotate=config.rotate,
             enabled=config.enabled, faces=config.faces, gate=config.gate,
             direction=config.direction, face_gate=config.face_gate,
-            live_capture=config.live_capture, neighbours=config.neighbours,
+            live_capture=config.live_capture, face_wake=config.face_wake,
+            plate_wake=config.plate_wake, neighbours=config.neighbours,
         )
 
         # Only when the STREAM changed. Reopening an RTSP connection to add a
@@ -3633,10 +3636,18 @@ class LiveStore(MockStore):
             )
 
         cameras = len(self.recogniser.cameras) if self.recogniser else 0
+        detail = (f"{enrolled} enrolled, {self.gallery.embedding_count} faces, "
+                  f"running on {cameras} camera(s)")
+        # Not a fault: checks skipped on purpose because the picture was still
+        # (`face_wake: motion`). Shown so the saving can be checked.
+        waking = len(getattr(self.recogniser, "wake", ()))
+        if waking:
+            detail += (f" - {waking} wake on motion, "
+                       f"{getattr(self.recogniser, 'frames_still', 0)} checks "
+                       f"skipped while nothing moved")
         return S.PipelineStage(
             key="recognition", name="Face recognition",
-            detail=f"{enrolled} enrolled, {self.gallery.embedding_count} faces, "
-                   f"running on {cameras} camera(s)",
+            detail=detail,
             healthy=True, severity=S.Severity.INFO, restartable=False,
         )
 
@@ -3711,10 +3722,18 @@ class LiveStore(MockStore):
         if stopped is not None:
             return stopped
         reader = getattr(self.vehicles_worker, "reader", None)
+        detail = (f"{self._running_on(reader)} - {stats['cameras']} camera(s), "
+                  f"{stats['last_inference_ms']}ms last inference")
+        # Not a fault: reads skipped on purpose because the gate was still
+        # (`plate_wake: motion`). Shown so the saving can be checked.
+        waking = len(getattr(self.vehicles_worker, "wake", ()))
+        if waking:
+            detail += (f" - {waking} wake on motion, "
+                       f"{getattr(self.vehicles_worker, 'frames_still', 0)} reads "
+                       f"skipped while nothing moved")
         return S.PipelineStage(
             key="vehicles", name="Plate reading",
-            detail=f"{self._running_on(reader)} - {stats['cameras']} camera(s), "
-                   f"{stats['last_inference_ms']}ms last inference",
+            detail=detail,
             healthy=True, severity=S.Severity.INFO, restartable=False,
         )
 

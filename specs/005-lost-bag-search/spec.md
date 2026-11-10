@@ -2,7 +2,7 @@
 
 **Feature Branch**: `005-lost-bag-search`
 **Created**: 2026-08-23
-**Status**: Draft
+**Status**: Built (every task done), then parked on 10 November 2026 — not part of console v2, may return in later work.
 **Input**: User description: "now I will start finishing the lost bag page. it will not track bags in the organization. but instead when user lost a bag he will run the system to find lost bag in a desired area or multi areas as desired like check boxes he will check to search in them. make it simple and easy ux and easy to be implemented"
 
 ## Why this feature

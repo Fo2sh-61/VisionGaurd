@@ -77,22 +77,32 @@ DEFAULT_MIX = "person=1.0@2,faces=0.15@5,plates=0.05@5"
 #: were not measured by THIS run, and a projection that presented them as if
 #: they were would be the confident fiction Principle III forbids.
 ASSUMED_MS = {
-    "faces": 44.0,
+    # Processor time for one pass of YuNet plus SFace with a face in view,
+    # one OpenCV thread: 63 ms on the labelled clip (i7-9750H, 4 Nov 2026).
+    # With nobody in view it is cheaper - 18 ms on the real NVR sub-stream -
+    # so this is the busy-entrance figure. It was 44 ms, a wall-clock time
+    # that hid how much processor the default thread pool burned.
+    "faces": 63.0,
     # The patrol tier is the SAME pipeline - YuNet plus SFace - just run
     # slower and on the other cameras. Same cost per frame; the saving was
     # always in the rate and the camera count, never in the model.
-    "patrol": 44.0,
-    "plates": 12.0,
+    "patrol": 63.0,
+    # One plate pass with no car, the .pt at FP32: 18.4-19.5 ms on frames
+    # from the real NVR, 18.9 ms on the clip (RTX 2080 Max-Q, 4-5 Nov 2026).
+    # A car adds the character pass, 18.2 ms, for as long as it is there.
+    "plates": 19.0,
     # One camera frame taken all the way to pixels: `grab()` plus
-    # `retrieve()`. How that splits between the two IS measured - by
-    # `_decode_split`, on the clip. The 6 ms total is not: nothing in the
-    # repository records where it came from. It stays, labelled as assumed,
-    # until a recording from a real site camera is timed with `--clip`.
-    "decode": 6.0,
+    # `retrieve()`, on a real site camera: a Hikvision NVR's sub-stream,
+    # H.265 640x360, timed with `--clip` on 5 Nov 2026 - 1.18 ms with the
+    # engine's 12 decoder threads. The main stream (2560x1440) costs 27 ms,
+    # which is why cameras are added on their sub-stream. It was 6 ms, a
+    # figure nothing in the repository could trace.
+    "decode": 1.2,
 }
 
-#: Frames per second a camera actually delivers, for the capture rows.
-CAMERA_FPS = 25.0
+#: Frames per second a camera actually delivers, for the capture rows. The
+#: real NVR measured on 5 Nov 2026 sends 20 on both of its streams.
+CAMERA_FPS = 20.0
 
 #: Passes over the clip for each column of the decode split. The two columns
 #: are timed alternately, so a laptop that warms up or throttles part-way

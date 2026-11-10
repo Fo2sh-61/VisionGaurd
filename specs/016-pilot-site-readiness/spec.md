@@ -2,7 +2,7 @@
 
 **Feature Branch**: `Fo2sh` (spec directory `016-pilot-site-readiness`)
 **Created**: 17 Sep 2026
-**Status**: Draft
+**Status**: Closed on 10 November 2026 — written for a school pilot (school profile, term dates). The audit part moved to `specs/018-persistent-audit`; the rest is picked up by the console v2 specs as a site profile with a working calendar.
 **Input**: User description: "Get VisionGuard ready to be installed and left running at an
 organization's site for a real pilot — records survive and can be managed, it installs and
 runs by itself, the buttons a client will click work, and someone who isn't the developer

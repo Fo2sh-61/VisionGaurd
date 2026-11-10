@@ -19,13 +19,13 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
-
 import numpy as np
 
 from vg.config import AnchorGates
 from vg.events.anchors import AnchorAccumulator, FaceMatch
 from vg.events.sightings import Sighting, SightingStore
 from vg.features.base import FeatureWorker
+from vg.features.wake import MotionWake
 from vg.identity.gallery import FaceGallery, Person
 from vg.infer.faces import FacePipeline
 from vg.ingest.source import Frame
@@ -84,7 +84,6 @@ class FacesResult:
 #: these cameras see people at.
 CROP_PAD = 0.12
 
-
 def person_crops(
     image: np.ndarray,
     boxes: Sequence[tuple[float, float, float, float]],
@@ -141,6 +140,7 @@ class RecognitionWorker(FeatureWorker[FacesResult]):
         name: str = "recognition",
         shared=None,
         gated: Sequence[str] = (),
+        wake: Sequence[str] = (),
     ) -> None:
         super().__init__(name, bus, cameras or [], rate_hz, boost_hz)
         self.gallery = gallery
@@ -192,6 +192,15 @@ class RecognitionWorker(FeatureWorker[FacesResult]):
         # The saving, counted rather than assumed.
         self.frames_skipped = 0
 
+        # When to look, per camera: cameras listed here (`face_wake: motion`)
+        # run the face models only while something moves or a face is in
+        # view. Off unless asked for - see CameraConfig.face_wake.
+        self.wake = frozenset(wake)
+        self._wake = MotionWake()
+        # Checks skipped because nothing moved. Shown on System Health so the
+        # saving can be checked rather than believed.
+        self.frames_still = 0
+
     def _look(self, frame: Frame):
         """Where this frame's faces are looked for.
 
@@ -227,8 +236,23 @@ class RecognitionWorker(FeatureWorker[FacesResult]):
                 seen.append(replace(observation, face=observation.face.offset(ox, oy)))
         return seen
 
+    def _asleep(self, frame: Frame) -> bool:
+        """True when this camera wakes on motion and nothing calls for a look.
+
+        Somebody watching the camera always gets a look: their boxes must not
+        freeze because the scene is still.
+        """
+        if frame.camera_id not in self.wake or self.boosted(frame.camera_id):
+            return False
+        return not self._wake.should_look(frame.camera_id, frame.image,
+                                          frame.captured_at)
+
     def analyse(self, frame: Frame) -> FacesResult:
         faces: list[RecognisedFace] = []
+
+        if self._asleep(frame):
+            self.frames_still += 1
+            return FacesResult(faces=())
 
         for observation in self._look(frame):
             match = self.gallery.match(observation.embedding, observation.model)
@@ -246,9 +270,20 @@ class RecognitionWorker(FeatureWorker[FacesResult]):
                 self._record(match.person, frame, match.score, match.runner_up)
                 self._weigh(frame, observation, match, (fx, fy, fw, fh))
 
+        if faces and frame.camera_id in self.wake:
+            # A face in view keeps the camera awake even if it stands still,
+            # so a person is looked at until they can be named.
+            self._wake.keep_awake(frame.camera_id, frame.captured_at)
+
         self.faces_seen += len(faces)
         self.identifications += sum(1 for f in faces if f.identified)
         return FacesResult(faces=tuple(faces))
+
+    def _closing(self, camera_id: str) -> None:
+        """This camera is leaving the worker: forget its last picture, so a
+        camera added back is not compared against a scene from before."""
+        self._wake.forget(camera_id)
+        super()._closing(camera_id)
 
     def _weigh(self, frame: Frame, observation, match, face_box) -> None:
         """Add this match to the evidence, and act only if it is now enough.
